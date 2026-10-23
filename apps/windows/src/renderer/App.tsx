@@ -12,12 +12,7 @@ import { WorkspaceWizard } from './components/WorkspaceWizard'
 import { GlobalModals } from './components/GlobalModals'
 import { MainLayout } from './components/layout/MainLayout/MainLayout'
 import { SettingsHubModal, useSettingsHub, isHubView } from './components/SettingsHub'
-import {
-  ScreenRecordProvider,
-  ScreenRecordRoot,
-  ScreenRecordTitleControl,
-} from './components/ScreenRecord'
-import { PetModeTitleControl } from './components/PetModeTitleControl'
+import { SlotHost } from './components/slots/SlotHost'
 import type { GotoInput } from '@main/app-ui-control/types'
 import { setFocusPermissionRequestId, setPendingPetHandoff } from './hooks/business/useAgentRuntime/agent-runtime-store'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
@@ -284,19 +279,15 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
   )
 
   return (
-    <ScreenRecordProvider>
-      <MainLayout
+    <MainLayout
         activeView={activeView}
         onViewChange={handleViewChange}
         settingsHubOpen={hubOpen}
         isConnected={isConnected}
         themeToggle={themeToggleBtn}
         extraActions={
-          <>
-            <ScreenRecordTitleControl />
-            {/* 宠物模式开关：与录屏并排，状态常驻可见（原先只在设置页/托盘/快捷键里） */}
-            <PetModeTitleControl />
-          </>
+          // 顶栏常驻控件由插件注册（录屏 / 宠物模式）；插件停用后条目注销、按钮消失
+          <SlotHost name="app.titlebar.actions" />
         }
         defaultSidebarCollapsed={false}
         version={appVersion ? `v${appVersion}` : undefined}
@@ -306,9 +297,9 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
         <PluginRuntime />
         <Router activeView={activeView} onViewChange={handleViewChange} />
         <SettingsHubModal onViewChange={handleViewChange} />
-        <ScreenRecordRoot />
+        {/* 全局浮层（录屏面板/确认弹窗、划词层…）同样由插件注册 */}
+        <SlotHost name="app.overlay" />
       </MainLayout>
-    </ScreenRecordProvider>
   )
 }
 

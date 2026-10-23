@@ -7,7 +7,6 @@
 
 import React, { useEffect, useRef } from 'react'
 import { useToast } from './ui/Toast/useToast'
-import { SelectionLayer } from '../selection/SelectionLayer'
 
 /**
  * 全局弹窗管理组件
@@ -28,10 +27,6 @@ export const GlobalModals: React.FC = () => {
     return () => window.removeEventListener('mtbot:agent-error', handleAgentError)
   }, [])
 
-  return (
-    <>
-      {/* 划词浮条：全局单例，挂在最外层以免被子页面的层叠上下文裁掉 */}
-      <SelectionLayer />
-    </>
-  )
+  // 划词浮条由 selection 插件注册到 `app.overlay`（停用后条目注销）
+  return null
 }

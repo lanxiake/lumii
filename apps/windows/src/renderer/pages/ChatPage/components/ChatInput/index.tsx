@@ -23,7 +23,7 @@ import type { ViewType } from '../../../../components/Router'
 import {
   registerQuoteSink,
   type QuoteInput,
-} from '../../../../selection/quote-bridge'
+} from '../../../../services/quote-bridge'
 import { RichComposer, type RichComposerHandle } from './RichComposer'
 
 interface ChatInputProps {

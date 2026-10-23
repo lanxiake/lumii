@@ -34,7 +34,7 @@ import {
   serializeComposer,
 } from './composer-content'
 import type { FileReference } from './index'
-import type { QuoteInput } from '../../../../selection/quote-bridge'
+import type { QuoteInput } from '../../../../services/quote-bridge'
 
 export interface RichComposerHandle {
   focus(): void

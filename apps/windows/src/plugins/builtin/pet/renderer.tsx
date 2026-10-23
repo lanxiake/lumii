@@ -1,4 +1,5 @@
 import type { RendererPlugin } from '../../api'
+import { PetModeTitleControl } from './ui/PetModeTitleControl'
 import { PetSettingsSection } from './ui/PetSettingsSection'
 
 /**
@@ -11,10 +12,21 @@ import { PetSettingsSection } from './ui/PetSettingsSection'
 export const petRenderer: RendererPlugin = {
   id: 'com.lumii.pet',
   setup(api) {
-    return api.registerSlot('settings.category.pet', {
+    const offSettings = api.registerSlot('settings.category.pet', {
       id: 'pet.settings',
       component: PetSettingsSection,
       owner: 'com.lumii.pet',
     })
+    // 标题栏开关：与录屏并排；停用后条目注销、按钮一起消失
+    const offTitle = api.registerSlot('app.titlebar.actions', {
+      id: 'pet.title-control',
+      component: PetModeTitleControl,
+      order: 20,
+      owner: 'com.lumii.pet',
+    })
+    return () => {
+      offSettings()
+      offTitle()
+    }
   },
 }

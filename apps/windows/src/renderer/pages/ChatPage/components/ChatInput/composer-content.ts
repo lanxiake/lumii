@@ -15,7 +15,7 @@
  * 解析是**保守**的：只有能精确反解出我们自己的生成格式时才认 chip，否则一律当普通文本。
  */
 
-import { buildQuoteMarkdown, type QuoteInput } from '../../../../selection/quote-bridge'
+import { buildQuoteMarkdown, type QuoteInput } from '../../../../services/quote-bridge'
 import styles from './RichComposer.module.css'
 import type { FileReference } from './index'
 

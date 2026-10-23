@@ -21,7 +21,6 @@ import { Button } from '../../components/ui/Button/Button'
 import { Input } from '../../components/ui/Input/Input'
 import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
 import { Badge } from '../../components/ui/Badge/Badge'
-import { UpdaterView } from '../../components/business/UpdaterView'
 import { useSettings, useCategorySettings, DEFAULT_SETTINGS, readStoredSettings } from '../../hooks/business/useSettings'
 import { useToast } from '../../components/ui/Toast/useToast'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
@@ -37,7 +36,6 @@ import { getWorkspaceDir, ensureWorkspaceDir, notifyWorkspaceChanged } from '../
 import { getAppVersion, getOpenAtLogin, setOpenAtLogin as applyOpenAtLogin, openLogFile } from '../../services/app-service'
 import { ModelConfigSection } from './components/ModelConfigSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
-import { CloudSyncSection } from './components/CloudSyncSection'
 import { OfficialExtensionGate } from '../../components/OfficialExtensionGate/OfficialExtensionGate'
 import { ExperimentalSection } from './components/ExperimentalSection'
 import { AppearanceSection } from './components/AppearanceSection'
@@ -48,7 +46,6 @@ import type { ScreenRecordConfig } from '../../hooks/business/useSettings'
 import styles from './SettingsPage.module.css'
 import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
-import { PerformanceDiagnostics } from './components/PerformanceDiagnostics/PerformanceDiagnostics'
 
 /**
  * 设置分类图标尺寸
@@ -345,7 +342,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         description="把用户文件与记忆同步到自建 Git 仓库"
       >
         <div className={styles['settings-section']}>
-          <CloudSyncSection />
+          {/* 整块由云同步插件注册；停用/卸载后槽位为空，给一句可操作的提示 */}
+          <SlotHost
+            name="settings.category.cloudSync"
+            fallback={
+              <p className={styles['panel-desc']}>
+                云同步已禁用。到「设置 › 代码扩展」里启用后即可使用。
+              </p>
+            }
+          />
         </div>
       </OfficialExtensionGate>
     )
@@ -548,15 +553,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </section>
 
-        <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']} data-app-ui-heading>性能诊断</h4>
-          <p className={styles['panel-card-desc']}>
-            监控应用性能指标、IPC 调用延迟、内存占用，便于诊断性能问题
-          </p>
-          <div className={styles['panel-storage']}>
-            <PerformanceDiagnostics />
-          </div>
-        </section>
+        {/* 性能诊断整块由 perf 插件注册；插件停用后卡片一起消失 */}
+        {pluginState.get('com.lumii.perf') === true && (
+          <section className={styles['panel-card']}>
+            <h4 className={styles['panel-card-title']} data-app-ui-heading>性能诊断</h4>
+            <p className={styles['panel-card-desc']}>
+              监控应用性能指标、IPC 调用延迟、内存占用，便于诊断性能问题
+            </p>
+            <div className={styles['panel-storage']}>
+              <SlotHost name="settings.section.perf" />
+            </div>
+          </section>
+        )}
 
         <section className={styles['panel-card']}>
           <h4 className={styles['panel-card-title']} data-app-ui-heading>备份与恢复</h4>
@@ -586,7 +594,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }
 
   /**
-   * 渲染录屏：AI 录屏/截屏工具总开关与录制默认参数（独立一级菜单）
+   * 渲染录屏：整块由录屏插件注册；停用/未安装时给出可操作的提示。
    */
   const renderScreenRecordSettings = () => {
     const screenRecord = { ...DEFAULT_SETTINGS.screenRecord, ...settings.screenRecord }
@@ -596,134 +604,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         name="录屏"
         description="窗口/屏幕录制、旁白配音与字幕烧录"
       >
-      <div className={styles['settings-panel']}>
-        <header className={styles['panel-header']}>
-          <h3 data-app-ui-section-title className={styles['panel-title']}>
-            录屏
-            {screenRecordSave.hasChanges && <Badge dot />}
-          </h3>
-          <p className={styles['panel-desc']}>
-            管理 AI 录屏 / 截屏工具与本机录制的默认参数。
-          </p>
-        </header>
-
-        <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']} data-app-ui-heading>录制选项</h4>
-          <div className={styles['panel-rows']}>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>启用录屏功能</span>
-                <span className={styles['panel-row-hint']}>
-                  关闭后 AI 录屏/截屏工具与顶栏入口均不可用
-                </span>
-              </div>
-              <Checkbox
-                checked={screenRecord.enabled}
-                onChange={(checked) => updateScreenRecord({ enabled: checked })}
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>始终允许录屏 / 截屏</span>
-                <span className={`${styles['panel-row-hint']} ${styles['panel-row-hint-warn']}`}>
-                  开启后 Agent 可不经确认录制或截取除本软件外的任意屏幕与窗口，请谨慎
-                </span>
-              </div>
-              <Checkbox
-                checked={screenRecord.alwaysAllow}
-                onChange={(checked) => updateScreenRecord({ alwaysAllow: checked })}
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>默认包含麦克风</span>
-                <span className={styles['panel-row-hint']}>新录制时「包含麦克风」开关的默认值</span>
-              </div>
-              <Checkbox
-                checked={screenRecord.includeMicDefault}
-                onChange={(checked) => updateScreenRecord({ includeMicDefault: checked })}
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>默认包含系统声音</span>
-                <span className={styles['panel-row-hint']}>
-                  整屏录制时较可靠；单窗口可能无系统声（会自动降级）
-                </span>
-              </div>
-              <Checkbox
-                checked={screenRecord.includeSystemAudioDefault}
-                onChange={(checked) => updateScreenRecord({ includeSystemAudioDefault: checked })}
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>停止时默认导出 MP4</span>
-                <span className={styles['panel-row-hint']}>
-                  转码成功后删除源 WebM；失败则保留 WebM
-                </span>
-              </div>
-              <Checkbox
-                checked={screenRecord.exportMp4Default}
-                onChange={(checked) => updateScreenRecord({ exportMp4Default: checked })}
-              />
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>旁白原声增益</span>
-                <span className={styles['panel-row-hint']}>配音混流时原片音量（0–1，默认 0.35）</span>
-              </div>
-              <div className={styles['setting-input-with-unit']}>
-                <Input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={screenRecord.narrateOriginalAudioGain}
-                  onChange={(e) =>
-                    updateScreenRecord({
-                      narrateOriginalAudioGain: Math.min(1, Math.max(0, Number(e.target.value))),
-                    })
-                  }
-                />
-              </div>
-            </div>
-            <div className={styles['panel-row']}>
-              <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>AI 确认超时（秒）</span>
-                <span className={styles['panel-row-hint']}>超时未操作将自动拒绝</span>
-              </div>
-              <div className={styles['setting-input-with-unit']}>
-                <Input
-                  type="number"
-                  min={10}
-                  max={600}
-                  step={5}
-                  value={screenRecord.confirmTimeoutSec}
-                  onChange={(e) => updateScreenRecord({ confirmTimeoutSec: Number(e.target.value) })}
-                />
-                <span className={styles['setting-unit']}>秒</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {screenRecordSave.hasChanges && (
-          <div className={styles['category-save-actions']}>
-            <Button
-              onClick={screenRecordSave.save}
-              loading={screenRecordSave.isSaving}
-              disabled={screenRecordSave.isSaving}
-            >
-              {screenRecordSave.saveStatus === 'saved'
-                ? '✓ 已保存'
-                : screenRecordSave.saveStatus === 'error'
-                  ? '保存失败'
-                  : '保存更改'}
-            </Button>
-          </div>
-        )}
-      </div>
+        <SlotHost
+          name="settings.category.screenRecord"
+          context={{ screenRecord, update: updateScreenRecord, save: screenRecordSave }}
+          fallback={
+            <p className={styles['panel-desc']}>
+              录屏扩展已禁用。到「设置 › 代码扩展」里启用后即可使用。
+            </p>
+          }
+        />
       </OfficialExtensionGate>
     )
   }
@@ -768,7 +657,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       <section className={styles['panel-card']}>
         <h4 className={styles['panel-card-title']} data-app-ui-heading>软件更新</h4>
         <p className={styles['panel-card-desc']}>检查并安装新版本</p>
-        <UpdaterView standalone />
+        <SlotHost name="settings.section.updater" context={{ standalone: true }} />
         <div className={styles['panel-rows']} style={{ marginTop: 12 }}>
           <div className={styles['panel-row']}>
             <div className={styles['panel-row-text']}>

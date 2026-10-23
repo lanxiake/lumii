@@ -6,7 +6,7 @@
  * 翻译一旦丢字或加字，就是"看着对、发出去错"。
  */
 import { describe, expect, it } from 'vitest'
-import { buildQuoteMarkdown } from '../../../../selection/quote-bridge'
+import { buildQuoteMarkdown } from '../../../../services/quote-bridge'
 import type { FileReference } from './index'
 import {
   buildComposerNodes,

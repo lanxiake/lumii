@@ -32,7 +32,7 @@ import { ExcelPreview } from './ExcelPreview'
 import { createMermaidMarkdownComponents } from './mermaid-markdown-components'
 import styles from './FilePreviewModal.module.css'
 import { buildZoomedSrcDoc, clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './zoom-utils'
-import { buildIframeSelectionInjection } from '../../selection/webview-bridge'
+import { buildIframeSelectionInjection } from '../../services/webview-selection-bridge'
 
 /** PPTX 预览按需加载，避免启动时拉 pptx-preview/lodash 导致白屏 */
 const PptxPreview = React.lazy(() =>
