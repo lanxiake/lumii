@@ -168,7 +168,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--mt-space-5, 20px);
-  padding-right: var(--mt-space-2, 8px);
+  /* 与「设置」页内容区一致的内边距：文字与卡片都不贴边 */
+  padding: var(--mt-space-4, 16px) var(--mt-space-5, 20px) var(--mt-space-5, 20px);
 }
 
 /* MCP Tab 是「配置面板 + 工具列表」两块纵向堆叠，整体滚动，不各占一半 */
