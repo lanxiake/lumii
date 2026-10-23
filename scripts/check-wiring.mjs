@@ -1068,6 +1068,40 @@ const brokenRelativeImports = (() => {
   return [...new Set(problems)].sort()
 })()
 
+// ---- ⑭ 渲染层直接 import 插件实现（插件 UI 应走 slot 注册）
+//
+// 插件自带的页面/设置分区必须经 `plugins/renderer/registry.ts` 的槽位挂载，
+// 不能由核心页面 import——否则删一个插件要先改核心页面，边界名存实亡。
+// 框架层（`plugins/renderer/**`、`plugins/api/**`）不在此列。
+const rendererImportsPluginUi = (() => {
+  const problems = new Set()
+  for (const f of files) {
+    const r = rel(f)
+    if (!r.startsWith('apps/windows/src/renderer/')) continue
+    const sf = getModule(f).sf
+    if (!sf) continue
+    for (const stmt of sf.statements) {
+      if (!ts.isImportDeclaration(stmt) && !ts.isExportDeclaration(stmt)) continue
+      const typeOnly =
+        (ts.isImportDeclaration(stmt) && stmt.importClause?.isTypeOnly) ||
+        (ts.isExportDeclaration(stmt) && stmt.isTypeOnly)
+      if (typeOnly) continue
+      const spec = stmt.moduleSpecifier
+      if (!spec || !ts.isStringLiteral(spec)) continue
+      const target = resolveModule(f, spec.text)
+      if (!target) continue
+      const tr = rel(target)
+      if (
+        tr.startsWith(`${PLUGIN_PREFIX}builtin/`) ||
+        tr.startsWith(`${PLUGIN_PREFIX}external-src/`)
+      ) {
+        problems.add(r)
+      }
+    }
+  }
+  return [...problems].sort()
+})()
+
 const baseline = UPDATE ? null : loadBaseline()
 const baselineHas = (key) => new Set(baseline && Array.isArray(baseline[key]) ? baseline[key] : [])
 /** 拆成「本次新增」与「基线内已知」；无基线时一律算已知（首次运行不该满屏红） */
@@ -1092,6 +1126,7 @@ if (UPDATE) {
     coreImportsPluginImpl,
     pluginBoundary,
     brokenRelativeImports,
+    rendererImportsPluginUi,
   }
   writeFileSync(BASELINE_PATH, JSON.stringify(out, null, 2) + '\n', 'utf8')
   console.log(`已写入基线 ${rel(BASELINE_PATH)}：`)
@@ -1297,6 +1332,15 @@ if (VERBOSE && unresolved.length) {
   else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
 }
 
+// ⑭
+{
+  const { fresh, known } = splitNew(rendererImportsPluginUi, 'rendererImportsPluginUi')
+  section(`⑭ 渲染层直接 import 插件实现（应走 slot 注册）— 新增 ${fresh.length} / 已知 ${known.length}`)
+  for (const p of fresh) console.log(`  ${RED('✗')} ${p}`)
+  if (expandKnown) for (const p of known) console.log(`  ${DIM('·')} ${DIM(p)}`)
+  else if (known.length) console.log(`  ${DIM(`基线内已知 ${known.length} 处（--verbose 展开）`)}`)
+}
+
 // ---- 结论
 const freshCount =
   splitNew(orphanHandlers, 'orphanHandlers').fresh.length +
@@ -1309,7 +1353,8 @@ const freshCount =
   splitNew(unownedIpc, 'unownedIpc').fresh.length +
   splitNew(coreImportsPluginImpl, 'coreImportsPluginImpl').fresh.length +
   splitNew(pluginBoundary, 'pluginBoundary').fresh.length +
-  splitNew(brokenRelativeImports, 'brokenRelativeImports').fresh.length
+  splitNew(brokenRelativeImports, 'brokenRelativeImports').fresh.length +
+  splitNew(rendererImportsPluginUi, 'rendererImportsPluginUi').fresh.length
 
 console.log(
   `\n${

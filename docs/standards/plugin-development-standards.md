@@ -1,12 +1,29 @@
-# 插件开发规范
+# 插件开发规范（v2）
 
-> 适用：写渲染层插件（`~/.lumii/plugins/`）或主进程扩展（`~/.lumii/extensions/`）。
-> 契约的完整定义见 [P5 计划 §5](../plans/工程基建/2026-10-20-P5插件中心与开发者工具实施计划.md)；
+> 适用：仓库内插件（`apps/windows/src/plugins/`）与外部插件（`~/.lumii/extensions/`、
+> `~/.lumii/plugins/`）。契约的完整定义见 [P5 计划 §5](../plans/工程基建/2026-10-20-P5插件中心与开发者工具实施计划.md)
+> 与 [插件全量规范化计划](../plans/工程基建/2026-10-22-插件全量规范化与能力开放实施计划.md)；
 > 本文只写**踩过的坑**与验收清单——每一条都对应一次真机实测。
+>
+> v2 的变化：插件可以**前后端两半边放同一个目录**；主进程扩展也支持运行期启停；
+> 核心与插件之间只认 `main/kernel/*-contract.ts` 的服务契约。
 
 ---
 
 ## 0. 三十秒版本
+
+### 三种形态
+
+| 形态 | 位置 | 形态 |
+|---|---|---|
+| 内置插件 | `apps/windows/src/plugins/builtin/<id>/` | `index.ts`（主进程）+ `renderer.tsx` / `ui/`（渲染层），随应用发版 |
+| 官方外部扩展 | `apps/windows/src/plugins/external-src/<id>/` → 构建成 `~/.lumii/extensions/<id>/` | `index.ts` + `impl/`（主进程），可选 `client.js` |
+| 外部插件 | `~/.lumii/extensions/<id>/{main.js, client.js?, plugin.json?}` | 主进程半边必需；渲染层半边可选 |
+| 客户端插件 | `~/.lumii/plugins/<id>/{client.js, plugin.json?}` | 只有渲染层半边 |
+
+脚手架：`npx create-lumii-extension`（选「同时提供渲染层半边」会一起生成 `client.js`）。
+
+渲染层半边（客户端插件）：
 
 ```
 ~/.lumii/plugins/<目录>/
@@ -56,7 +73,10 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | 4 | 定时器、订阅、`requestAnimationFrame` 放 **effect 清理**里 | 同上；边界捕获不到 effect 之外的泄漏 |
 | 5 | `app.view` 的条目 id 必须与 `plugin:<id>` 里的 id 一致 | 对不上时 Router 回落概览，页面“点了没反应” |
 | 6 | **复制插件目录时改掉 `plugin.json` 的 id** | 两个目录共用一个 id 时只会加载一个（按目录名取第一个），另一个永远不生效；日志有告警（每个重复对只报一次） |
-| 7 | **主进程扩展注册的 `ipcMain.handle` 必须在 teardown 里摘掉** | 外部扩展热重载 / 按需卸载后重装时，第二次注册会抛 `Attempted to register a second handler`，表现为「装上了但没起来」。用 `ctx.effect(() => ipcMain.removeHandler(ch))`（参考 `screen-record-ipc.ts` 的 `unregisterScreenRecordIpc`） |
+| 7 | **主进程别直接碰 `ipcMain`**，用 `ctx.registerIpc(ch, fn)` / `ctx.registerIpcListener(ch, fn)` | 停机/热重载时通道随作用域摘除；直连 `ipcMain.handle` 摘不掉（守卫 ⑫ 会红），重装时报「second handler」 |
+| 8 | **核心与插件之间只认 `main/kernel/*-contract.ts` 的服务契约** | 核心直接 import 插件实现时，插件一禁用核心就崩/引用旧实例（守卫 ⑪）。插件侧在 `apply` 里 `ctx.provide(S.x, impl)`，同时挂 globalThis 访问器给工具层 |
+| 9 | **插件之间不得运行期 import**（共享代码下沉 `src/shared` 或核心） | 删掉/停用一个插件会把另一个一起拖挂；守卫 ⑫ 的 B3 覆盖 `builtin` 与 `external-src` |
+| 10 | **插件自带的页面/设置分区必须走 slot 注册**，不要被 `src/renderer/**` 直接 import | 否则删插件要先改核心页面（守卫 ⑭，白名单只减不增） |
 
 ## 2. 槽位与布局预算
 
@@ -68,6 +88,9 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | `app.nav` | 侧栏导航下方 | 用 context 里的 `classNames` 跟原生导航一致 |
 | `app.view` | 整页 | 用 `api.Page` 起手（主内容区已有 20px 内边距） |
 | `settings.section` | 设置 › 扩展 | 与其它插件分区并列 |
+| `settings.category.<id>` | 设置中心左侧一级菜单 | 插件独占的设置页；目录用 `plugins/renderer/settings-categories.ts` 的 `PLUGIN_SETTINGS_CATEGORIES` 登记，停用后菜单项一起消失 |
+| `settings.channel.<channel>` | 设置 › 渠道设置 | 渠道插件把自己的账号面板挂进来（`weixin` / `wecom` / `feishu` / `qbot`） |
+| `workspace.version` | 工作区「文件 / 变更 / 版本」区 | VCS 面板；宿主提供 context 快照（loading 态由槽位参数给） |
 
 **先问「这个页面有给插件的布局预算吗」再开槽位**——概览是像素预算的一屏，
 `dashboard.grid` 第 4 张会被裁掉（实测）。
@@ -92,10 +115,11 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | 状态 | 热更新会重建组件，**组件内 state 不保留** |
 | 撞 id 失败后 | 删掉冲突方、或改本插件文件，都会自动重试（1 秒内） |
 | 主进程扩展**改文件** | 外部扩展 ≤1 秒热重载；内置扩展要重启主进程 |
-| 主进程扩展**启用/禁用** | 写偏好，**必须重启**才生效；设置页会显示「待重启」横幅与「立即重启」 |
+| 主进程扩展**启用/禁用** | 外部扩展与标了 `hot: true` 的内置插件**即时生效**；其余内置插件写偏好、重启生效（设置页显示「待重启」） |
 
-> 注意区分「热更新代码」与「切换启用状态」：前者外部扩展亚秒级生效，
-> 后者对主进程扩展一律要重启——原因是启动时取出的服务单例被各处直接引用。
+> 区分「热更新代码」与「切换启用状态」：外部扩展前者亚秒级、后者即时；
+> 内置插件改代码要重启主进程，启停则看有没有标 `hot`。
+> 前提是核心不缓存插件服务句柄——服务契约 + globalThis 访问器就是为了这一步。
 
 ## 5. 样式
 
@@ -202,25 +226,45 @@ api.storage.keys() / remove(key) / clear()
 
 | 操作 | 内置扩展 | 外部扩展 / 客户端插件 |
 |---|---|---|
-| 启用 / 禁用 | 支持；标了 `hot: true` 的**即时生效**，其余重启生效 | 支持（主进程重启生效；客户端 ≤1 秒） |
+| 启用 / 禁用 | 支持；标了 `hot: true` 的**即时生效**，其余重启生效 | **即时生效**（客户端 ≤1 秒） |
 | 打开目录 | —（代码在 bundle 里） | 支持 |
 | 删除 | **不允许**，只能禁用 | 支持（二次确认；先卸载再删目录） |
 
-> 为什么外部扩展仍是「重启生效」：它们的服务句柄（`S.perf` / `S.cloudSync` / `S.syncScheduler`）
-> 在启动期被核心取走并缓存，卸载扩展只拆自己的作用域，已经分发出去的调度器照旧在跑。
-> 内置插件没有这个问题——接线在 `apply(ctx)` 里，作用域一拆功能就没了。
+> 外部扩展能即时启停的前提，是核心不再缓存插件服务句柄：装 / 卸两边读写的是同一组
+> `main/kernel/*-contract.ts` 访问器，插件停了访问器就返回 `null`，调用方按「功能关闭」处理。
+> 新写的扩展如果绕过契约、把服务直接塞进核心，禁用后会出现「关掉了但还在工作」——
+> 这种扩展**不能**标成可热停（先在契约里补接口再迁移）。
 
-### 8.1 内置插件的代码放哪
+### 8.1 插件的代码放哪
 
 ```
 src/plugins/builtin/<name>/
-  index.ts   manifest + apply（接线全在这里）
-  *.ts       该插件独占的实现与测试
+  index.ts      manifest + apply（接线全在这里）
+  renderer.tsx  渲染层半边：registerSlot / registerCard（可选）
+  ui/           该插件独占的页面与组件
+  *.ts          主进程实现与测试
+
+src/plugins/external-src/<name>/
+  index.ts      外壳：manifest + apply（装配服务、注册 IPC、挂访问器）
+  impl/**       主进程实现（测试随迁）
 ```
 
-加插件 = 建目录 + `plugins/registry.ts` 加两行（import + 条目，需要即时启停就标 `hot: true`）。
-删插件 = 删目录 + 删那两行，`tsc` 会把残留引用列全。完整约定与生命周期清单见
-[`apps/windows/src/main/plugins/README.md`](../../apps/windows/src/main/plugins/README.md)。
+- 加插件 = 建目录 + `plugins/registry.ts` 加两行（import + 条目，需要即时启停就标 `hot: true`）；
+- 删插件 = 删目录 + 删那两行，`tsc` 会把残留引用列全；
+- 完整约定、槽位表与服务契约清单见
+  [`apps/windows/src/plugins/README.md`](../../apps/windows/src/plugins/README.md)。
+
+外部插件（两半边可以放在同一个目录）：
+
+```
+~/.lumii/extensions/<id>/
+  main.js       主进程半边（必需）—— manifest + definition
+  client.js     渲染层半边（可选）—— __LUMII_REGISTER_PLUGIN__ 工厂
+  plugin.json   可选 { id, name, version, client: { entry: './client.js' } }
+```
+
+只有渲染层半边的插件放 `~/.lumii/plugins/<id>/client.js`。两半边的**启停是联动的**：
+主进程侧停用后，渲染层 `plugin:state-changed` 会推同样的开关，`PluginRuntime` 拆掉它注册的槽位。
 
 - Agent 生成的插件必须写 `origin: "agent"`，面板会显示「Agent 创建」；
 - 官方可选扩展写 `origin: "official"`，面板显示「官方」；安装包只带扩展清单
@@ -230,7 +274,7 @@ src/plugins/builtin/<name>/
 - 来源只是显示/治理标记，**不是权限**——三者与主进程同权限（D1/D2）；
 - 外部扩展删除时会先卸载（执行清理），再删目录；客户端插件删除后渲染层在 ≤1 秒内卸载。
 
-### 8.1 界面命名与依赖联动
+### 8.2 界面命名与依赖联动
 
 设置中心只保留一个 **代码扩展** 页签（主进程扩展 + 客户端插件）。
 「运行时组件」不再单独成页，安装入口放回使用它的功能：
@@ -265,6 +309,10 @@ manifest: {
 - [ ] 与另一个插件同槽位共存时顺序符合 `order`
 - [ ] 整页左右边距与概览页一致（用了 `api.Page`，没有额外 padding）
 - [ ] 持久化数据用 `api.storage`（客户端）或 `~/.lumii/plugin-data/<id>/`（主进程）
+- [ ] `node scripts/check-wiring.mjs` 通过：⑪ 核心不直连插件实现、⑫ 插件边界、
+      ⑬ 相对导入、⑭ 渲染层不直接 import 插件 UI 都是 0 新增
+- [ ] 主进程半边停用后再启用：IPC「No handler registered」不出现、定时器不残留、服务访问器归 `null`
+- [ ] 需要前后端联动时，前端用 `usePluginEnabled('<id>')` 判门（不要只看自己的开关状态）
 
 ## 10. Agent 自举开发
 
@@ -284,6 +332,6 @@ manifest: {
    `description` 与 `engines.lumii`）与 `client.js`（或 `<main>/<id>/main.js`）；
 3. `plugin_dev check` 体检；
 4. `plugin_dev status` 看加载结果（加载有 0.3–1 秒延迟，刚写完可能还是上一版）；
-5. 改文件保存即可；**只有主进程扩展的启用/禁用需要重启**。
+5. 改文件保存即可；启用/禁用同样即时生效（外部扩展与客户端插件都不需要重启）。
 
 限制：`main.js` 是 ESM，静态检查无法编译，语法错误由加载器在 ≤1 秒内作为运行时错误返回。
