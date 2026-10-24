@@ -1,5 +1,6 @@
 import { registerCard } from '../../renderer/components/A2UIRenderer/card-registry'
 import { registerSlot } from '../../renderer/components/slots/slot-registry'
+import { registerTimelineCard } from '../../renderer/pages/ChatPage/components/TimelineCards/registry'
 
 /**
  * 渲染层插件契约。
@@ -18,6 +19,15 @@ import { registerSlot } from '../../renderer/components/slots/slot-registry'
 export interface RendererPluginApi {
   registerSlot: typeof registerSlot
   registerCard: typeof registerCard
+
+  /**
+   * 注册一张**对话时间线卡片**：按工具名把一个工具调用单独渲染成卡片。
+   *
+   * 内置三张（转交 / 委托 / 任务完成）order 10–30，插件默认 100 ——
+   * 插件只能补空缺，顶不掉内置卡片。匹配规则、是否露在「执行过程」折叠区外，
+   * 都由注册项自己声明（见 `TimelineCards/registry.ts`）。
+   */
+  registerTimelineCard: typeof registerTimelineCard
 
   /**
    * 以下是**外部/客户端插件宿主**额外注入的能力（可选）。
@@ -40,4 +50,4 @@ export interface RendererPlugin {
   setup(api: RendererPluginApi): () => void
 }
 
-export const rendererApi: RendererPluginApi = { registerSlot, registerCard }
+export const rendererApi: RendererPluginApi = { registerSlot, registerCard, registerTimelineCard }

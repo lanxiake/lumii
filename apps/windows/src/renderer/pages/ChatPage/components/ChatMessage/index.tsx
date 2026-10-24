@@ -12,6 +12,7 @@ import 'highlight.js/styles/github.css'
 import { Lightbulb, Inbox, AlertTriangle, Ban, Timer, Zap } from 'lucide-react'
 import { MessageActions } from '../MessageActions'
 import { ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
+import { PluginErrorBoundary } from '../../../../components/slots/PluginErrorBoundary'
 import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'
 import { A2UIRenderer } from '../../../../components/A2UIRenderer'
 import { ArtifactBlock } from '../../../../components/A2UIRenderer/ArtifactBlock'
@@ -31,9 +32,8 @@ import type { RuntimeFileEvent } from '../../../../hooks/business/useAgentRuntim
 import { parseMediaAttachments, mergeEditedUserMessage } from '../../utils/file-attachment-strategy'
 import { TurnFileChangesCard } from '../TurnFileChangesCard'
 import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
-import { HandoffCard } from '../HandoffCard'
-import { SpawnAgentCard, parseSpawnResult } from '../SpawnAgentCard'
-import { TaskCompleteCard } from '../TaskCompleteCard'
+import { findTimelineCard, type TimelineCardDefinition, type ToolPart } from '../TimelineCards/registry'
+import { registerBuiltinTimelineCards } from '../TimelineCards/builtin'
 import { SubAgentRunBlock } from '../SubAgentRun'
 import {
   readRunFailure,
@@ -51,6 +51,12 @@ import {
 } from './markdown-limits'
 import { extractToolErrorText } from './tool-result-text'
 import styles from './ChatMessage.module.css'
+
+/**
+ * 内置卡片在模块加载时注册一次（幂等）。放在这里而不是 main.tsx：
+ * ChatMessage 是唯一消费方，谁用它谁保证表里有货，少一处启动顺序依赖。
+ */
+registerBuiltinTimelineCards()
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -460,33 +466,28 @@ function toWorkflowItem(
   }
 }
 
-/**
- * 从 spawn 工具 part 读出子实例 id —— 用于把子 Agent 运行挂到对应的委托卡片下。
- * 同步执行中结果尚未返回时读不到，此时子运行走「独立运行块」兜底渲染。
- */
-function readSpawnInstanceId(
-  part: Extract<AssistantPart, { type: 'tool' }>,
+/** 从卡片定义取子实例 id（只有委托类卡片提供此提取器） */
+function readCardInstanceId(
+  card: TimelineCardDefinition,
+  part: ToolPart,
 ): string | undefined {
-  const instanceId = parseSpawnResult(part.result)?.instanceId
-  return typeof instanceId === 'string' && instanceId ? instanceId : undefined
+  return card.instanceId?.(part)
 }
 
-/** 时间线渲染单元：思考 / 文本 / 工具批次组 / 转交 / 委托 / 任务完成 */
+/** 时间线渲染单元：思考 / 文本 / 工具批次组 / 注册表卡片 */
 type RenderUnit =
   | { kind: 'thinking'; part: Extract<AssistantPart, { type: 'thinking' }> }
   | { kind: 'text'; part: Extract<AssistantPart, { type: 'text' }> }
   | { kind: 'toolGroup'; items: AgentWorkflowItem[]; key: string }
-  | { kind: 'handoff'; part: Extract<AssistantPart, { type: 'tool' }> }
-  | { kind: 'spawn'; part: Extract<AssistantPart, { type: 'tool' }> }
-  | { kind: 'taskComplete'; part: Extract<AssistantPart, { type: 'tool' }> }
+  | { kind: 'card'; card: TimelineCardDefinition; part: ToolPart }
 
 /**
  * 把扁平的 parts 折叠成渲染单元序列：
  * 1. 先过滤 trim 后为空的 text part（根治空气泡）
  * 2. 连续的 tool part 合并为一个批次组，遇到 thinking/text 即结束当前组
- * 3. propose_dev_handoff 单独成卡（F2）：按钮必须露在折叠区外，不能进工具批次组
- * 4. spawn_agent 单独成卡（G3）：委托对象 / 状态 / 结果必须露在折叠区外
- * 5. task_complete 单独成卡：terminate 后无正文，summary 必须露在折叠外
+ * 3. 命中时间线卡片注册表的工具（转交 / 委托 / 任务完成 …）单独成卡——
+ *    匹配规则与「是否露在折叠区外」都由卡片定义自己声明（见 TimelineCards/registry.ts），
+ *    加新卡不再需要改这里。
  */
 function buildRenderUnits(parts: readonly AssistantPart[], context: TimelineContext): RenderUnit[] {
   const meaningful = parts.filter((p) => p.type !== 'text' || p.text.trim().length > 0)
@@ -506,19 +507,10 @@ function buildRenderUnits(parts: readonly AssistantPart[], context: TimelineCont
 
   for (const part of meaningful) {
     if (part.type === 'tool') {
-      if (part.name === 'propose_dev_handoff') {
+      const card = findTimelineCard(part)
+      if (card) {
         flush()
-        units.push({ kind: 'handoff', part })
-        continue
-      }
-      if (part.name === 'spawn_agent') {
-        flush()
-        units.push({ kind: 'spawn', part })
-        continue
-      }
-      if (part.name === 'task_complete') {
-        flush()
-        units.push({ kind: 'taskComplete', part })
+        units.push({ kind: 'card', card, part })
         continue
       }
       pending.push(part)
@@ -921,38 +913,29 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         </div>
       )
     }
-    if (unit.kind === 'handoff') {
-      return (
-        <div key={unit.part.id} className={styles['part-block']}>
-          <HandoffCard part={unit.part} />
-        </div>
-      )
-    }
-    if (unit.kind === 'taskComplete') {
-      return (
-        <div key={unit.part.id} className={styles['part-block']}>
-          <TaskCompleteCard part={unit.part} />
-        </div>
-      )
-    }
-    if (unit.kind === 'spawn') {
-      // 按 spawn 结果里的 instanceId 把子运行挂到这张卡片下（见 08-委托可见性.md §4）
-      const instanceId = readSpawnInstanceId(unit.part)
+    if (unit.kind === 'card') {
+      // 子运行只挂给声明了 instanceId 的卡片（委托类）；其余卡片拿到空数组
+      const instanceId = readCardInstanceId(unit.card, unit.part)
       const claimed = instanceId ? runs.filter((r) => r.instanceId === instanceId) : []
+      const Card = unit.card.component
       return (
         <div key={unit.part.id} className={styles['part-block']}>
-          <SpawnAgentCard
-            part={unit.part}
-            messageStreaming={isStreaming}
-            runs={claimed.length > 0 ? claimed : undefined}
-            renderRunBody={(run) =>
-              renderTimeline(run.parts, {
-                timestamp: run.timestamp,
-                isStreaming: run.isStreaming,
-                ...(run.fileChanges ? { fileChanges: run.fileChanges } : {}),
-              })
-            }
-          />
+          {/* 条目级边界：插件卡片抛错只毁自己那一块，气泡其余内容与整页照常
+              （与 SlotHost / Router 同一取舍，见 components/slots/PluginErrorBoundary.tsx） */}
+          <PluginErrorBoundary label={unit.card.owner ?? unit.card.id}>
+            <Card
+              part={unit.part}
+              messageStreaming={isStreaming}
+              runs={claimed}
+              renderRunBody={(run) =>
+                renderTimeline(run.parts, {
+                  timestamp: run.timestamp,
+                  isStreaming: run.isStreaming,
+                  ...(run.fileChanges ? { fileChanges: run.fileChanges } : {}),
+                })
+              }
+            />
+          </PluginErrorBoundary>
         </div>
       )
     }
@@ -966,7 +949,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   /**
    * 按 parts 时间线渲染一段回复（Cursor 式）：父回合与子运行共用。
    * 中间过程（思考 + 工具 + 中间文本）折叠进 ActivityFold，最终答案露在外面。
-   * 转交（handoff）/ 委托（spawn）/ 任务完成（taskComplete）永远拣出折叠区之外——
+   * 标记 `pinned` 的卡片（转交 / 委托 / 任务完成…）永远拣出折叠区之外——
    * 否则会被划进「过程区」折叠隐藏；task_complete 尤其常作为最后一步且无后续正文。
    */
   const renderTimeline = (
@@ -986,18 +969,18 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const units = buildRenderUnits(parts, context)
     const { process, answer } = splitProcessAndAnswer(units)
     const isStreaming = context.isStreaming
-    const isPinned = (u: RenderUnit) =>
-      u.kind === 'handoff' || u.kind === 'spawn' || u.kind === 'taskComplete'
+    // 「露在外面」由卡片定义声明，不再靠 kind 硬编码（见 TimelineCards/registry.ts）
+    const isPinned = (u: RenderUnit) => u.kind === 'card' && u.card.pinned === true
     const pinnedUnits = [...process, ...answer].filter(isPinned)
     const processOnly = process.filter((u) => !isPinned(u))
     const answerOnly = answer.filter((u) => !isPinned(u))
 
-    // 子运行归属：被 spawn 卡片按 instanceId 认领的渲染进卡片内部；
+    // 子运行归属：被声明了 instanceId 的卡片认领的渲染进卡片内部；
     // 其余（同步执行中尚未拿到 instanceId、或卡片缺失）作为独立运行块兜底——内容永不丢。
     const runs = context.subAgentRuns ?? []
     const claimedInstanceIds = new Set(
       pinnedUnits
-        .map((u) => (u.kind === 'spawn' ? readSpawnInstanceId(u.part) : undefined))
+        .map((u) => (u.kind === 'card' ? readCardInstanceId(u.card, u.part) : undefined))
         .filter((id): id is string => Boolean(id)),
     )
     const unclaimedRuns = runs.filter((run) => !claimedInstanceIds.has(run.instanceId))

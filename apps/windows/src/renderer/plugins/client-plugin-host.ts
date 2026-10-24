@@ -5,6 +5,10 @@ import * as JsxRuntime from 'react/jsx-runtime'
 import { registerCard, type CardRenderer } from '../components/A2UIRenderer/card-registry'
 import { PluginPage } from '../components/slots/PluginPage'
 import { registerSlot, type SlotEntry } from '../components/slots/slot-registry'
+import {
+  registerTimelineCard,
+  type TimelineCardDefinition,
+} from '../pages/ChatPage/components/TimelineCards/registry'
 import { pluginFormat } from '../utils/format'
 import { createPluginStorage, type PluginStorage } from './plugin-storage'
 
@@ -76,6 +80,8 @@ export interface ClientPluginApi {
   registerCard: (type: string, renderer: CardRenderer) => () => void
   /** 往槽位里加条目 */
   registerSlot: <P>(slot: string, entry: SlotEntry<P>) => () => void
+  /** 注册对话时间线卡片（内置卡片 order 10–30，插件默认 100，顶不掉内置） */
+  registerTimelineCard: (def: TimelineCardDefinition) => () => void
   /** 整页外壳：与内置页同口径（令牌 + 主内容区 20px 内边距） */
   Page: typeof PluginPage
   /** 共享格式化：number / percent / currency / bytes / date / dateTime / relative */
@@ -237,6 +243,12 @@ function createApi(pluginId: string): ClientPluginApi {
     },
     registerSlot: (slot, entry) => {
       const off = registerSlot(slot, { ...entry, owner: pluginId } as never)
+      own.push(off)
+      return off
+    },
+    registerTimelineCard: (def) => {
+      // owner 强制为插件 id：诊断面板据此显示「谁注册的」
+      const off = registerTimelineCard({ ...def, owner: pluginId, order: def.order ?? 100 })
       own.push(off)
       return off
     },
