@@ -205,11 +205,23 @@ export const MCP_PRESETS: readonly McpPreset[] = [
 const PRESET_BY_NAME = new Map(MCP_PRESETS.map((preset) => [preset.name, preset]))
 
 /**
+ * 服务器别名 → 内置清单名。
+ *
+ * 老用户落盘的 `mcp-servers.json` 里 ComfyUI 那台叫 `comfyui`，而清单里叫
+ * `comfyui-remote`（2026-10-24 实测：`findMcpPreset('comfyui')` 返回 undefined，
+ * 于是 `backgroundTools` 补不上，工具根本不会后台化——任务卡永远不出现，
+ * 用户点「中断」自然什么都发生不了）。
+ */
+const PRESET_ALIASES: Readonly<Record<string, string>> = {
+  comfyui: 'comfyui-remote',
+}
+
+/**
  * 按 Server 名查内置说明
  *
  * 落盘的 mcp-servers.json 只存 command/args/env，没有 title/description/keyUrl，
  * 设置页要展示这些就得回查清单。用户自建的服务查不到，返回 undefined。
  */
 export function findMcpPreset(name: string): McpPreset | undefined {
-  return PRESET_BY_NAME.get(name)
+  return PRESET_BY_NAME.get(name) ?? PRESET_BY_NAME.get(PRESET_ALIASES[name] ?? '')
 }

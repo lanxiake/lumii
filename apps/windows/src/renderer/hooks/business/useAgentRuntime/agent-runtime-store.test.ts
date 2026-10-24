@@ -941,4 +941,41 @@ describe('handleRuntimeEvent background-task routing', () => {
     expect(task?.logs).toHaveLength(2)
     expect(task?.milestones?.[1]?.status).toBe('in-progress')
   })
+
+  it('运行中增量日志只追加不重传，终态全量补齐', () => {
+    handleRuntimeEvent({ ...base, taskId: 'tk-d', status: 'running' })
+    handleRuntimeEvent({
+      ...base,
+      taskId: 'tk-d',
+      status: 'running',
+      logsDelta: [{ level: 'info' as const, message: '入队', timestamp: 1 }],
+    })
+    handleRuntimeEvent({
+      ...base,
+      taskId: 'tk-d',
+      status: 'running',
+      logsDelta: [{ level: 'info' as const, message: '渲染中', timestamp: 2 }],
+    })
+    let logs = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks[0]?.logs ?? []
+    expect(logs.map((log) => log.message)).toEqual(['入队', '渲染中'])
+
+    // 只推进度、不带日志：不能把已有日志冲掉
+    handleRuntimeEvent({ ...base, taskId: 'tk-d', status: 'running', progress: 70 })
+    logs = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks[0]?.logs ?? []
+    expect(logs).toHaveLength(2)
+
+    handleRuntimeEvent({
+      ...base,
+      taskId: 'tk-d',
+      status: 'succeeded',
+      endedAt: 3_000,
+      logs: [
+        { level: 'info' as const, message: '入队', timestamp: 1 },
+        { level: 'info' as const, message: '渲染中', timestamp: 2 },
+        { level: 'info' as const, message: '完成', timestamp: 3 },
+      ],
+    })
+    logs = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks[0]?.logs ?? []
+    expect(logs.map((log) => log.message)).toEqual(['入队', '渲染中', '完成'])
+  })
 })

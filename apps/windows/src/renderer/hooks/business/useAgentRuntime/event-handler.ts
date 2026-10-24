@@ -1720,12 +1720,14 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         ...(event.outputs !== undefined ? { outputs: event.outputs } : {}),
         ...(event.note !== undefined ? { note: event.note } : {}),
         ...(event.error !== undefined ? { error: event.error } : {}),
+        ...(event.pausedAt !== undefined ? { pausedAt: event.pausedAt } : {}),
+        ...(event.pausable !== undefined ? { pausable: event.pausable } : {}),
         ...(event.progress !== undefined ? { progress: event.progress } : {}),
         ...(event.currentStep !== undefined ? { currentStep: event.currentStep } : {}),
         ...(event.logs !== undefined ? { logs: event.logs } : {}),
         ...(event.milestones !== undefined ? { milestones: event.milestones } : {}),
       }
-      upsertBackgroundTask(sessionKey, task)
+      upsertBackgroundTask(sessionKey, task, event.logsDelta)
       break
     }
 

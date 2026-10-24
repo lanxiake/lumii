@@ -42,6 +42,13 @@ export interface BackgroundTaskRecord {
   readonly note?: string
   /** 失败原因 */
   readonly error?: string
+  /** 暂停时间点（仅 status='paused' 时有值），前端据此显示「已暂停 N 分钟」 */
+  readonly pausedAt?: number
+  /**
+   * 该任务能否暂停。只有「轮询型」任务（ComfyUI 跟进）为 true；
+   * 原子操作没有可停的中间态，UI 上就不该出现暂停按钮。
+   */
+  readonly pausable?: boolean
   /** 0–100。缺省表示尚未上报百分比 */
   readonly progress?: number
   /** 当前步骤描述 */
@@ -82,6 +89,11 @@ export interface BackgroundTaskManagerDeps {
   readonly summaryMaxLength?: number
   /** 完整结果 / 失败原因的截断长度（防止超长工具输出撑爆事件与唤醒消息） */
   readonly resultMaxLength?: number
+  /**
+   * 终态时回调一次任务性能指标（本地埋点，默认不落盘不上报）。
+   * 抛错不影响任务终结。
+   */
+  readonly onSettled?: (record: BackgroundTaskRecord) => void
 }
 
 const TERMINAL: ReadonlySet<BackgroundTaskStatus> = new Set(['succeeded', 'failed', 'cancelled'])
@@ -127,11 +139,11 @@ export class BackgroundTaskManager {
   }
 
   /**
-   * 运行中更新进度说明（如「ComfyUI 渲染中」）并推事件；终态或说明未变时忽略。
+   * 运行中更新进度说明（如「ComfyUI 渲染中」）并推事件；终态/暂停或说明未变时忽略。
    */
   update(taskId: string, note: string): void {
     const rec = this.tasks.get(taskId)
-    if (!rec || TERMINAL.has(rec.status) || rec.note === note) return
+    if (!rec || rec.status !== 'running' || rec.note === note) return
     const next: BackgroundTaskRecord = { ...rec, note }
     this.tasks.set(taskId, next)
     this.push(next)
@@ -174,6 +186,40 @@ export class BackgroundTaskManager {
     this.settle({ ...rest, status: 'cancelled', endedAt: this.now() })
   }
 
+  /** 标记该任务的暂停能力（轮询型任务在挂上闸门后调用） */
+  setPausable(taskId: string, pausable: boolean): void {
+    const rec = this.tasks.get(taskId)
+    if (!rec || TERMINAL.has(rec.status) || rec.pausable === pausable) return
+    const next: BackgroundTaskRecord = { ...rec, pausable }
+    this.tasks.set(taskId, next)
+    this.push(next)
+  }
+
+  /**
+   * 暂停：不终结任务，只是让跟进的轮询停下。远端作业（如 ComfyUI 排队/渲染）继续跑，
+   * 恢复时接着跟同一个作业，不重新提交。
+   */
+  pause(taskId: string): void {
+    const rec = this.tasks.get(taskId)
+    // 只有挂了闸门的任务才谈得上暂停：原子操作没有可停的中间态
+    if (!rec || rec.status !== 'running' || rec.pausable !== true) return
+    const next: BackgroundTaskRecord = { ...rec, status: 'paused', pausedAt: this.now() }
+    this.tasks.set(taskId, next)
+    log.info(`[BackgroundTask] 暂停 task=${taskId}`)
+    this.push(next)
+  }
+
+  /** 恢复：回到 running，已等待的部分不计入本步（由前端按各自起点算） */
+  resume(taskId: string): void {
+    const rec = this.tasks.get(taskId)
+    if (!rec || rec.status !== 'paused') return
+    const { pausedAt: _pausedAt, ...rest } = rec
+    const next: BackgroundTaskRecord = { ...rest, status: 'running' }
+    this.tasks.set(taskId, next)
+    log.info(`[BackgroundTask] 恢复 task=${taskId}`)
+    this.push(next)
+  }
+
   /**
    * 更新进度百分比（钳制到 0–100）和当前步骤。
    * 未知任务、终态、或数值非有限时忽略；值未变不重复推事件。
@@ -202,17 +248,21 @@ export class BackgroundTaskManager {
     message: string,
     context?: Record<string, unknown>,
   ): void {
-    this.patchRunning(taskId, (rec) => {
-      const entry: TaskLog = {
-        level,
-        message,
-        timestamp: this.now(),
-        ...(context !== undefined ? { context } : {}),
-      }
-      const logs = [...(rec.logs ?? []), entry]
-      if (logs.length > MAX_TASK_LOGS) logs.splice(0, logs.length - MAX_TASK_LOGS)
-      return { ...rec, logs }
-    })
+    const rec = this.tasks.get(taskId)
+    // 暂停期间轮询已停，不该再有新日志；终态同理
+    if (!rec || rec.status !== 'running') return
+    const entry: TaskLog = {
+      level,
+      message,
+      timestamp: this.now(),
+      ...(context !== undefined ? { context } : {}),
+    }
+    const logs = [...(rec.logs ?? []), entry]
+    if (logs.length > MAX_TASK_LOGS) logs.splice(0, logs.length - MAX_TASK_LOGS)
+    const next: BackgroundTaskRecord = { ...rec, logs }
+    this.tasks.set(taskId, next)
+    // 只推新增的那一条：任务跑一小时后每次进度刷新都重传上千条日志会拖死渲染层
+    this.push(next, [entry])
   }
 
   /** 替换里程碑列表。未知任务或终态时忽略 */
@@ -290,7 +340,8 @@ export class BackgroundTaskManager {
     mutate: (record: BackgroundTaskRecord) => BackgroundTaskRecord | null,
   ): void {
     const rec = this.tasks.get(taskId)
-    if (!rec || TERMINAL.has(rec.status)) return
+    // 暂停期间轮询已停，进度/里程碑不该再动（恢复后照常写）
+    if (!rec || rec.status !== 'running') return
     const next = mutate(rec)
     if (!next) return
     this.tasks.set(taskId, next)
@@ -304,6 +355,13 @@ export class BackgroundTaskManager {
     )
     this.push(record)
     this.prune()
+    try {
+      this.deps.onSettled?.(record)
+    } catch (err) {
+      log.warn(
+        `[BackgroundTask] 性能埋点失败 task=${record.taskId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
     // 唤醒归属 Agent：终态才投递；失败不影响任务本身
     try {
       void Promise.resolve(this.deps.deliver(record)).catch((err) => {
@@ -318,8 +376,21 @@ export class BackgroundTaskManager {
     }
   }
 
-  private push(record: BackgroundTaskRecord): void {
-    this.deps.emit({ type: 'agent:background-task', ...record })
+  /**
+   * 推一条事件。
+   *
+   * 日志分两种推法，都是为了别让长任务的每次刷新都扛着上千条日志：
+   * - 终态：带全量 `logs`（一次自愈点，前端以此为准）；
+   * - 运行中：带 `logsDelta`（只含本次新增），其余进度更新两者都不带（前端沿用已有）。
+   */
+  private push(record: BackgroundTaskRecord, logsDelta?: readonly TaskLog[]): void {
+    const { logs, ...rest } = record
+    this.deps.emit({
+      type: 'agent:background-task',
+      ...rest,
+      ...(TERMINAL.has(record.status) && logs ? { logs } : {}),
+      ...(logsDelta && logsDelta.length > 0 ? { logsDelta } : {}),
+    })
   }
 
   /** 超过保留上限时，从最旧的终态任务开始逐出 */

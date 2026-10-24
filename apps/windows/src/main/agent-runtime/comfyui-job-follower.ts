@@ -14,6 +14,7 @@
  */
 
 import type { BackgroundTaskOutput } from '../../shared/agent-runtime-events'
+import { buildRemoteMediaUrl } from '../remote-media-url'
 
 /** 单个产出文件（url 为 ComfyUI `/view` 下载地址，不知道服务地址时缺省） */
 export type ComfyJobOutput = BackgroundTaskOutput
@@ -29,7 +30,10 @@ export interface ComfyJobOutcome {
 export interface FollowComfyJobOptions {
   readonly promptId: string
   /** 调同一 MCP Server 的工具（短名），返回文本；isError 时抛错 */
-  readonly callTool: (tool: string, args: Record<string, unknown>) => Promise<string>
+  readonly callTool: (
+    tool: string,
+    args: Record<string, unknown>,
+  ) => Promise<string>
   /** 后台任务自己的中断信号（取消 / 看门狗） */
   readonly signal: AbortSignal
   /** ComfyUI 服务地址（MCP 配置里的 COMFYUI_URL），用于拼 `/view` 链接 */
@@ -41,6 +45,11 @@ export interface FollowComfyJobOptions {
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>
   /** 状态变化时回调（排队中 / 渲染中），供任务卡显示进度 */
   readonly onProgress?: (note: string) => void
+  /**
+   * 每轮轮询前的闸门（暂停时在此挂起）。
+   * 远端作业不会因此停下——恢复后接着跟同一个 prompt_id，不重新提交。
+   */
+  readonly beforePoll?: (signal: AbortSignal) => Promise<void>
 }
 
 interface PromptStatus {
@@ -127,7 +136,14 @@ export function parseHistoryOutputs(historyText: string, baseUrl?: string): Comf
         name,
         path,
         kind: classifyOutput(key, name),
-        ...(baseUrl ? { url: buildViewUrl(baseUrl, name, subfolder, type) } : {}),
+        ...(baseUrl
+          ? {
+              // url：给人「在新窗口打开 / 下载」，保持 ComfyUI 原始地址
+              url: buildViewUrl(baseUrl, name, subfolder, type),
+              // previewUrl：给 <img>/<video>/灯箱直接加载，走本地代理补鉴权头
+              previewUrl: buildRemoteMediaUrl(buildViewUrl(baseUrl, name, subfolder, type)),
+            }
+          : {}),
       })
     }
   }
@@ -178,6 +194,7 @@ export async function followComfyJob(options: FollowComfyJobOptions): Promise<Co
     maxConsecutiveErrors = 6,
     sleep = defaultSleep,
     onProgress,
+    beforePoll,
   } = options
   let consecutiveErrors = 0
   let lastNote = ''
@@ -190,6 +207,10 @@ export async function followComfyJob(options: FollowComfyJobOptions): Promise<Co
 
   for (;;) {
     throwIfAborted(signal)
+    if (beforePoll) {
+      await beforePoll(signal)
+      throwIfAborted(signal)
+    }
     let status: PromptStatus
     try {
       status = JSON.parse(await callTool('queue', { action: 'status', prompt_id: promptId })) as PromptStatus

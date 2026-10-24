@@ -59,6 +59,7 @@ import {
   registerLocalMediaProtocolHandler,
   setLocalMediaWorkspaceCwdGetter,
 } from './local-media-protocol'
+import { registerRemoteMediaProtocolHandler } from './remote-media-protocol'
 import { join } from 'path'
 import {
   registerClientPluginProtocolHandler,
@@ -1152,6 +1153,7 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
   registerLocalMediaProtocolHandler()
+  registerRemoteMediaProtocolHandler()
   registerClientPluginProtocolHandler()
   // 用户宠物目录的资源通道（lumii-pet://）。与 lumii-local 同理：
   // scheme 须在 ready 前 registerSchemesAsPrivileged（见上），

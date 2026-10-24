@@ -184,7 +184,7 @@ interface ErrorState {
 }
 
 /** 活动 Agent */
-interface ActiveAgent {
+export interface ActiveAgent {
   readonly instanceId: string
   readonly name: string
   readonly state: string
@@ -262,7 +262,7 @@ interface SteerState {
 }
 
 /** 后台任务状态（长耗时工具后台化，见主进程 background-task-manager） */
-export type BackgroundTaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type BackgroundTaskStatus = 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
 
 /** 一条后台任务快照（渲染为对话内的任务卡） */
 export interface BackgroundTask {
@@ -282,6 +282,10 @@ export interface BackgroundTask {
   /** 运行中进度说明 */
   readonly note?: string
   readonly error?: string
+  /** 暂停时间点（仅 status='paused'） */
+  readonly pausedAt?: number
+  /** 是否支持暂停（轮询型任务） */
+  readonly pausable?: boolean
   /** 0–100。缺省表示工具尚未上报百分比 */
   readonly progress?: number
   /** 当前步骤描述 */
@@ -547,43 +551,103 @@ export function updateSessionState(
   })
 }
 
+/** 渲染层保留的后台任务日志上限（与主进程 MAX_TASK_LOGS 对齐） */
+const MAX_BACKGROUND_TASK_LOGS = 1000
+
+/**
+ * 合并任务日志。
+ *
+ * 主进程只在终态推全量 `logs`，运行中推增量的 `logsDelta`，
+ * 其余进度更新两者都不带 —— 不带时沿用已有日志，别把整份快照替换成空。
+ */
+function mergeTaskLogs(
+  existing: readonly TaskLog[] | undefined,
+  incoming: readonly TaskLog[] | undefined,
+  delta: readonly TaskLog[] | undefined,
+): readonly TaskLog[] | undefined {
+  if (incoming !== undefined) {
+    // 终态全量快照：内容一致就保留旧引用，避免任务卡白重渲染
+    return sameTaskLogs(existing, incoming) ? existing : incoming
+  }
+  if (!delta || delta.length === 0) return existing
+  const merged = [...(existing ?? []), ...delta]
+  return merged.length > MAX_BACKGROUND_TASK_LOGS
+    ? merged.slice(merged.length - MAX_BACKGROUND_TASK_LOGS)
+    : merged
+}
+
 /**
  * 插入/更新一条后台任务（按 taskId 去重）。
  *
  * 新任务置顶；已存在的原位替换（保留列表顺序，避免每次进度刷新都跳动）。
  */
-export function upsertBackgroundTask(sessionKey: string, task: BackgroundTask): void {
+export function upsertBackgroundTask(
+  sessionKey: string,
+  incoming: BackgroundTask,
+  logsDelta?: readonly TaskLog[],
+): void {
   updateSessionState(sessionKey, (prev) => {
-    const idx = prev.backgroundTasks.findIndex((t) => t.taskId === task.taskId)
+    const idx = prev.backgroundTasks.findIndex((t) => t.taskId === incoming.taskId)
     if (idx < 0) {
       // 主进程事件里没有 runId：创建时记下当前回合，后续事件沿用（终态时 activeRunId 已是 null）
-      const created = task.runId === undefined && prev.activeRunId
-        ? { ...task, runId: prev.activeRunId }
-        : task
+      const created = incoming.runId === undefined && prev.activeRunId
+        ? { ...incoming, runId: prev.activeRunId }
+        : incoming
       return { ...prev, backgroundTasks: [created, ...prev.backgroundTasks] }
     }
     const existing = prev.backgroundTasks[idx]!
+    const logs = mergeTaskLogs(existing.logs, incoming.logs, logsDelta)
     // 无实质变化则保持引用，避免无谓重渲染
     if (
-      existing.status === task.status &&
-      existing.summary === task.summary &&
-      existing.result === task.result &&
-      existing.outputs?.length === task.outputs?.length &&
-      existing.note === task.note &&
-      existing.error === task.error &&
-      existing.endedAt === task.endedAt &&
-      existing.progress === task.progress &&
-      existing.currentStep === task.currentStep &&
-      sameTaskLogs(existing.logs, task.logs) &&
-      sameMilestones(existing.milestones, task.milestones)
+      existing.status === incoming.status &&
+      existing.summary === incoming.summary &&
+      existing.result === incoming.result &&
+      existing.outputs?.length === incoming.outputs?.length &&
+      existing.note === incoming.note &&
+      existing.error === incoming.error &&
+      existing.endedAt === incoming.endedAt &&
+      existing.progress === incoming.progress &&
+      existing.currentStep === incoming.currentStep &&
+      existing.pausedAt === incoming.pausedAt &&
+      existing.pausable === incoming.pausable &&
+      existing.logs === logs &&
+      sameMilestones(existing.milestones, incoming.milestones)
     ) {
       return prev
     }
+    const merged: BackgroundTask = {
+      ...incoming,
+      // 进度/终态事件不带 runId，别把创建时捕获的归属冲掉
+      ...(incoming.runId === undefined && existing.runId !== undefined
+        ? { runId: existing.runId }
+        : {}),
+      ...(logs !== undefined ? { logs } : {}),
+    }
     const next = [...prev.backgroundTasks]
-    // 进度/终态事件不带 runId，别把创建时捕获的归属冲掉
-    next[idx] = task.runId === undefined && existing.runId !== undefined
-      ? { ...task, runId: existing.runId }
-      : task
+    next[idx] = merged
+    return { ...prev, backgroundTasks: next }
+  })
+}
+
+/**
+ * 把一条后台任务就地收尾（取消）。
+ *
+ * 用于「主进程说没有这个任务」的情况：历史会话恢复出来的卡片、或主进程重启后丢掉的
+ * 任务，点了中断不会有任何事件回来。不收尾的话按钮就一直显示「中断」，点了没反应。
+ */
+export function markBackgroundTaskCancelled(sessionKey: string, taskId: string): void {
+  updateSessionState(sessionKey, (prev) => {
+    const idx = prev.backgroundTasks.findIndex((t) => t.taskId === taskId)
+    if (idx < 0) return prev
+    const existing = prev.backgroundTasks[idx]!
+    if (existing.status === 'cancelled') return prev
+    const { pausedAt: _pausedAt, ...rest } = existing
+    const next = [...prev.backgroundTasks]
+    next[idx] = {
+      ...rest,
+      status: 'cancelled',
+      endedAt: existing.endedAt ?? Date.now(),
+    }
     return { ...prev, backgroundTasks: next }
   })
 }

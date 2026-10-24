@@ -36,28 +36,37 @@ describe('parseEnqueuedPromptId', () => {
 })
 
 describe('parseHistoryOutputs', () => {
-  it('解析视频/图片产出，并拼出 ComfyUI /view 地址', () => {
+  it('解析视频/图片产出：原始地址给人点，代理地址给 img/video 加载', () => {
     const outputs = parseHistoryOutputs(HISTORY_OK, 'https://cfui.example.com/')
-    expect(outputs).toEqual([
+    // ComfyUI /view 需要 Basic Auth，<img>/<video> 带不上头 —— 预览必须走 lumii-remote 代理，
+    // 否则渲染层拿到 401、预览区一片空白（2026-10-24 用户实测）
+    const unwrap = (url?: string): string | null => (url ? new URL(url).searchParams.get('src') : null)
+    expect(outputs.map((o) => ({ name: o.name, path: o.path, kind: o.kind, url: o.url, src: unwrap(o.previewUrl) }))).toEqual([
       {
         name: 'Wan_00001.mp4',
         path: 'video/Wan_00001.mp4',
         kind: 'video',
         url: 'https://cfui.example.com/view?filename=Wan_00001.mp4&subfolder=video&type=output',
+        src: 'https://cfui.example.com/view?filename=Wan_00001.mp4&subfolder=video&type=output',
       },
       {
         name: 'preview_0001.png',
         path: 'preview_0001.png',
         kind: 'image',
         url: 'https://cfui.example.com/view?filename=preview_0001.png&subfolder=&type=temp',
+        src: 'https://cfui.example.com/view?filename=preview_0001.png&subfolder=&type=temp',
       },
       {
         name: 'b.png',
         path: 'b.png',
         kind: 'image',
         url: 'https://cfui.example.com/view?filename=b.png&subfolder=&type=output',
+        src: 'https://cfui.example.com/view?filename=b.png&subfolder=&type=output',
       },
     ])
+    for (const output of outputs) {
+      expect(output.previewUrl?.startsWith('lumii-remote://media/?src=')).toBe(true)
+    }
   })
 
   it('没有服务地址时只给文件名，不编造链接', () => {

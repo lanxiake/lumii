@@ -22,17 +22,41 @@ import styles from './BackgroundTaskCard.module.css'
 
 const STATUS_TEXT: Record<BackgroundTask['status'], string> = {
   running: '后台执行中',
+  paused: '已暂停',
   succeeded: '已完成',
   failed: '失败',
   cancelled: '已取消',
 }
 
 /** 取消后台任务：走命令总线，状态由主进程回推 agent:background-task 更新 */
-function cancelBackgroundTask(taskId: string): void {
+async function cancelBackgroundTask(taskId: string): Promise<void> {
   const api = (window as unknown as {
     electronAPI?: { agentRuntime?: { sendCommand?: (cmd: unknown) => Promise<unknown> } }
   }).electronAPI
-  void api?.agentRuntime?.sendCommand?.({ type: 'background-task:cancel', taskId })
+  // 主进程不认识这个任务（历史残留卡片 / 重启后丢失）时就地收尾，
+  // 否则按钮永远停在「中断」，用户点了毫无反应
+  const settleLocally = async (): Promise<void> => {
+    const storeMod = await import('../../../../hooks/business/useAgentRuntime/agent-runtime-store')
+    const sessionKey = storeMod.runtimeStore.getState().currentSessionKey
+    if (sessionKey) storeMod.markBackgroundTaskCancelled(sessionKey, taskId)
+  }
+  try {
+    const result = (await api?.agentRuntime?.sendCommand?.({
+      type: 'background-task:cancel',
+      taskId,
+    })) as { ok?: boolean } | undefined
+    if (result?.ok === false) await settleLocally()
+  } catch {
+    await settleLocally()
+  }
+}
+
+/** 暂停/恢复：只对轮询型任务有闸门，主进程不支持时返回 ok:false（UI 已按 pausable 隐藏按钮） */
+function setBackgroundTaskPaused(taskId: string, paused: boolean): void {
+  const api = (window as unknown as {
+    electronAPI?: { agentRuntime?: { sendCommand?: (cmd: unknown) => Promise<unknown> } }
+  }).electronAPI
+  void api?.agentRuntime?.sendCommand?.({ type: 'background-task:pause', taskId, paused })
 }
 
 const Spinner: React.FC = () => (
@@ -51,8 +75,16 @@ const Spinner: React.FC = () => (
   </svg>
 )
 
+const PauseGlyph: React.FC = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+    <line x1="9" y1="6" x2="9" y2="18" />
+    <line x1="15" y1="6" x2="15" y2="18" />
+  </svg>
+)
+
 const StatusIcon: React.FC<{ status: BackgroundTask['status'] }> = ({ status }) => {
   if (status === 'running') return <Spinner />
+  if (status === 'paused') return <PauseGlyph />
   if (status === 'succeeded') {
     return (
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -115,20 +147,21 @@ const BackgroundTaskOutputs: React.FC<{ outputs: readonly BackgroundTaskOutput[]
  */
 const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
   const running = task.status === 'running'
+  const active = running || task.status === 'paused'
   const alertLogs = hasAlertLogs(task.logs)
   const [expanded, setExpanded] = useState(
-    () => running || alertLogs || (task.milestones?.length ?? 0) > 0,
+    () => active || alertLogs || (task.milestones?.length ?? 0) > 0,
   )
   const structuredResult = Boolean(
     task.result && (detectCodeFence(task.result) || tryParseJsonResult(task.result)),
   )
   const detail = task.error ?? (structuredResult ? task.summary : (task.result ?? task.summary))
   const outputCount = task.outputs?.length ?? 0
-  const showProgress = running || typeof task.progress === 'number'
+  const showProgress = active || typeof task.progress === 'number'
   const hasMediaPreview = Boolean(
     task.outputs?.some(
       (output) =>
-        Boolean(output.url) &&
+        Boolean(output.previewUrl ?? output.url) &&
         (output.kind === 'image' || output.kind === 'video' || output.kind === 'audio'),
     ),
   )
@@ -139,7 +172,7 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
     || (task.milestones?.length ?? 0) > 0
   const statusText = running && task.note ? task.note : STATUS_TEXT[task.status]
 
-  // 运行中每秒刷新耗时 / 本步等待 / 健康态
+  // 运行中每秒刷新耗时 / 本步等待 / 健康态（暂停时不再走动）
   const [, forceTick] = useState(0)
   useEffect(() => {
     if (!running) return
@@ -197,7 +230,7 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
             {HEALTH_LABEL[health]}
           </span>
           <span className={styles.elapsed}>
-            {formatTaskElapsed(task.startedAt, task.endedAt)}
+            {formatTaskElapsed(task.startedAt, task.endedAt ?? task.pausedAt)}
           </span>
           {outputCount > 0 && (
             <span className={styles.outputCount}>产出 {outputCount}</span>
@@ -210,11 +243,33 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
             </span>
           )}
         </button>
+        {running && task.pausable && (
+          <button
+            type="button"
+            className={styles.cancelBtn}
+            onClick={() => setBackgroundTaskPaused(task.taskId, true)}
+            title="暂停跟进（远端作业继续跑，恢复后接着等）"
+            aria-label="暂停后台任务"
+          >
+            暂停
+          </button>
+        )}
+        {task.status === 'paused' && (
+          <button
+            type="button"
+            className={styles.cancelBtn}
+            onClick={() => setBackgroundTaskPaused(task.taskId, false)}
+            title="恢复跟进"
+            aria-label="恢复后台任务"
+          >
+            恢复
+          </button>
+        )}
         {running && (
           <button
             type="button"
             className={styles.cancelBtn}
-            onClick={() => cancelBackgroundTask(task.taskId)}
+            onClick={() => void cancelBackgroundTask(task.taskId)}
             title="中断这个后台任务"
             aria-label="中断后台任务"
           >
@@ -229,6 +284,7 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
           startTime={task.startedAt}
           stepWaitStart={stepWaitStart}
           endedAt={task.endedAt}
+          pausedAt={task.pausedAt}
           status={task.status}
           now={now}
           onActivate={toggleExpanded}

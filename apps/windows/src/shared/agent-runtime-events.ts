@@ -413,7 +413,7 @@ export interface AgentSubagentCompletedEvent {
 // ============================================================
 
 /** 后台任务状态 */
-export type BackgroundTaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type BackgroundTaskStatus = 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
 
 /** 后台任务的单个产出文件（如 ComfyUI 生成的视频/图片） */
 export interface BackgroundTaskOutput {
@@ -424,6 +424,14 @@ export interface BackgroundTaskOutput {
   readonly kind: 'video' | 'image' | 'audio' | 'file'
   /** 可直接打开/下载的地址；产出方地址未知时缺省 */
   readonly url?: string
+  /**
+   * 供 `<img>` / `<video>` / 灯箱直接加载的地址。
+   *
+   * 与 `url` 分开是因为两者用途不同：`url` 是「在新窗口打开 / 下载」给人点的原始地址，
+   * 而需要鉴权的服务（ComfyUI `/view` 走 Basic Auth）那个地址浏览器内核自己带不上头，
+   * 只能走本地代理 —— 这里放的是代理后的 `lumii-remote://` 地址。
+   */
+  readonly previewUrl?: string
 }
 
 /** 后台任务日志级别（与 console 四级对齐） */
@@ -480,12 +488,23 @@ export interface AgentBackgroundTaskEvent {
   readonly note?: string
   /** 失败原因 */
   readonly error?: string
+  /** 暂停时间点（仅 status='paused' 时有值） */
+  readonly pausedAt?: number
+  /** 是否支持暂停（轮询型任务为 true；原子操作不会有暂停按钮） */
+  readonly pausable?: boolean
   /** 0–100。缺省表示工具尚未上报百分比 */
   readonly progress?: number
   /** 当前步骤描述 */
   readonly currentStep?: string
-  /** 内存日志，主进程最多保留 1000 条 */
+  /**
+   * 全量日志快照。仅在**终态**推送里出现。
+   *
+   * 运行中推送一律不带 `logs`：渲染层保留自己已有的日志（缺省 = 沿用），
+   * 避免每加一行日志就把上千条重传一遍。终态带全量作为一次自愈点。
+   */
   readonly logs?: readonly TaskLog[]
+  /** 自上次推送以来新增的日志（运行中专用，与 `logs` 互斥） */
+  readonly logsDelta?: readonly TaskLog[]
   /** 任务里程碑 */
   readonly milestones?: readonly Milestone[]
 }

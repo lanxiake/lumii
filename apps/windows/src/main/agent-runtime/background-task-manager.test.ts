@@ -96,8 +96,7 @@ describe('BackgroundTaskManager', () => {
     expect(manager.get(running)?.status).toBe('running')
   })
 
-  it('deliver 抛错不影响任务终结', () => {
-    const events: AgentRuntimeEvent[] = []
+  it('deliver 抛错不影响任务终结', () => {    const events: AgentRuntimeEvent[] = []
     const manager = new BackgroundTaskManager({
       emit: (e) => events.push(e),
       deliver: () => {
@@ -116,6 +115,24 @@ describe('BackgroundTaskManager', () => {
     manager.start({ sessionKey: 's1', toolName: 't', label: 'L' })
     expect(manager.listBySession('s1')).toHaveLength(2)
     expect(manager.listBySession('s2')).toHaveLength(1)
+  })
+
+  it('终态回调拿到含耗时的记录；回调抛错不影响终结', () => {
+    const settled: BackgroundTaskRecord[] = []
+    const events: AgentRuntimeEvent[] = []
+    const manager = new BackgroundTaskManager({
+      emit: (e) => events.push(e),
+      deliver: () => {},
+      now: () => 5_000,
+      onSettled: (record) => {
+        settled.push(record)
+        throw new Error('埋点炸了')
+      },
+    })
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    expect(() => manager.complete(taskId, 'ok')).not.toThrow()
+    expect(settled).toHaveLength(1)
+    expect(settled[0]).toMatchObject({ taskId, status: 'succeeded', endedAt: 5_000 })
   })
 
   it('摘要截断不影响完整结果：result 保留全文，唤醒投递拿到的是全文', () => {
@@ -175,7 +192,27 @@ describe('BackgroundTaskManager 进度 / 日志 / 里程碑', () => {
     expect(logs).toHaveLength(1000)
     expect(logs[0]?.message).toBe('m-1')
     expect(logs[999]?.message).toBe('m-1000')
-    expect(events.at(-1)).toMatchObject({ type: 'agent:background-task', logs })
+    // 运行中只推增量：长任务每次刷新都全量重传会拖死渲染层
+    expect(events.at(-1)).toMatchObject({
+      type: 'agent:background-task',
+      logsDelta: [{ level: 'info', message: 'm-1000', timestamp: 10 }],
+    })
+    expect(events.at(-1)).not.toHaveProperty('logs')
+  })
+
+  it('addLog 增量推动，终态补齐全量快照', () => {
+    const { manager, events } = makeManager()
+    const taskId = manager.start({ toolName: 't', label: 'L' })
+    manager.addLog(taskId, 'info', 'a')
+    manager.addLog(taskId, 'info', 'b')
+    const deltas = events
+      .filter((e) => e.type === 'agent:background-task' && 'logsDelta' in e)
+      .map((e) => (e as { logsDelta: readonly { message: string }[] }).logsDelta.map((l) => l.message))
+    expect(deltas).toEqual([['a'], ['b']])
+
+    manager.complete(taskId, 'ok')
+    const last = events.at(-1)
+    expect(last?.type === 'agent:background-task' && last.logs?.map((l) => l.message)).toEqual(['a', 'b'])
   })
 
   it('setMilestones / updateMilestone 按步骤更新，未知步骤不推事件', () => {

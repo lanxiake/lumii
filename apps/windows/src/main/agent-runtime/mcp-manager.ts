@@ -358,14 +358,19 @@ export class McpManager {
    * 兼容旧签名：调用方原本只读 name / connected 两个字段。
    */
   getStatus(): McpServerRuntimeStatus[] {
-    return [...this.configs.values()].map((config) => ({
-      ...config,
-      // 成功 connect 后才会写入 mcpClients，以此判定在线
-      connected: this.mcpClients.has(config.name),
-      connecting: this.connecting.has(config.name),
-      tools: this.serverTools.get(config.name) ?? [],
-      lastError: this.lastErrors.get(config.name),
-    }))
+    return [...this.configs.values()].map((raw) => {
+      // 与 getBackgroundToolNames 用同一套「内置默认值补齐」口径：
+      // 否则设置页/CLI 看到 bg=undefined，而实际工具是后台化的，两边对不上
+      const config = applyPresetDefaults(raw, findMcpPreset(raw.name))
+      return {
+        ...config,
+        // 成功 connect 后才会写入 mcpClients，以此判定在线
+        connected: this.mcpClients.has(config.name),
+        connecting: this.connecting.has(config.name),
+        tools: this.serverTools.get(config.name) ?? [],
+        lastError: this.lastErrors.get(config.name),
+      }
+    })
   }
 
   /** 配置文件级错误（解析失败等），无则 null */
@@ -384,12 +389,15 @@ export class McpManager {
     serverName: string,
     toolName: string,
     args: Record<string, unknown> = {},
+    opts?: { signal?: AbortSignal; timeoutMs?: number },
   ): Promise<string> {
     const client = this.mcpClients.get(serverName)
     if (!client) {
       throw new Error(`MCP Server [${serverName}] 未连接`)
     }
-    const result = (await client.callTool(toolName, args)) as {
+    // 透传 signal：后台任务被取消时，挂起的 MCP 请求要当场断掉，
+    // 而不是等它自己在服务端返回
+    const result = (await client.callTool(toolName, args, opts)) as {
       content?: Array<{ type: string; text?: string }>
       isError?: boolean
     }

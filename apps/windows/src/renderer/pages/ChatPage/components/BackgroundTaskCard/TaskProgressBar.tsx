@@ -19,6 +19,8 @@ export interface TaskProgressBarProps {
   stepWaitStart?: number
   /** 任务结束时间；已结束时固定「已用」 */
   endedAt?: number
+  /** 暂停时间点；paused 时「已用」与「本步」都停在这一刻 */
+  pausedAt?: number
   status: BackgroundTaskStatus
   /** 便于测试注入时钟 */
   now?: number
@@ -49,6 +51,7 @@ function progressLabel(status: BackgroundTaskStatus, progress: number, indetermi
   if (status === 'succeeded') return `已完成 (${progress}%)`
   if (status === 'failed') return `失败 (${progress}%)`
   if (status === 'cancelled') return `已取消 (${progress}%)`
+  if (status === 'paused') return `已暂停 (${progress}%)`
   if (indeterminate) return '进行中（排队/未开始计时）'
   return `进行中 (${progress}%)`
 }
@@ -60,21 +63,28 @@ export const TaskProgressBar: React.FC<TaskProgressBarProps> = ({
   startTime,
   stepWaitStart,
   endedAt,
+  pausedAt,
   status,
   now = Date.now(),
   onActivate,
 }) => {
   const displayProgress = Math.min(100, Math.max(0, progress || 0))
   const running = status === 'running'
+  const paused = status === 'paused'
   const indeterminate = running && displayProgress === 0
+  // 暂停时计时停在暂停那一刻，否则「已用」会继续涨，看起来像还在跑
+  const clock = paused ? (pausedAt ?? now) : now
   const remaining = running ? estimateRemainingSeconds(startTime, displayProgress, now) : null
   const stepStart = stepWaitStart ?? startTime
-  const elapsedLabel = formatTaskElapsed(startTime, running ? undefined : endedAt ?? now, now)
+  const frozenEnd = running ? undefined : (endedAt ?? clock)
+  const elapsedLabel = formatTaskElapsed(startTime, frozenEnd, clock)
   const stepWaitLabel = running ? formatTaskElapsed(stepStart, undefined, now) : null
 
   const timingBits: string[] = [`已用 ${elapsedLabel}`]
   if (stepWaitLabel !== null) timingBits.push(`本步 ${stepWaitLabel}`)
-  if (running && indeterminate) {
+  if (paused) {
+    timingBits.push('计时已停')
+  } else if (running && indeterminate) {
     timingBits.push('预计 —')
   } else if (remaining !== null) {
     timingBits.push(`预计 ${formatRemainingSeconds(remaining)}`)

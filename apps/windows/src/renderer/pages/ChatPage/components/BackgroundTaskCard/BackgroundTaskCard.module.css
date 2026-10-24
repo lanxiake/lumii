@@ -178,7 +178,7 @@
 
 .healthBadge_error {
   color: var(--mt-error, var(--mt-fg-2));
-  border-color: color-mix(in srgb, var(--mt-error, #d32f2f) 45%, var(--mt-border));
+  border-color: color-mix(in srgb, var(--mt-error) 45%, var(--mt-border));
 }
 
 .elapsed {

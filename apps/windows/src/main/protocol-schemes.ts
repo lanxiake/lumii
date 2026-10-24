@@ -1,6 +1,7 @@
 import { protocol } from 'electron'
 
 import { LOCAL_MEDIA_SCHEME } from './local-media-protocol'
+import { REMOTE_MEDIA_SCHEME } from './remote-media-protocol'
 import { PET_ASSET_SCHEME } from '../shared/pet-asset'
 import { CLIENT_PLUGIN_SCHEME } from './client-plugin-protocol'
 
@@ -18,6 +19,11 @@ export function registerAllSchemePrivileges(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: LOCAL_MEDIA_SCHEME,
+      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true, corsEnabled: true },
+    },
+    {
+      // 远端媒体代理（ComfyUI /view 需要 Basic Auth，img/video 标签带不上头）
+      scheme: REMOTE_MEDIA_SCHEME,
       privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true, corsEnabled: true },
     },
     {

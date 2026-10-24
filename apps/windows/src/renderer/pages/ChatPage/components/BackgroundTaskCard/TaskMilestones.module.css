@@ -35,7 +35,7 @@
 .pending { background: color-mix(in srgb, var(--mt-fg-4) 12%, transparent); }
 .inProgress { background: color-mix(in srgb, var(--mt-accent-500) 16%, transparent); }
 .completed { background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent); }
-.failed { background: color-mix(in srgb, var(--mt-error, #d32f2f) 14%, transparent); }
+.failed { background: color-mix(in srgb, var(--mt-error) 14%, transparent); }
 
 .icon {
   width: 16px;

@@ -67,8 +67,7 @@ export function deriveTaskHealth(input: {
   const hasErrorLog = input.logs?.some((log) => log.level === 'error')
   if (input.status === 'failed' || hasFailedMilestone || hasErrorLog) return 'error'
 
-  if (input.status === 'running') {
-    const startedAt = input.startedAt ?? resolveStepWaitStart(0, input.milestones)
+  if (input.status === 'running') {    const startedAt = input.startedAt ?? resolveStepWaitStart(0, input.milestones)
     const activityAt = resolveLatestActivityAt({
       startedAt,
       logs: input.logs,

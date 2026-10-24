@@ -2,8 +2,11 @@ import type { BackgroundToolConfig, BackgroundToolRunner } from '@mtbot/agent-ru
 
 import { agentRuntimeLog as log } from '../bridge-utils'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from '../comfyui-job-follower'
+import { withRetry } from '../with-retry'
+import { taskStartedSampling, taskFinishedSampling } from '../resource-monitor'
 import type { McpManager } from '../mcp-manager'
 import type { BackgroundTaskManager } from '../background-task-manager'
+import { PauseGate } from '../task-pause-gate'
 import {
   reportBackgroundToolStart,
   reportComfyEnqueued,
@@ -35,6 +38,11 @@ export interface BackgroundToolConfigDeps {
   instanceToRootSessionKey: Map<string, string>
   /** taskId → 中断控制器（取消与看门狗共用） */
   backgroundTaskAborts: Map<string, AbortController>
+  /**
+   * taskId → 暂停闸门。只有「轮询型」任务（ComfyUI 跟进）会挂上去；
+   * 原子操作没有闸门，UI 上也就不该出现暂停按钮。
+   */
+  taskPauseGates?: Map<string, PauseGate>
 }
 
 /**
@@ -58,6 +66,8 @@ export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): Backg
       const ownerId = instanceId ?? deps.currentToolExecutorInstanceIdRef.value
       const sessionKey = ownerId ? deps.instanceToRootSessionKey.get(ownerId) : undefined
       const taskId = manager.start({ instanceId: ownerId, sessionKey, toolName, label })
+      // 有任务在跑才采样资源；空闲时不该白烧 CPU
+      taskStartedSampling()
 
       // 每个后台任务一个独立中断控制器：任务活过回合结束，可单独取消，看门狗兜底
       const controller = new AbortController()
@@ -67,15 +77,23 @@ export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): Backg
         if (!deps.backgroundTaskAborts.has(taskId)) return
         log.warn(`[background-task] 看门狗超时，判定失败 task=${taskId}`)
         deps.backgroundTaskAborts.delete(taskId)
+        deps.taskPauseGates?.delete(taskId)
+        // 采样计数由 settle 收尾（abort 后执行流会走到 catch → settle），这里再减一次会重复
         controller.abort()
         const message = `后台任务超过 ${Math.round(watchdogMs / 60000)} 分钟未返回，已中止`
         reportTaskFailure(manager, taskId, message)
         manager.fail(taskId, message)
       }, watchdogMs)
 
+      let settled = false
       const settle = (apply: () => void): void => {
+        // 看门狗与正常结束可能先后触发，收尾只做一次（采样计数不能减两次）
+        if (settled) return
+        settled = true
         clearTimeout(watchdog)
         deps.backgroundTaskAborts.delete(taskId)
+        deps.taskPauseGates?.delete(taskId)
+        taskFinishedSampling()
         apply()
       }
 
@@ -95,16 +113,42 @@ export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): Backg
             log.info(`[background-task] 跟进 ComfyUI 任务 task=${taskId} prompt_id=${promptId}`)
             manager.update(taskId, `ComfyUI 已入队（prompt_id=${promptId}）`)
             reportComfyEnqueued(manager, taskId, promptId)
+            // 从这里开始是纯轮询，可以安全暂停：远端作业不受影响，恢复后接着跟同一个 prompt_id
+            const gate = new PauseGate()
+            deps.taskPauseGates?.set(taskId, gate)
+            manager.setPausable(taskId, true)
             const outcome = await followComfyJob({
               promptId,
-              callTool: (tool, args) => deps.getMcpManager()!.callTool(server.name, tool, args),
+              // 轮询单次抖动（ComfyUI 短暂不可达）不该让整条跟进失败：前两次退避重试，
+              // 仍失败就交给 followComfyJob 自己的连续失败计数兜底
+              callTool: (tool, args) =>
+                withRetry(
+                  () =>
+                    deps.getMcpManager()!.callTool(server.name, tool, args, {
+                      signal: controller.signal,
+                    }),
+                  {
+                    maxAttempts: 3,
+                    backoffMs: 1_000,
+                    signal: controller.signal,
+                    onRetry: (attempt, delayMs) => {
+                      manager.addLog(
+                        taskId,
+                        'warn',
+                        `ComfyUI 轮询失败，第 ${attempt}/3 次重试（${Math.round(delayMs / 1000)}s 后）`,
+                      )
+                    },
+                  },
+                ),
               signal: controller.signal,
               baseUrl: resolveComfyBaseUrl(server.env),
+              beforePoll: (signal) => gate.wait(signal),
               onProgress: (note) => {
                 manager.update(taskId, `${note}（prompt_id=${promptId}）`)
                 reportComfyNote(manager, taskId, note)
               },
             })
+            deps.taskPauseGates?.delete(taskId)
             settle(() => {
               log.info(
                 `[background-task] ComfyUI 任务结束 task=${taskId} ok=${outcome.ok} outputs=${outcome.outputs.length}`,

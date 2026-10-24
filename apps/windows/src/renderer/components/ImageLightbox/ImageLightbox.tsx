@@ -31,7 +31,13 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose 
   if (typeof document === 'undefined') return null
 
   return createPortal(
-    <div className={styles.overlay} onClick={onClose}>
+    <div
+      className={styles.overlay}
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt ? `图片预览：${alt}` : '图片预览'}
+      onClick={onClose}
+    >
       <button className={styles.closeBtn} onClick={onClose} aria-label="关闭">
         ×
       </button>

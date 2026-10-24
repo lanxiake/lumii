@@ -1614,6 +1614,18 @@ interface BackgroundTaskCancelCommand {
   readonly taskId: string
 }
 
+/**
+ * 暂停/恢复一个后台任务。
+ *
+ * 只有轮询型任务（ComfyUI 跟进）支持：暂停停的是轮询，远端作业照跑，
+ * 恢复后接着跟同一作业，不重新提交。主进程对不支持的任务返回 `{ ok: false }`。
+ */
+interface BackgroundTaskPauseCommand {
+  readonly type: 'background-task:pause'
+  readonly taskId: string
+  readonly paused: boolean
+}
+
 // ============================================================
 // 微信盯梢（本机微信）
 // ============================================================
@@ -1651,6 +1663,7 @@ interface WechatWatchReplayCommand {
 /** 所有 Agent Runtime 命令的联合类型 */
 export type AgentRuntimeCommand =
   | BackgroundTaskCancelCommand
+  | BackgroundTaskPauseCommand
   | WechatWatchReplayCommand
   | UserSendCommand
   | UserSteerCommand

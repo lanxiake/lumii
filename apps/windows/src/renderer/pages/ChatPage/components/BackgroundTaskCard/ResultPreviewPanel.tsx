@@ -54,37 +54,48 @@ export function copyText(text: string): void {
   if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(text)
 }
 
+/**
+ * `<img>` / `<video>` / 灯箱该用的地址。
+ *
+ * 需要鉴权的产出（ComfyUI）只有 `previewUrl` 能加载；`url` 是给人点开/下载的原始地址。
+ */
+export function mediaSrc(output: BackgroundTaskOutput): string | undefined {
+  return output.previewUrl ?? output.url
+}
+
 /** 图片预览：点击或「放大」打开灯箱 */
 const ImagePreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) => {
   const [open, setOpen] = useState(false)
-  if (!output.url) return null
+  const src = mediaSrc(output)
+  if (!src) return null
   return (
     <section className={styles.section}>
       <div className={styles.header}>图片预览</div>
       <button type="button" className={styles.imageButton} onClick={() => setOpen(true)}>
-        <img src={output.url} alt={output.name} className={styles.image} />
+        <img src={src} alt={output.name} className={styles.image} />
       </button>
       <div className={styles.actions}>
-        <button type="button" onClick={() => downloadUrl(output.url!, output.name)}>下载</button>
+        <button type="button" onClick={() => downloadUrl(output.url ?? src, output.name)}>下载</button>
         <button type="button" onClick={() => setOpen(true)}>放大</button>
       </div>
-      {open && <ImageLightbox src={output.url} alt={output.name} onClose={() => setOpen(false)} />}
+      {open && <ImageLightbox src={src} alt={output.name} onClose={() => setOpen(false)} />}
     </section>
   )
 }
 
 /** 视频预览 */
 const VideoPreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) => {
-  if (!output.url) return null
+  const src = mediaSrc(output)
+  if (!src) return null
   return (
     <section className={styles.section}>
       <div className={styles.header}>视频预览</div>
-      <video className={styles.video} controls width="100%" src={output.url}>
+      <video className={styles.video} controls width="100%" src={src}>
         浏览器不支持视频播放
       </video>
       <div className={styles.actions}>
-        <button type="button" onClick={() => downloadUrl(output.url!, output.name)}>下载</button>
-        <a href={output.url} target="_blank" rel="noreferrer">在新窗口打开</a>
+        <button type="button" onClick={() => downloadUrl(output.url ?? src, output.name)}>下载</button>
+        <a href={output.url ?? src} target="_blank" rel="noreferrer">在新窗口打开</a>
       </div>
     </section>
   )
@@ -92,11 +103,12 @@ const VideoPreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) =>
 
 /** 音频预览 */
 const AudioPreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) => {
-  if (!output.url) return null
+  const src = mediaSrc(output)
+  if (!src) return null
   return (
     <section className={styles.section}>
       <div className={styles.header}>音频预览</div>
-      <audio controls src={output.url} />
+      <audio controls src={src} />
     </section>
   )
 }
@@ -142,7 +154,7 @@ export const MediaThumbStrip: React.FC<{ outputs?: readonly BackgroundTaskOutput
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const media = outputs.filter(
     (output) =>
-      Boolean(output.url) &&
+      Boolean(mediaSrc(output)) &&
       (output.kind === 'image' || output.kind === 'video' || output.kind === 'audio'),
   )
   if (media.length === 0) return null
@@ -150,6 +162,7 @@ export const MediaThumbStrip: React.FC<{ outputs?: readonly BackgroundTaskOutput
   return (
     <div className={styles.thumbStrip} aria-label="媒体预览">
       {media.map((output) => {
+        const src = mediaSrc(output)!
         if (output.kind === 'image') {
           return (
             <button
@@ -158,11 +171,11 @@ export const MediaThumbStrip: React.FC<{ outputs?: readonly BackgroundTaskOutput
               className={styles.thumbButton}
               onClick={(event) => {
                 event.stopPropagation()
-                setLightbox({ src: output.url!, alt: output.name })
+                setLightbox({ src, alt: output.name })
               }}
               aria-label={`预览图片 ${output.name}`}
             >
-              <img src={output.url} alt={output.name} className={styles.thumbImage} />
+              <img src={src} alt={output.name} className={styles.thumbImage} />
             </button>
           )
         }
@@ -173,7 +186,7 @@ export const MediaThumbStrip: React.FC<{ outputs?: readonly BackgroundTaskOutput
                 className={styles.thumbVideo}
                 controls
                 preload="metadata"
-                src={output.url}
+                src={src}
                 onClick={(event) => event.stopPropagation()}
               >
                 浏览器不支持视频播放
@@ -186,7 +199,7 @@ export const MediaThumbStrip: React.FC<{ outputs?: readonly BackgroundTaskOutput
             key={`thumb:${output.path}`}
             className={styles.thumbAudio}
             controls
-            src={output.url}
+            src={src}
             onClick={(event) => event.stopPropagation()}
           />
         )

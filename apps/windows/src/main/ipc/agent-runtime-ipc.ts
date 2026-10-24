@@ -728,8 +728,13 @@ export async function handleCommand(
 
       // ---- 后台任务取消（长耗时工具后台化，用户在任务卡点「中断」）----
       case 'background-task:cancel':
-        bridge.cancelBackgroundTask(command.taskId)
-        return { ok: true }
+        // ok:false = 主进程没有这个运行中的任务（历史残留卡片 / 重启后丢失），
+        // 渲染层据此把卡片就地收尾，避免「点了没反应」
+        return { ok: bridge.cancelBackgroundTask(command.taskId) }
+
+      // ---- 后台任务暂停/恢复（只有轮询型任务支持）----
+      case 'background-task:pause':
+        return { ok: bridge.setBackgroundTaskPaused(command.taskId, command.paused) }
 
       // 转交确认（F2 队长制）：主助手提案 → 用户点卡片确认 → 新建/复用开发会话并发起任务
       case 'handoff:confirm':

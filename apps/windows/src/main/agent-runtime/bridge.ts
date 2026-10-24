@@ -206,6 +206,8 @@ import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { getVcsService } from './vcs-accessor'
 import { beginStandaloneTurn } from './turn-touched-paths'
 import { BackgroundTaskManager, type BackgroundTaskRecord } from './background-task-manager'
+import { PauseGate } from './task-pause-gate'
+import { buildTaskMetrics } from './task-metrics'
 import { followComfyJob, parseEnqueuedPromptId, resolveComfyBaseUrl } from './comfyui-job-follower'
 import { buildBackgroundToolConfig } from './bootstrap/background-tool-config'
 import { writeDiaryFor } from './bootstrap/diary-writer'
@@ -421,6 +423,8 @@ export class AgentRuntimeBridge {
   private backgroundTaskManager: BackgroundTaskManager | null = null
   /** 运行中后台任务的中断控制器（取消/看门狗用），taskId → controller */
   private readonly backgroundTaskAborts = new Map<string, AbortController>()
+  /** 轮询型后台任务的暂停闸门（暂停不打断远端作业，只停轮询） */
+  private readonly backgroundTaskPauseGates = new Map<string, PauseGate>()
   private readonly instanceToRootSessionKey = new Map<string, string>()
   private readonly nodeStreamCallbacks = new Map<string, (event: AgentRuntimeEvent) => void>()
   /** sessionKey → 最近一次 LLM 调用返回的 inputTokens（提供商真实 prompt tokens） */
@@ -3692,6 +3696,16 @@ export class AgentRuntimeBridge {
           this.ipcChannel.forwardIpcEvent(event)
         },
         deliver: (task) => this.deliverBackgroundTask(task),
+        onSettled: (task) => {
+          // 本地埋点：只写日志，不落盘不上报（匿名性能统计是 Phase 2 的事）
+          const metrics = buildTaskMetrics(task)
+          const heapMb = Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10
+          log.info(
+            `[BackgroundTask] 性能 task=${metrics.taskId} 耗时=${metrics.durationMs ?? '-'}ms `
+              + `最慢=${metrics.slowestMilestone?.step ?? '-'}(${metrics.slowestMilestone?.durationMs ?? '-'}ms) `
+              + `warn=${metrics.warningCount} error=${metrics.errorCount} heap=${heapMb}MB`,
+          )
+        },
       })
     }
     return this.backgroundTaskManager
@@ -3707,6 +3721,7 @@ export class AgentRuntimeBridge {
       currentToolExecutorInstanceIdRef: this.currentToolExecutorInstanceIdRef,
       instanceToRootSessionKey: this.instanceToRootSessionKey,
       backgroundTaskAborts: this.backgroundTaskAborts,
+      taskPauseGates: this.backgroundTaskPauseGates,
     })
   }
 
@@ -3723,14 +3738,47 @@ export class AgentRuntimeBridge {
     )
   }
 
-  /** 取消一个后台任务：标记取消并中断其挂起的执行 */
-  cancelBackgroundTask(taskId: string): void {
-    this.getBackgroundTaskManager().cancel(taskId)
+  /**
+   * 取消一个后台任务：标记取消并中断其挂起的执行。
+   *
+   * 返回是否真的存在这个运行中任务。主进程不认识它（历史会话残留的卡片、
+   * 已结束的任务）时返回 false —— 渲染层据此把卡片就地收尾，而不是点了没反应。
+   */
+  cancelBackgroundTask(taskId: string): boolean {
+    const manager = this.getBackgroundTaskManager()
+    const known = manager.get(taskId)
+    const running = known !== undefined && (known.status === 'running' || known.status === 'paused')
+    manager.cancel(taskId)
+    // 取消前先放开暂停闸门，否则轮询卡在 gate.wait 上，abort 后也要等下一轮才退出
+    this.backgroundTaskPauseGates.get(taskId)?.resume()
     const controller = this.backgroundTaskAborts.get(taskId)
     if (controller) {
       controller.abort()
       this.backgroundTaskAborts.delete(taskId)
     }
+    this.backgroundTaskPauseGates.delete(taskId)
+    return running
+  }
+
+  /**
+   * 暂停/恢复后台任务。
+   *
+   * 只有挂了闸门的任务（当前就是 ComfyUI 跟进）能暂停：闸门卡住的是**轮询**，
+   * 远端作业继续跑，恢复后接着跟同一个 prompt_id —— 不重新提交，不浪费 GPU。
+   * 没有闸门的任务返回 false，由调用方决定 UI 上要不要给这个按钮。
+   */
+  setBackgroundTaskPaused(taskId: string, paused: boolean): boolean {
+    const gate = this.backgroundTaskPauseGates.get(taskId)
+    if (!gate) return false
+    const manager = this.getBackgroundTaskManager()
+    if (paused) {
+      manager.pause(taskId)
+      gate.pause()
+    } else {
+      manager.resume(taskId)
+      gate.resume()
+    }
+    return true
   }
 
   /** 后台任务终态时唤醒归属 Agent：运行中 followUp，空闲时 prompt(internal) 起新回合 */

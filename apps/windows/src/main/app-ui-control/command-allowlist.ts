@@ -45,6 +45,12 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 后台任务取消（长耗时工具后台化）：taskId 引用内存中已登记的任务（不能凭空构造），
   // 效果 = 中断该任务挂起的 MCP 请求并标记取消，与 user:abort 同级风险。供 UI 与控制面使用。
   'background-task:cancel',
+  // 后台任务暂停/恢复：只停/继续本地轮询，远端作业照跑，与 cancel 同级或更低风险。
+  'background-task:pause',
+  // 单个子 Agent 中止（并行看板上的「取消」）：instanceId 引用内存中已登记的实例，
+  // 效果 = 中止该实例及其工具调用，**不碰父回合**。与 background-task:cancel 同性质
+  // （停掉一个已经在跑的活儿），且已有同组的 agentInstance:list 只读入口。
+  'agentInstance:abort',
   // 转交确认（F2）：handoffId 引用内存中的主助手提案（不可构造任意任务内容），
   // 执行 = 新建/复用开发会话并发起一次 run，与 user:send 同级。供自动化测试与控制面使用。
   'handoff:confirm',
