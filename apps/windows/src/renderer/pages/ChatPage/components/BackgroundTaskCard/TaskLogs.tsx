@@ -13,6 +13,8 @@ export interface TaskLogsProps {
   logs?: readonly TaskLog[]
   /** 可视区域高度（px） */
   maxHeight?: number
+  /** 有 warn/error 时由父级传入 true，默认展开 */
+  defaultExpanded?: boolean
 }
 
 const ITEM_HEIGHT = 24
@@ -42,11 +44,20 @@ export function visibleLogRange(
 }
 
 /** 日志面板：展开、过滤、虚拟滚动、复制 JSON */
-export const TaskLogs: React.FC<TaskLogsProps> = ({ logs = [], maxHeight = 200 }) => {
-  const [expanded, setExpanded] = useState(false)
+export const TaskLogs: React.FC<TaskLogsProps> = ({
+  logs = [],
+  maxHeight = 200,
+  defaultExpanded = false,
+}) => {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   const [filterLevel, setFilterLevel] = useState<TaskLogLevel | 'all'>('all')
   const [scrollTop, setScrollTop] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // 后到的 warn/error：父级把 defaultExpanded 升为 true 时自动展开
+  useEffect(() => {
+    if (defaultExpanded) setExpanded(true)
+  }, [defaultExpanded])
 
   const filteredLogs = useMemo(
     () => (filterLevel === 'all' ? logs : logs.filter((log) => log.level === filterLevel)),

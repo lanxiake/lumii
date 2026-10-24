@@ -3,7 +3,18 @@ import clsx from 'clsx'
 import type { BackgroundTask } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import type { BackgroundTaskOutput } from '../../../../../shared/agent-runtime-events'
 import { formatTaskElapsed } from './format'
-import { detectCodeFence, ResultPreviewPanel, tryParseJsonResult } from './ResultPreviewPanel'
+import {
+  detectCodeFence,
+  MediaThumbStrip,
+  ResultPreviewPanel,
+  tryParseJsonResult,
+} from './ResultPreviewPanel'
+import {
+  deriveTaskHealth,
+  hasAlertLogs,
+  HEALTH_LABEL,
+  resolveStepWaitStart,
+} from './taskHealth'
 import { TaskLogs } from './TaskLogs'
 import { TaskMilestones } from './TaskMilestones'
 import { TaskProgressBar } from './TaskProgressBar'
@@ -99,18 +110,28 @@ const BackgroundTaskOutputs: React.FC<{ outputs: readonly BackgroundTaskOutput[]
 )
 
 /**
- * 单条后台任务卡：折叠头显示标签/状态/耗时/产出数；运行中可中断。
- * 产出文件与完整结果/失败原因一起收在展开区，默认只占一行。
+ * 单条后台任务卡：折叠头显示标签/状态/健康态/耗时；进度区可点展开。
+ * 折叠态媒体缩略图可直接开灯箱；有告警时默认展开日志。
  */
 const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
-  const [expanded, setExpanded] = useState(false)
   const running = task.status === 'running'
+  const alertLogs = hasAlertLogs(task.logs)
+  const [expanded, setExpanded] = useState(
+    () => running || alertLogs || (task.milestones?.length ?? 0) > 0,
+  )
   const structuredResult = Boolean(
     task.result && (detectCodeFence(task.result) || tryParseJsonResult(task.result)),
   )
   const detail = task.error ?? (structuredResult ? task.summary : (task.result ?? task.summary))
   const outputCount = task.outputs?.length ?? 0
   const showProgress = running || typeof task.progress === 'number'
+  const hasMediaPreview = Boolean(
+    task.outputs?.some(
+      (output) =>
+        Boolean(output.url) &&
+        (output.kind === 'image' || output.kind === 'video' || output.kind === 'audio'),
+    ),
+  )
   const hasContent = Boolean(detail)
     || outputCount > 0
     || showProgress
@@ -118,13 +139,29 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
     || (task.milestones?.length ?? 0) > 0
   const statusText = running && task.note ? task.note : STATUS_TEXT[task.status]
 
-  // 运行中每秒刷新耗时
+  // 运行中每秒刷新耗时 / 本步等待 / 健康态
   const [, forceTick] = useState(0)
   useEffect(() => {
     if (!running) return
     const timer = setInterval(() => forceTick((n) => n + 1), 1000)
     return () => clearInterval(timer)
   }, [running])
+
+  const now = Date.now()
+  const health = deriveTaskHealth({
+    status: task.status,
+    startedAt: task.startedAt,
+    logs: task.logs,
+    milestones: task.milestones,
+    now,
+  })
+  const stepWaitStart = resolveStepWaitStart(task.startedAt, task.milestones)
+
+  /** 展开或收起详情区 */
+  const toggleExpanded = (): void => {
+    if (!hasContent) return
+    setExpanded((value) => !value)
+  }
 
   return (
     <div
@@ -133,13 +170,16 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
         styles.card,
         running && styles.running,
         task.status === 'failed' && styles.failed,
+        health === 'warn' && styles.healthWarn,
+        health === 'error' && styles.healthError,
+        health === 'stuck' && styles.healthStuck,
       )}
     >
       <div className={styles.headerRow}>
         <button
           type="button"
           className={styles.header}
-          onClick={() => hasContent && setExpanded((v) => !v)}
+          onClick={toggleExpanded}
           aria-expanded={hasContent ? expanded : undefined}
           disabled={!hasContent}
         >
@@ -150,6 +190,12 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
             {task.label}
           </span>
           <span className={styles.status}>{statusText}</span>
+          <span
+            className={clsx(styles.health, styles[`healthBadge_${health}`])}
+            data-health={health}
+          >
+            {HEALTH_LABEL[health]}
+          </span>
           <span className={styles.elapsed}>
             {formatTaskElapsed(task.startedAt, task.endedAt)}
           </span>
@@ -181,13 +227,21 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
           progress={task.progress}
           currentStep={task.currentStep}
           startTime={task.startedAt}
+          stepWaitStart={stepWaitStart}
+          endedAt={task.endedAt}
           status={task.status}
+          now={now}
+          onActivate={toggleExpanded}
         />
+      )}
+      {/* 折叠态也可点的媒体缩略图；展开后由 ResultPreviewPanel 接管完整预览 */}
+      {!expanded && hasMediaPreview && (
+        <MediaThumbStrip outputs={task.outputs} />
       )}
       {expanded && (
         <>
           <TaskMilestones milestones={task.milestones} />
-          <TaskLogs logs={task.logs} />
+          <TaskLogs logs={task.logs} defaultExpanded={alertLogs} />
           <ResultPreviewPanel outputs={task.outputs} result={task.result} />
           {task.outputs && task.outputs.length > 0 && (
             <BackgroundTaskOutputs outputs={task.outputs} />

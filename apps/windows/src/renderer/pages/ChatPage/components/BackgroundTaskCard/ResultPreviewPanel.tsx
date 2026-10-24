@@ -132,6 +132,76 @@ const JsonPreview: React.FC<{ data: object }> = ({ data }) => {
   )
 }
 
+/**
+ * 折叠态媒体缩略图条。
+ * 图片点击直接开灯箱；视频显示可播控件入口，无需先展开整卡。
+ */
+export const MediaThumbStrip: React.FC<{ outputs?: readonly BackgroundTaskOutput[] }> = ({
+  outputs = [],
+}) => {
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
+  const media = outputs.filter(
+    (output) =>
+      Boolean(output.url) &&
+      (output.kind === 'image' || output.kind === 'video' || output.kind === 'audio'),
+  )
+  if (media.length === 0) return null
+
+  return (
+    <div className={styles.thumbStrip} aria-label="媒体预览">
+      {media.map((output) => {
+        if (output.kind === 'image') {
+          return (
+            <button
+              key={`thumb:${output.path}`}
+              type="button"
+              className={styles.thumbButton}
+              onClick={(event) => {
+                event.stopPropagation()
+                setLightbox({ src: output.url!, alt: output.name })
+              }}
+              aria-label={`预览图片 ${output.name}`}
+            >
+              <img src={output.url} alt={output.name} className={styles.thumbImage} />
+            </button>
+          )
+        }
+        if (output.kind === 'video') {
+          return (
+            <div key={`thumb:${output.path}`} className={styles.thumbVideoWrap}>
+              <video
+                className={styles.thumbVideo}
+                controls
+                preload="metadata"
+                src={output.url}
+                onClick={(event) => event.stopPropagation()}
+              >
+                浏览器不支持视频播放
+              </video>
+            </div>
+          )
+        }
+        return (
+          <audio
+            key={`thumb:${output.path}`}
+            className={styles.thumbAudio}
+            controls
+            src={output.url}
+            onClick={(event) => event.stopPropagation()}
+          />
+        )
+      })}
+      {lightbox && (
+        <ImageLightbox
+          src={lightbox.src}
+          alt={lightbox.alt}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 /** 按产出类型和结果文本渲染就地预览。没有可预览内容时不占位 */
 export const ResultPreviewPanel: React.FC<ResultPreviewPanelProps> = ({ outputs = [], result }) => {
   const fence = result ? detectCodeFence(result) : null

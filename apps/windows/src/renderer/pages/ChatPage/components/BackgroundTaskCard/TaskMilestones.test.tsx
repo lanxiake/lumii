@@ -4,8 +4,8 @@ import { render, screen } from '@testing-library/react'
 import { TaskMilestones, formatMilestoneDuration } from './TaskMilestones'
 
 describe('TaskMilestones', () => {
-  it('按顺序显示状态、耗时和错误', () => {
-    render(
+  it('按顺序显示状态、耗时和错误（无 emoji）', () => {
+    const { container } = render(
       <TaskMilestones
         milestones={[
           { step: '入队', status: 'completed', duration: 1500 },
@@ -23,9 +23,10 @@ describe('TaskMilestones', () => {
     expect(screen.getByText('里程碑 (1/3)')).toBeTruthy()
     expect(screen.getByText('1.5s')).toBeTruthy()
     expect(screen.getByText('显存不足')).toBeTruthy()
-    expect(screen.getByText('✓')).toBeTruthy()
-    expect(screen.getByText('❌')).toBeTruthy()
-    expect(screen.getByText('⏳')).toBeTruthy()
+    expect(container.querySelector('[data-status="completed"]')).toBeTruthy()
+    expect(container.querySelector('[data-status="failed"]')).toBeTruthy()
+    expect(container.querySelector('[data-status="pending"]')).toBeTruthy()
+    expect(container.textContent).not.toMatch(/[⏳🔄✓❌]/)
   })
 
   it('没有里程碑时不渲染', () => {

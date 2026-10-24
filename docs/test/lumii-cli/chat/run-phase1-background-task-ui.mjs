@@ -1,5 +1,5 @@
 /**
- * Phase 1 后台任务卡 — 真实客户端 CLI 验收
+ * Phase 1 / 1.1 后台任务卡 — 真实客户端 CLI 验收
  *
  * 前置：客户端已用远程调试启动
  *   powershell -File scripts/start-dev.ps1 -Force -RemoteDebug 9222
@@ -52,34 +52,40 @@ function cdpSession(wsUrl) {
   return { send, close: () => ws.close() }
 }
 
-/** 在主窗口注入一条 Phase 1 后台任务事件 */
-async function injectTask(sessionKey) {
+/** 定位主窗口 CDP target */
+async function findMainPage() {
   const targets = await cdpList()
-  const page = targets.find(
+  return targets.find(
     (t) => t.type === 'page' && t.webSocketDebuggerUrl && /灵栖|Lumii/i.test(t.title || '') && !String(t.url).startsWith('devtools:'),
   ) || targets.find((t) => t.type === 'page' && /127\.0\.0\.1:\d+/.test(t.url || '') && t.webSocketDebuggerUrl)
-  if (!page) throw new Error(`找不到主窗口。targets=${targets.map((t) => t.title).join(',')}`)
+}
 
+/** 在主窗口注入一条 Phase 1.1 后台任务事件（含 warn + 本步 startTime + 图片） */
+async function injectTask(sessionKey) {
+  const page = await findMainPage()
+  if (!page) throw new Error('找不到主窗口')
+
+  const now = Date.now()
   const event = {
     type: 'agent:background-task',
-    taskId: `phase1-ui-probe-${Date.now().toString(36)}`,
+    taskId: `phase1-ui-probe-${now.toString(36)}`,
     sessionKey,
     toolName: 'mcp__comfyui-remote__enqueue_workflow',
     label: 'Phase1 UI 探针任务',
     status: 'running',
-    startedAt: Date.now() - 30_000,
+    startedAt: now - 30_000,
     progress: 70,
     currentStep: '渲染',
     note: 'ComfyUI 渲染中',
     logs: [
-      { level: 'info', message: '已入队', timestamp: Date.now() - 25_000 },
-      { level: 'info', message: '渲染中', timestamp: Date.now() - 5_000 },
-      { level: 'warn', message: '显存占用偏高', timestamp: Date.now() - 2_000 },
+      { level: 'info', message: '已入队', timestamp: now - 25_000 },
+      { level: 'info', message: '渲染中', timestamp: now - 5_000 },
+      { level: 'warn', message: '显存占用偏高', timestamp: now - 2_000 },
     ],
     milestones: [
       { step: '入队', status: 'completed', duration: 1200 },
       { step: '排队', status: 'completed', duration: 3400 },
-      { step: '渲染', status: 'in-progress' },
+      { step: '渲染', status: 'in-progress', startTime: now - 12_000 },
       { step: '保存结果', status: 'pending' },
     ],
     outputs: [
@@ -94,7 +100,6 @@ async function injectTask(sessionKey) {
 
   const expr = `(async () => {
     const evt = ${JSON.stringify(event)};
-    // Vite 根是 renderer/，不是 /src/renderer/
     const mod = await import('/hooks/business/useAgentRuntime/event-handler.ts');
     mod.handleRuntimeEvent(evt);
     const storeMod = await import('/hooks/business/useAgentRuntime/agent-runtime-store.ts');
@@ -119,6 +124,9 @@ async function injectTask(sessionKey) {
       seesLabel: body.includes('Phase1 UI 探针任务'),
       seesMilestone: /里程碑/.test(body),
       seesLogBtn: /日志/.test(body),
+      seesStepWait: /本步/.test(body),
+      seesHealthWarn: body.includes('有警告'),
+      seesWarnLog: body.includes('显存占用偏高'),
     };
   })()`
 
@@ -138,12 +146,9 @@ async function injectTask(sessionKey) {
   }
 }
 
-/** 用 CDP 再读一次页面文案（annotate refs 采不到非交互节点） */
+/** 读页面信号：计时、健康态、进度可点、折叠态缩略图 */
 async function readBodySignals() {
-  const targets = await cdpList()
-  const page = targets.find(
-    (t) => t.type === 'page' && t.webSocketDebuggerUrl && /灵栖|Lumii/i.test(t.title || '') && !String(t.url).startsWith('devtools:'),
-  )
+  const page = await findMainPage()
   if (!page) return null
   const s = cdpSession(page.webSocketDebuggerUrl)
   try {
@@ -151,14 +156,23 @@ async function readBodySignals() {
       expression: `(() => {
         const body = document.body?.innerText || '';
         const progress = document.querySelector('progress[aria-label="任务进度"]');
+        const progressToggle = document.querySelector('[aria-label="展开或收起任务详情"]');
+        const thumb = document.querySelector('[aria-label="预览图片 probe.png"]');
         return {
           seesProgressText: /进行中\\s*\\(70%\\)/.test(body),
           seesLabel: body.includes('Phase1 UI 探针任务'),
           seesMilestone: /里程碑\\s*\\(/.test(body),
           seesLogBtn: /日志\\s*\\(/.test(body),
           seesStep: body.includes('渲染'),
+          seesElapsed: /已用/.test(body),
+          seesStepWait: /本步/.test(body),
+          seesEta: /预计/.test(body),
+          seesHealthWarn: body.includes('有警告'),
+          seesWarnLog: body.includes('显存占用偏高'),
           hasProgressEl: !!progress,
           progressValue: progress ? Number(progress.value) : null,
+          hasProgressToggle: !!progressToggle,
+          hasThumbButton: !!thumb,
         };
       })()`,
       returnByValue: true,
@@ -170,8 +184,59 @@ async function readBodySignals() {
   }
 }
 
+/**
+ * 点击进度区收起，再确认折叠态缩略图可点。
+ * 限定在含探针标签的任务卡内，点击后等待一帧再读 DOM。
+ */
+async function clickProgressThenCheckThumb() {
+  const page = await findMainPage()
+  if (!page) return null
+  const s = cdpSession(page.webSocketDebuggerUrl)
+  try {
+    const r = await s.send('Runtime.evaluate', {
+      expression: `(async () => {
+        const cards = Array.from(document.querySelectorAll('[role="listitem"]'));
+        const card = cards.find((el) => (el.innerText || '').includes('Phase1 UI 探针任务'));
+        if (!card) return { ok: false, reason: 'no-probe-card' };
+        const toggle = card.querySelector('[aria-label="展开或收起任务详情"]');
+        if (!toggle) return { ok: false, reason: 'no-progress-toggle' };
+        const beforeExpanded = /里程碑\\s*\\(/.test(card.innerText || '');
+        toggle.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const afterText = card.innerText || '';
+        const milestoneGone = !/里程碑\\s*\\(/.test(afterText);
+        const thumb = card.querySelector('[aria-label="预览图片 probe.png"]');
+        let lightboxOpen = false;
+        if (thumb) {
+          thumb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          lightboxOpen = Boolean(
+            document.querySelector('[aria-modal="true"]')
+            || document.querySelector('[role="dialog"]')
+            || Array.from(document.querySelectorAll('img')).some((img) => img.alt === 'probe.png' && img.closest('[aria-modal="true"], [role="dialog"]')),
+          );
+        }
+        return {
+          ok: true,
+          beforeExpanded,
+          collapsedMilestones: milestoneGone,
+          hasThumbButton: !!thumb,
+          thumbClicked: !!thumb,
+          lightboxOpen,
+        };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    })
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.text)
+    return r.result.value
+  } finally {
+    s.close()
+  }
+}
+
 async function main() {
-  console.log('== Phase 1 BackgroundTaskCard 真实 CLI 验收 ==')
+  console.log('== Phase 1.1 BackgroundTaskCard 真实 CLI 验收 ==')
 
   const st = ui(['status'], { retries: 1 })
   if (/connection_failed/.test(st.out + st.stderr) || st.json?.error === 'connection_failed') {
@@ -204,36 +269,36 @@ async function main() {
   const signals = await readBodySignals()
   console.log('OK body signals', JSON.stringify(signals))
 
+  assert(
+    signals?.hasProgressEl || signals?.seesProgressText || signals?.seesLabel || injected.result.seesProgressText,
+    `前端未见任务卡进度/标签。signals=${JSON.stringify(signals)}`,
+  )
+  assert(signals?.hasProgressToggle, '进度区应可点（展开或收起任务详情）')
+  assert(signals?.seesStepWait || injected.result.seesStepWait, '应显示本步已等待文案')
+  assert(signals?.seesHealthWarn || injected.result.seesHealthWarn, '有 warn 时应显示健康态「有警告」')
+  assert(signals?.seesWarnLog || injected.result.seesWarnLog, 'warn 日志应默认可见')
+  assert(signals?.seesMilestone || injected.result.seesMilestone, '运行中应默认展开里程碑')
+
+  const clickResult = await clickProgressThenCheckThumb()
+  console.log('OK click progress / thumb', JSON.stringify(clickResult))
+  assert(clickResult?.ok, `进度点击失败: ${JSON.stringify(clickResult)}`)
+  assert(clickResult.collapsedMilestones, '点击进度区后应收起里程碑')
+  assert(clickResult.hasThumbButton, '折叠态应出现可点缩略图')
+
   fs.mkdirSync(OUT_DIR, { recursive: true })
   const shot = path.join(OUT_DIR, `phase1-ui-${Date.now()}.jpg`)
   const shotRes = ui(['screenshot', '--annotate', '--target', 'main', '--out', shot], { retries: 2 })
   okJson(shotRes, 'screenshot')
   console.log('OK screenshot', shotRes.json?.path || shot)
 
-  // 硬断言：进度条元素或文案
-  const hard =
-    signals?.hasProgressEl
-    || signals?.seesProgressText
-    || signals?.seesLabel
-    || injected.result.seesProgressText
-    || injected.result.seesLabel
-  assert(hard, `前端未见任务卡进度/标签。signals=${JSON.stringify(signals)}`)
-
-  // 软断言：里程碑/日志（展开前也可能已在 DOM）
-  if (!(signals?.seesMilestone || injected.result.seesMilestone)) {
-    console.log('NOTE: 里程碑文案未在 body 扫到（可能仍折叠在下方）')
-  }
-  if (!(signals?.seesLogBtn || injected.result.seesLogBtn)) {
-    console.log('NOTE: 日志按钮文案未在 body 扫到')
-  }
-
   console.log('')
-  console.log('PASS 真实客户端前端 Phase 1 后台任务卡已生效')
+  console.log('PASS 真实客户端前端 Phase 1.1 后台任务卡体验补丁已生效')
   console.log(JSON.stringify({
     sessionKey: sk,
     taskId: injected.taskId,
     store: injected.result,
     signals,
+    clickResult,
     screenshot: shotRes.json?.path || shot,
   }, null, 2))
 }

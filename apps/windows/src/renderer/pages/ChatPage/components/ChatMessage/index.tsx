@@ -23,6 +23,7 @@ import {
 } from '../../../../utils/parseA2UIBlocks'
 import { FilePreviewModal } from '../../../../components/FilePreviewModal/FilePreviewModal'
 import { ImageLightbox } from '../../../../components/ImageLightbox'
+import { isExternalImageSrc, loadLocalImageDataUrl } from '../mediaPreview'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import type { ChatMessage as ChatMessageType, AgentWorkflowItem } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
@@ -125,32 +126,30 @@ function rehypePluginsFor(text: string): MarkdownPluginList {
 
 const ARTIFACT_LANGS = new Set(['html', 'javascript', 'js', 'svg'])
 
-/** 判断 img src 是否为外部地址（http/https/data），否则视为 workspace 内本地/相对路径 */
-function isExternalImageSrc(src: string): boolean {
-  return /^(https?:)?\/\//i.test(src) || src.startsWith('data:')
-}
-
 /**
- * Markdown 正文中的图片：
- * - 本地/相对路径（如 outputs/cards/01.png）→ 点击调用 ToolFilePreviewContext.onPreview，
- *   复用 FilePreviewModal 的应用内图片灯箱（全屏 / 缩放 / 经 IPC 安全读取 workspace 文件）。
- * - 外部 http(s)/data URL → 直接渲染，点击用 ImageLightbox 内联放大。
+ * Markdown 正文中的图片：外部 URL 与本地路径统一点开 ImageLightbox
+ *（本地经 IPC 读成 data URL，与 ToolCallCard / 后台任务卡一致）。
  */
 const MarkdownInlineImage: React.FC<{ src?: string; alt?: string }> = ({ src, alt }) => {
-  const previewCtx = useContext(ToolFilePreviewContext)
-  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   if (!src) return null
   const external = isExternalImageSrc(src)
   const fileName = alt || src.split(/[\\/]/).pop() || src
 
-  const handleClick = () => {
+  /** 点击：外部直接灯箱；本地先 IPC 再灯箱 */
+  const handleClick = async (): Promise<void> => {
     if (external) {
-      setLightboxOpen(true)
+      setLightboxSrc(src)
       return
     }
-    // 本地/相对路径：交给 FilePreviewModal（filePath 模式，IPC 读取后展示图片灯箱）
-    if (previewCtx) {
-      previewCtx.onPreview({ filePath: src, fileName })
+    if (loading) return
+    setLoading(true)
+    try {
+      const dataUrl = await loadLocalImageDataUrl(src)
+      if (dataUrl) setLightboxSrc(dataUrl)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -161,12 +160,12 @@ const MarkdownInlineImage: React.FC<{ src?: string; alt?: string }> = ({ src, al
         alt={alt || ''}
         className={styles['md-image']}
         loading="lazy"
-        style={{ cursor: 'zoom-in' }}
-        title="点击预览"
-        onClick={handleClick}
+        style={{ cursor: loading ? 'wait' : 'zoom-in', opacity: loading ? 0.7 : 1 }}
+        title={loading ? '加载预览…' : '点击预览'}
+        onClick={() => { void handleClick() }}
       />
-      {external && lightboxOpen && (
-        <ImageLightbox src={src} alt={fileName} onClose={() => setLightboxOpen(false)} />
+      {lightboxSrc && (
+        <ImageLightbox src={lightboxSrc} alt={fileName} onClose={() => setLightboxSrc(null)} />
       )}
     </>
   )

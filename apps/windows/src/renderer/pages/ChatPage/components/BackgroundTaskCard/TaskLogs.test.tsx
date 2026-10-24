@@ -13,6 +13,16 @@ function makeLogs(count: number): TaskLog[] {
 }
 
 describe('TaskLogs', () => {
+  it('defaultExpanded 为 true 时默认展开告警日志', () => {
+    render(
+      <TaskLogs
+        logs={[{ level: 'warn', message: '慢了', timestamp: 1 }]}
+        defaultExpanded
+      />,
+    )
+    expect(screen.getByText('慢了')).toBeTruthy()
+  })
+
   it('默认收起，展开后过滤并复制 JSON', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {

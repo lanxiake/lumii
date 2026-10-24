@@ -1,6 +1,6 @@
 import React from 'react'
-import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { TaskProgressBar, estimateRemainingSeconds, formatRemainingSeconds } from './TaskProgressBar'
 
 describe('TaskProgressBar', () => {
@@ -13,11 +13,27 @@ describe('TaskProgressBar', () => {
     expect(screen.getByRole('progressbar', { name: '任务进度' })).toBeTruthy()
   })
 
-  it('运行中且剩余超过 5 秒时显示估计时间', () => {
+  it('运行中常驻已用、本步等待与预计剩余', () => {
     render(
-      <TaskProgressBar progress={50} startTime={0} status="running" now={20_000} />,
+      <TaskProgressBar
+        progress={50}
+        startTime={0}
+        stepWaitStart={10_000}
+        status="running"
+        now={20_000}
+      />,
     )
-    expect(screen.getByText('预计 20秒')).toBeTruthy()
+    expect(screen.getByText(/已用/)).toBeTruthy()
+    expect(screen.getByText(/本步/)).toBeTruthy()
+    expect(screen.getByText(/预计 20秒/)).toBeTruthy()
+  })
+
+  it('进度为 0 时显示排队/未开始计时，仍给出预计占位', () => {
+    render(
+      <TaskProgressBar progress={0} startTime={0} status="running" now={5_000} />,
+    )
+    expect(screen.getByText('进行中（排队/未开始计时）')).toBeTruthy()
+    expect(screen.getByText(/预计 —/)).toBeTruthy()
   })
 
   it('已完成不再估计剩余时间', () => {
@@ -26,6 +42,21 @@ describe('TaskProgressBar', () => {
     )
     expect(screen.getByText('已完成 (100%)')).toBeTruthy()
     expect(screen.queryByText(/预计/)).toBeNull()
+  })
+
+  it('点击进度区触发 onActivate', () => {
+    const onActivate = vi.fn()
+    render(
+      <TaskProgressBar
+        progress={40}
+        startTime={0}
+        status="running"
+        now={1_000}
+        onActivate={onActivate}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '展开或收起任务详情' }))
+    expect(onActivate).toHaveBeenCalledTimes(1)
   })
 
   it('格式化剩余时间', () => {

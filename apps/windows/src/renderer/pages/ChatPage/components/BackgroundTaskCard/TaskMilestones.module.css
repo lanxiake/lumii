@@ -29,17 +29,46 @@
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
+  transition: background-color 0.2s ease;
 }
 
 .pending { background: color-mix(in srgb, var(--mt-fg-4) 12%, transparent); }
 .inProgress { background: color-mix(in srgb, var(--mt-accent-500) 16%, transparent); }
 .completed { background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent); }
-.failed { background: color-mix(in srgb, var(--mt-danger-500, #d32f2f) 14%, transparent); }
+.failed { background: color-mix(in srgb, var(--mt-error, #d32f2f) 14%, transparent); }
 
 .icon {
   width: 16px;
-  text-align: center;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  color: var(--mt-fg-4);
+}
+
+.inProgress .icon { color: var(--mt-accent-500); }
+.completed .icon { color: var(--mt-accent-500); }
+.failed .icon { color: var(--mt-error, var(--mt-fg-2)); }
+
+.iconSvg {
+  display: block;
+}
+
+.spin {
+  animation: milestone-spin 0.9s linear infinite;
+}
+
+@keyframes milestone-spin {
+  to { transform: rotate(360deg); }
+}
+
+.pendingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--mt-fg-4);
+  box-sizing: border-box;
 }
 
 .step {
@@ -63,5 +92,5 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-  color: var(--mt-danger-500, var(--mt-fg-2));
+  color: var(--mt-error, var(--mt-fg-2));
 }

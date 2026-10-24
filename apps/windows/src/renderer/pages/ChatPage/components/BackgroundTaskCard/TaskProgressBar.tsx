@@ -1,11 +1,13 @@
 /**
  * 后台任务进度条。
  *
- * 百分比来自工具上报；剩余时间按已用时间线性外推，进度为 0 或已结束时不估计。
+ * 百分比来自工具上报；展示已用、本步已等待与预计剩余。
+ * 整块可点（由父级传入 onActivate）以展开卡片详情。
  */
 
 import React from 'react'
 import type { BackgroundTaskStatus } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { formatTaskElapsed } from './format'
 import styles from './TaskProgressBar.module.css'
 
 export interface TaskProgressBarProps {
@@ -13,9 +15,15 @@ export interface TaskProgressBarProps {
   progress?: number
   currentStep?: string
   startTime: number
+  /** 本步等待计时起点；缺省等同 startTime */
+  stepWaitStart?: number
+  /** 任务结束时间；已结束时固定「已用」 */
+  endedAt?: number
   status: BackgroundTaskStatus
   /** 便于测试注入时钟 */
   now?: number
+  /** 点击进度区时回调（展开/收起） */
+  onActivate?: () => void
 }
 
 /** 把剩余秒数格式化成「N秒」或「N分钟」 */
@@ -37,34 +45,66 @@ export function estimateRemainingSeconds(startTime: number, progress: number, no
 }
 
 /** 按任务状态选择进度条文案 */
-function progressLabel(status: BackgroundTaskStatus, progress: number): string {
-  const percent = `${progress}%`
-  if (status === 'succeeded') return `已完成 (${percent})`
-  if (status === 'failed') return `失败 (${percent})`
-  if (status === 'cancelled') return `已取消 (${percent})`
-  return `进行中 (${percent})`
+function progressLabel(status: BackgroundTaskStatus, progress: number, indeterminate: boolean): string {
+  if (status === 'succeeded') return `已完成 (${progress}%)`
+  if (status === 'failed') return `失败 (${progress}%)`
+  if (status === 'cancelled') return `已取消 (${progress}%)`
+  if (indeterminate) return '进行中（排队/未开始计时）'
+  return `进行中 (${progress}%)`
 }
 
-/** 任务进度条：百分比、剩余时间估计、当前步骤 */
+/** 任务进度条：百分比、已用/本步等待/预计剩余、当前步骤 */
 export const TaskProgressBar: React.FC<TaskProgressBarProps> = ({
   progress = 0,
   currentStep,
   startTime,
+  stepWaitStart,
+  endedAt,
   status,
   now = Date.now(),
+  onActivate,
 }) => {
   const displayProgress = Math.min(100, Math.max(0, progress || 0))
   const running = status === 'running'
   const indeterminate = running && displayProgress === 0
   const remaining = running ? estimateRemainingSeconds(startTime, displayProgress, now) : null
+  const stepStart = stepWaitStart ?? startTime
+  const elapsedLabel = formatTaskElapsed(startTime, running ? undefined : endedAt ?? now, now)
+  const stepWaitLabel = running ? formatTaskElapsed(stepStart, undefined, now) : null
+
+  const timingBits: string[] = [`已用 ${elapsedLabel}`]
+  if (stepWaitLabel !== null) timingBits.push(`本步 ${stepWaitLabel}`)
+  if (running && indeterminate) {
+    timingBits.push('预计 —')
+  } else if (remaining !== null) {
+    timingBits.push(`预计 ${formatRemainingSeconds(remaining)}`)
+  }
+
+  const interactive = typeof onActivate === 'function'
+
+  /** 激活展开/收起，并阻止冒泡以免误触父级 */
+  const handleActivate = (event: React.SyntheticEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    onActivate?.()
+  }
 
   return (
-    <div className={styles.container}>
+    <div
+      className={interactive ? styles.containerClickable : styles.container}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? '展开或收起任务详情' : undefined}
+      onClick={interactive ? handleActivate : undefined}
+      onKeyDown={interactive ? (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          handleActivate(event)
+        }
+      } : undefined}
+    >
       <div className={styles.header}>
-        <span className={styles.text}>{progressLabel(status, displayProgress)}</span>
-        {remaining !== null && remaining > 5 && (
-          <span className={styles.remaining}>预计 {formatRemainingSeconds(remaining)}</span>
-        )}
+        <span className={styles.text}>{progressLabel(status, displayProgress, indeterminate)}</span>
+        <span className={styles.timing}>{timingBits.join(' · ')}</span>
       </div>
       <progress
         className={indeterminate ? styles.indeterminate : styles.bar}

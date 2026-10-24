@@ -1,7 +1,7 @@
 /**
  * 后台任务里程碑列表。
  *
- * 按上报顺序展示步骤、状态和耗时。没有里程碑时不占位。
+ * 按上报顺序展示步骤、状态和耗时。状态用 SVG/CSS，不用 emoji。
  */
 
 import React from 'react'
@@ -12,16 +12,36 @@ export interface TaskMilestonesProps {
   milestones?: readonly Milestone[]
 }
 
-const STATUS_ICON: Record<MilestoneStatus, string> = {
-  pending: '⏳',
-  'in-progress': '🔄',
-  completed: '✓',
-  failed: '❌',
-}
-
 /** 把毫秒耗时格式化成一位小数的秒 */
 export function formatMilestoneDuration(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(1)}s`
+}
+
+/** 里程碑状态图标（SVG） */
+const MilestoneIcon: React.FC<{ status: MilestoneStatus }> = ({ status }) => {
+  if (status === 'completed') {
+    return (
+      <svg className={styles.iconSvg} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <svg className={styles.iconSvg} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    )
+  }
+  if (status === 'in-progress') {
+    return (
+      <svg className={`${styles.iconSvg} ${styles.spin}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+        <path d="M12 3a9 9 0 1 0 9 9" />
+      </svg>
+    )
+  }
+  return <span className={styles.pendingDot} aria-hidden="true" />
 }
 
 /** 里程碑列表：状态图标、步骤名、耗时和失败原因 */
@@ -38,7 +58,9 @@ export const TaskMilestones: React.FC<TaskMilestonesProps> = ({ milestones = [] 
             key={`${milestone.step}-${index}`}
             className={styles[milestone.status === 'in-progress' ? 'inProgress' : milestone.status]}
           >
-            <span className={styles.icon} aria-hidden="true">{STATUS_ICON[milestone.status]}</span>
+            <span className={styles.icon} data-status={milestone.status}>
+              <MilestoneIcon status={milestone.status} />
+            </span>
             <span className={styles.step}>{milestone.step}</span>
             {milestone.duration !== undefined && (
               <span className={styles.duration}>{formatMilestoneDuration(milestone.duration)}</span>

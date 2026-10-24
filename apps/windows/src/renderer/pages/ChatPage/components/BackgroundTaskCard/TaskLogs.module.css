@@ -92,7 +92,7 @@
 .debug { color: var(--mt-fg-4); }
 .info { color: var(--mt-accent-500); }
 .warn { color: var(--mt-fg-2); }
-.error { color: var(--mt-danger-500, var(--mt-fg-2)); }
+.error { color: var(--mt-error, var(--mt-fg-2)); }
 
 .empty {
   padding: 16px;

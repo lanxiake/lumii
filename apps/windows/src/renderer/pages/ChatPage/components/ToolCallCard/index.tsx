@@ -12,6 +12,9 @@ import React, { useState, useCallback, useMemo, useEffect, createContext, useCon
 import clsx from 'clsx'
 import type { AgentWorkflowItem, ChildToolItem } from '../../../../hooks/business/useChat'
 import { ImageLightbox } from '../../../../components/ImageLightbox/ImageLightbox'
+import { abortActiveRun } from '../abortActiveRun'
+import { loadLocalImageDataUrl } from '../mediaPreview'
+import { formatRunningElapsedLabel, resolveRunningSummary } from './runningSummary'
 import { classifyToolFamily } from './toolTaxonomy'
 import styles from './ToolCallCard.module.css'
 
@@ -584,22 +587,11 @@ const ImageGeneratePreview: React.FC<{ output: unknown; fullSize?: boolean }> = 
     }
     let cancelled = false
     setLoading(true)
-    window.electronAPI.agentRuntime.sendCommand({
-      type: 'files:read-preview-by-path',
-      filePath: imgDetails.filePath,
-      userId: 'local-user',
-    } as Parameters<typeof window.electronAPI.agentRuntime.sendCommand>[0])
-      .then((res) => {
-        if (cancelled) return
-        const r = res as { content?: string; mimeType?: string; encoding?: string } | null
-        if (r?.content && r.encoding === 'base64') {
-          setDataUrl(`data:${r.mimeType ?? 'image/png'};base64,${r.content}`)
-        }
-        setLoading(false)
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false)
-      })
+    void loadLocalImageDataUrl(imgDetails.filePath).then((url) => {
+      if (cancelled) return
+      if (url) setDataUrl(url)
+      setLoading(false)
+    })
     return () => { cancelled = true }
   }, [imgDetails?.filePath])
 
@@ -1073,6 +1065,10 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
   const label = truncate(getStatusLabel(item))
   const isRunning = item.status === 'running'
   const isFailed = item.status === 'failed'
+  const runningSummaryRaw = resolveRunningSummary(item)
+  // 标签里已含同一目标时不重复占位（如「正在执行 npm test」）
+  const runningSummary =
+    runningSummaryRaw && !label.includes(runningSummaryRaw) ? runningSummaryRaw : undefined
   const isTodoWrite = (item.name || '').toLowerCase() === 'todo_write'
   const showTodoPreview =
     isTodoWrite && !isRunning && (item.status === 'completed' || item.status === 'failed')
@@ -1092,7 +1088,7 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
   const lineRangeText = fileInfo ? formatLineRange(fileInfo.startLine, fileInfo.endLine) : ''
   const canPreviewFile = !!(fileInfo && previewCtx && !isRunning)
 
-  /** 录屏成片 chip（stop / narrate 结果 path） */
+  /** 录屏成片 chip（stop / narrate 结果 path）——成片仍走 FilePreview */
   const recordingChips = useMemo(
     () =>
       item.status === 'completed' ? extractScreenRecordOutputPaths(item.name, item.output) : [],
@@ -1125,6 +1121,18 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
     [previewCtx],
   )
 
+  /** 中断当前同步回合（会话级 abort） */
+  const handleInterrupt = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    void abortActiveRun()
+  }, [])
+
+  const durationText = formatDuration(
+    item.startTime,
+    item.endTime ?? liveNow,
+    item.status !== 'running' ? item.durationMs : undefined,
+  )
+
   return (
     <div className={clsx(styles.row, isRunning && styles.running, isFailed && styles.failed, isExpanded && styles.expanded)}>
       {/* 单行头部 */}
@@ -1137,9 +1145,9 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
         )}
         <span className={styles.toolNameBadge}>{getToolDisplayName(item.name)}</span>
         <span className={styles.label}>{label}</span>
-        {isRunning && item.progressText && (
-          <span className={styles.progressText} title={item.progressText}>
-            {item.progressText}
+        {isRunning && runningSummary && (
+          <span className={styles.progressText} title={runningSummary}>
+            {runningSummary}
           </span>
         )}
         {fileInfo && (
@@ -1171,8 +1179,19 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
         ))}
         {(item.status === 'completed' || item.status === 'failed' || item.status === 'running' || item.status === 'interrupted') && (
           <span className={styles.duration}>
-            {formatDuration(item.startTime, item.endTime ?? liveNow, item.status !== 'running' ? item.durationMs : undefined)}
+            {isRunning ? formatRunningElapsedLabel(durationText) : durationText}
           </span>
+        )}
+        {isRunning && (
+          <button
+            type="button"
+            className={styles.interruptBtn}
+            onClick={handleInterrupt}
+            title="中断当前回合"
+            aria-label="中断当前回合"
+          >
+            中断
+          </button>
         )}
         <span className={styles.toggle}>{isExpanded ? '∧' : '∨'}</span>
       </div>

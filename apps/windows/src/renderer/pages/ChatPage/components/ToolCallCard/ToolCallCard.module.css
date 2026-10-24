@@ -104,13 +104,17 @@
   color: var(--color-text-primary);
 }
 
-/* 运行中的进度说明（来自 MCP 进度通知，如「正在切换会话」「第 1/2 次重试」） */
+/* 运行中摘要（progressText 或命令/路径目标） */
 .progressText {
-  flex: 0 0 auto;
-  max-width: 45%;
-  margin-left: 6px;
+  flex: 0 1 auto;
+  max-width: 42%;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
   font-size: calc(11px * var(--app-font-scale, 1));
-  color: var(--color-text-tertiary);
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  background: color-mix(in srgb, var(--mt-accent-500, var(--color-primary-400)) 10%, transparent);
+  border-left: 2px solid var(--mt-accent-500, var(--color-primary-400));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -653,6 +657,24 @@
   color: var(--color-text-tertiary);
   font-family: var(--font-family-mono, monospace);
   flex-shrink: 0;
+}
+
+/* 运行中行内中断（会话级 abort，与输入框停止同源） */
+.interruptBtn {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-size: calc(10px * var(--app-font-scale, 1));
+  font-family: var(--mt-font-mono, var(--font-family-mono, monospace));
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  background: transparent;
+  border: 1px solid var(--mt-border, var(--color-border));
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.interruptBtn:hover {
+  color: var(--mt-error, var(--color-error));
+  border-color: var(--mt-error, var(--color-error));
 }
 
 /* 子 Agent 折叠状态工具计数 */

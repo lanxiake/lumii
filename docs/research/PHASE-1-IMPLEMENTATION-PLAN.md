@@ -1432,6 +1432,522 @@ docs(background-task): 更新 API 文档
 
 ---
 
-**文档版本**: 1.0  
-**最后更新**: 2026-10-23  
+**文档版本**: 1.1  
+**最后更新**: 2026-10-24  
+
+---
+
+## 十二. 实施增强补充（P0 / P1 / P2）
+
+> 本章是对前十一章的增量补充，不替换任何已有实现。按「稳定性 → 可靠性 → 可观测性」分三级，可与主计划并行推进。
+>
+> | 级别 | 项 | 目标 | 建议工期 |
+> |------|----|------|----------|
+> | P0 | 增量日志更新 | 长任务日志不全量重传 | 1d |
+> | P0 | 并发安全测试 | 多任务并行不串数据 | 1d |
+> | P0 | 内存泄漏检测 | 长跑不涨内存 | 1d |
+> | P1 | WebSocket 实时推送 | 秒级进度更新 | 2d |
+> | P1 | 自动重试机制 | 瞬时故障自动恢复 | 1d |
+> | P1 | 暂停 / 恢复 | 可中断、可从检查点续跑 | 2d |
+> | P2 | 性能监控埋点 | 各阶段耗时可视 | 1.5d |
+> | P2 | 资源占用追踪 | CPU / 内存可观测 | 1d |
+>
+> 合计约 **10.5d**。P0 必做，P1 视排期，P2 建议随 Phase 2 一起做。
+
+### 12.1 P0-1：增量日志更新
+
+**问题**：`BackgroundTask.logs` 是数组，每次更新通过 IPC 全量推送。ComfyUI 类任务跑 30 分钟可产生上千条日志，每 500ms 全量推送 = O(n) 带宽与 React diff；日志越长越卡。
+
+**方案**：日志改为「序号 + 增量」模型，前端维护本地缓冲。
+
+```typescript
+// apps/windows/src/shared/types/background-task.ts
+
+export interface LogEntry {
+  id: string              // 稳定 id，用于去重
+  level: 'info' | 'warn' | 'error'
+  message: string
+  timestamp: number
+  milestone?: string      // 归属里程碑（可选）
+}
+
+export interface LogDelta {
+  sessionId: string
+  taskId: string
+  sequence: number        // 单调递增，前端用它判断连续性
+  entries: LogEntry[]
+  reset?: boolean         // true 表示前端应清空本地缓冲后重建
+}
+```
+
+主进程侧：
+
+```typescript
+// apps/windows/src/main/agent-runtime/background-task-progress.ts
+
+private logSequence = new Map<string, number>()
+
+appendLogs(taskId: string, sessionId: string, entries: LogEntry[]): void {
+  if (entries.length === 0) return
+  const seq = (this.logSequence.get(taskId) ?? 0) + 1
+  this.logSequence.set(taskId, seq)
+
+  const delta: LogDelta = { sessionId, taskId, sequence: seq, entries }
+  this.pushToRenderer('background-task:log-delta', delta)
+}
+```
+
+渲染侧 hook（挂在 `BackgroundTaskCard` 内，与现有 `forceTick` 同一层）：
+
+```typescript
+// apps/windows/src/renderer/pages/ChatPage/components/BackgroundTaskCard/useLogBuffer.ts
+
+export function useLogBuffer(taskId: string, initial: LogEntry[]) {
+  const [logs, setLogs] = useState(initial)
+  const lastSeq = useRef(0)
+
+  useEffect(() => {
+    return window.electronAPI.on('background-task:log-delta', (delta: LogDelta) => {
+      if (delta.taskId !== taskId) return
+
+      if (delta.reset || delta.sequence !== lastSeq.current + 1) {
+        // 断序：请求一次全量快照（走已有 getTaskSnapshot IPC）
+        window.electronAPI.invoke('background-task:snapshot', { taskId })
+          .then(snap => { setLogs(snap.logs); lastSeq.current = snap.sequence })
+        return
+      }
+
+      lastSeq.current = delta.sequence
+      setLogs(prev => [...prev, ...delta.entries].slice(-MAX_LOGS))
+    })
+  }, [taskId])
+
+  return logs
+}
+```
+
+**三条硬约束**：
+1. **上限截断**：`MAX_LOGS = 2000`，前端只保留尾部。完整日志落盘，需要时走「加载全部」按钮。
+2. **断序必重同步**：靠 `sequence` 单调性检测丢包，绝不静默拼接。
+3. **批量合并**：主进程侧日志先进队列，100ms 冲刷一次，避免每条日志一次 IPC。
+
+**验收**：1000 条日志场景下，单次 IPC payload < 8KB；React 提交次数 < 20。
+
+---
+
+### 12.2 P0-2：并发安全
+
+**问题**：`BackgroundTaskManager` 当前是所有任务共用 Map 与同一个日志数组 push。多个 ComfyUI 任务 / 子工具并发时，可能出现日志串到别的任务、`running` 集合计数错误、取消一个任务误伤另一个。
+
+**方案**：以 `taskId` 为界的单写者模型 + 显式锁。
+
+```typescript
+// apps/windows/src/main/agent-runtime/task-lock.ts
+
+// ponytail: 单进程内 Mutex 足够；跨进程再上文件锁
+export class TaskLock {
+  private chains = new Map<string, Promise<void>>()
+
+  run<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.chains.get(taskId) ?? Promise.resolve()
+    const next = prev.then(fn, fn)
+    this.chains.set(taskId, next.then(() => {}, () => {}))
+    return next
+  }
+}
+```
+
+所有对单任务状态的写操作（追加日志、更新里程碑、改状态）都包在 `TaskLock.run(taskId, ...)` 里；只读操作不加锁。
+
+**并发测试矩阵**（新增 `apps/windows/src/main/agent-runtime/__tests__/concurrency.test.ts`）：
+
+| 用例 | 断言 |
+|------|------|
+| 10 个任务同时各追加 100 条日志 | 每个任务日志 = 100 条，无交叉 |
+| 任务 A 执行中取消，B 继续 | 仅 A 状态变 `cancelled`，B 仍 `running` |
+| 同一 taskId 并发 append 500 次 | sequence 严格 1..500 无重复无跳号 |
+| 取消与完成竞态（同时触发） | 最终状态唯一且为二者之一，不出现 `cancelled` 后又 `completed` |
+
+**关键点**：`cancel()` 与 `complete()` 必须走同一个锁，且以「当前状态是否终态」做幂等短路。
+
+---
+
+### 12.3 P0-3：内存泄漏检测
+
+**问题**：长生命周期场景下容易漏：
+- 已完成任务的 `logs` 数组没释放
+- `EventEmitter` 监听器没解绑（卡片重渲染时重复注册）
+- 前端 `useEffect` 订阅没 cleanup
+
+**方案**：三层防护。
+
+**① 主进程侧——任务终态后延迟清理**
+
+```typescript
+// apps/windows/src/main/agent-runtime/background-task-manager.ts
+
+private scheduleCleanup(taskId: string) {
+  // 保留 30 分钟供前端回看，之后释放日志与中间数据
+  setTimeout(() => {
+    const task = this.tasks.get(taskId)
+    if (task && isTerminal(task.status)) {
+      task.logs = []
+      task.milestones = []
+      this.tasks.delete(taskId)
+      this.logSequence.delete(taskId)
+    }
+  }, 30 * 60 * 1000).unref()
+}
+```
+
+**② 前端侧——订阅必须返回 cleanup**
+
+所有 `window.electronAPI.on(...)` 统一封装，禁止裸调：
+
+```typescript
+// apps/windows/src/renderer/hooks/useIpcSubscription.ts
+
+export function useIpcSubscription<T>(
+  channel: string,
+  handler: (payload: T) => void,
+) {
+  useEffect(() => window.electronAPI.on(channel, handler), [channel, handler])
+}
+// electronAPI.on 内部必须 return 一个 removeListener 函数
+```
+
+**③ 自动化检测——测试内跑堆快照**
+
+```typescript
+// apps/windows/src/renderer/__tests__/memory-leak.test.tsx
+
+it('反复挂载卸载后台任务卡 200 次，堆增长 < 5MB', async () => {
+  global.gc?.()
+  const before = process.memoryUsage().heapUsed
+
+  for (let i = 0; i < 200; i++) {
+    const { unmount } = render(<BackgroundTaskCard task={mockTask} />)
+    unmount()
+  }
+  global.gc?.()
+  const growth = process.memoryUsage().heapUsed - before
+
+  expect(growth).toBeLessThan(5 * 1024 * 1024)
+})
+```
+
+运行需 `node --expose-gc`；CI 上加 `--detectOpenHandles` 抓未释放定时器。
+
+**人工验证清单**：
+- 打开任务管理器，跑 1 小时 ComfyUI 任务，主进程 RSS 曲线平稳（< ±50MB 波动）
+- DevTools Memory 面板：连续切换会话 50 次，堆快照中 `LogEntry` 实例数不线性增长
+
+---
+
+### 12.4 P1-4：WebSocket 实时推送
+
+**问题**：现有 IPC 推送在渲染进程休眠 / 窗口后台时可能节流；且未来要做「独立状态窗口」「远程看板」时 IPC 不通。
+
+**方案**：主进程起一个本地 WebSocket 服务，客户端可选用 WS 或 IPC，**默认 IPC，WS 作为可选升级**。
+
+```typescript
+// apps/windows/src/main/realtime/task-ws-server.ts
+
+import { WebSocketServer, WebSocket } from 'ws'
+
+export class TaskWebSocketServer {
+  private wss: WebSocketServer | null = null
+  private clients = new Set<WebSocket>()
+  private port = 0
+
+  start(preferredPort = 17321): number {
+    this.wss = new WebSocketServer({ port: preferredPort, host: '127.0.0.1' })
+    // ponytail: 仅监听回环，不做鉴权；若要暴露给局域网再加 token
+    this.wss.on('connection', ws => {
+      this.clients.add(ws)
+      ws.on('close', () => this.clients.delete(ws))
+      ws.on('error', () => this.clients.delete(ws))
+    })
+    this.wss.on('listening', () => {
+      this.port = (this.wss!.address() as any).port
+    })
+    return this.port
+  }
+
+  broadcast(type: string, payload: unknown): void {
+    const msg = JSON.stringify({ type, payload, ts: Date.now() })
+    for (const ws of this.clients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(msg)
+    }
+  }
+
+  stop(): void {
+    this.clients.forEach(ws => ws.close())
+    this.wss?.close()
+  }
+}
+```
+
+渲染侧客户端（**只有 IPC 不可用或显式开启时才连接**）：
+
+```typescript
+// apps/windows/src/renderer/services/task-ws-client.ts
+
+export class TaskWebSocketClient {
+  private ws: WebSocket | null = null
+  private handlers = new Map<string, Set<(data: any) => void>>()
+
+  connect(port: number): void {
+    this.ws = new WebSocket(`ws://127.0.0.1:${port}`)
+    this.ws.onmessage = e => {
+      const { type, payload } = JSON.parse(e.data)
+      this.handlers.get(type)?.forEach(h => h(payload))
+    }
+    this.ws.onclose = () => { /* 5s 后重连，最多 10 次 */ }
+  }
+
+  on(type: string, handler: (data: any) => void): () => void {
+    if (!this.handlers.has(type)) this.handlers.set(type, new Set())
+    this.handlers.get(type)!.add(handler)
+    return () => this.handlers.get(type)?.delete(handler)
+  }
+}
+```
+
+**消息契约**（与 IPC 完全一致，前端可无缝切换）：
+
+| type | payload |
+|------|---------|
+| `task:update` | `BackgroundTask` 快照 |
+| `task:log-delta` | `LogDelta` |
+| `task:milestone` | `{ taskId, milestoneId, status }` |
+
+**决策**：Phase 1 **不默认启用 WS**，只把通道预留好。理由：IPC 在 Electron 内零成本，WS 引入端口占用、防火墙提示、多窗口鉴权问题。等到「独立看板窗口」需求出现再开。
+
+---
+
+### 12.5 P1-5：自动重试机制
+
+**问题**：ComfyUI 连接抖动、MCP 工具瞬时超时，会让整条后台任务失败，用户得手动重来。
+
+**方案**：统一的重试装饰器，**只对可重试错误生效**。
+
+```typescript
+// apps/windows/src/main/agent-runtime/with-retry.ts
+
+export interface RetryConfig {
+  maxAttempts: number          // 总尝试次数（含首次），默认 3
+  backoffMs: number            // 初始退避，默认 1000
+  backoffMultiplier: number    // 默认 2
+  maxBackoffMs: number         // 上限，默认 30000
+  retryable: (err: Error) => boolean
+}
+
+const DEFAULT_RETRYABLE = (err: Error) =>
+  /ECONNREFUSED|ETIMEDOUT|ECONNRESET|socket hang up|503|502/i.test(err.message)
+
+export async function withRetry<T>(
+  fn: (attempt: number) => Promise<T>,
+  cfg: Partial<RetryConfig> = {},
+  signal?: AbortSignal,
+): Promise<T> {
+  const c: RetryConfig = { maxAttempts: 3, backoffMs: 1000, backoffMultiplier: 2, maxBackoffMs: 30000, retryable: DEFAULT_RETRYABLE, ...cfg }
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn(attempt)
+    } catch (err) {
+      const e = err as Error
+      if (signal?.aborted) throw e
+      if (attempt >= c.maxAttempts || !c.retryable(e)) throw e
+
+      const delay = Math.min(c.backoffMs * Math.pow(c.backoffMultiplier, attempt - 1), c.maxBackoffMs)
+      await new Promise((res, rej) => {
+        const t = setTimeout(res, delay)
+        signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Error('aborted')) }, { once: true })
+      })
+    }
+  }
+}
+```
+
+**接入点**：`background-tool-config.ts` 里包裹 MCP 调用；ComfyUI 的轮询 `get_history` 单独用 `retryable: err => err.message.includes('ECONNREFUSED')`。
+
+**绝不重试的错误**：参数错误、权限拒绝、用户取消、任务已存在。这些重试只会延长用户等待。
+
+**UI 反馈**：任务卡上显示「第 2/3 次重试，5s 后开始」，避免用户以为卡死。
+
+---
+
+### 12.6 P1-6：暂停 / 恢复
+
+**问题**：长任务跑到一半用户想改参数，或要关机，现在只能取消从头来。
+
+**方案**：检查点（checkpoint）+ `AbortSignal`，**只对「轮询型」与「多阶段型」任务支持**，不尝试对不可中断的原子操作做假暂停。
+
+```typescript
+// apps/windows/src/shared/types/background-task.ts
+
+export interface TaskCheckpoint {
+  step: string
+  data: Record<string, any>   // 由各工具自己决定存什么
+  timestamp: number
+}
+
+export type TaskStatus =
+  | 'queued' | 'running' | 'paused'
+  | 'completed' | 'failed' | 'cancelled'
+```
+
+主进程：
+
+```typescript
+// apps/windows/src/main/agent-runtime/background-task-manager.ts
+
+async pauseTask(taskId: string): Promise<void> {
+  const task = this.tasks.get(taskId)
+  if (!task || task.status !== 'running') return
+  
+  task.pauseController?.abort()        // 打断当前等待
+  task.status = 'paused'
+  this.emitUpdate(task)
+}
+
+async resumeTask(taskId: string): Promise<void> {
+  const task = this.tasks.get(taskId)
+  if (!task?.checkpoint) return
+
+  task.status = 'running'
+  task.pauseController = new AbortController()
+  const { checkpoint } = task
+
+  this.runTask(task.id, task.sessionId, signal =>
+    task.executor(signal, checkpoint)
+  )
+}
+```
+
+**ComfyUI 示例**：暂停时把 `prompt_id` 存进 checkpoint；恢复时直接继续轮询该 `prompt_id`，**不重新提交**（这是暂停/恢复最有价值的场景——不浪费 GPU 时间）。
+
+**不可暂停的任务**（如单次文件写入）在 UI 上隐藏暂停按钮，而不是按了没反应。
+
+---
+
+### 12.7 P2-7：性能监控埋点
+
+**目标**：回答「这个任务慢在哪"」，为 Phase 2 看板与后续优化提供数据。
+
+```typescript
+// apps/windows/src/shared/types/background-task.ts
+
+export interface TaskPerformanceMetrics {
+  taskId: string
+  queuedAt: number
+  startedAt: number
+  completedAt?: number
+  milestones: Record<string, {
+    startedAt: number
+    completedAt?: number
+    duration?: number
+  }>
+  peakMemoryMB: number
+  averageCpuPercent: number
+  networkCalls?: {
+    total: number
+    failed: number
+    averageLatencyMs: number
+  }
+}
+```
+
+**采集点**（全部挂在现有生命周期钩子上，不新增控制流）：
+- `enqueue` → `queuedAt`
+- `runTask` 开始 → `startedAt`
+- 里程碑切换 → 更新 `milestones[id]`
+- 终态 → `completedAt`，计算总耗时并落盘 `~/.lumii/metrics/tasks.jsonl`
+
+**上报策略**：本地优先，**默认不上传**。设置页提供「匿名性能数据」开关，仅在开启时聚合上报到 `/api/telemetry`。
+
+**开发者视图**：`Ctrl+Shift+T` 打开任务性能面板，列出最近 50 条任务的耗时分布、最慢里程碑。
+
+---
+
+### 12.8 P2-8：资源占用追踪
+
+```typescript
+// apps/windows/src/main/agent-runtime/resource-monitor.ts
+
+export interface ResourceSnapshot {
+  timestamp: number
+  cpu: { user: number; system: number; percent: number }
+  memory: { heapUsed: number; heapTotal: number; rss: number }
+  system: { totalMemory: number; freeMemory: number; cpuCount: number }
+}
+
+export class ResourceMonitor {
+  private timer: NodeJS.Timeout | null = null
+  private buffer: ResourceSnapshot[] = []
+
+  takeSnapshot(): ResourceSnapshot {
+    const mem = process.memoryUsage()
+    const cpu = process.cpuUsage()
+    return {
+      timestamp: Date.now(),
+      cpu: { user: cpu.user, system: cpu.system, percent: this.computeCpuPercent(cpu) },
+      memory: { heapUsed: mem.heapUsed, heapTotal: mem.heapTotal, rss: mem.rss },
+      system: { totalMemory: os.totalmem(), freeMemory: os.freemem(), cpuCount: os.cpus().length },
+    }
+  }
+
+  startContinuousMonitoring(cb: (s: ResourceSnapshot) => void, intervalMs = 5000): void {
+    this.stop()
+    this.timer = setInterval(() => {
+      const snap = this.takeSnapshot()
+      this.buffer.push(snap)
+      if (this.buffer.length > 120) this.buffer.shift()   // 只保留 10 分钟
+      cb(snap)
+    }, intervalMs).unref()
+  }
+
+  stop(): void {
+    if (this.timer) { clearInterval(this.timer); this.timer = null }
+  }
+}
+```
+
+**注意**：
+- `percent` 必须由两次 `cpuUsage()` 差值除以时间与核数得出，直接取瞬时值是错的（会显示 800%+）。
+- 采样间隔 5s 够用；**任务运行中才开启**，空闲时停掉。
+- 只做展示与告警（连续 3 次 > 80% 时在任务卡上提示），不做自动降级——那属于 Phase 2 调度器的事。
+
+---
+
+### 12.9 落地顺序与依赖
+
+```
+P0-1 增量日志  ──┐
+P0-2 并发安全  ──┼─→ 可并行，均无前置
+P0-3 内存检测  ──┘
+      ↓（日志模型稳定后再动通道）
+P1-4 WebSocket ──→ 依赖 P0-1 的 LogDelta 契约
+P1-5 重试     ──┐ 无前置，可随时插队
+P1-6 暂停恢复 ──┘ 依赖 P1-5（恢复时要重试）
+      ↓
+P2-7 埋点     ──→ 依赖任务生命周期稳定（P0-2 之后）
+P2-8 资源追踪 ──→ 独立，可最后做
+```
+
+**建议节奏**：先做 P0 三项并在真实 ComfyUI 任务上验证 1 小时；P1 与产品需求对齐后再排。
+
+### 12.10 与主计划的兼容性
+
+| 影响面 | 是否破坏现有实现 |
+|--------|------------------|
+| `BackgroundTask.logs` 类型 | 条目新增 `id`/`milestone` 字段，**可选**，旧数据兼容 |
+| IPC 通道 | 只新增 `background-task:log-delta`，旧通道保留 |
+| `TaskStatus` | 新增 `paused`，前端 switch 需补默认分支（已有 `default` 则无需改） |
+| 组件 props | 全部为新增可选属性，无破坏性变更 |
+
+**升级路径**：v1.0 现有实现 → 加 `LogDelta` 双写（新旧通道并存）→ 前端切到 delta → 观察一周后移除旧全量通道。
+
 **状态**: 可执行
