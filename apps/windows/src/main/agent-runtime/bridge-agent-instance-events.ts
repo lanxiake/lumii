@@ -274,6 +274,14 @@ export interface BridgeAgentInstanceEventDeps {
   onTurnComplete?: (instanceId: string, messages: import('../../plugins/builtin/skill-evolution/types').ConversationMessage[]) => void
   /** 插件事件总线（用于发射生命周期事件给插件） */
   pluginEventBus?: import('@mtbot/plugin-core').EventBus<import('../kernel/events').MainEvents> | null
+  /**
+   * 推送活动快照（并行看板的数据源）。
+   *
+   * 实例创建/销毁时 lifecycle 已经推过一次，但那只覆盖「在不在」——
+   * 实例刚创建时还没开始跑，快照里 state 是 idle；等它真正 running 时
+   * 没有新快照，看板就会一直显示「待命」。这里在状态跃迁时补推一次。
+   */
+  pushActivitySnapshot?: (rootSessionKey: string) => void
 }
 
 /**
@@ -320,6 +328,7 @@ export function createAgentInstanceRuntimeEventHandler(
     onTurnComplete,
     onAssistantMessagePersisted,
     pluginEventBus,
+    pushActivitySnapshot,
   } = deps
   const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
   const streamingPersistIntervalMs = 100
@@ -585,6 +594,11 @@ export function createAgentInstanceRuntimeEventHandler(
           m.inputTokens += event.usage.inputTokens ?? 0
           m.outputTokens += event.usage.outputTokens ?? 0
         }
+      }
+      // 状态跃迁时补推活动快照：创建/销毁那两次推送分别发生在「还没开始跑」和
+      // 「已经消失」，中间这段真正的 running 状态否则无人知晓（并行看板的数据源）
+      if (event.type === 'agent:state-change' && pushActivitySnapshot) {
+        pushActivitySnapshot(ctx.rootSessionKey)
       }
     }
 

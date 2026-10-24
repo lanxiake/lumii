@@ -337,14 +337,76 @@ interface AgentDashboardItem {
 
 ## 9. 交付清单
 
-- [ ] Phase 2A：基础看板（能看到谁在跑）
-- [ ] Phase 2B：日志与预览（能看到在做什么）
-- [ ] Phase 2C：交互控制（能取消/重试/查看详情）
-- [ ] Phase 2D：性能与体验优化（10+ 并行流畅）
-- [ ] 单元测试覆盖 80%+
-- [ ] E2E 测试脚本
-- [ ] 设计文档更新
+- [x] Phase 2A：基础看板（能看到谁在跑）
+- [ ] Phase 2B：日志与预览（**不做**，理由见 §11.2）
+- [x] Phase 2C：交互控制（取消 / 详情；重试见 §11.3）
+- [x] Phase 2D：性能与体验优化（令牌对齐 / 单一计时器 / 无虚拟滚动，见 §11.4）
+- [x] 单元测试（`AgentDashboard.test.tsx` 6 例）
+- [x] E2E 测试脚本（`docs/test/lumii-cli/chat/run-agent-dashboard.mjs` + `probe-async-parallel.mjs`）
+- [x] 设计文档更新（本节 §11 实施记录）
 - [ ] 用户指南（如何使用 Agent 看板）
+
+---
+
+## 11. 实施记录（2026-10-24）
+
+### 11.1 落在哪里
+
+| 层 | 文件 | 做了什么 |
+|----|------|----------|
+| 数据 | `bridge-lifecycle.ts` `pushActivitySnapshot` | 名字优先取 broker 的 `run.name`（委托时模型给的任务级名），否则并行时一排卡片全叫「系统默认」 |
+| 数据 | `bridge-agent-instance-events.ts` | `agent:state-change` 时补推一次快照——此前只在实例创建/销毁时推，中间真正的 running 态无人知晓 |
+| 数据 | `bridge-instance-factory.ts` | 把 `pushActivitySnapshot` 注入事件处理器 |
+| 渲染 | `ChatPage/components/AgentDashboard/` | 看板组件 + CSS + 单测（6 例） |
+| 接线 | `ChatContainer` / `ChatPage.tsx` | 传 `activeAgents` 与 `onCancelAgent`；空会话也挂 |
+| 命令 | `command-allowlist.ts` | 放行 `agentInstance:abort`（与 `background-task:cancel` 同级） |
+
+**数据源就是既有的 `agent:activity:snapshot`**，没有新建 Store——快照里本来就有
+instanceId / name / state / mode / broker status / startedAt / lastProgressAt，
+只是此前没人消费。
+
+### 11.2 Phase 2B 不做（日志与媒体预览）
+
+每个子运行的完整轨迹（思考 / 工具 / 文件变更 / 失败原因）**已经在 `SpawnAgentCard`
+内部按 instanceId 渲染**（见 `08-委托可见性.md` §4）。看板再抄一份日志流与缩略图，
+只是把同一份数据画两遍，还多两条需要同步的生命周期。跳转交给「详情」按钮。
+
+### 11.3 Phase 2C 的「重试」不做（架构原因）
+
+看板的数据源是**活实例快照**：子 Agent 投递完成/失败后实例立即 destroy，快照里就没了。
+「重试一个失败的 Agent」必须针对一条**还看得见的失败记录**，而那个记录只存在于
+委托卡片（`SpawnAgentCard` 的 `status: 'error'`）里。把重试放到看板上等于给一个
+已经不存在的对象加按钮。要做的话正确落点是委托卡片，需要额外把 spawn 入参持久化
+到 broker 之外——另一件事，不塞进看板。
+
+「查看详情」按文档 §7 的降级方案实现：子 Agent 没有独立会话（与父共用
+conversationId），所以详情 = 滚动到下方对应的运行轨迹块（`data-instance-id`）。
+
+### 11.4 性能取舍
+
+- **不虚拟滚动**：并发上限 `SUBAGENT_DEFAULTS.hardMaxConcurrent = 10`，10 张纯文本卡片不需要窗口化。
+- **单一计时器**：整块看板共用一个 1s interval（只在可见时启动），10 张卡各自 setInterval 是纯浪费。
+- **收敛时粘住**：3 个跑完 2 个会瞬间只剩 1 个，若严格按「≥2 才显示」面板会在用户眼前
+  闪没（实测）。现在一旦并行过就保持到子 Agent 全部退场，最后那个仍可取消。
+
+### 11.5 实测结论（真实客户端）
+
+`probe-async-parallel.mjs` 用真实模型派两个 `mode:"async"` 子 Agent，观测到：
+
+```
+t=5s  统计(idle/running) + 系统默认(idle)   dash=true
+t=6s  统计(running) + 列举(running)         dash=true   ← 真正的并行
+t=9s  统计(idle/succeeded) + 列举(running)  dash=true
+t=11s 统计(idle/succeeded)                  dash=true   ← 粘住，未闪没
+```
+
+最大并发 2；`run-agent-dashboard.mjs` 另外覆盖了单 Agent 不显示、3 卡渲染、
+状态文案、取消按钮、清空后消失五条断言。
+
+**限制**：看板只反映**当前打开的会话**。子 Agent 都在后台会话里跑时看不到——
+这与后台任务卡同一口径（`switchSession` 进入该会话即可看到）。跨会话的全局看板
+属于 §8 的「侧边栏模式」，未做。
+
 
 ---
 

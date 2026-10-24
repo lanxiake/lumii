@@ -1,0 +1,181 @@
+/**
+ * AgentDashboard.module.css —— 并行子 Agent 看板
+ *
+ * 与后台任务卡同一视觉语言（--mt-* 令牌、圆角、左侧状态色条），
+ * 但不抢戏：它是「几个在跑」的总览，单条细节交给下方的委托卡片。
+ */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 640px;
+  margin: 8px auto;
+  padding: 8px 10px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg, 12px);
+  background: var(--mt-bg-overlay);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 2px;
+}
+
+.title {
+  font-size: calc(12px * var(--app-font-scale, 1));
+  font-weight: 600;
+  color: var(--mt-fg-1);
+}
+
+.summary {
+  font-size: calc(11px * var(--app-font-scale, 1));
+  color: var(--mt-fg-3);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: var(--mt-radius-md, 8px);
+  border-left: 3px solid var(--mt-border);
+  background: color-mix(in srgb, var(--mt-surface-2) 45%, transparent);
+}
+
+.card--running {
+  border-left-color: var(--mt-accent-500);
+}
+
+.card--failed {
+  border-left-color: var(--mt-error, var(--mt-border));
+}
+
+.card--done {
+  border-left-color: var(--color-success, var(--mt-border));
+}
+
+/* 状态：色 + 图标 + 文字三者齐全，不靠颜色单独表意 */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: calc(11px * var(--app-font-scale, 1));
+  font-weight: 500;
+}
+
+.status--running {
+  color: var(--mt-accent-500);
+}
+
+.status--failed {
+  color: var(--mt-error, var(--mt-fg-2));
+}
+
+.status--done {
+  color: var(--color-success, var(--mt-fg-2));
+}
+
+.status--idle {
+  color: var(--mt-fg-3);
+}
+
+.spinner {
+  animation: agent-dashboard-spin 1s linear infinite;
+}
+
+@keyframes agent-dashboard-spin {
+  to { transform: rotate(360deg); }
+}
+
+.idleDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mt-fg-4);
+}
+
+/* 名字是这张卡的主信息：允许吃掉剩余宽度，超长省略 */
+.name {
+  flex: 1;
+  min-width: 0;
+  font-size: calc(12px * var(--app-font-scale, 1));
+  color: var(--mt-fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modeTag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: var(--mt-radius-sm, 4px);
+  border: 1px solid var(--mt-border-hairline);
+  font-size: calc(10px * var(--app-font-scale, 1));
+  color: var(--mt-fg-3);
+}
+
+.elapsed {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: calc(11px * var(--app-font-scale, 1));
+  color: var(--mt-fg-3);
+}
+
+/* 疑似卡住：黄色提示，不是错误——主进程的 stale 监控会自己收场 */
+.stalled {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: var(--mt-radius-sm, 4px);
+  background: color-mix(in srgb, var(--mt-warning) 18%, transparent);
+  font-size: calc(10px * var(--app-font-scale, 1));
+  color: var(--mt-warning);
+}
+
+.cancel {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--mt-radius-sm, 4px);
+  border: 1px solid var(--mt-border-hairline);
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: calc(11px * var(--app-font-scale, 1));
+  cursor: pointer;
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.cancel:hover {
+  background: color-mix(in srgb, var(--mt-error, var(--mt-fg-2)) 12%, transparent);
+  border-color: var(--mt-error, var(--mt-border));
+  color: var(--mt-error, var(--mt-fg-1));
+}
+
+/* 详情：滚动到该子运行的轨迹（子 Agent 没有独立会话，轨迹就在下方委托卡片里） */
+.detail {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--mt-radius-sm, 4px);
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: calc(11px * var(--app-font-scale, 1));
+  cursor: pointer;
+}
+
+.detail:hover {
+  color: var(--mt-accent-500);
+  text-decoration: underline;
+}

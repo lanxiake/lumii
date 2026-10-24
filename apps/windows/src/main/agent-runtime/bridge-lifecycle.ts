@@ -454,10 +454,14 @@ export class BridgeLifecycle {
         const run = orch?.broker.getRun(inst.id)
         return {
           instanceId: inst.id,
-          // 显示名优先取实例上下文里的权威名（创建实例时由 def.name 写入）：
-          // findBuiltInAgent 只认内置定义，用户自建 Agent 会回落成 `user-…` 编码 id，
-          // 而该值会被渲染层回填进 sourceAgent.label（见 08-委托可见性.md §3）
+          // 显示名优先级：委托时模型给的 name（如「安全审查」这种任务级名字）>
+          // 实例上下文里的定义名 > 内置表 > 定义 id。
+          //
+          // 为什么 run.name 放最前：并行时子 Agent 常共用同一个定义，快照里一排
+          // 「系统默认」等于没有名字。broker 里的 name 就是 spawn_agent 入参，
+          // 即用户在委托卡上看到的那个（见 08-委托可见性.md §3）。
           name:
+            run?.name ??
             this.deps.instanceStates.get(inst.id)?.ctx.agentName ??
             findBuiltInAgent(inst.definitionId)?.name ??
             inst.definitionId,

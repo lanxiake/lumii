@@ -680,6 +680,8 @@ export class BridgeInstanceFactory {
         }
       },
       pluginEventBus: this.deps.pluginEventBus,
+      // 状态跃迁补推活动快照（并行看板的数据源）
+      pushActivitySnapshot: this.deps.pushActivitySnapshot,
     })
     const eventSink: EventSink = { emit: (event) => richHandler(event) }
 

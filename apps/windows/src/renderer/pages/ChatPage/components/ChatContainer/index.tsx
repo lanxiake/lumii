@@ -7,12 +7,13 @@ import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
 import { TodoPanel, computeTodoProgress } from '../TodoPanel'
 import { BackgroundTaskList } from '../BackgroundTaskCard'
+import { AgentDashboard } from '../AgentDashboard'
 import { useStableMapById } from '../../../../utils/useStableMapById'
 import { useWindowedRows } from './useWindowedRows'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { groupSubAgentRuns, type SubAgentRun } from './sub-agent-runs'
-import type { RuntimeFileEvent, RuntimeCompactionEvent, BackgroundTask } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import type { RuntimeFileEvent, RuntimeCompactionEvent, BackgroundTask, ActiveAgent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { isCompactSummaryText, unwrapCompactSummaryText } from '../../../../../shared/compact-summary-text'
 import styles from './ChatContainer.module.css'
 
@@ -116,6 +117,10 @@ interface ChatContainerProps {
   onLoadOlderMessages?: () => void
   /** 本会话的长耗时后台任务（远程视频生成等），渲染为对话流内任务卡 */
   backgroundTasks?: readonly BackgroundTask[]
+  /** 本会话的活动实例（含主 Agent），≥2 个子 Agent 时渲染并行看板 */
+  activeAgents?: readonly ActiveAgent[]
+  /** 取消某个子 Agent（看板上的「取消」按钮） */
+  onCancelAgent?: (instanceId: string) => void
 }
 
 /** 距顶部小于该像素时触发历史懒加载，留出提前量避免用户滚到边界才开始请求 */
@@ -258,6 +263,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   isLoadingHistory = false,
   onLoadOlderMessages,
   backgroundTasks,
+  activeAgents,
+  onCancelAgent,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // 显式带上 null 联合类型：useRef<T>(null) 得到的是只读 RefObject，
@@ -604,6 +611,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return (
       <div className={styles['chat-container']}>
         <EmptyState onSuggestionClick={onSuggestionClick} />
+        {activeAgents && activeAgents.length > 0 && (
+          <div className={styles['session-meta-inline']}>
+            <AgentDashboard agents={activeAgents} onCancel={onCancelAgent} />
+          </div>
+        )}
         {looseBackgroundTasks.length > 0 && (
           <div className={styles['session-meta-inline']}>
             <BackgroundTaskList tasks={looseBackgroundTasks} />
@@ -743,6 +755,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               variant="inline"
               defaultExpanded
             />
+          </div>
+        )}
+
+        {/* 并行子 Agent 看板：≥2 个子 Agent 时出现在对话流末尾（贴着最新进展），
+            单个子 Agent 不显示——委托卡片本身已经说清楚了 */}
+        {activeAgents && activeAgents.length > 0 && (
+          <div className={styles['session-meta-inline']}>
+            <AgentDashboard agents={activeAgents} onCancel={onCancelAgent} />
           </div>
         )}
 

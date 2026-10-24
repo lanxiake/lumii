@@ -194,6 +194,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const runtimeHistoryPaging = useAgentRuntimeState((s) => s.historyPaging)
   const runtimeLastTaskCompletion = useAgentRuntimeState((s) => s.lastTaskCompletion)
   const runtimeBackgroundTasks = useAgentRuntimeState((s) => s.backgroundTasks)
+  const runtimeActiveAgents = useAgentRuntimeState((s) => s.activeAgents)
 
   /**
    * 侧栏运行态：已进过内存的会话以 store.isStreaming 为准（避免 DB hasRunning 滞后导致动效不消）；
@@ -1745,6 +1746,20 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     toast,
   ])
 
+  /**
+   * 取消单个子 Agent（看板上的「取消」）。
+   *
+   * 走 `agentInstance:abort`：中止该实例及其工具调用，实例收场后主进程重推活动快照，
+   * 卡片自然消失。**不碰父回合**——这是「砍掉这一路并行」而不是「停止整个回答」。
+   */
+  const cancelSubAgent = useCallback(async (instanceId: string) => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return
+    await api.sendCommand({ type: 'agentInstance:abort', instanceId }).catch((err) => {
+      logger.warn(`[cancelSubAgent] 取消失败: ${err instanceof Error ? err.message : String(err)}`)
+    })
+  }, [])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1864,6 +1879,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
               isLoadingHistory={runtimeHistoryPaging?.isLoading ?? false}
               onLoadOlderMessages={handleLoadOlderMessages}
               backgroundTasks={runtimeBackgroundTasks}
+              activeAgents={runtimeActiveAgents}
+              onCancelAgent={cancelSubAgent}
             />
           </ChatMessageActionsProvider>
         </div>
