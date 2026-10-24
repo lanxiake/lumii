@@ -600,9 +600,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   }
 
   if (chatItems.length === 0) {
+    // 空会话也要挂无归属的后台任务（例如工具已后台化、回合尚无助手气泡）
     return (
       <div className={styles['chat-container']}>
         <EmptyState onSuggestionClick={onSuggestionClick} />
+        {looseBackgroundTasks.length > 0 && (
+          <div className={styles['session-meta-inline']}>
+            <BackgroundTaskList tasks={looseBackgroundTasks} />
+          </div>
+        )}
       </div>
     )
   }
