@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useContext, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useContext, useEffect, useRef, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
@@ -43,6 +43,11 @@ import {
 import { getStatusLabel } from '../ToolCallCard'
 import { ActivityFold, type ActivityLine, type ActivityProgress } from '../ActivityFold'
 import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
+import {
+  getPendingAskUserSnapshot,
+  getPendingPermissionSnapshot,
+  runtimeStore,
+} from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import {
   markLargeCodeBlocks,
   PLAIN_TEXT_THRESHOLD,
@@ -658,6 +663,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   // 复制/编辑/删除/重新生成/回放/文件变更定位等消息级动作由 Context 提供，
   // 不再逐层 props 穿透（见 ChatMessageActionsContext 的稳定性契约）
   const actions = useChatMessageActions()
+  /**
+   * 询问/审批 pending 变化时强制本行重渲染，使 `builtin.permission` 的 match
+   *（读 store）能挂上/卸下对应工具 part；否则 memo 父行 props 不变会漏掉卡。
+   */
+  useSyncExternalStore(
+    runtimeStore.subscribe,
+    () => {
+      const ask = getPendingAskUserSnapshot()
+      const perm = getPendingPermissionSnapshot()
+      return `${ask.pending?.requestId ?? ''}:${perm.pending?.requestId ?? ''}`
+    },
+    () => '',
+  )
   const [isEditing, setIsEditing] = useState(false)
   const [memoryExpanded, setMemoryExpanded] = useState(false)
   const [previewFileId, setPreviewFileId] = useState<string | null>(null)

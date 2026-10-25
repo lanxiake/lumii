@@ -16,7 +16,7 @@ import {
   parsePermissionReply,
   type ChannelInteraction,
 } from './channel-interaction-store'
-import { CHANNEL_DOWNGRADE_TEXT, canChannelHandleQuestions } from './desktop-interaction-gate'
+import { canChannelHandleQuestions } from './desktop-interaction-gate'
 
 const log = {
   info: (...args: unknown[]) => console.log('[ChannelInteractionHub]', ...args),
@@ -37,6 +37,16 @@ export class ChannelInteractionHub {
     bridge.setChannelInteractionNotifier((req) => this.onInteraction(req))
     // 主动出站（转交完成汇报等异步产出）：入站消息刷新过的会话才推得出去
     bridge.setChannelTextPusher((sessionKey, text) => this.pushText(sessionKey, text))
+    // 桌面先答时按 requestId 作废渠道挂起，避免下一条 IM 被当成答复吞掉
+    bridge.setChannelInteractionClearer((requestId) => this.clearByRequestId(requestId))
+  }
+
+  /** 桌面侧已 resolve 时调用：按 requestId 清掉渠道挂起 */
+  clearByRequestId(requestId: string): void {
+    const sessionKey = this.store.clearByRequestId(requestId)
+    if (sessionKey) {
+      log.info(`[clearByRequestId] 已作废渠道挂起 sessionKey=${sessionKey} requestId=${requestId}`)
+    }
   }
 
   /**
@@ -129,14 +139,11 @@ export class ChannelInteractionHub {
       return false
     }
 
-    // §5.5 交互降级：选项过多/需多选的提问，纯文字无法可靠承载，引导回客户端。
-    // 返回 false 让 bridge 侧的门控回落到桌面弹窗。
+    // 渠道一律文字化；桌面侧另推消息卡（双投递）。canChannelHandleQuestions 现恒 true，
+    // 保留调用以便日后若再收紧策略时 Hub 与门控同源。
     if (req.kind === 'ask' && !canChannelHandleQuestions(req.questions)) {
-      void route.adapter.sendTextReply(route.session, CHANNEL_DOWNGRADE_TEXT).catch((err) => {
-        log.warn(`[onInteraction] 降级提示推送失败 sessionKey=${req.sessionKey}: ${err}`)
-      })
-      log.info(
-        `[onInteraction] 提问超出渠道承载能力，降级到客户端 sessionKey=${req.sessionKey} questions=${req.questions.length}`,
+      log.warn(
+        `[onInteraction] 提问被门控拒绝文字化 sessionKey=${req.sessionKey} questions=${req.questions.length}`,
       )
       return false
     }

@@ -463,7 +463,7 @@ export class BridgeInstanceFactory {
           this.deps.ipcChannel.forwardIpcEvent({ ...permissionEvent, autoApproved: true })
           return settle('allow-once')
         }
-        // 先尝试渠道文字审批；门控决定是否再推桌面弹窗
+        // 渠道文字审批 + 桌面消息卡可双投递（先答先生效）
         const sessionKey =
           input.rootSessionKey ?? this.deps.instanceToConversation.get(input.instanceId)
         const channelHandled = sessionKey
@@ -475,9 +475,7 @@ export class BridgeInstanceFactory {
               description: input.description,
             })
           : false
-        const ipcSent = channelHandled
-          ? false
-          : this.deps.ipcChannel.forwardIpcEvent(permissionEvent)
+        const ipcSent = this.deps.ipcChannel.forwardIpcEvent(permissionEvent)
         const delivery = resolvePermissionDelivery({
           autoApprove: false,
           channelHandled,
@@ -490,7 +488,7 @@ export class BridgeInstanceFactory {
             description: input.description,
           }).then(settle)
         }
-        // channel-only / desktop-ipc：等待用户在 IM 或审批卡中回复
+        // channel-only / channel-and-desktop / desktop-ipc：等 IM 或时间线审批卡
         return this.deps.permissionController.waitForPermission(input.requestId, timeoutMs).then(settle)
       },
     }

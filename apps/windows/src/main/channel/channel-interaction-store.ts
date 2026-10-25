@@ -54,6 +54,20 @@ export class ChannelInteractionStore {
   clear(sessionKey: string): void {
     this.pending.delete(sessionKey)
   }
+
+  /**
+   * 按 requestId 清除挂起交互（桌面卡先答时作废渠道侧，避免下一条 IM 被误吞）。
+   * @returns 被清除的 sessionKey；未命中则 undefined
+   */
+  clearByRequestId(requestId: string): string | undefined {
+    for (const [sessionKey, entry] of this.pending) {
+      if (entry.interaction.requestId === requestId) {
+        this.pending.delete(sessionKey)
+        return sessionKey
+      }
+    }
+    return undefined
+  }
 }
 
 /** 渠道审批的三个可选回复 → 决策 */

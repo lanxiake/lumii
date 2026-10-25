@@ -17,6 +17,7 @@ import type { ChannelSession, IChannelAdapter } from './types'
 
 interface HubBridge {
   setChannelInteractionNotifier: ReturnType<typeof vi.fn>
+  setChannelInteractionClearer: ReturnType<typeof vi.fn>
   setChannelTextPusher: ReturnType<typeof vi.fn>
   abortSession: ReturnType<typeof vi.fn>
   resolvePermission: ReturnType<typeof vi.fn>
@@ -30,6 +31,7 @@ function makeHub(): { hub: ChannelInteractionHub; bridge: HubBridge } {
     setChannelInteractionNotifier: vi.fn((fn: (req: unknown) => boolean) => {
       bridge.notifier = fn
     }),
+    setChannelInteractionClearer: vi.fn(),
     setChannelTextPusher: vi.fn(),
     abortSession: vi.fn(() => 1),
     resolvePermission: vi.fn(),

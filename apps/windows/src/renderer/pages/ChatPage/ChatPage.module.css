@@ -76,6 +76,40 @@
   box-sizing: border-box;
 }
 
+/* 询问挂在其它会话时：轻量提示（完整表单在该会话时间线卡内） */
+.cross-session-ask-banner {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--chat-overlay-bottom, 210px) + 8px);
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--mt-shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.08));
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-text-secondary);
+  pointer-events: auto;
+}
+
+.cross-session-ask-btn {
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-on-accent, #fff);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: var(--font-size-xs, 12px);
+  cursor: pointer;
+}
+
+.cross-session-ask-btn:hover {
+  filter: brightness(1.05);
+}
+
 /* Toolbar — 单行玻璃头部。高度须与 --chat-overlay-top(44px) 保持一致，
    否则消息区避让会算错 */
 .chat-toolbar {

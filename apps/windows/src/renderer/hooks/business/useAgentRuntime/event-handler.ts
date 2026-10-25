@@ -1550,11 +1550,16 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:ask-user:cancelled': {
+      // 按 requestId 扫所有会话：渠道先答时可能没有 rootSessionKey，避免卡死在错误会话
       const reqId = event.requestId
-      updateSessionState(sessionKey, (prev) => {
-        if (prev.pendingAskUser?.requestId !== reqId) return prev
-        return { ...prev, pendingAskUser: null }
-      })
+      const sessions = runtimeStore.getState().sessions
+      for (const [sk, state] of sessions) {
+        if (state.pendingAskUser?.requestId !== reqId) continue
+        updateSessionState(sk, (prev) => {
+          if (prev.pendingAskUser?.requestId !== reqId) return prev
+          return { ...prev, pendingAskUser: null }
+        })
+      }
       break
     }
 

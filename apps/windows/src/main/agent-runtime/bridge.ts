@@ -168,6 +168,7 @@ import { ensurePetDispatchCronJobSeeded, runPetDispatch, syncPetDispatchJobEnabl
 import { ensurePetSensingCronJobSeeded, runPetSensing } from './pet-sensing-tick'
 import {
   ensureWechatWatchCronJobSeeded,
+  syncWechatWatchJobEnabled,
   formatIncomingForHistory,
   enqueueWechatOutbox,
   formatWechatProfiles,
@@ -1129,7 +1130,7 @@ export class AgentRuntimeBridge {
           isDelegatedOwnership(
             resolveChannelIdentity(sessionKey, this.getConversationOwnership(sessionKey)).ownership,
           )
-        // 优先文字化推给渠道；渠道已承接则不再向客户端弹 AskUserModal（maskClosable=false）
+        // 优先文字化推给渠道；渠道承接时仍向桌面推消息卡（双投递，先答先生效）
         let channelHandled = false
         if (sessionKey && !delegated) {
           channelHandled = this.notifyChannelInteraction({
@@ -1158,17 +1159,16 @@ export class AgentRuntimeBridge {
           )
           return { answers: {}, cancelled: true }
         }
-        if (delivery === 'desktop') {
-          this.ipcChannel.forwardIpcEvent({
-            type: 'agent:ask-user:request',
-            requestId: input.requestId,
-            instanceId,
-            rootSessionKey: sessionKey,
-            context: input.context,
-            questions: input.questions,
-            timeoutMs,
-          })
-        }
+        // desktop | channel-and-desktop：渲染层时间线卡需要 pending 事件
+        this.ipcChannel.forwardIpcEvent({
+          type: 'agent:ask-user:request',
+          requestId: input.requestId,
+          instanceId,
+          rootSessionKey: sessionKey,
+          context: input.context,
+          questions: input.questions,
+          timeoutMs,
+        })
         return this.askUserQuestionController.waitForAnswer(input.requestId, timeoutMs)
       },
       executeSkill: this.config.executeSkill,
@@ -2591,6 +2591,11 @@ export class AgentRuntimeBridge {
     this.mcpManager.setToolsChangedListener(() => {
       log.info('[McpManager] 工具列表变更,刷新所有实例工具')
       this.refreshAllInstanceTools()
+      // 盯梢任务的启停跟着 MCP 配置走：这里是**唯一**的变更汇聚点（load / upsert /
+      // remove / setEnabled / 手改 JSON 最终都会调到 notifyToolsChanged），
+      // 比在每个写入口各挂一次可靠——漏一个的症状就是「装了助手还要重启才生效」。
+      // 启动期它也会被调到，此时调度器尚未 start：syncWechatWatchJob 内部已做空值保护。
+      this.syncWechatWatchJob()
     })
     void this.mcpManager.load()
   }
@@ -3619,6 +3624,33 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * MCP 配置变化后，同步盯梢任务的启停（`wechat-watch`）并按需重排调度器。
+   *
+   * 为什么挂在 `notifyToolsChanged` 这个**唯一汇聚点**上，而不是每个 MCP 写入口各挂一次：
+   * 改写 MCP 配置的路径有六条（load / upsert / import / remove / setEnabled / 手改 JSON），
+   * 盯梢任务的启停判据是「`wechat-chat` 配了且启用」。漏一条的症状就是
+   * **装了助手、打开了开关，盯梢却要等下次重启才活**——2026-10-25 现场就是它：
+   * 14:04 启用 MCP 后 `wechat-watch` 仍是 `enabled=0`，当天一拍都没跑。
+   *
+   * 只在 enabled **真的变了**时才重排调度器：`reloadLocalCronScheduler` 会拆掉并重建
+   * 所有任务计时器，而 MCP 断线自动重连也会走到这里——每次重连都重排会无辜打扰别的任务。
+   */
+  private syncWechatWatchJob(): void {
+    try {
+      const mcpConfigured = loadMcpServerConfigs().some(
+        (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
+      )
+      const changed = syncWechatWatchJobEnabled(this.localDb.db, {
+        mcpConfigured,
+        pluginEnabled: isExtensionActive('com.lumii.relay'),
+      })
+      if (changed && this.initialized) this.cronScheduler?.reloadLocalCronScheduler()
+    } catch (err) {
+      log.warn('[bridge] 同步微信盯梢任务失败（不影响 MCP 本身）:', err)
+    }
+  }
+
+  /**
    * 运行期开关代聊盯梢循环（`com.lumii.relay` 的启停用）。
    *
    * 与启动时的播种走同一个函数：禁用会真的把已存在的 `wechat-watch` 任务停掉，
@@ -3630,6 +3662,10 @@ export class AgentRuntimeBridge {
         (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
       )
       ensureWechatWatchCronJobSeeded(this.localDb.db, { mcpConfigured, pluginEnabled: enabled })
+      // **必须重排**：播种只改 DB 的 enabled，调度器不轮询库——不重载的话
+      // 「插件重新启用 / 助手刚装好」这种**进程内**恢复永远不生效，要等下次重启
+      // （2026-10-25 实测：MCP 装好并启用后任务仍是 enabled=0，一拍都没跑）。
+      this.cronScheduler?.reloadLocalCronScheduler()
     } catch (err) {
       log.warn('[bridge] 切换代聊盯梢循环失败:', err)
     }
@@ -3678,6 +3714,8 @@ export class AgentRuntimeBridge {
 
   writeMcpConfigFile(content: string): Promise<void> { return this.mcpManager.writeConfigFile(content) }
 
+  // MCP 的每个写入口都只改配置与连接；盯梢任务的同步统一由
+  // `setToolsChangedListener` → `syncWechatWatchJob` 兜（见那里的说明）。
   upsertMcpServer(entry: McpServerEntry, originalName?: string): Promise<void> { return this.mcpManager.upsert(entry, originalName) }
 
   importMcpServers(entries: readonly McpServerEntry[]): Promise<void> { return this.mcpManager.importEntries(entries) }
@@ -3894,7 +3932,7 @@ export class AgentRuntimeBridge {
 
   /**
    * 渠道交互通知器：把提问/审批文字化推给渠道用户。
-   * 返回 true 表示该会话由渠道承接——此时调用方不得再向渲染进程推送桌面弹窗。
+   * 返回 true 表示该会话由渠道承接（文字已推）；桌面消息卡仍可并行投递。
    */
   private channelInteractionNotifier:
     | ((interaction: ChannelInteractionRequest) => boolean)
@@ -3904,6 +3942,16 @@ export class AgentRuntimeBridge {
     notifier: ((interaction: ChannelInteractionRequest) => boolean) | null,
   ): void {
     this.channelInteractionNotifier = notifier
+  }
+
+  /**
+   * 桌面先答时作废渠道挂起交互（按 requestId）。
+   * 由 ChannelInteractionHub 在构造时注册。
+   */
+  private channelInteractionClearer: ((requestId: string) => void) | null = null
+
+  setChannelInteractionClearer(clearer: ((requestId: string) => void) | null): void {
+    this.channelInteractionClearer = clearer
   }
 
   /**
@@ -3969,6 +4017,14 @@ export class AgentRuntimeBridge {
 
   resolvePermission(requestId: string, decision: 'allow-once' | 'allow-always' | 'deny'): void {
     this.permissionController.resolvePermission(requestId, decision)
+    // 桌面先答时作废渠道挂起；渠道先答时 store 已在 tryConsumeReply 里删过，此处幂等
+    try {
+      this.channelInteractionClearer?.(requestId)
+    } catch (err) {
+      log.warn(
+        `[resolvePermission] 清除渠道挂起失败 requestId=${requestId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
   }
 
   resolveAskUserQuestion(requestId: string, payload: { answers: Record<string, string>; annotations?: Record<string, { preview?: string; notes?: string }>; declined?: boolean }): void {
@@ -3976,6 +4032,19 @@ export class AgentRuntimeBridge {
       answers: payload.answers,
       annotations: payload.annotations,
       declined: payload.declined,
+    })
+    try {
+      this.channelInteractionClearer?.(requestId)
+    } catch (err) {
+      log.warn(
+        `[resolveAskUserQuestion] 清除渠道挂起失败 requestId=${requestId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    // 渠道先答时渲染层仍有 pending 卡：发 cancelled 收起（reason=superseded）
+    this.ipcChannel.forwardIpcEvent({
+      type: 'agent:ask-user:cancelled',
+      requestId,
+      reason: 'superseded',
     })
   }
 

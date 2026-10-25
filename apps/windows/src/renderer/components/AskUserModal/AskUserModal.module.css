@@ -265,6 +265,29 @@
   color: var(--color-text-tertiary);
 }
 
+/* 时间线内联卡（无 Modal 遮罩） */
+.inlineCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-raised);
+  max-width: 560px;
+}
+
+.inlineTitle {
+  margin: 0;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.inlineCard .body {
+  max-height: none;
+}
+
 /* footer 布局 */
 .footer {
   display: flex;

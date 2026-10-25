@@ -9,7 +9,6 @@
  * 设计依据: .qoder/design/client-agent-runtime/2026-06-26-agent-standalone-v2-design.md §2.2
  */
 
-import { randomUUID } from "node:crypto";
 import type { ToolHook } from "../tools/tool-hooks.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { checkPermission } from "../security/permission-checker.js";
@@ -98,7 +97,8 @@ export function createPermissionGateHook(deps: PermissionGateHookDeps): ToolHook
       }
 
       if (check.outcome === "needs_confirmation") {
-        const requestId = randomUUID();
+        // 与工具 part.id 对齐，桌面时间线审批卡才能挂到对应工具调用上
+        const requestId = ctx.toolCallId;
         const askMsg =
           check.decision.behavior === "ask" && "message" in check.decision
             ? check.decision.message

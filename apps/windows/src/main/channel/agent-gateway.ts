@@ -21,6 +21,7 @@ export type ChannelAgentGateway = Pick<
   | 'resolvePermission'
   | 'resolveAskUserQuestion'
   | 'setChannelInteractionNotifier'
+  | 'setChannelInteractionClearer'
   | 'setChannelTextPusher'
   // 上下文策略：记忆水位判断与历史恢复
   | 'getDbMessageCount'

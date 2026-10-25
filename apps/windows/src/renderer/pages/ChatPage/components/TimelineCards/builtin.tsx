@@ -1,17 +1,18 @@
 /**
  * 内置时间线卡片注册。
  *
- * 三条注册就是此前 `ChatMessage` 里那三处 `if (part.name === ...)` 的搬家，
- * 组件本身一行不改。`pinned: true` 对应原先的 `isPinned()` 硬编码——
- * 这几张卡被折叠进「执行过程」就等于用户看不见（转交确认按钮点不到、
- * task_complete 的 summary 被埋），所以必须露在外面。
+ * 原先三条（转交 / 委托 / 任务完成）+ 询问 / 审批。
+ * `pinned: true`：被折叠进「执行过程」就等于用户看不见。
  */
 
+import { AskUserCard } from '../AskUserCard/AskUserCard'
 import { HandoffCard } from '../HandoffCard'
+import { matchesPendingPermission, PermissionCard } from '../PermissionCard/PermissionCard'
 import { SpawnAgentCard, parseSpawnResult } from '../SpawnAgentCard'
 import { TaskCompleteCard } from '../TaskCompleteCard'
 import { ensureTimelineCard, type TimelineCardDefinition, type ToolPart } from './registry'
 
+const isAskUser = (part: ToolPart) => part.name === 'ask_user_question'
 const isHandoff = (part: ToolPart) => part.name === 'propose_dev_handoff'
 const isSpawn = (part: ToolPart) => part.name === 'spawn_agent'
 const isTaskComplete = (part: ToolPart) => part.name === 'task_complete'
@@ -20,6 +21,29 @@ const isTaskComplete = (part: ToolPart) => part.name === 'task_complete'
 function spawnInstanceId(part: ToolPart): string | undefined {
   const id = parseSpawnResult(part.result)?.instanceId
   return typeof id === 'string' && id ? id : undefined
+}
+
+/** 询问卡优先于其它内置卡；始终按工具名命中 */
+const ASK_USER: TimelineCardDefinition = {
+  id: 'builtin.ask-user',
+  order: 5,
+  pinned: true,
+  match: isAskUser,
+  component: AskUserCard,
+  owner: 'builtin',
+}
+
+/**
+ * 审批卡：仅当挂起 requestId === part.id 时命中。
+ * ChatMessage 须订阅 pending 变化以触发重新匹配。
+ */
+const PERMISSION: TimelineCardDefinition = {
+  id: 'builtin.permission',
+  order: 6,
+  pinned: true,
+  match: matchesPendingPermission,
+  component: PermissionCard,
+  owner: 'builtin',
 }
 
 const HANDOFF: TimelineCardDefinition = {
@@ -59,6 +83,8 @@ const TASK_COMPLETE: TimelineCardDefinition = {
 
 /** 幂等：HMR 重跑本模块时不能抛「已注册」 */
 export function registerBuiltinTimelineCards(): void {
+  ensureTimelineCard(ASK_USER)
+  ensureTimelineCard(PERMISSION)
   ensureTimelineCard(HANDOFF)
   ensureTimelineCard(SPAWN)
   ensureTimelineCard(TASK_COMPLETE)

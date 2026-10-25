@@ -32,6 +32,11 @@ interface AskUserModalPayload {
 
 export interface AskUserModalProps {
   readonly open: boolean
+  /**
+   * `modal`（默认）= 全屏遮罩弹窗（旧路径 / 测试）；
+   * `inline` = 消息时间线内卡片，无遮罩。
+   */
+  readonly variant?: 'modal' | 'inline'
   /** 提问的前因后果（为什么问、查到什么、答了影响什么）；空则不展示 */
   readonly context?: string
   readonly questions: readonly AskUserModalQuestion[]
@@ -52,6 +57,7 @@ const AUTO_ADVANCE_DELAY_MS = 300
 
 export const AskUserModal: React.FC<AskUserModalProps> = ({
   open,
+  variant = 'modal',
   context,
   questions,
   timeoutMs,
@@ -270,6 +276,139 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
     </div>
   )
 
+  if (!open) return null
+
+  const body = (
+    <div className={styles.body}>
+      {context?.trim() ? <p className={styles.context}>{context.trim()}</p> : null}
+
+      {questions.length > 1 && (
+        <div className={styles.tabs}>
+          {questions.map((tq, idx) => (
+            <button
+              key={idx}
+              type="button"
+              className={`${styles.tab} ${activeTab === idx ? styles.tabActive : ''} ${isQuestionValid(idx) ? styles.tabDone : ''}`}
+              onClick={() => {
+                clearAutoAdvance()
+                setActiveTab(idx)
+              }}
+            >
+              <span className={styles.tabChip}>{tq.header}</span>
+              {isQuestionValid(idx) && <span className={styles.tabCheck}>✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {q && (
+        <div className={styles.question}>
+          <div className={styles.qHeader}>
+            <span className={styles.chip}>{q.header}</span>
+            <span className={styles.hint}>{isMulti ? '可多选' : '单选 · 选后自动进入下一题'}</span>
+          </div>
+          <p className={styles.qText}>{q.question}</p>
+          <div className={styles.options}>
+            {q.options.map((opt) => {
+              const checked = state.selected.includes(opt.label)
+              return (
+                <label
+                  key={opt.label}
+                  className={`${styles.option} ${checked ? styles.checked : ''}`}
+                >
+                  <input
+                    type={isMulti ? 'checkbox' : 'radio'}
+                    name={`q-${activeTab}`}
+                    checked={checked}
+                    onChange={() => toggleOption(activeTab, opt.label, isMulti)}
+                  />
+                  <div className={styles.optBody}>
+                    <div className={styles.optLabel}>
+                      {opt.label}
+                      {opt.recommended && <span className={styles.recBadge}>AI 推荐</span>}
+                    </div>
+                    <div className={styles.optDesc}>{opt.description}</div>
+                    {opt.recommended && opt.recommendReason && (
+                      <div className={styles.recReason}>理由：{opt.recommendReason}</div>
+                    )}
+                  </div>
+                </label>
+              )
+            })}
+            <label className={`${styles.option} ${selectedOther ? styles.checked : ''}`}>
+              <input
+                type={isMulti ? 'checkbox' : 'radio'}
+                name={`q-${activeTab}`}
+                checked={selectedOther}
+                onChange={() => toggleOption(activeTab, OTHER_LABEL, isMulti)}
+              />
+              <div className={styles.optBody}>
+                <div className={styles.optLabel}>{OTHER_LABEL}</div>
+                <div className={styles.optDesc}>自定义回答</div>
+              </div>
+            </label>
+          </div>
+          {selectedOther && (
+            <textarea
+              className={styles.otherInput}
+              placeholder="请输入您的回答"
+              value={state.otherText}
+              onChange={(e) => updateOtherText(activeTab, e.target.value)}
+              rows={2}
+            />
+          )}
+          {singleSelectedOpt?.preview && (
+            <pre className={styles.preview}>{singleSelectedOpt.preview}</pre>
+          )}
+          <input
+            className={styles.notesInput}
+            placeholder="（可选）补充说明"
+            value={state.notes}
+            onChange={(e) => updateNotes(activeTab, e.target.value)}
+          />
+        </div>
+      )}
+
+      {questions.length > 1 && (
+        <div className={styles.tabNav}>
+          <button
+            type="button"
+            className={styles.tabNavBtn}
+            disabled={activeTab === 0}
+            onClick={() => {
+              clearAutoAdvance()
+              setActiveTab((p) => p - 1)
+            }}
+          >
+            ← 上一题
+          </button>
+          <span className={styles.tabNavCount}>{activeTab + 1} / {questions.length}</span>
+          <button
+            type="button"
+            className={styles.tabNavBtn}
+            disabled={activeTab === questions.length - 1}
+            onClick={() => {
+              clearAutoAdvance()
+              setActiveTab((p) => p + 1)
+            }}
+          >
+            下一题 →
+          </button>
+        </div>
+      )}
+    </div>
+  )
+
+  if (variant === 'inline') {
+    return (
+      <div className={styles.inlineCard} role="group" aria-label="AI 请您回答以下问题">
+        <div className={styles.inlineTitle}>AI 请您回答以下问题</div>
+        {body}
+        {footer}
+      </div>
+    )
+  }
+
   return (
     <Modal
       open={open}
@@ -281,125 +420,7 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
       onClose={() => void handleDecline()}
       width={560}
     >
-      <div className={styles.body}>
-        {/* 前因后果：弹窗是突然出现的，不给背景用户无从判断选项 */}
-        {context?.trim() ? <p className={styles.context}>{context.trim()}</p> : null}
-
-        {/* Tab 导航：多问题时显示 */}
-        {questions.length > 1 && (
-          <div className={styles.tabs}>
-            {questions.map((tq, idx) => (
-              <button
-                key={idx}
-                className={`${styles.tab} ${activeTab === idx ? styles.tabActive : ''} ${isQuestionValid(idx) ? styles.tabDone : ''}`}
-                onClick={() => {
-                  clearAutoAdvance()
-                  setActiveTab(idx)
-                }}
-              >
-                <span className={styles.tabChip}>{tq.header}</span>
-                {isQuestionValid(idx) && <span className={styles.tabCheck}>✓</span>}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* 当前问题 */}
-        {q && (
-          <div className={styles.question}>
-            <div className={styles.qHeader}>
-              <span className={styles.chip}>{q.header}</span>
-              <span className={styles.hint}>{isMulti ? '可多选' : '单选 · 选后自动进入下一题'}</span>
-            </div>
-            <p className={styles.qText}>{q.question}</p>
-            <div className={styles.options}>
-              {q.options.map((opt) => {
-                const checked = state.selected.includes(opt.label)
-                return (
-                  <label
-                    key={opt.label}
-                    className={`${styles.option} ${checked ? styles.checked : ''}`}
-                  >
-                    <input
-                      type={isMulti ? 'checkbox' : 'radio'}
-                      name={`q-${activeTab}`}
-                      checked={checked}
-                      onChange={() => toggleOption(activeTab, opt.label, isMulti)}
-                    />
-                    <div className={styles.optBody}>
-                      <div className={styles.optLabel}>
-                        {opt.label}
-                        {opt.recommended && <span className={styles.recBadge}>AI 推荐</span>}
-                      </div>
-                      <div className={styles.optDesc}>{opt.description}</div>
-                      {opt.recommended && opt.recommendReason && (
-                        <div className={styles.recReason}>理由：{opt.recommendReason}</div>
-                      )}
-                    </div>
-                  </label>
-                )
-              })}
-              <label className={`${styles.option} ${selectedOther ? styles.checked : ''}`}>
-                <input
-                  type={isMulti ? 'checkbox' : 'radio'}
-                  name={`q-${activeTab}`}
-                  checked={selectedOther}
-                  onChange={() => toggleOption(activeTab, OTHER_LABEL, isMulti)}
-                />
-                <div className={styles.optBody}>
-                  <div className={styles.optLabel}>{OTHER_LABEL}</div>
-                  <div className={styles.optDesc}>自定义回答</div>
-                </div>
-              </label>
-            </div>
-            {selectedOther && (
-              <textarea
-                className={styles.otherInput}
-                placeholder="请输入您的回答"
-                value={state.otherText}
-                onChange={(e) => updateOtherText(activeTab, e.target.value)}
-                rows={2}
-              />
-            )}
-            {singleSelectedOpt?.preview && (
-              <pre className={styles.preview}>{singleSelectedOpt.preview}</pre>
-            )}
-            <input
-              className={styles.notesInput}
-              placeholder="（可选）补充说明"
-              value={state.notes}
-              onChange={(e) => updateNotes(activeTab, e.target.value)}
-            />
-          </div>
-        )}
-
-        {/* 多问题时的翻页按钮 */}
-        {questions.length > 1 && (
-          <div className={styles.tabNav}>
-            <button
-              className={styles.tabNavBtn}
-              disabled={activeTab === 0}
-              onClick={() => {
-                clearAutoAdvance()
-                setActiveTab((p) => p - 1)
-              }}
-            >
-              ← 上一题
-            </button>
-            <span className={styles.tabNavCount}>{activeTab + 1} / {questions.length}</span>
-            <button
-              className={styles.tabNavBtn}
-              disabled={activeTab === questions.length - 1}
-              onClick={() => {
-                clearAutoAdvance()
-                setActiveTab((p) => p + 1)
-              }}
-            >
-              下一题 →
-            </button>
-          </div>
-        )}
-      </div>
+      {body}
     </Modal>
   )
 }

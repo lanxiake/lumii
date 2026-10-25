@@ -16,7 +16,6 @@ import {
   useAnyPendingAskUser,
   runtimeStore,
 } from '../../hooks/business/useAgentRuntime'
-import { AskUserModal } from '../../components/AskUserModal'
 import type { ViewType } from '../../components/Router'
 import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
 import { executeSlashCommand, BACKEND_INFO } from './commands/slash-command-executor'
@@ -187,7 +186,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     )
     return () => clearTimeout(t)
   }, [focusPermissionRequestId, highlightPendingPermission])
-  const { pending: runtimePendingAskUser } = useAnyPendingAskUser()
+  const { sessionKey: askUserSessionKey, pending: runtimePendingAskUser } = useAnyPendingAskUser()
+  /** 询问在「当前会话」走时间线卡；挂在其它会话时底部提示去处理 */
+  const askUserOnOtherSession = Boolean(
+    runtimePendingAskUser &&
+      askUserSessionKey &&
+      askUserSessionKey !== runtimeCurrentSessionKey,
+  )
   const runtimeContextUsage = useAgentRuntimeState((s) => s.contextUsage)
   const runtimeIsAutoCompacting = useAgentRuntimeState((s) => s.isAutoCompacting)
   const runtimeCompactionOrigin = useAgentRuntimeState((s) => s.compactionOrigin)
@@ -846,6 +851,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     toAbsolutePath,
   } = useWorkspacePanels(activeView)
   const [autoApprove, setAutoApprove] = useState<boolean>(() => readAutoApproveEnabled())
+  /** 审批在当前会话走时间线卡；仅其它会话才底部弹完整审批卡 */
+  const permissionOnOtherSession = Boolean(
+    runtimePendingPermission &&
+      !autoApprove &&
+      permissionSessionKey &&
+      permissionSessionKey !== runtimeCurrentSessionKey,
+  )
 
   /** 消息字号改由 TitleBar 全局 A−/A+ 控制（--chat-font-size） */
 
@@ -1936,7 +1948,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         </div>
 
         <ChatBottomOverlay
-          permission={runtimePendingPermission && !autoApprove ? runtimePendingPermission : undefined}
+          permission={
+            permissionOnOtherSession && runtimePendingPermission
+              ? runtimePendingPermission
+              : undefined
+          }
           permissionSessionKey={permissionSessionKey}
           highlightPermission={highlightPendingPermission}
           currentSessionKey={runtimeCurrentSessionKey}
@@ -2042,15 +2058,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         onCancel={() => setClearGroupRequest(null)}
       />
 
-      {runtimePendingAskUser ? (
-        <AskUserModal
-          open
-          context={runtimePendingAskUser.context}
-          questions={runtimePendingAskUser.questions}
-          timeoutMs={runtimePendingAskUser.timeoutMs}
-          onSubmit={(payload) => runtimeActions.respondAskUser(payload)}
-          onDecline={() => runtimeActions.respondAskUser({ answers: {}, declined: true })}
-        />
+      {askUserOnOtherSession && askUserSessionKey ? (
+        <div className={styles['cross-session-ask-banner']} role="status">
+          <span>后台会话有待回答的问题</span>
+          <button
+            type="button"
+            className={styles['cross-session-ask-btn']}
+            onClick={() => void runtimeActions.switchSession(askUserSessionKey)}
+          >
+            去处理
+          </button>
+        </div>
       ) : null}
 
       {/* 工作空间共享壳：文件 + 版本（可拖拽改宽，对话区自适应） */}

@@ -17,26 +17,33 @@ describe('内置时间线卡片', () => {
     registerBuiltinTimelineCards()
   })
 
-  it('三张卡片按 order 升序注册，且都 pinned', () => {
+  it('五张卡片按 order 升序注册，且都 pinned', () => {
     const cards = listTimelineCards()
-    expect(cards.map((c) => c.id)).toEqual(['builtin.handoff', 'builtin.spawn', 'builtin.task-complete'])
+    expect(cards.map((c) => c.id)).toEqual([
+      'builtin.ask-user',
+      'builtin.permission',
+      'builtin.handoff',
+      'builtin.spawn',
+      'builtin.task-complete',
+    ])
     expect(cards.every((c) => c.pinned === true)).toBe(true)
   })
 
   it('按工具名各命中各的', () => {
+    expect(findTimelineCard(part('ask_user_question'))?.id).toBe('builtin.ask-user')
     expect(findTimelineCard(part('propose_dev_handoff'))?.id).toBe('builtin.handoff')
     expect(findTimelineCard(part('spawn_agent'))?.id).toBe('builtin.spawn')
     expect(findTimelineCard(part('task_complete'))?.id).toBe('builtin.task-complete')
   })
 
-  it('普通工具不命中（回落工具批次组）', () => {
+  it('普通工具在无挂起审批时不命中（回落工具批次组）', () => {
     expect(findTimelineCard(part('file_read'))).toBeNull()
     expect(findTimelineCard(part('bash'))).toBeNull()
   })
 
   it('重复调用是幂等的（HMR 重跑模块不抛）', () => {
     expect(() => registerBuiltinTimelineCards()).not.toThrow()
-    expect(listTimelineCards()).toHaveLength(3)
+    expect(listTimelineCards()).toHaveLength(5)
   })
 
   it('spawn 卡片能读出子实例 id（子运行归属依赖它）', () => {
