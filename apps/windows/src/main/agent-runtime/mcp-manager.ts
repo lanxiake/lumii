@@ -32,6 +32,13 @@ export interface McpServerRuntimeStatus extends McpServerEntry {
   readonly connecting: boolean
   /** 该 Server 已注册的工具名 */
   readonly tools: readonly string[]
+  /**
+   * 连接后 Server 在握手时自报的版本（`serverInfo.version`）。
+   *
+   * 未连接 / 对端没报时是 `undefined`——**如实为空，不要拿内置清单的版本顶上**：
+   * 用户手装的、改过命令的、或完全另一款同名 Server，报出来的才是真的。
+   */
+  readonly serverVersion?: string
   /** 最近一次连接失败的原因 */
   readonly lastError?: string
 }
@@ -90,7 +97,7 @@ export class McpManager {
   private readonly exeDeployErrors = new Map<string, string>()
 
   /**
-   * 把随包独立 exe 同步到数据根下的固定位置（微信 MCP 已改为插件按需下载，见下方跳过）
+   * 把随包独立 exe 同步到数据根下的固定位置。
    *
    * 不论灵栖里是否启用都同步：部署路径也是给其他 MCP 客户端用的。
    * 失败不抛错，只记原因，连接该 Server 时展示。
@@ -99,9 +106,9 @@ export class McpManager {
     if (process.platform !== 'win32') return
     for (const preset of MCP_PRESETS) {
       if (!preset.bundledExe) continue
-      // 微信 MCP 已改为插件按需下载（见 plugins/install/builtin.ts），不再随包同步：否则 dev 下
-      // 仓库里有源、会在启动时把它同步回部署路径，与打包版行为不一致（卸载后又「复活」）。
-      // 部署现在由插件在安装时负责。
+      // 微信 MCP 不走这条路：它由用户自己安装、自己在「设置 › MCP 服务」里配
+      // （2026-10-25 MCP 与插件解耦，见 shared/wechat-mcp-status.ts）。
+      // 客户端不再代管它的二进制，也就不该在启动时把仓库里那份同步到部署路径。
       if (preset.bundledExe === 'wechat-chat-mcp') continue
       const source = resolveBundledMcpExe(preset.bundledExe)
       const target = getDeployedMcpExePath(preset.bundledExe)
@@ -362,12 +369,16 @@ export class McpManager {
       // 与 getBackgroundToolNames 用同一套「内置默认值补齐」口径：
       // 否则设置页/CLI 看到 bg=undefined，而实际工具是后台化的，两边对不上
       const config = applyPresetDefaults(raw, findMcpPreset(raw.name))
+      const client = this.mcpClients.get(config.name)
+      // 版本来自**对端握手自报**，不是本地清单：手装/改过命令的同名 Server 也如实显示
+      const serverVersion = client?.getServerInfo()?.version
       return {
         ...config,
         // 成功 connect 后才会写入 mcpClients，以此判定在线
-        connected: this.mcpClients.has(config.name),
+        connected: !!client,
         connecting: this.connecting.has(config.name),
         tools: this.serverTools.get(config.name) ?? [],
+        ...(serverVersion ? { serverVersion } : {}),
         lastError: this.lastErrors.get(config.name),
       }
     })

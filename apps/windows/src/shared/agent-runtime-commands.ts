@@ -1102,6 +1102,13 @@ export interface McpServerStatusResult extends McpServerConfigInput {
   readonly connected: boolean
   readonly connecting: boolean
   readonly tools: readonly string[]
+  /**
+   * 连接后 Server 在握手时**自报**的版本（`serverInfo.version`）。
+   *
+   * 与内置清单里的「推荐版本」是两回事：手装 / 改过命令 / 换成别的同名 Server 时，
+   * 这里才是真的。未连接或对端没报时为空。
+   */
+  readonly serverVersion?: string
   readonly lastError?: string
   /** 该 server 工具定义的估算 token（与上下文用量条同一口径） */
   readonly estimatedTokens?: number

@@ -341,6 +341,8 @@ export class McpStdioClient extends EventEmitter {
   >();
   private _initialized = false;
   private _instructions?: string;
+  /** 握手时 Server 自报的身份（`serverInfo`）：名字 + 版本，用于展示与兼容性判断 */
+  private _serverInfo?: { name?: string; version?: string };
   /** 已发出、仍在等结果的请求 id → 进度回调（`notifications/progress` 按 token 派发到这） */
   private readonly progressHandlers = new Map<number, (p: McpProgressNotification) => void>();
   /** Server 级默认请求超时（ms） */
@@ -358,6 +360,17 @@ export class McpStdioClient extends EventEmitter {
   /** 获取服务器提供的说明文档（如果有） */
   getInstructions(): string | undefined {
     return this._instructions;
+  }
+
+  /**
+   * 握手时 Server 自报的身份（`serverInfo`）。
+   *
+   * 为什么记下来：判断「这个 Server 是不是我认识的那个、版本够不够」不能靠跑 `--version`
+   * （PyInstaller onefile 冷启动 1–3s，而状态面板每 5s 轮询）。握手信息本来就在手上，
+   * 白扔一次。任一项缺失时对应字段为 `undefined`——不要编。
+   */
+  getServerInfo(): { name?: string; version?: string } | undefined {
+    return this._serverInfo;
   }
 
   /** 启动 MCP Server 进程并初始化 */
@@ -460,11 +473,22 @@ export class McpStdioClient extends EventEmitter {
 
     // 提取服务器说明：规范位置是 result.instructions；兼容个别实现放在 serverInfo 里
     const typed = initResult as
-      | { instructions?: string; serverInfo?: { instructions?: string } }
+      | {
+          instructions?: string;
+          serverInfo?: { instructions?: string; name?: unknown; version?: unknown };
+        }
       | null;
     const instructions = typed?.instructions ?? typed?.serverInfo?.instructions;
     if (typeof instructions === "string" && instructions.trim()) {
       this._instructions = instructions;
+    }
+    // 身份也一并留下：面板要显示「装的是哪个版本」，兼容性判断也要它
+    const info = typed?.serverInfo;
+    if (info && typeof info === "object") {
+      this._serverInfo = {
+        ...(typeof info.name === "string" && info.name ? { name: info.name } : {}),
+        ...(typeof info.version === "string" && info.version ? { version: info.version } : {}),
+      };
     }
 
     // 发送 initialized 通知
