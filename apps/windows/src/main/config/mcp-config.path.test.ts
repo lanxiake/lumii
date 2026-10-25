@@ -232,10 +232,9 @@ describe('内置自研 MCP 迁移为独立 exe', () => {
     expect(wechat?.command).toMatch(/[\\/]mcp[\\/]wechat-chat-mcp[\\/]wechat-chat-mcp\.exe$/)
     expect(path.isAbsolute(wechat!.command)).toBe(true)
     expect(JSON.stringify(wechat)).not.toContain('{{')
-    // 2026-10-11：exe 不再随包，改由「微信本机助手」插件按需下载。
-    // 未装插件时部署路径上没有 exe，默认启用只会连不上——所以 `defaultEnabled: false`，
-    // 装插件后由插件改回启用。这条断言写于随包时代、一直没跟着改：
-    // 过期的是断言，不是实现（见 mcp-presets.ts 里 wechat-local 的注释）。
+    // 2026-10-25：MCP 与插件解耦，客户端不再下载/安装这个 exe。播种出来的条目
+    // 默认**停用**（部署路径上未必有文件，默认启用只会连不上），由用户自己在
+    // 「设置 › MCP 服务」里把命令指向装好的 exe 并打开开关。
     expect(wechat?.enabled).toBe(false)
   })
 })

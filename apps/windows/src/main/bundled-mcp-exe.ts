@@ -1,5 +1,5 @@
 /**
- * 随包独立 MCP 可执行文件的部署（微信 MCP 已改为插件按需下载，见 `plugins/install/builtin.ts`）
+ * 随包独立 MCP 可执行文件的部署
  *
  * 这类 MCP 要能**脱离灵栖独立使用**：配置里只写一个 exe 的绝对路径，不带任何占位符，
  * 复制到 Claude Desktop / Cursor 等客户端也能直接跑。所以 exe 不能留在安装目录里
@@ -43,7 +43,7 @@ export function getDeployedMcpExePath(name: string): string {
  * `subdir` 是**档位子目录**：`wechat-mcp` 有 lite/pro 两档，产物分别落 `dist/pro/` 与 `dist/lite/`
  * （这样"哪档文件归哪档"是目录结构而不是靠文件名猜）。单档产品留空即可（`dist/<name>.exe`）。
  *
- * ⚠️ 注意 wechat-mcp **当前不走这条路**：它已改成插件按需下载（见 `plugins/builtin.ts`），
+ * ⚠️ 注意 wechat-mcp **当前不走这条路**：它由用户自己安装与配置（2026-10-25 MCP 与插件解耦），
  * `mcp-manager.deployBundledExecutables()` 里显式跳过它。这个函数留给将来别的随包 exe 用。
  *
  * @param name 可执行文件名（不含 .exe）

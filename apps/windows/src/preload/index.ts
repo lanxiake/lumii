@@ -23,7 +23,7 @@ import type { PingReport } from '../shared/net-latency-types'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../shared/performance'
 import type { RendererNativeMemory } from '../shared/performance'
 import { readRendererNativeMemory } from './renderer-native-memory'
-import type { WechatSelfcheckResult, WechatRepairResult } from './api/channel-api'
+import type { WechatSelfcheckResult, WechatRepairResult, WechatMcpStatusResult } from './api/channel-api'
 // 导入提取的 API 模块
 import {
   fileApi,
@@ -1422,6 +1422,8 @@ declare global {
       }>
       wechatSelfcheck: () => Promise<WechatSelfcheckResult | null>
       wechatRepair: () => Promise<WechatRepairResult | null>
+      /** 「本机微信助手」MCP 的检测结果（只读；MCP 与插件解耦，由用户自己配） */
+      wechatMcpStatus: () => Promise<WechatMcpStatusResult>
     }
   }
 }

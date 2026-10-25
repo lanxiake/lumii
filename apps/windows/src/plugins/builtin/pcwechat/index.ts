@@ -10,13 +10,14 @@ import { startPcwechat } from '../../../main/channel/channel-runtime'
  * ## 它管什么
  *
  * - 出站 Provider：Agent 的 `channel_send` 走它，把消息发给用户微信里的好友/群；
- * - 渠道卡片：回复名单与策略、环境自检、安装/升级「微信本机助手」。
+ * - 渠道卡片：回复名单与策略、环境自检、**MCP 是否可用**的提示。
  *
  * ## 它不管什么
  *
- * - **MCP 二进制**（`wechat-chat-mcp`）是运行时资产，由插件中心的安装器管：下载 exe、
- *   写 `mcp-servers.json`、卸载。本插件只声明 `requires.assets`，缺了照样激活
- *   （卡片上给安装入口），因为「没装助手」时渠道仍然可以显示"未接入"而不是整张卡消失。
+ * - **MCP 二进制与配置**（`wechat-chat-mcp` / `mcp-servers.json`）：2026-10-25 定案
+ *   **MCP 与插件分开**——用户自己装、自己在「设置 › MCP 服务」里配，客户端只检测。
+ *   所以这里**没有 `requires.assets`**：插件不依赖某个"资产"，它依赖的是一个用户配好的
+ *   MCP Server（缺了就降级显示「未就绪」并给出跳转，不挡插件激活）。
  * - **盯梢与自动回复**是另一个插件 `com.lumii.relay`：关掉那个只是不回消息，
  *   关掉本插件才会让 `channel_send` 报 `CHANNEL_NOT_CONNECTED`。
  *
@@ -31,10 +32,9 @@ export const pcwechatExtension = {
     name: '本机微信',
     version: '0.1.0',
     description:
-      '以你本人身份使用这台电脑上登录的微信：按名单代回、主动发出站消息（需安装「微信本机助手」）',
+      '以你本人身份使用这台电脑上登录的微信：按名单代回、主动发出站消息（需自行配置本机微信 MCP）',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
-    requires: { assets: ['wechat-chat-mcp'] },
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.pcwechat',

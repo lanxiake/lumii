@@ -12,6 +12,7 @@ import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import type { ChannelPolicy } from '../../shared/channel-policy'
 import { loadWechatContacts, type WechatContactsResult } from '../channel/wechat-contacts'
 import { repairWechatEnv, runWechatSelfcheck } from '../channel/wechat-selfcheck'
+import { evaluateWechatMcp, type WechatMcpVerdict } from '../../shared/wechat-mcp-status'
 import { PCWECHAT_CHANNEL, WECHAT_WATCH_MCP_SERVER } from '../agent-runtime/wechat-watch-tick'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 
@@ -196,4 +197,26 @@ export function registerChannelIpcHandlers(): void {
     }
   ipcMain.handle('wechat:selfcheck', withBridge((call) => runWechatSelfcheck(call)))
   ipcMain.handle('wechat:repair', withBridge((call) => repairWechatEnv(call)))
+
+  /**
+   * 「本机微信助手」这个 MCP 的**检测**结果（装没装、能不能用）。
+   *
+   * MCP 归用户自己装、自己配（2026-10-25 与插件解耦）；渠道卡片只负责把事实讲清楚，
+   * 并把缺的那步指到「设置 › MCP 服务」。所以这里**只读**，没有任何安装入口。
+   * 判据与实现在 `shared/wechat-mcp-status.ts`（纯函数，可单测）。
+   */
+  ipcMain.handle('wechat:mcpStatus', async (): Promise<WechatMcpVerdict> => {
+    const bridge = deps!.getAgentRuntimeBridge()
+    if (!bridge) return evaluateWechatMcp({ configured: false, connected: false })
+    const status = bridge.getMcpStatus().find((s) => s.name === WECHAT_WATCH_MCP_SERVER)
+    return evaluateWechatMcp({
+      configured: !!status,
+      // `enabled === undefined` 是「老配置没写这个字段」= 默认启用，不能当成停用
+      enabled: status?.enabled,
+      connected: status?.connected === true,
+      ...(status?.serverVersion ? { serverVersion: status.serverVersion } : {}),
+      tools: status?.tools ?? [],
+      ...(status?.lastError ? { lastError: status.lastError } : {}),
+    })
+  })
 }

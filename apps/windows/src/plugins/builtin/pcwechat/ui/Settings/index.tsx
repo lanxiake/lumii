@@ -4,7 +4,11 @@
  * 与另外四张卡片不同，这里没有"登录"——"在线"就等于本机 wechat-chat MCP 连着
  * （助手用这台电脑上已登录的微信说话）。主体是回复策略，但表单本身放在
  * `PolicyModal` 里单独弹窗（用户 2026-10-08 指定：卡片上塞不下，也不该塞）。
- * 卡片上只说三句人话：在线没有、名单里有几个人、名单外的人怎么处理。
+ *
+ * **MCP 不由这里安装**（2026-10-25 定案）：`wechat-chat` 这个 MCP 归用户自己装、
+ * 自己配，卡片只**检测**并把缺的那步指过去（`设置 › MCP 服务`）。之前这里有一整套
+ * 下载/升级按钮，结果是同一件事有两条互相打架的链路——插件读本地版本边车说「可更新」，
+ * 而 MCP 能不能跑其实由连接决定（边车被写成带 BOM 的 JSON 时解析失败 ⇒ 永远提示更新）。
  *
  * 这份策略是**唯一真源**：盯梢循环每拍从主进程同一份缓存读，弹窗里改完立刻生效。
  */
@@ -13,14 +17,12 @@ import { Button } from '../../../../../renderer/components/ui/Button/Button'
 import { ChannelCard, type ChannelMetaItem } from '../../../../../renderer/pages/SettingsPage/components/ChannelCard'
 import { ChannelBrandIcon } from '../../../../../renderer/components/brand/ChannelBrandIcon'
 import type { ChannelSnapshot } from '../../../../../renderer/pages/SettingsPage/components/ChannelsSection/useChannelSnapshots'
-import { usePlugins } from '../../../../../renderer/hooks/business/usePlugins/usePlugins'
 import {
   allPolicyPeers,
   type ChannelPolicy,
   type PeerReplyMode,
 } from '../../../../../shared/channel-policy'
-import { isNewerVersion } from '../../../../../shared/version'
-import type { WechatSelfcheckResult } from '../../../../../preload/api/channel-api'
+import type { WechatSelfcheckResult, WechatMcpStatusResult } from '../../../../../preload/api/channel-api'
 import { PolicyModal, MODE_OPTIONS } from './PolicyModal'
 
 const MODE_LABELS = new Map<PeerReplyMode, string>(MODE_OPTIONS.map((o) => [o.value, o.label]))
@@ -44,26 +46,33 @@ interface PcwechatChannelSettingsProps {
  */
 export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = ({
   snapshot,
-  snapshotLoading = false,
 }) => {
   const [policy, setPolicy] = useState<ChannelPolicy | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [check, setCheck] = useState<WechatSelfcheckResult | null>(null)
   const [checking, setChecking] = useState(false)
-  // 「微信本机助手」（wechat-chat-mcp）是运行时资产：卡片直接装/升，不用先去插件页找
-  const { statuses, install, cancel } = usePlugins()
-  const mcp = statuses['wechat-chat-mcp']
-  const mcpInstalled = Boolean(mcp?.installed)
-  const mcpInstalling = Boolean(mcp?.installing)
-  const mcpUpdatable =
-    mcpInstalled &&
-    Boolean(mcp?.latestVersion) &&
-    (!mcp?.version || isNewerVersion(mcp?.latestVersion, mcp?.version))
+  // MCP 的**检测**结果（配没配/开没开/连没连/工具齐不齐）——只读，没有任何安装入口
+  const [mcp, setMcp] = useState<WechatMcpStatusResult | null>(null)
+
+  /**
+   * 跳到「设置 › MCP 服务」——缺配置时这是唯一的下一步。
+   *
+   * 用窗口事件而不是 `useSettingsHub()`：渠道卡片由插件槽位渲染，而槽位树**不保证**
+   * 在 `SettingsHubProvider` 之下（测试里就没有 Provider，hook 会直接抛）。
+   * `mtbot:navigate-request` 是 App 早就有的跨层导航通道，与「设置里跳回对话页」同一个。
+   */
+  const openMcpSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('mtbot:navigate-request', { detail: { view: 'mcp' } }))
+  }, [])
 
   const refreshCheck = useCallback(async () => {
     setChecking(true)
     try {
-      const r = await window.channelService?.wechatSelfcheck?.()
+      const [r, m] = await Promise.all([
+        window.channelService?.wechatSelfcheck?.(),
+        window.channelService?.wechatMcpStatus?.(),
+      ])
+      if (m) setMcp(m)
       // 返回 null = Agent Runtime 还没就绪（MCP 探测入口够不着）——给一份"未连接"的合成结果，
       // 别让卡片永远停在"检测中…"
       setCheck(
@@ -89,18 +98,13 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
     try {
       const r = await window.channelService?.wechatRepair?.()
       setCheck(r?.selfcheck ?? null)
+      setMcp((await window.channelService?.wechatMcpStatus?.()) ?? null)
     } catch {
       // 修复失败就保持旧结果，下次点「重新检测」再看
     } finally {
       setChecking(false)
     }
   }, [])
-
-  const installAssistant = useCallback(async () => {
-    await install('wechat-chat-mcp')
-    // 装完主进程会把 MCP 条目写进配置并热重连；给它几秒再自检
-    window.setTimeout(() => void refreshCheck(), 3000)
-  }, [install, refreshCheck])
 
   useEffect(() => {
     void refreshCheck()
@@ -127,25 +131,17 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
   // 能被代回的人数 = **各账号名单的并集**里除黑名单之外的（与出站 provider 同一口径）
   const sendable = policy ? allPolicyPeers(policy).filter((p) => p.mode !== 'ignore') : []
   const accountSections = policy ? Object.entries(policy.accounts ?? {}) : []
+  const mcpReady = mcp?.state === 'ready'
 
   const meta: ChannelMetaItem[] = [
-    {
-      label: '助手',
-      value: mcpInstalling
-        ? `安装中 ${mcp?.progress?.percent ?? 0}%`
-        : !mcpInstalled
-          ? '未安装'
-          : mcp?.version
-            ? `v${mcp.version}`
-            : '已安装',
-    },
+    { label: '助手', value: mcp ? mcp.label : '检测中…' },
     {
       label: '在线',
       value: connected
         ? '本机微信已就绪'
-        : mcpInstalled
-          ? '本机微信未就绪（MCP 没连上）'
-          : '先安装「微信本机助手」',
+        : mcpReady
+          ? '本机微信未就绪（检查微信是否登录、窗口是否被最小化）'
+          : (mcp?.hint ?? '还没接入 MCP'),
     },
     {
       label: '可代回',
@@ -184,13 +180,13 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
       : '数据目录：未找到（确认微信已登录；换机后可在微信「设置 → 文件管理」核对路径）'
   const envLine = !check
     ? ''
-    : !mcpInstalled
-      ? '微信：还没安装「微信本机助手」'
+    : !mcpReady
+      ? `微信：${mcp?.state === 'not-configured' ? '还没配置本机微信的 MCP' : '本机微信 MCP 未就绪'}`
       : !check.connected
         ? '微信：wechat-chat MCP 未连接'
         : `微信：${envOk ? '就绪' : String(check.env?.reason ?? '不可用')}`
 
-  const statusLabel = connected ? '已连接' : mcpInstalling ? '安装中' : mcpInstalled ? '未接入' : '未安装'
+  const statusLabel = connected ? '已连接' : mcpReady ? '未接入' : mcp?.state === 'disabled' ? '已停用' : '未就绪'
 
   return (
     <>
@@ -199,46 +195,32 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
         name="本机微信"
         description="以你本人身份，跟你微信里的好友说话（用这台电脑上登录的微信）"
         capability="只对名单里的人"
-        state={connected ? 'connected' : mcpInstalling ? 'pending' : 'idle'}
+        state={connected ? 'connected' : 'idle'}
         statusLabel={statusLabel}
         actions={
-          mcpInstalling ? (
-            <Button size="sm" variant="secondary" onClick={() => void cancel('wechat-chat-mcp')}>
-              取消
-            </Button>
-          ) : !mcpInstalled ? (
-            <Button size="sm" onClick={() => void installAssistant()}>
-              安装微信本机助手
-            </Button>
-          ) : (
-            <>
-              {mcpUpdatable && (
-                <Button size="sm" onClick={() => void installAssistant()}>
-                  更新到 v{mcp?.latestVersion}
-                </Button>
-              )}
-              <Button size="sm" variant="secondary" onClick={() => setModalOpen(true)}>
-                配置
+          <>
+            {!mcpReady && (
+              <Button size="sm" onClick={openMcpSettings}>
+                {mcp?.state === 'not-configured' ? '去配置 MCP' : '去检查 MCP'}
               </Button>
-            </>
-          )
+            )}
+            <Button size="sm" variant="secondary" onClick={() => setModalOpen(true)}>
+              配置
+            </Button>
+          </>
         }
         meta={meta}
       >
-        {!mcpInstalled && !mcpInstalling && (
+        {mcp && !mcpReady && (
           <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-fg-3)', lineHeight: 1.7 }}>
-            「微信本机助手」是本地 MCP（约 38 MB）：装好会自动接入，不需要重启。
-            使用前请先打开并登录微信。
+            {mcp.hint ?? '本机微信的 MCP 还没就绪。'}
+            {mcp.missingTools.length > 0 && `（缺工具：${mcp.missingTools.join('、')}）`}
           </p>
         )}
-        {mcpUpdatable && (
+        {mcp?.state === 'ready' && mcp.outdated && (
           <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-fg-3)' }}>
-            已安装 v{mcp?.version}，可更新到 v{mcp?.latestVersion}。
-          </p>
-        )}
-        {mcp?.error && (
-          <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-danger-500)' }}>
-            {mcp.error}
+            当前 MCP 版本低于本客户端验证过的版本，能用但行为可能对不上；要换版本请自己在
+            「设置 › MCP 服务」里改命令。
           </p>
         )}
         <p style={{ margin: '10px 0 0', fontSize: 13, color: 'var(--mt-fg-2)' }}>{summary}</p>

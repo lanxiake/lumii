@@ -99,14 +99,15 @@ describe('ExtensionsPanel — 分组列表', () => {
     expect(await screen.findByText('Alpha')).toBeTruthy()
     expect(screen.getByText('Ext')).toBeTruthy()
     expect(screen.getByText('Client Plug')).toBeTruthy()
-    // 独立组件（反检测浏览器 / 微信本机助手）按外部插件展示
+    // 独立组件（反检测浏览器）按外部插件展示；
+    // 「微信本机助手」是 MCP，不归插件中心管（2026-10-25 MCP 与插件解耦），插件页不该出现它
     expect(screen.getByText('反检测浏览器')).toBeTruthy()
-    expect(screen.getByText('微信本机助手')).toBeTruthy()
+    expect(screen.queryByText('微信本机助手')).toBeNull()
 
-    // 两组标题与计数：外部 = Ext + Client + 2 个组件；内置 = Alpha
+    // 两组标题与计数：外部 = Ext + Client + 1 个组件；内置 = Alpha
     expect(screen.getByText('外部插件')).toBeTruthy()
     expect(screen.getByText('内置插件')).toBeTruthy()
-    expect(screen.getByText('4/4')).toBeTruthy()
+    expect(screen.getByText('3/3')).toBeTruthy()
     expect(screen.getByText('1/1')).toBeTruthy()
 
     const externalSection = screen.getByText('外部插件').closest('section')!

@@ -17,7 +17,6 @@ import type { SettingsHubTab } from '../components/SettingsHub/types'
 export type PluginId =
   | 'cloak-browser'
   | 'ffmpeg'
-  | 'wechat-chat-mcp'
   | 'pet:demo_cartoon_cat'
   | 'pet:ug_official'
   | 'pet:xiaomai'
@@ -73,18 +72,6 @@ export const PLUGIN_REGISTRY: PluginDef[] = [
     features: ['录屏导出 MP4', '旁白混流 / 烧字幕'],
     // 未安装时扩展会回退到包内/系统 PATH 的 ffmpeg，所以是可选依赖
     usedBy: [{ label: '录屏扩展', tab: 'extensions' }],
-  },
-  {
-    id: 'wechat-chat-mcp',
-    name: '微信本机助手',
-    description:
-      '以你本人身份读写本机微信：会话 / 历史 / 检索，发消息·文件·引用·群发，以及画像蒸馏。按需下载（约 37 MB），装完自动接入 MCP；独立版本，可单独升级。',
-    icon: '💬',
-    category: 'comm',
-    installSize: '~37 MB',
-    features: ['读取本机微信会话与历史', '以本人身份发送消息 / 文件 / 引用', '本地画像蒸馏'],
-    usedBy: [{ label: '设置 › 渠道 › 本机微信（也可在那里直接安装/升级）' }],
-    standalone: true,
   },
   {
     id: 'pet:demo_cartoon_cat',

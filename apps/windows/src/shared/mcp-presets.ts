@@ -21,24 +21,16 @@
  */
 
 /**
- * 微信 MCP（`wechat-chat-mcp`，统一档位）的版本
+ * 本机微信 MCP（`wechat-chat-mcp`）**客户端验证过的版本**
  *
  * 版本号唯一来源是独立仓库 `src/common/app.py` 的 `SERVER_VERSION`，这里是它的
- * TS 镜像。为什么不运行时实读：exe 是 PyInstaller onefile，本机实测冷启动 1.0–3.4s，
- * 而面板每 5s 轮询一次状态，实读会把轮询拖垮。
- * `mcp-presets.test.ts` 会读回 server.py 对账，发版漏改这里会红，不会静默漂移。
+ * TS 镜像。`mcp-presets.test.ts` 会读回 app.py 对账，发版漏改这里会红。
  *
- * **与 App 版本解耦**：二进制发在独立 tag `wechat-chat-mcp-v<版本>` 下、
- * 资产名固定 `wechat-chat-mcp.exe`，升级 MCP 不需要跟着 App 发版
- * （`scripts/upload-wechat-mcp.mjs`）。旧名 `wechat-mcp` 已废弃。
+ * **MCP 与插件解耦**（2026-10-25）：客户端不再下载/安装这个二进制，只负责
+ * 「这个版本我验证过」这一条信息（面板上作为推荐值展示）。用户自己装、自己在
+ * 「设置 › MCP 服务」里配；实际在跑的版本以**握手自报**的 `serverVersion` 为准。
  */
 export const WECHAT_MCP_VERSION = '0.10.0'
-
-/** 客户端下载时认的资产名（独立于独立仓库里的产品文件名） */
-export const WECHAT_MCP_ASSET = 'wechat-chat-mcp.exe'
-
-/** MCP 自己的 release tag：不跟 `v<App 版本>` 走 */
-export const WECHAT_MCP_RELEASE_TAG = `wechat-chat-mcp-v${WECHAT_MCP_VERSION}`
 
 /**
  * MCP 在客户端配置里的 Server 名（= 产品自己的 `SERVER_NAME`）。
@@ -129,8 +121,9 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     // 报成失败（2026-10-09 15:15 实测：消息 15:15:50 落库，服务端 36.2s 自报 ok，客户端
     // 15:15:46 超时）。给足 5 分钟，让本地这双手自己把结论说完。
     timeoutMs: WECHAT_MCP_TIMEOUT_MS,
-    // 2026-10-11：exe 不再随包（改为「微信本机助手」插件按需下载，见 plugins/install/builtin.ts）。
-    // 默认**停用**——未装插件时部署路径上没有 exe，启用只会连不上；装插件时由插件改回启用。
+    // 2026-10-25：MCP 与插件解耦。客户端不再下载、安装这个 exe——用户自己装，
+    // 并在「设置 › MCP 服务」里把命令指向它。播种出来的条目默认**停用**：
+    // 部署路径上未必有文件，默认启用只会连不上。
     defaultEnabled: false,
     // Agent 使用指南**不在这里**——它随 MCP 协议从 `server.py` 的 INSTRUCTIONS 走
     // `initialize` → `McpClient.getInstructions()` → 系统提示词的 `## MCP Servers` 段。

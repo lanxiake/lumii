@@ -1494,13 +1494,10 @@ async function initLocalServices(): Promise<void> {
   // 记忆宫殿（自研 SQLite）IPC
   setPalaceBridgeProvider(() => agentRuntimeBridge)
   setupPalaceIpcHandlers()
+  // 插件中心只装「插件」自己的运行时资产（反检测浏览器 / ffmpeg / 宠物模型）。
+  // MCP Server 由用户自己装、自己在「设置 › MCP 服务」里配——不再由插件代管
+  // （见 plugins/install/builtin.ts 与 shared/wechat-mcp-status.ts 的文件头）。
   registerBuiltinPlugins({
-    upsertMcpServer: async (entry, originalName) => {
-      await agentRuntimeBridge?.upsertMcpServer(entry, originalName)
-    },
-    setMcpServerEnabled: async (name, enabled) => {
-      await agentRuntimeBridge?.setMcpServerEnabled(name, enabled)
-    },
     onOfficialExtensionInstalled: (id) => {
       void wireOfficialExtensionInstalled(id)
     },

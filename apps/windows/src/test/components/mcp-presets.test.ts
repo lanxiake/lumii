@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 import {
   MCP_PRESETS,
   MCP_PRESET_CATEGORIES,
-  WECHAT_MCP_RELEASE_TAG,
   WECHAT_MCP_VERSION,
   findMcpPreset,
   isReadyToUse,
@@ -80,12 +79,10 @@ describe('MCP 内置清单', () => {
     }
   })
 
-  it('wechat-chat 是独立分发的 exe，不带参数', () => {
+  it('wechat-chat 仍是独立 exe，不带参数', () => {
     const wechat = findMcpPreset('wechat-chat')
     expect(wechat?.bundledExe).toBe('wechat-chat-mcp')
     expect(wechat?.args).toEqual([])
-    // MCP 有自己的 release tag，不跟 App 版本走（便于单独升级）
-    expect(WECHAT_MCP_RELEASE_TAG).toBe(`wechat-chat-mcp-v${WECHAT_MCP_VERSION}`)
   })
 
   // 源码仓库不在（CI / 只拿了 exe 的机器）时没有可对账的对象；在开发机上必须跑。

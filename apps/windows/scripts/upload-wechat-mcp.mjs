@@ -2,11 +2,12 @@
  * 发版：把微信 MCP（`wechat-chat-mcp`）发到**它自己的 tag**，与 App 版本解耦。
  *
  *   tag    = `wechat-chat-mcp-v<WECHAT_MCP_VERSION>`
- *   asset  = `wechat-chat-mcp.exe`（客户端拼 URL 时认的名字）
+ *   asset  = `wechat-chat-mcp.exe`
  *
- * 这样升级 MCP 只需要：在独立仓库改版本 → 构建 → 跑本脚本 → 把 App 侧
- * `shared/mcp-presets.ts` 的 `WECHAT_MCP_VERSION` 跟着改（面板据此显示「更新」）。
- * 不用等 App 发版，也不受「某个 App 版本的 release 漏传资产」影响。
+ * **客户端不再下载这个资产**（2026-10-25：MCP 与插件解耦，用户自己装、自己在
+ * 「设置 › MCP 服务」里配）。本脚本仍用于把二进制发到公开 release，供用户手动取；
+ * `mcp-presets.ts` 的 `WECHAT_MCP_VERSION` 只表示「客户端验证过的版本」，发版后
+ * 跟着改，面板据此提示「低于验证版」。
  *
  * 用法：node scripts/upload-wechat-mcp.mjs [--dry-run] [--no-proxy] [--skip-build]
  */

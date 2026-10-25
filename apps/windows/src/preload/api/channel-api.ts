@@ -91,6 +91,21 @@ export const channelApi = {
   wechatSelfcheck: (): Promise<WechatSelfcheckResult | null> => ipcRenderer.invoke('wechat:selfcheck'),
   /** 一键修复本机微信环境（还原/规范化窗口 + 重探数据目录），随后返回复检结果 */
   wechatRepair: (): Promise<WechatRepairResult | null> => ipcRenderer.invoke('wechat:repair'),
+  /**
+   * 「本机微信助手」这个 MCP 的检测结果（配没配、开没开、连没连上、工具齐不齐）。
+   *
+   * **只读**：MCP 由用户自己装、自己配（与插件解耦），卡片据此给出提示与跳转。
+   */
+  wechatMcpStatus: (): Promise<WechatMcpStatusResult> => ipcRenderer.invoke('wechat:mcpStatus'),
+}
+
+/** 与 main 侧 `shared/wechat-mcp-status.ts` 同构（判定逻辑在那边，这里只镜像形状） */
+export interface WechatMcpStatusResult {
+  state: 'not-configured' | 'disabled' | 'not-connected' | 'incompatible' | 'ready'
+  label: string
+  missingTools: readonly string[]
+  outdated: boolean
+  hint?: string
 }
 
 /** 本机微信环境自检结果（与 main 侧 `wechat-selfcheck.ts` 同构） */

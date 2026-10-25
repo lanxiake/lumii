@@ -15,10 +15,19 @@ import { pcwechatRenderer } from '../../plugins/builtin/pcwechat/renderer'
 /**
  * 构造三个渠道登录服务的最小 mock；返回值统一为 idle，便于按用例覆盖。
  */
+const READY_MCP = {
+  state: 'ready',
+  label: 'v0.10.0',
+  missingTools: [],
+  outdated: false,
+}
+
 function mockChannelServices(overrides: {
   weixinStatus?: string
   weixinSession?: unknown
   channels?: unknown[]
+  /** 覆盖 MCP 检测结果（默认就绪） */
+  mcpStatus?: Record<string, unknown>
 }) {
   const noopSubscribe = () => () => undefined
   const base = {
@@ -45,18 +54,18 @@ function mockChannelServices(overrides: {
     // 本机微信卡片挂载即读策略；没配过时返回默认档（只提醒）
     getPolicy: vi.fn(async () => ({ defaultMode: 'notify', peers: [] })),
     setPolicy: vi.fn(async (_c: string, p: unknown) => p),
-  }
-  // 本机微信卡片会读「微信本机助手」的安装状态（已装才显示「配置」）
-  ;(window as any).electronAPI = {
-    plugins: {
-      list: vi.fn(async () => ({
-        'wechat-chat-mcp': { installed: true, version: '0.10.0', latestVersion: '0.10.0' },
-      })),
-      install: vi.fn(async () => ({ success: true })),
-      uninstall: vi.fn(async () => ({ success: true })),
-      cancel: vi.fn(async () => ({ success: true })),
-      onProgress: vi.fn(() => () => undefined),
-    },
+    // MCP 检测（只读）：默认「已连接且工具齐」= 就绪。
+    // MCP 由用户自己配（与插件解耦），卡片不再有安装按钮——缺了只提示并跳设置。
+    wechatMcpStatus: vi.fn(async () => overrides.mcpStatus ?? READY_MCP),
+    wechatSelfcheck: vi.fn(async () => ({
+      at: Date.now(),
+      connected: true,
+      db: { ok: true, root: 'D:/wx', source: 'ini', wxid: 'wxid_a' },
+      env: { ok: true },
+      actions: [],
+      ok: true,
+      reason: '',
+    })),
   }
 }
 
@@ -120,12 +129,27 @@ describe('ChannelsSection', () => {
     expect(screen.getByRole('button', { name: '配置' })).toBeInTheDocument()
   })
 
-  it('助手未安装时卡片直接给安装入口', async () => {
-    mockChannelServices({})
-    ;(window as any).electronAPI.plugins.list = vi.fn(async () => ({}))
+  it('MCP 没配时卡片不给安装按钮，而是把人送到「设置 › MCP 服务」', async () => {
+    mockChannelServices({
+      mcpStatus: {
+        state: 'not-configured',
+        label: '未配置',
+        missingTools: [],
+        outdated: false,
+        hint: '还没有在本机配置这个 MCP：到「设置 › MCP 服务」添加。',
+      },
+    })
+    const onNavigate = vi.fn()
+    window.addEventListener('mtbot:navigate-request', onNavigate)
     render(<ChannelsSection />)
 
-    expect(await screen.findByRole('button', { name: '安装微信本机助手' })).toBeInTheDocument()
+    // MCP 与插件解耦：卡片上**没有**安装入口，只有跳转
+    expect(screen.queryByRole('button', { name: '安装微信本机助手' })).toBeNull()
+    const go = await screen.findByRole('button', { name: '去配置 MCP' })
+    go.click()
+    expect(onNavigate).toHaveBeenCalledTimes(1)
+    expect((onNavigate.mock.calls[0]![0] as CustomEvent).detail).toEqual({ view: 'mcp' })
+    window.removeEventListener('mtbot:navigate-request', onNavigate)
   })
 
   it('微信已连接时展示 meta 与可发送对象芯片', async () => {
