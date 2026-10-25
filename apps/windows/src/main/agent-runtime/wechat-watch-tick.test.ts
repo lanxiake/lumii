@@ -42,7 +42,9 @@ import {
   rememberSelfSends,
   resolveWorkspacePath,
   runWechatWatch,
+  resolveWatchSince,
   selectNewMessages,
+  syncWechatWatchJobEnabled,
   SELF_PEER_COOLDOWN_S,
   withSelfPeers,
   AGENT_REPLY_MARKER,
@@ -344,6 +346,31 @@ describe('formatWechatNotice', () => {
       { ts: 4, name: 'D', text: '四' },
     ])
     expect(body).toBe('A：一\nB：二\nC：三\n…还有 1 条')
+  })
+})
+
+describe('resolveWatchSince（补读窗口）', () => {
+  const NOW = 1_800_000
+
+  it('首次运行：从现在起，不翻历史', () => {
+    expect(resolveWatchSince(null, NOW)).toBe(NOW)
+  })
+
+  it('水位新鲜：原样续读（正常 15 秒一拍的路径）', () => {
+    expect(resolveWatchSince(NOW - 15, NOW)).toBe(NOW - 15)
+  })
+
+  it('水位停了七天：只补读最近窗口（否则会给几十个会话逐条代回）', () => {
+    const weekAgo = NOW - 7 * 24 * 3600
+    const skipped: number[] = []
+    // 30 分钟窗口，与补发队列 OUTBOX_TTL_MS 同一口径
+    expect(resolveWatchSince(weekAgo, NOW, { onSkip: (s) => skipped.push(s) })).toBe(NOW - 1800)
+    expect(skipped).toHaveLength(1)
+  })
+
+  it('只停了十分钟：不裁，照常补读（正常重启/短暂停顿走这条）', () => {
+    const tenMinAgo = NOW - 600
+    expect(resolveWatchSince(tenMinAgo, NOW)).toBe(tenMinAgo)
   })
 })
 
@@ -1697,6 +1724,62 @@ describe('ensureWechatWatchCronJobSeeded', () => {
     const runs: unknown[][] = []
     ensureWechatWatchCronJobSeeded(mkDb(runs) as never, { mcpConfigured: true })
     expect(runs.some((r) => String(r[0]).includes('SET enabled = 1'))).toBe(true)
+  })
+})
+
+/**
+ * 启停同步的**返回值**契约：调用方据此决定是否重排调度器。
+ *
+ * 为什么必须有这道判据：`reloadLocalCronScheduler` 会拆掉**所有**任务的计时器，
+ * 而 MCP 断线自动重连也会走到同步点。每次都重排 = 每次重连都无故打扰别的任务
+ * （含正在等下一次触发的长周期任务）。
+ */
+describe('syncWechatWatchJobEnabled', () => {
+  /** 状态真正可变的最小库替身：任务存在性 + enabled 都跟着语句走 */
+  function stateDb(state: { enabled?: number }) {
+    return {
+      prepare: (sql: string) => ({
+        get: () => (state.enabled === undefined ? undefined : { id: 'wechat-watch', enabled: state.enabled }),
+        run: () => {
+          if (sql.includes('INSERT INTO local_cron_jobs')) state.enabled = 1
+          else if (sql.includes('SET enabled = 0')) state.enabled = 0
+          else if (sql.includes('SET enabled = 1')) state.enabled = 1
+          return { changes: 1 }
+        },
+      }),
+    } as never
+  }
+
+  let tmpRoot: string
+  let prevDataDir: string | undefined
+  beforeEach(() => {
+    prevDataDir = process.env.LUMII_CLIENT_DATA_DIR
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-ww-sync-'))
+    process.env.LUMII_CLIENT_DATA_DIR = tmpRoot
+    _resetWindowsClientDataRootCacheForTest()
+  })
+  afterEach(() => {
+    if (prevDataDir === undefined) delete process.env.LUMII_CLIENT_DATA_DIR
+    else process.env.LUMII_CLIENT_DATA_DIR = prevDataDir
+    _resetWindowsClientDataRootCacheForTest()
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  })
+
+  it('装了助手（从未播种）→ 变成启用：要求重排', () => {
+    const state: { enabled?: number } = {}
+    expect(syncWechatWatchJobEnabled(stateDb(state), { mcpConfigured: true })).toBe(true)
+    expect(state.enabled).toBe(1)
+  })
+
+  it('MCP 断线重连（状态没变）→ 不重排（否则每次重连都打扰别的任务）', () => {
+    const db = stateDb({ enabled: 1 })
+    expect(syncWechatWatchJobEnabled(db, { mcpConfigured: true })).toBe(false)
+  })
+
+  it('MCP 被停用 → 任务真停：要求重排', () => {
+    const state = { enabled: 1 }
+    expect(syncWechatWatchJobEnabled(stateDb(state), { mcpConfigured: false })).toBe(true)
+    expect(state.enabled).toBe(0)
   })
 })
 

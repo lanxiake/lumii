@@ -81,6 +81,18 @@ const WECHAT_WATCH_INTERVAL_MS = 15_000
 const KV_KEY_LAST_TS = 'wechat_watch_last_ts'
 /** 多开：每个账号一条独立水位（`wechat_watch_last_ts:<wxid>`） */
 const KV_KEY_LAST_TS_PREFIX = `${KV_KEY_LAST_TS}:`
+/**
+ * 停机后最多补读多久的消息（秒）。
+ *
+ * 这是**防呆上限，不是礼貌规则**：水位是持久的，而盯梢可能停很久（插件关掉、
+ * MCP 没启用、应用没开）。2026-10-25 现场：水位停在 10-18，任务一旦恢复，
+ * 第一拍会把**七天**里几十个会话的消息一条条"以本人身份"代回——那不是补课，是事故。
+ *
+ * 取 30 分钟与补发队列 `OUTBOX_TTL_MS` 同一口径（那里的理由：迟到太久的问候不如不发）。
+ * 宁可漏回停机窗口里的消息（用户能在微信里自己看见），也不能早上开机时
+ * 把昨晚的消息逐条代回一遍。
+ */
+const WATCH_MAX_BACKLOG_S = 30 * 60
 /** 通知里最多列几条（其余折叠成一句） */
 const MAX_NOTIFY_ITEMS = 3
 
@@ -967,6 +979,28 @@ async function detectSentTo(
   }
 }
 
+/**
+ * 取本拍的起点水位：**首次运行**（无水位）从现在起，不翻历史。
+ *
+ * 水位太旧（停了很久才恢复）也夹到 `WATCH_MAX_BACKLOG_S` 窗口内——
+ * 水位是持久的，误停七天再打开时若照旧从七天前读，会一口气给几十个会话
+ * 逐条"以本人身份"回话。旧消息就让它过去，只留一条 warn 说明跳过了多远。
+ */
+export function resolveWatchSince(
+  stored: number | null,
+  nowS: number,
+  opts: { maxBacklogS?: number; onSkip?: (skippedSeconds: number) => void } = {},
+): number {
+  if (stored === null) return nowS
+  const window = opts.maxBacklogS ?? WATCH_MAX_BACKLOG_S
+  const earliest = nowS - window
+  if (stored < earliest) {
+    opts.onSkip?.(nowS - stored)
+    return earliest
+  }
+  return stored
+}
+
 function readLastTs(db: DatabaseAdapter, account?: string): number | null {
   const key = account ? `${KV_KEY_LAST_TS_PREFIX}${account}` : KV_KEY_LAST_TS
   try {
@@ -1677,6 +1711,17 @@ async function readPollText(deps: WechatWatchDeps, since: number, account?: stri
  * 注意：**任何失败路径都返回字符串、不抛**——这是 cron 的一次 tick，
  * 抛出去只会变成任务页上一条红色的 error，而门闩本来就该「失败=这拍什么都不做」。
  */
+/** 取起点水位并记录"跳过多久"（`resolveWatchSince` 的落库/日志版） */
+function sinceFor(db: DatabaseAdapter, nowS: number, account?: string): number {
+  return resolveWatchSince(readLastTs(db, account), nowS, {
+    onSkip: (skipped) =>
+      log.warn(
+        `[wechat-watch] 水位停在 ${Math.round(skipped / 3600)} 小时前${account ? `（账号 ${account}）` : ''}，` +
+          `只补读最近 ${WATCH_MAX_BACKLOG_S / 60} 分钟——更早的消息不代回`,
+      ),
+  })
+}
+
 export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
   const cfg = deps.config ?? loadWechatWatchConfig(deps.configPath)
   // 策略每拍读一次（设置页改完下一拍就生效，跟手册同一口径；存储层有内存缓存，不碰盘）
@@ -1711,7 +1756,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       }
       if (!migrated) writeKvNumber(db, migratedKey, nowMs)
     }
-    const since = readLastTs(db) ?? nowS // 首次：从现在起，不翻历史（旧单账号水位的兜底）
+    const since = sinceFor(db, nowS) // 首次：从现在起；停太久：只补读最近窗口
     let messages: WechatMessage[] = []
     // 多开：先问 MCP 有哪些账号在跑，每个账号用**自己的水位**增量读。
     // 不能共用一个水位——A 号的新消息会把水位顶上去，B 号还没读到的旧消息就被跳过了。
@@ -1756,7 +1801,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
       let failed = 0
       let keyNotReady = false
       for (const acc of running) {
-        const accSince = readLastTs(db, acc.wxid) ?? nowS
+        const accSince = sinceFor(db, nowS, acc.wxid)
         try {
           const t0 = Date.now()
           const text = await readPollText(deps, accSince, acc.wxid)
@@ -2117,6 +2162,34 @@ function consumeAutoPausedMarker(): boolean {
     /* ignore */
   }
   return false
+}
+
+/**
+ * 同步盯梢任务的启停，并告知**状态是否真的变了**。
+ *
+ * 为什么需要返回值：`ensureWechatWatchCronJobSeeded` 只改 DB，而调度器不轮询库——
+ * 不显式重排，进程内恢复（插件重新启用 / 助手刚装好 / 手改 mcp-servers.json）
+ * 就要等下次重启才生效（2026-10-25 实测：MCP 启用后任务仍 enabled=0，一天没跑）。
+ * 反向约束：`reloadLocalCronScheduler` 会拆掉**所有**任务计时器，MCP 断线自动重连
+ * 也会走到同步点，所以只有真变了才重排，别每次重连都打扰别的任务。
+ */
+export function syncWechatWatchJobEnabled(
+  db: DatabaseAdapter,
+  opts: { mcpConfigured: boolean; pluginEnabled?: boolean },
+): boolean {
+  const readEnabled = (): number | undefined => {
+    try {
+      const row = db
+        .prepare<{ enabled: number }>(`SELECT enabled FROM local_cron_jobs WHERE id = ?`)
+        .get(WECHAT_WATCH_CRON_ID) as { enabled: number } | undefined
+      return row?.enabled
+    } catch {
+      return undefined
+    }
+  }
+  const before = readEnabled()
+  ensureWechatWatchCronJobSeeded(db, opts)
+  return readEnabled() !== before
 }
 
 export function ensureWechatWatchCronJobSeeded(
