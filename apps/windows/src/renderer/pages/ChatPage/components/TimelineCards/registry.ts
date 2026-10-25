@@ -59,15 +59,36 @@ interface StoredCard extends TimelineCardDefinition {
   order: number
 }
 
-const cards = new Map<string, StoredCard>()
-let seq = 0
+interface RegistryState {
+  cards: Map<string, StoredCard>
+  seq: number
+}
+
+/**
+ * 注册表挂到 globalThis 而不是模块作用域。
+ *
+ * Vite HMR 会**重新执行本模块**，模块级的 `new Map()` 于是变成一张新表；
+ * 而外部插件（`~/.lumii/plugins/<dir>/client.js`）只在文件 revision 变化时才重新激活，
+ * 它们的注册项留在**旧表**里——本模块一热更新，所有插件卡片就静默消失，
+ * 只有重开窗口或改一下插件文件才会回来。
+ *
+ * 这与 `client-plugin-host.ts` 的 `SHARED_KEY` 是同一个取舍（那里踩过一次整机重启）。
+ * 内置三卡靠 `ensureTimelineCard` 幂等，新旧实例读写同一张表不会重复登记。
+ */
+const SHARED_KEY = Symbol.for('lumii.timeline-cards.shared')
+const state: RegistryState = ((globalThis as Record<symbol, unknown>)[SHARED_KEY] ??= {
+  cards: new Map<string, StoredCard>(),
+  seq: 0,
+}) as RegistryState
+
+const cards = state.cards
 
 /** 注册一张卡片，返回注销函数。同 id 重复注册抛错（静默覆盖会让「谁生效」取决于加载顺序）。 */
 export function registerTimelineCard(def: TimelineCardDefinition): () => void {
   if (cards.has(def.id)) {
     throw new TimelineCardRegistryError(`时间线卡片 "${def.id}" 已被注册`)
   }
-  const stored: StoredCard = { ...def, seq: seq++, order: def.order ?? 100 }
+  const stored: StoredCard = { ...def, seq: state.seq++, order: def.order ?? 100 }
   cards.set(def.id, stored)
 
   return () => {
@@ -100,5 +121,5 @@ export function listTimelineCards(): TimelineCardDefinition[] {
 /** 仅测试用：清空注册表 */
 export function __resetTimelineCardsForTest(): void {
   cards.clear()
-  seq = 0
+  state.seq = 0
 }

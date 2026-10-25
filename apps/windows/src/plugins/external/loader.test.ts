@@ -1,6 +1,6 @@
 // @vitest-environment node
 // 必须用 node 环境：本文件要动态 import 真实文件，jsdom 下这条路径走不通。
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -175,7 +175,9 @@ describe('ExternalExtensionRuntime', () => {
   let host: PluginHost<MainEvents>
 
   beforeEach(() => {
-    root = mkdtempSync(path.join(tmpdir(), 'lumii-ext-rt-'))
+    // realpath().native：Windows 的 os.tmpdir() 可能给 8.3 短名（C:\Users\ADMINI~1\…），
+    // Vite 的模块解析器认不了这种路径，动态 import 会报「Failed to load url」。
+    root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'lumii-ext-rt-')))
     host = new PluginHost<MainEvents>()
     resetGlobals()
   })

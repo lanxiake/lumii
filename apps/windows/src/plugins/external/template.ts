@@ -166,6 +166,7 @@ __LUMII_REGISTER_PLUGIN__(id, (api) => {
   api.jsx         // react/jsx-runtime
   api.registerCard(type, renderer)   // 新增 A2UI 卡片类型
   api.registerSlot(slot, entry)      // 往槽位加条目
+  api.registerTimelineCard(def)      // 对话时间线里的「按工具名单独成卡」
   api.Page                           // 整页外壳（标题/副标题/操作区 + 内容区自滚）
   api.format                         // number / percent / currency / bytes / date / dateTime / relative
   api.storage                        // 按插件 id 隔离的持久化：get / set / remove / keys / clear
@@ -175,7 +176,28 @@ __LUMII_REGISTER_PLUGIN__(id, (api) => {
 整页请用 \`api.Page\` 包起来：主内容区已经有 20px 内边距，
 再写 \`padding: 24\` 实际会变成 44px，看起来比内置页「胖一圈」。
 
-## 读应用数据：\`window.electronAPI\`
+## 对话时间线卡片：\`api.registerTimelineCard\`
+
+某个工具调用想在对话里**单独成卡**（而不是混进「调用 N 次工具」的批次组），就注册一张：
+
+\`\`\`js
+api.registerTimelineCard({
+  id: '${id}.my-tool',          // 全局唯一，重复注册会抛错
+  order: 100,                    // 小的先匹配；内置三卡是 10–30，插件默认 100
+  pinned: true,                  // true = 露在「执行过程」折叠区外；false = 跟着折叠
+  match: (part) => part.name === 'my_tool',
+  component: ({ part, messageStreaming }) =>
+    h('div', null, part.status === 'done' ? '完成' : '执行中…'),
+  instanceId: (part) => part.args?.runId,   // 可选：子运行归属
+})
+\`\`\`
+
+- \`part\` 是工具调用：\`{ id, name, args, status, result }\`；
+- \`order\` 默认 100，**顶不掉内置卡片**——插件只能补内置没覆盖的工具；
+- 组件抛错只毁这一块，同条消息的其他内容照常渲染；
+- 返回的注销函数由宿主在禁用插件时调用，你不用自己留副本。
+
+
 
 插件脚本和页面**同一个 JS 上下文**（不做沙箱），所以 preload 暴露的
 \`window.electronAPI\` 直接可用——这是插件拿应用数据的唯一通道，不需要宿主再包一层：

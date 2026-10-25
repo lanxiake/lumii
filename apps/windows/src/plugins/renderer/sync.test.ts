@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { RendererPlugin, RendererPluginApi } from '../api/renderer'
+import { rendererApi } from '../api/renderer'
 import { syncRendererPlugins } from './sync'
 
-const api = { registerSlot: vi.fn(), registerCard: vi.fn() } as unknown as RendererPluginApi
+// 从真实 api 推导键名：契约新增方法时这里自动跟上，不会被 `as unknown as` 悄悄漏掉
+const api = Object.fromEntries(
+  Object.keys(rendererApi).map((key) => [key, vi.fn()]),
+) as unknown as RendererPluginApi
 
 function makePlugin(id: string, setup = vi.fn(() => vi.fn())): RendererPlugin & { setup: typeof setup } {
   return { id, setup }

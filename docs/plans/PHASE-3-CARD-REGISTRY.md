@@ -173,6 +173,47 @@ if (unit.kind === 'card') {
 - 真实客户端（`-RemoteDebug 9222`）：`run-timeline-cards.mjs` 输出
   `折叠区 2 个 · 委托卡片 2 个 · 落在折叠区内 0 个`，三张内置卡 `pinned=true` 按 order 10/20/30 注册。
 
-**顺带发现（未在本片处理）**：`src/plugins/external/loader.test.ts` 有 5 例稳定失败，
-`git diff HEAD -- apps/windows/src/plugins/external` 为空——与本次改动无关的历史失败。
+**顺带修掉的历史失败**：`src/plugins/external/loader.test.ts` 曾有 5 例稳定失败
+（「Failed to load url C:/Users/ADMINI~1/…」）。根因不是插件逻辑，而是 Windows 的
+`os.tmpdir()` 给了 8.3 短名，Vite 的模块解析器认不了——测试里 `mkdtempSync` 后加
+`realpathSync.native` 即可。修完 `src/plugins` 全量 1045 passed。
+
+### 7.1 收尾（P1/P2，同日）
+
+| 项 | 改动 | 为什么 |
+|---|---|---|
+| P1 文档 | `plugins/external/template.ts`：README 能力清单加 `api.registerTimelineCard`，并新增「对话时间线卡片」整节（含 `order` 分层、`pinned` 语义、注销归属） | 示例插件 README 是外部作者唯一看得到的文档，不写等于能力不存在 |
+| P1 验收 | `run-timeline-cards.mjs` 第二段：落临时插件 → 宿主轮询 → 注册表 → 切会话验 DOM → 删目录验注销 | 外部插件这条链此前只有代码推理，没有一行真实执行 |
+| P2 HMR | `TimelineCards/registry.ts` 的表挂到 `globalThis`（`Symbol.for('lumii.timeline-cards.shared')`） | 同 `client-plugin-host.ts` 的既有事故：模块级 `Map` 被 HMR 重建，插件注册项留在旧表里静默消失 |
+| P2 契约 | `plugins/renderer/sync.test.ts` 的 stub 改为从 `rendererApi` 键名推导 | `as unknown as` 曾藏住缺失的 `registerTimelineCard`——契约涨一个方法，测试不会自动知道 |
+
+验证：`npx tsc --noEmit` clean；`registry.test.ts` + `builtin.test.ts` +
+`ChatMessage.timeline-cards.test.tsx` 共 15 passed；`sync.test.ts` 4 passed。
+
+### 7.2 外部插件端到端真跑结果（2026-10-25）
+
+`node docs/test/lumii-cli/chat/run-timeline-cards.mjs`（dev 客户端 `-RemoteDebug 9222`）：
+
+```
+OK 内置三卡已注册且全部 pinned
+折叠区 2 个 · 委托卡片 2 个 · 落在折叠区内 0 个
+OK 已注册 tt-timeline-probe.all（owner=tt-timeline-probe, order=100）
+OK 插件卡片渲染到了时间线上（718edd87…）
+OK 插件被移除后卡片随之注销并消失
+PASS
+```
+
+真跑暴露并修掉了三个「只有执行才知道」的坑，都写进了脚本注释：
+
+| 坑 | 现象 | 原因 |
+|---|---|---|
+| 插件 id 前导下划线 | 清单里 `compatible:false`，插件静默不激活 | 主进程 `client-plugin-meta.ts` 要求 `/^[a-z0-9][a-z0-9._-]*$/` |
+| 探针卡没写 `pinned` | 卡片进了注册表，DOM 上却看不见 | 非 pinned 卡落在「执行过程」折叠区，收起时内容根本不挂载 |
+| 拿 `spawn_agent` 会话验探针 | 探针 `match:()=>true` 却依然不渲染 | 内置卡 order 10–30 先命中，order 100 的插件卡轮不到；必须挑「顶层时间线有 bash 等其它工具」的会话 |
+
+第 3 条是设计意图而非缺陷（插件只能补空缺，顶不掉内置卡），但验收必须按它挑会话，
+所以脚本改成**按顺序试前几个会话**，命中的那个留作卸载前后对照。
+
+**仍未做**：`registerChatBlock(placement, def)` 抽给「位置型」块（后台任务卡 / 压缩卡 /
+Agent 看板）——目前只有这几张各自硬编码，等第三张位置型块出现再抽。
 

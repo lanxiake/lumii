@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AssistantPart } from '@mtbot/agent-runtime/browser'
 import {
@@ -77,5 +77,18 @@ describe('TimelineCards registry', () => {
     )
     const withResult: ToolPart = { ...part('spawn_agent'), result: { id: 'inst-1' } }
     expect(findTimelineCard(withResult)?.instanceId?.(withResult)).toBe('inst-1')
+  })
+
+  it('模块被重新执行（HMR）后仍读写同一张表', async () => {
+    // 内置卡片在 ChatMessage 模块顶层注册，HMR 不会重跑插件工厂；
+    // 表若退回模块作用域，热更新一次所有插件卡片就静默消失。
+    ensureTimelineCard(def({ id: 'builtin', order: 10 }))
+    vi.resetModules()
+
+    const fresh = await import('./registry')
+    expect(fresh.listTimelineCards().map((c) => c.id)).toEqual(['builtin'])
+    // 新实例注册的项老实例也看得见（同一张表，不是两份）
+    fresh.registerTimelineCard(def({ id: 'from-fresh' }))
+    expect(listTimelineCards().map((c) => c.id)).toContain('from-fresh')
   })
 })
