@@ -257,6 +257,8 @@
   --color-accent:      var(--mt-accent-500);
   --color-accent-soft: rgba(var(--mt-accent-rgb), 0.12);
   --color-accent-15:   rgba(var(--mt-accent-rgb), 0.15);
+  /* 强调色填充块上的文字：各主题各自定义，不能写字面 #fff */
+  --color-on-accent:   var(--mt-fg-on-accent);
 
   /* Alpha 主色 — 使用新蓝色 */
   --color-primary-500-5:  rgba(59, 130, 246, 0.05);
