@@ -14,7 +14,8 @@ import { MainLayout } from './components/layout/MainLayout/MainLayout'
 import { SettingsHubModal, useSettingsHub, isHubView } from './components/SettingsHub'
 import { SlotHost } from './components/slots/SlotHost'
 import type { GotoInput } from '@main/app-ui-control/types'
-import { setFocusPermissionRequestId, setPendingPetHandoff } from './hooks/business/useAgentRuntime/agent-runtime-store'
+import { isAppPanelMode } from '../shared/app-panel-modes'
+import { setFocusPermissionRequestId, setPendingPetHandoff, setPendingPanel } from './hooks/business/useAgentRuntime/agent-runtime-store'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme, type AppliedTheme } from './contexts/ThemeContext/ThemeContext'
 import { useToast } from './components/ui/Toast/useToast'
@@ -174,6 +175,25 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     }
     return subscribeMainEvent('app-ui:goto', handleAppUiGoto)
   }, [handleViewChange, openHub, openHubForView, runtimeActions])
+
+  /**
+   * Agent `app-ui:panel` — 在右栏打开面板（`app_panel` 工具送上来的）。
+   *
+   * 与上面两条同一条路：主进程只转发，真正的动作在渲染层（右栏在 ChatPage 里）。
+   * 这里只把意图写进 store，由 ChatPage 消费——**先清再执行**，失败也不重试。
+   */
+  useEffect(() => {
+    const handleAppUiPanel = (...args: unknown[]) => {
+      const req = args[0] as { mode?: unknown; path?: unknown } | undefined
+      if (!req || typeof req.mode !== 'string') return
+      if (!isAppPanelMode(req.mode)) return
+      setPendingPanel({
+        mode: req.mode,
+        path: typeof req.path === 'string' ? req.path : undefined,
+      })
+    }
+    return subscribeMainEvent('app-ui:panel', handleAppUiPanel)
+  }, [])
 
   /**
    * 宠物窗点「转给主助手」（五期 T5.8，设计 §4.2.2 的"唯一通道"）。

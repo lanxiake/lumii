@@ -23,6 +23,8 @@ import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser
 import { registerWikiTools } from './bridge-wiki-tools'
 import { registerNewsPreferenceTool } from './bridge-news-preference-tools'
 import { registerAppUiTools as registerAppUiToolsFn } from './bridge-app-ui-tools'
+import { registerAppPanelTools } from './bridge-app-panel-tools'
+import { createAppUiController } from '../app-ui-control'
 import { registerScreenRecordTools as registerScreenRecordToolsFn } from './bridge-screen-record-tools'
 import { getNarrateService, getRecordingInspector, getScreenRecordService } from '../kernel/screen-record-contract'
 import { resizeImageIfNeeded } from './image-resizer'
@@ -389,24 +391,35 @@ export class BridgeToolRegistrar {
     return registerBrowserToolsFn(this.deps.toolRegistry, this.deps.toolContext, getBrowserContext)
   }
 
-  /** 注册 Agent App UI 控制工具（app_screenshot 等） */
+  /** 注册 Agent App UI 控制工具（app_screenshot 等）+ app_panel（同一总开关、同一通道） */
   private registerAppUiTools(): void {
     const getMainWindow = this.deps.config.getWindow
     if (!this.deps.toolContext || !getMainWindow) return
+    const readSettingsJson = async () => {
+      const win = getMainWindow()
+      if (!win || win.isDestroyed()) return null
+      try {
+        return await win.webContents.executeJavaScript(
+          `localStorage.getItem('mtbot-assistant-settings')`,
+        )
+      } catch {
+        return null
+      }
+    }
+    const controller = createAppUiController({
+      getWindow: (target) => (target === 'main' ? getMainWindow() : null),
+      resizeImageIfNeeded,
+    })
     registerAppUiToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
       getWindow: (target) => (target === 'main' ? getMainWindow() : null),
       resizeImageIfNeeded,
-      readSettingsJson: async () => {
-        const win = getMainWindow()
-        if (!win || win.isDestroyed()) return null
-        try {
-          return await win.webContents.executeJavaScript(
-            `localStorage.getItem('mtbot-assistant-settings')`,
-          )
-        } catch {
-          return null
-        }
-      },
+      readSettingsJson,
+      controller,
+    })
+    // app_panel：Agent 决定右栏开哪个面板、什么模式（见 shared/app-panel-modes.ts）
+    registerAppPanelTools(this.deps.toolRegistry, this.deps.toolContext, {
+      controller,
+      readSettingsJson,
     })
   }
 

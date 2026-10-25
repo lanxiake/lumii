@@ -6,6 +6,7 @@ import { SlotHost } from '../../../components/slots/SlotHost'
 import { usePluginEnabled } from '../../../../plugins/renderer/state'
 import { WorkspaceChangesPanel } from '../components/WorkspaceChangesPanel'
 import { buildChangeLedger } from '../components/WorkspaceChangesPanel/ledger'
+import { FilePreviewModal } from '../../../components/FilePreviewModal'
 import type { RuntimeMessage } from '../../../hooks/business/useAgentRuntime/agent-runtime-store'
 
 type WorkbenchProps = React.ComponentProps<typeof WorkspaceWorkbench>
@@ -15,6 +16,8 @@ export interface WorkspaceWorkbenchAreaProps {
   layoutMode: WorkbenchLayoutMode
   uncommittedCount: number
   locateFileTarget: React.ComponentProps<typeof WorkspaceFilePanel>['locateTarget']
+  /** 「文档」Tab 当前稿件绝对路径；为空则整个 Tab 不出现 */
+  docPath: string | null
   /** 当前会话消息：变更台账直接从这里派生（历史与实时同一条路径） */
   messages: readonly RuntimeMessage[]
   toAbsolutePath: (relativePath: string) => string
@@ -25,6 +28,8 @@ export interface WorkspaceWorkbenchAreaProps {
   onLayoutModeChange: (mode: WorkbenchLayoutMode) => void
   onRevealInFiles: (relativePath: string) => void
   onRevealChange: (relativePath: string, status: FileChangeEntry['status']) => void
+  /** 文件面板右键「在文档 Tab 打开」 */
+  onOpenDoc: (absolutePath: string) => void
 }
 
 /** Composes the files, changes and VCS panels behind the workbench's stable shell. */
@@ -33,6 +38,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   layoutMode,
   uncommittedCount,
   locateFileTarget,
+  docPath,
   messages,
   toAbsolutePath,
   onTabChange,
@@ -42,6 +48,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   onLayoutModeChange,
   onRevealInFiles,
   onRevealChange,
+  onOpenDoc,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const fileRefreshRef = useRef<(() => void) | null>(null)
@@ -57,8 +64,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     }
   }, [workbench.tab])
 
-  // 变更台账完全由消息派生，没有可手动刷新的外部状态。
-  const onRefresh = workbench.tab === 'changes' ? undefined : handleRefresh
+  // 变更台账完全由消息派生，没有可手动刷新的外部状态；doc 由编辑器自己管保存
+  const onRefresh =
+    workbench.tab === 'changes' || workbench.tab === 'doc' ? undefined : handleRefresh
 
   return (
     <WorkspaceWorkbench
@@ -80,6 +88,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           locateTarget={locateFileTarget}
           embedded
           refreshRef={fileRefreshRef}
+          onOpenInDoc={onOpenDoc}
         />
       }
       childrenChanges={
@@ -90,6 +99,17 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         />
       }
       vcsEnabled={vcsEnabled}
+      docEnabled={!!docPath}
+      childrenDoc={
+        docPath ? (
+          <FilePreviewModal
+            variant="embedded"
+            filePath={docPath}
+            fileName={docPath.split(/[\\/]/).pop() ?? docPath}
+            onClose={() => onTabChange('files')}
+          />
+        ) : null
+      }
       childrenVcs={
         <SlotHost
           name="workspace.version"

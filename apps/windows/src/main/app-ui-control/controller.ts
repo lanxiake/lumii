@@ -32,6 +32,7 @@ import type {
   ActScrollInput,
   ActSelectInput,
   ActTypeInput,
+  AppPanelInput,
   AppUiHubState,
   AppUiRef,
   AppUiViewState,
@@ -78,6 +79,9 @@ interface AppUiGotoFailure {
 }
 
 type AppUiGotoResult = AppUiGotoSuccess | AppUiGotoFailure
+
+/** panel 发送结果：与 goto 一样无回读，只报"送没送到窗口" */
+type PanelSendResult = { ok: true } | { ok: false; error: 'app_not_running' }
 
 /** click 成功结果 */
 interface AppUiClickSuccess {
@@ -233,6 +237,11 @@ export interface AppUiController {
   deleteSnapshotCacheForTest?(snapshotId: string): void
   /** 声明式导航并回读渲染层 view/hub */
   goto(input: unknown): Promise<AppUiGotoResult>
+  /**
+   * 在右栏打开面板（`app-ui:panel` → App.tsx → runtime store → ChatPage）。
+   * 模式与路径的校验在工具层（需要 fs + 工作空间根目录），这里只负责送事件。
+   */
+  panel(input: AppPanelInput): PanelSendResult
   /** 按 ref 在快照坐标处模拟单击 */
   click(input: unknown): Promise<AppUiActResult>
   /** 按 ref 在输入框写入文本（native value setter） */
@@ -830,6 +839,18 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
   }
 
   /**
+   * 在右栏打开面板：送 `app-ui:panel`，不回读（渲染层消费意图时自己保证幂等）。
+   */
+  function panel(input: AppPanelInput): PanelSendResult {
+    const win = deps.getWindow('main')
+    if (!win || win.isDestroyed()) {
+      return { ok: false, error: 'app_not_running' }
+    }
+    win.webContents.send('app-ui:panel', input)
+    return { ok: true }
+  }
+
+  /**
    * stale_snapshot 时内部重截一次，按 role+name 或坐标近似匹配后重试一次。
    */
   async function withAutoRetryStaleSnapshot<
@@ -1347,6 +1368,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     getSnapshotCache,
     deleteSnapshotCacheForTest,
     goto,
+    panel,
     click,
     type,
     select,

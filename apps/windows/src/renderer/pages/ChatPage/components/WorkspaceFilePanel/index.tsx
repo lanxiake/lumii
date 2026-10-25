@@ -71,6 +71,13 @@ const IconExternalLink: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </svg>
 )
 
+const IconBook: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+  </svg>
+)
+
 const IconFolder: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -217,13 +224,14 @@ const ContextMenu: React.FC<{
   state: ContextMenuState
   onClose: () => void
   onPreview: (item: FileItem) => void
+  onOpenInDoc: (item: FileItem) => void
   onRename: (item: FileItem) => void
   onDelete: (item: FileItem) => void
   onOpenExternal: (item: FileItem) => void
   onCopy: (item: FileItem, kind: 'name' | 'relative' | 'absolute') => void
   onCreateFile: (parentItem: FileItem) => void
   onCreateFolder: (parentItem: FileItem) => void
-}> = ({ state, onClose, onPreview, onRename, onDelete, onOpenExternal, onCopy, onCreateFile, onCreateFolder }) => {
+}> = ({ state, onClose, onPreview, onOpenInDoc, onRename, onDelete, onOpenExternal, onCopy, onCreateFile, onCreateFolder }) => {
   const menuRef = useRef<HTMLDivElement>(null)
 
   // 点击外部关闭
@@ -266,6 +274,13 @@ const ContextMenu: React.FC<{
         <button className={styles.contextMenuItem} onClick={() => { onPreview(state.item); onClose() }}>
           <span className={styles.contextMenuIcon}><IconEye size={13} /></span>
           预览
+        </button>
+      )}
+      {/* doc 模式是「可改的 markdown 稿件」，所以只对 md 提供入口 */}
+      {state.item.extension === 'md' && (
+        <button className={styles.contextMenuItem} onClick={() => { onOpenInDoc(state.item); onClose() }}>
+          <span className={styles.contextMenuIcon}><IconBook size={13} /></span>
+          在文档 Tab 打开
         </button>
       )}
       {state.item.isDirectory && (
@@ -334,6 +349,8 @@ export interface WorkspaceFilePanelProps {
   embedded?: boolean
   /** 向共享工作台注册当前面板的刷新函数 */
   refreshRef?: React.MutableRefObject<(() => void) | null>
+  /** 右键「在文档 Tab 打开」（不传则菜单项不出现） */
+  onOpenInDoc?: (absolutePath: string) => void
 }
 
 export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
@@ -342,6 +359,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   locateTarget,
   embedded = false,
   refreshRef,
+  onOpenInDoc,
 }) => {
   const { workspaceDir, isInitializing } = useWorkspace()
   const { renameFile } = useFiles(
@@ -694,6 +712,10 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
           onPreview={(item) => {
             setPreviewFile(item)
             setSelectedPath(item.path)
+          }}
+          onOpenInDoc={(item) => {
+            setSelectedPath(item.path)
+            onOpenInDoc?.(item.path)
           }}
           onRename={(item) => setRenameTarget(item)}
           onDelete={(item) => setDeleteTarget(item)}

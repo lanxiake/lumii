@@ -14,6 +14,7 @@ import {
   resetSteer,
   runtimeStore,
   setFocusPermissionRequestId,
+  setPendingPanel,
   setSteerDraft,
   updateSessionState,
   type PendingAskUser,
@@ -825,6 +826,40 @@ describe('setFocusPermissionRequestId', () => {
     setFocusPermissionRequestId('req-1')
     resetRuntimeStore()
     expect(runtimeStore.getState().focusPermissionRequestId).toBeNull()
+  })
+})
+
+describe('setPendingPanel', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+  })
+
+  it('设置与清空（一次性意图，消费即清）', () => {
+    expect(runtimeStore.getState().pendingPanel).toBeNull()
+    const req = { mode: 'doc' as const, path: 'E:/ws/稿子.md' }
+    setPendingPanel(req)
+    expect(runtimeStore.getState().pendingPanel).toEqual(req)
+    setPendingPanel(null)
+    expect(runtimeStore.getState().pendingPanel).toBeNull()
+  })
+
+  it('同一对象重复设置不产生新快照', () => {
+    const req = { mode: 'doc' as const, path: 'a.md' }
+    setPendingPanel(req)
+    const before = runtimeStore.getState()
+    setPendingPanel(req)
+    expect(runtimeStore.getState()).toBe(before)
+  })
+
+  it('不属于任何会话：不写进 sessions', () => {
+    setPendingPanel({ mode: 'doc', path: 'a.md' })
+    expect(runtimeStore.getState().sessions.size).toBe(0)
+  })
+
+  it('resetRuntimeStore 会清掉它', () => {
+    setPendingPanel({ mode: 'doc', path: 'a.md' })
+    resetRuntimeStore()
+    expect(runtimeStore.getState().pendingPanel).toBeNull()
   })
 })
 

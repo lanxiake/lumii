@@ -141,6 +141,14 @@ export interface GotoInput {
   focusPermissionRequestId?: string
 }
 
+/** app_panel 入参（模式清单的唯一真相源在 shared/app-panel-modes） */
+export interface AppPanelInput {
+  /** 呈现模式，必须是 APP_PANEL_MODES 之一 */
+  mode: string
+  /** 打开什么：工作区相对路径或绝对路径（doc 模式必填） */
+  path?: string
+}
+
 /** app_act click 入参 */
 export interface ActClickInput {
   action: 'click'

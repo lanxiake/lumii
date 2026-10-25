@@ -11,7 +11,7 @@ import clsx from 'clsx'
 import { X, RefreshCw } from 'lucide-react'
 import styles from './WorkspaceWorkbench.module.css'
 
-export type WorkbenchTab = 'files' | 'changes' | 'vcs'
+export type WorkbenchTab = 'files' | 'changes' | 'vcs' | 'doc'
 export type WorkbenchLayoutMode = 'default' | 'wide' | 'fullscreen'
 
 export interface WorkspaceWorkbenchProps {
@@ -26,6 +26,10 @@ export interface WorkspaceWorkbenchProps {
   childrenFiles: ReactNode
   childrenChanges?: ReactNode
   childrenVcs?: ReactNode
+  /** 「文档」Tab 内容（嵌入的 FilePreviewModal）；为空时不显示该 Tab */
+  childrenDoc?: ReactNode
+  /** 有稿件才显示文档 Tab（防"点进去空白"，同 vcsEnabled 的做法） */
+  docEnabled?: boolean
   /** 版本页签归 vcs 插件：插件停用时整页签消失（不是留一个空面板） */
   vcsEnabled?: boolean
   /** 宽度变化时通知（用于对话区 padding 自适应） */
@@ -44,6 +48,8 @@ const WIDTH_FILES = 280
 const WIDTH_CHANGES = 480
 const WIDTH_VCS = 760
 const WIDTH_VCS_WIDE = 1100
+/** 稿件编辑宽度：760 够 md-editor 双栏，再宽会把对话柱挤到 280 下限 */
+const WIDTH_DOC = 760
 const WIDTH_MIN = 240
 /** 对话区至少保留的可见宽度（px） */
 const CHAT_MIN_REMAIN = 280
@@ -70,6 +76,7 @@ function resolveWidth(tab: WorkbenchTab, mode: WorkbenchLayoutMode): number {
   if (mode === 'fullscreen') return max
   if (tab === 'files') return Math.min(WIDTH_FILES, max)
   if (tab === 'changes') return Math.min(WIDTH_CHANGES, max)
+  if (tab === 'doc') return Math.min(WIDTH_DOC, max)
   if (mode === 'wide') return Math.min(WIDTH_VCS_WIDE, max)
   return Math.min(WIDTH_VCS, max)
 }
@@ -88,15 +95,22 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   childrenFiles,
   childrenChanges,
   childrenVcs,
+  childrenDoc,
   vcsEnabled = true,
+  docEnabled = false,
   onWidthChange,
   onResizingChange,
   layoutMode = 'default',
   onLayoutModeChange,
 }) => {
   const [width, setWidth] = useState(() => resolveWidth(tab, layoutMode))
-  /** 版本插件停用时的等效页签：退回「文件」，不留空面板 */
-  const visibleTab: WorkbenchTab = vcsEnabled || tab !== 'vcs' ? tab : 'files'
+  /** 页签不可用时的等效页签：退回「文件」，不留空面板 */
+  const visibleTab: WorkbenchTab =
+    !vcsEnabled && tab === 'vcs'
+      ? 'files'
+      : !docEnabled && tab === 'doc'
+        ? 'files'
+        : tab
   const [resizing, setResizing] = useState(false)
   const widthRef = useRef(width)
   widthRef.current = width
@@ -105,6 +119,7 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
     files: WIDTH_FILES,
     changes: WIDTH_CHANGES,
     vcs: WIDTH_VCS,
+    doc: WIDTH_DOC,
   })
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
   /** 拖拽触发的 layoutMode→default 时跳过一次宽度回弹 */
@@ -172,6 +187,8 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
       if (e.key === 'Escape') {
         // 文件预览弹窗打开时，Esc 先交给预览关闭，不关工作台
         if (document.querySelector('[data-file-preview-open]')) return
+        // 文档 Tab 同理：Esc 由嵌入的预览处理（退出编辑 / 回到文件页），不整块关掉
+        if (visibleTab === 'doc') return
         e.preventDefault()
         onClose()
         return
@@ -185,11 +202,14 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
       } else if (e.key === '3') {
         e.preventDefault()
         onTabChange('vcs')
+      } else if (e.key === '4' && docEnabled) {
+        e.preventDefault()
+        onTabChange('doc')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, onTabChange])
+  }, [open, onClose, onTabChange, docEnabled, visibleTab])
 
   /** 开始拖拽左缘改宽 */
   const onResizePointerDown = useCallback(
@@ -288,6 +308,15 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
               )}
             </button>
           )}
+          {docEnabled && (
+            <button
+              type="button"
+              className={clsx(styles.tab, visibleTab === 'doc' && styles.tabActive)}
+              onClick={() => onTabChange('doc')}
+            >
+              文档
+            </button>
+          )}
         </nav>
         <div className={styles.actions}>
           {onRefresh && (
@@ -312,14 +341,14 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
       </header>
       <div className={styles.body}>
         <div
-          className={clsx(styles.pane, tab === 'files' && styles.paneVisible)}
-          hidden={tab !== 'files'}
+          className={clsx(styles.pane, visibleTab === 'files' && styles.paneVisible)}
+          hidden={visibleTab !== 'files'}
         >
           {childrenFiles}
         </div>
         <div
-          className={clsx(styles.pane, tab === 'changes' && styles.paneVisible)}
-          hidden={tab !== 'changes'}
+          className={clsx(styles.pane, visibleTab === 'changes' && styles.paneVisible)}
+          hidden={visibleTab !== 'changes'}
         >
           {childrenChanges}
         </div>
@@ -328,6 +357,12 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
           hidden={visibleTab !== 'vcs'}
         >
           {childrenVcs}
+        </div>
+        <div
+          className={clsx(styles.pane, visibleTab === 'doc' && styles.paneVisible)}
+          hidden={visibleTab !== 'doc'}
+        >
+          {childrenDoc}
         </div>
       </div>
     </aside>,

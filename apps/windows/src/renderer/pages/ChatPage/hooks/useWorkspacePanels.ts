@@ -18,6 +18,8 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
   const [workbenchResizing, setWorkbenchResizing] = useState(false)
   const [workbenchLayout, setWorkbenchLayout] = useState<WorkbenchLayoutMode>('default')
   const [locateFileTarget, setLocateFileTarget] = useState<LocateFileTarget | null>(null)
+  /** 「文档」Tab 当前打开的稿件绝对路径；关闭工作台时保留（再打开回到上次那份） */
+  const [docPath, setDocPath] = useState<string | null>(null)
   const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
   const { workspaceDir, toAbsolutePath } = useWorkspace()
   const locateTokenRef = useRef(0)
@@ -69,6 +71,16 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
     setLocateFileTarget({ path: absolutePath, token: locateTokenRef.current })
   }, [])
 
+  /**
+   * 在「文档」Tab 打开一份稿件（`app_panel` 的 doc 模式 / 文件面板右键菜单）。
+   * 只设路径与 Tab，不判断文件类型——"该不该开面板"由 Agent 决定（设计 §3.1）。
+   */
+  const openDoc = useCallback((absolutePath: string) => {
+    setWorkbenchLayout('default')
+    setDocPath(absolutePath)
+    setWorkbench({ open: true, tab: 'doc' })
+  }, [])
+
   useEffect(() => {
     if (activeView && activeView !== 'chat') closeWorkbench()
   }, [activeView, closeWorkbench])
@@ -79,6 +91,7 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
     workbenchResizing,
     workbenchLayout,
     locateFileTarget,
+    docPath,
     uncommittedDiff,
     refreshVcs,
     toggleFilesWorkbench,
@@ -90,6 +103,7 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
     setWorkbenchLayout,
     revealInFiles,
     locateAbsoluteFile,
+    openDoc,
     workspaceDir,
     toAbsolutePath,
   }

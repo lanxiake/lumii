@@ -30,6 +30,7 @@ function stubController(overrides: Partial<AppUiController> = {}): AppUiControll
     screenshot: vi.fn(),
     getSnapshotCache: vi.fn(),
     goto: vi.fn(),
+    panel: vi.fn(),
     click: vi.fn(),
     type: vi.fn(),
     select: vi.fn(),

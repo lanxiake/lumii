@@ -21,7 +21,7 @@ import type { ViewType } from '../../components/Router'
 import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
 import { executeSlashCommand, BACKEND_INFO } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
-import { updateSessionState, setFocusPermissionRequestId, setPendingPetHandoff } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { updateSessionState, setFocusPermissionRequestId, setPendingPetHandoff, setPendingPanel } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
 import clsx from 'clsx'
 import {
   readPersistedSessionThinkingPrefs,
@@ -170,6 +170,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const focusPermissionRequestId = useAgentRuntimeGlobalState((s) => s.focusPermissionRequestId)
   /** 「转给主助手」送上来的那段话（宠物窗 → 主进程 → App.tsx，见下方 consumption effect） */
   const pendingPetHandoff = useAgentRuntimeGlobalState((s) => s.pendingPetHandoff)
+  /** 「Agent 要在右栏开面板」送来的意图（`app_panel` 工具，见下方 consumption effect） */
+  const pendingPanel = useAgentRuntimeGlobalState((s) => s.pendingPanel)
   const highlightPendingPermission =
     Boolean(focusPermissionRequestId) && runtimePendingPermission?.requestId === focusPermissionRequestId
   /**
@@ -839,6 +841,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     setWorkbenchLayout: handleWorkbenchLayoutChange,
     revealInFiles,
     locateAbsoluteFile,
+    openDoc,
+    docPath,
     toAbsolutePath,
   } = useWorkspacePanels(activeView)
   const [autoApprove, setAutoApprove] = useState<boolean>(() => readAutoApproveEnabled())
@@ -1269,6 +1273,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     logger.info(`[pet-handoff] 转给主助手，长度=${text.length}`)
     void handleSend(text)
   }, [pendingPetHandoff, isSending, handleSend])
+
+  /**
+   * Agent 要求「在右栏打开面板」（`app_panel` 工具 → 主进程 `app-ui:panel` →
+   * App.tsx → store）。
+   *
+   * **先清再执行**：与 `pendingPetHandoff` 同一条纪律——失败也不重试，否则一个打不开的
+   * 路径会每次渲染都重跑一遍。面板是**非模态**的，模型选错了最坏只是"多了一块板"，
+   * 这是本项目敢把"选哪种呈现"交给模型的前提（设计 §3.1）。
+   */
+  useEffect(() => {
+    if (!pendingPanel) return
+    const req = pendingPanel
+    setPendingPanel(null)
+    if (req.mode === 'doc' && req.path) openDoc(req.path)
+  }, [pendingPanel, openDoc])
 
   const formatTime = useCallback((date: Date): string => {
     const now = new Date()
@@ -2045,10 +2064,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         layoutMode={workbenchLayout}
         onLayoutModeChange={handleWorkbenchLayoutChange}
         locateFileTarget={locateFileTarget}
+        docPath={docPath}
         messages={runtimeMessages}
         toAbsolutePath={toAbsolutePath}
         onRevealInFiles={revealInFiles}
         onRevealChange={handleReviewTurnFileChange}
+        onOpenDoc={openDoc}
       />
     </div>
   )

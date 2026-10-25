@@ -60,6 +60,7 @@ function mockController(): AppUiController {
       view: 'chat',
       hub: { open: false, tab: null, category: null },
     })),
+    panel: vi.fn(() => ({ ok: true as const })),
     click: vi.fn(async () => ({ ok: true as const })),
     type: vi.fn(async () => ({ ok: true as const })),
     select: vi.fn(async () => ({

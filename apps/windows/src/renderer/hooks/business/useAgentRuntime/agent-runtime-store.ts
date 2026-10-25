@@ -20,6 +20,7 @@ import type {
   TokenUsage,
 } from '../../../../shared/agent-runtime-events'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
+import type { AppPanelRequest } from '../../../../shared/app-panel-modes'
 
 // ============================================================
 // 状态类型定义
@@ -398,6 +399,17 @@ export interface MultiSessionRuntimeState {
    * 消费方不要再包一层前缀，否则用户会在会话里看见两段自我介绍。
    */
   readonly pendingPetHandoff: string | null
+  /**
+   * **一次性意图**：在右栏打开一个面板（`app_panel` 工具送来的）。
+   *
+   * 与 `focusPermissionRequestId` / `pendingPetHandoff` 严格同型：跨会话、一次性、
+   * 消费即清、允许送不到。**放顶层而不是会话里**——面板不属于会话，切会话时用户
+   * 可能还开着稿子。
+   *
+   * 为什么不在卡片回调里开面板：判定"该用哪种呈现"的信息全在对话里，只有模型看得见，
+   * 所以由 Agent 通过工具声明意图（设计 §3.1「Agent 选，UI 忠实执行」）。
+   */
+  readonly pendingPanel: AppPanelRequest | null
 }
 
 // ============================================================
@@ -479,6 +491,7 @@ function getDefaultRuntimeState(): MultiSessionRuntimeState {
     sessionListRevision: 0,
     focusPermissionRequestId: null,
     pendingPetHandoff: null,
+    pendingPanel: null,
   }
 }
 
@@ -505,6 +518,18 @@ export function setFocusPermissionRequestId(requestId: string | null): void {
 export function setPendingPetHandoff(text: string | null): void {
   runtimeStore.setState((prev) =>
     prev.pendingPetHandoff === text ? prev : { ...prev, pendingPetHandoff: text },
+  )
+}
+
+/**
+ * 设置/清空「在右栏打开这个面板」（`app_panel` 工具送上来的）。
+ *
+ * 与上面两个 setter 同一条纪律：**不属于任何会话**的跨会话一次性意图，留在顶层；
+ * 用完即清。按引用比较即可——同一份请求重复送达时不必产生新快照。
+ */
+export function setPendingPanel(request: AppPanelRequest | null): void {
+  runtimeStore.setState((prev) =>
+    prev.pendingPanel === request ? prev : { ...prev, pendingPanel: request },
   )
 }
 

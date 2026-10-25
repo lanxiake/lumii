@@ -77,6 +77,7 @@ const TOOL_LABELS: Record<string, string> = {
   app_act: '操作客户端界面',
   app_fill_form: '操作客户端界面',
   app_scroll_to_text: '操作客户端界面',
+  app_panel: '在右侧打开稿件',
   // app_scroll_to_bottom 已并入 app_scroll_to_text 的 to='bottom'
 }
 
