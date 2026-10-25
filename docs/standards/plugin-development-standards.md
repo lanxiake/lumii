@@ -287,14 +287,14 @@ src/plugins/external-src/<name>/
 ### 8.2 界面命名与依赖联动
 
 设置中心只保留一个 **插件** 页签：外部插件（主进程扩展 + 客户端插件 + 独立运行时组件）在上、内置插件在下；「新建插件」在顶部工具栏。
-运行时组件不再单独成页：**独立组件**（用户会主动安装的）统一放在「插件 › 外部插件」组；MCP / 内建工具页不再重复提供安装卡片，其余仍在使用它的功能页就地安装：
+运行时组件不再单独成页：**独立组件**（用户会主动安装的）统一放在「插件 › 外部插件」组；其余仍在使用它的功能页就地安装：
 
 | 组件 | 安装入口 |
 |---|---|
 | CloakBrowser | 插件 › 外部插件 |
 | ffmpeg | 插件 › 录屏卡片（依赖行直接安装） |
-| wechat-chat-mcp | 插件 › 外部插件 / 设置 › 渠道 › 本机微信（就地安装/升级） |
 | 宠物模型 | 设置 › 宠物模式 › 形象资源 |
+| **MCP Server（含 `wechat-chat`）** | **不在插件中心**：用户自己在「设置 › MCP 服务」配置（见下） |
 
 主进程扩展可在 manifest 声明运行时依赖，扩展卡片会显示安装状态并允许就地安装/取消：
 
@@ -309,19 +309,36 @@ manifest: {
 - **不是加载门槛**——缺了照常激活，由扩展自己决定降级；
 - 运行时组件卡片上的「用于：…」是反向链接，能定位到页签的直接可点。
 
-**本机微信是这条规则的完整样例**：
+### MCP 与插件分开（2026-10-25 定案）
 
-- 插件 `com.lumii.pcwechat`（`builtin/pcwechat/`）声明 `requires: { assets: ['wechat-chat-mcp'] }`，
-  但它自己**不下载**任何东西——安装器在 `plugins/install/builtin.ts`；
-- 资产 `wechat-chat-mcp` 的 `status()` 返回 `version`（安装时写进 `<exe 目录>/version.json` 的边车）
-  与 `latestVersion`（`shared/mcp-presets.ts` 的 `WECHAT_MCP_VERSION`）；两者不一致才显示「更新」；
-- 安装 = 下载 exe → 写边车 → `upsertMcpServer(wechat-chat)`（启用 + 热重连），同版本直接跳过；
-- 卸载 = 先停用 MCP（断开子进程）再删目录；配置条目保留，重装即恢复；
-- 渠道卡片与插件页共用同一个安装通道（`plugin:install <id>`），不各写一套下载逻辑。
+**MCP Server 不是插件，也不该由插件代管。** 之前把 `wechat-chat-mcp` 登记成"运行时资产"、
+让插件用 `requires.assets` 依赖它，造成两条链路互相打架：
 
-**MCP 与 App 解耦发布**：二进制发到独立 tag `wechat-chat-mcp-v<版本>`（资产名
-`wechat-chat-mcp.exe`），由 `scripts/upload-wechat-mcp.mjs` 单独上传；升级不需要跟着
-App 发版。旧的 `wechat-mcp` 目录仍被识别为已安装，升级/卸载时清理。
+- 插件读本地 `version.json` 边车判"装没装、要不要更新"；
+- MCP 能不能用其实由**连接**决定（配置有没有、启没启、握手成不成）。
+
+实测事故：边车被 PowerShell 写成带 BOM 的 JSON ⇒ `JSON.parse` 抛错被吞 ⇒ 版本恒为未知
+⇒ 界面永远提示更新、每次点都重下 38MB（幂等判断一起失效）。
+
+边界现在是：
+
+| 谁 | 负责 |
+|---|---|
+| 用户 | 取得 MCP 二进制、写 `mcp-servers.json`（「设置 › MCP 服务」可直接编辑原文） |
+| 客户端 | 只**检测**：配没配 / 开没开 / 连没连 / 对端自报的版本 / **关键工具齐不齐** |
+| 插件 | 不声明 `requires.assets`；缺 MCP 时降级显示「未就绪」并跳转到「设置 › MCP 服务」 |
+
+- 判定实现在 `shared/wechat-mcp-status.ts`（纯函数，有单测）。判「兼容」看**工具**而非版本号：
+  `poll_new` / `read_history` / `send_text` / `check_env` / `locate_db` 缺一即不兼容；
+  版本只作提示（低于 `WECHAT_MCP_MIN_VERSION` 标注但**不阻断**）。
+- 实际在跑的版本来自**握手自报**的 `serverInfo.version`（`McpStdioClient.getServerInfo()`），
+  不是本地清单；未连接时不显示版本，别拿推荐值冒充。
+- 「微信本机助手」**不再出现在插件页**，也没有安装按钮；渠道卡片只给状态与跳转。
+- 安装器里任何下载逻辑都不该再写 MCP 相关代码——`plugins/install/` 只服务插件自身的资产。
+
+**MCP 发版仍与 App 解耦**：二进制发到独立 tag `wechat-chat-mcp-v<版本>`（资产名
+`wechat-chat-mcp.exe`），由 `scripts/upload-wechat-mcp.mjs` 单独上传。客户端不再下载它；
+`WECHAT_MCP_VERSION` 只表示"本客户端验证过的版本"，面板上作为推荐值展示。
 
 **Server 名必须等于产品自己的 `SERVER_NAME`（`wechat-chat`）**：产品自带 `--install` 也写
 这条名字。客户端若另起一个名字（历史名 `wechat-local`），同机会出现两个条目、各起一个

@@ -22,7 +22,8 @@ import {
   type ChannelPolicy,
   type PeerReplyMode,
 } from '../../../../../shared/channel-policy'
-import type { WechatSelfcheckResult, WechatMcpStatusResult } from '../../../../../preload/api/channel-api'
+import type { WechatSelfcheckResult } from '../../../../../preload/api/channel-api'
+import type { WechatMcpVerdict } from '../../../../../shared/wechat-mcp-status'
 import { PolicyModal, MODE_OPTIONS } from './PolicyModal'
 
 const MODE_LABELS = new Map<PeerReplyMode, string>(MODE_OPTIONS.map((o) => [o.value, o.label]))
@@ -52,7 +53,7 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
   const [check, setCheck] = useState<WechatSelfcheckResult | null>(null)
   const [checking, setChecking] = useState(false)
   // MCP 的**检测**结果（配没配/开没开/连没连/工具齐不齐）——只读，没有任何安装入口
-  const [mcp, setMcp] = useState<WechatMcpStatusResult | null>(null)
+  const [mcp, setMcp] = useState<WechatMcpVerdict | null>(null)
 
   /**
    * 跳到「设置 › MCP 服务」——缺配置时这是唯一的下一步。

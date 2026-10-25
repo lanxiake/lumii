@@ -50,6 +50,7 @@ export const qbotApi = {
 /** 渠道实验性功能开关（§5.4 跨渠道接续）：形状在 shared，main / preload / renderer 共用一份 */
 import type { ChannelFeatureSettings } from '../../shared/channel-features'
 import type { ChannelPolicy } from '../../shared/channel-policy'
+import type { WechatMcpVerdict } from '../../shared/wechat-mcp-status'
 
 export type { ChannelFeatureSettings, ChannelPolicy }
 
@@ -96,16 +97,7 @@ export const channelApi = {
    *
    * **只读**：MCP 由用户自己装、自己配（与插件解耦），卡片据此给出提示与跳转。
    */
-  wechatMcpStatus: (): Promise<WechatMcpStatusResult> => ipcRenderer.invoke('wechat:mcpStatus'),
-}
-
-/** 与 main 侧 `shared/wechat-mcp-status.ts` 同构（判定逻辑在那边，这里只镜像形状） */
-export interface WechatMcpStatusResult {
-  state: 'not-configured' | 'disabled' | 'not-connected' | 'incompatible' | 'ready'
-  label: string
-  missingTools: readonly string[]
-  outdated: boolean
-  hint?: string
+  wechatMcpStatus: (): Promise<WechatMcpVerdict> => ipcRenderer.invoke('wechat:mcpStatus'),
 }
 
 /** 本机微信环境自检结果（与 main 侧 `wechat-selfcheck.ts` 同构） */

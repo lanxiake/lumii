@@ -37,15 +37,17 @@ function isMissingKey(server: McpServer): boolean {
 }
 
 /**
- * 内置项的悬停说明：讲清这个 MCP 能干什么，并给出脱离灵栖自装的等价入口
+ * 内置项的悬停说明：讲清这个 MCP 能干什么。
  *
- * @param preset 命中的内置清单项
+ * 微信这个 exe 由用户自己装（MCP 与插件解耦），所以这里说的是"自己配"，不是"点安装"。
  */
 function presetTooltip(preset: McpPreset): string {
   return [
     preset.title,
     preset.description,
-    preset.bundledExe ? '脱离灵栖独立使用：把 exe 拷贝到任意位置双击一次即可装到其它 AI 客户端' : '',
+    preset.bundledExe
+      ? `这是独立分发的人工安装项：自行取得 ${preset.bundledExe}.exe，把命令指向它即可。`
+      : '',
   ]
     .filter(Boolean)
     .join('\n')
@@ -307,8 +309,27 @@ export const McpServersPanel: React.FC = () => {
                     {server.name}
                   </span>
                   {preset && <span className={styles['server-preset-title']}>{preset.title}</span>}
-                  {preset?.bundledVersion && (
-                    <span className={styles['server-version']}>v{preset.bundledVersion}</span>
+                  {/* 实际在跑的版本来自对端握手自报；它和内置清单的「验证版」是两回事 */}
+                  {server.connected && server.serverVersion ? (
+                    <span
+                      className={styles['server-version']}
+                      title={
+                        preset?.bundledVersion && preset.bundledVersion !== server.serverVersion
+                          ? `正在运行 v${server.serverVersion}；本客户端验证过的是 v${preset.bundledVersion}`
+                          : '连接时由 Server 自报的版本'
+                      }
+                    >
+                      v{server.serverVersion}
+                    </span>
+                  ) : (
+                    preset?.bundledVersion && (
+                      <span
+                        className={styles['server-version']}
+                        title={`本客户端验证过的版本（未连接，不知道实际在跑哪个）`}
+                      >
+                        验证版 v{preset.bundledVersion}
+                      </span>
+                    )
                   )}
                   <span className={busy ? styles['server-status-busy'] : styles['server-status']}>
                     {statusText(server, busy)}
