@@ -33,6 +33,7 @@ import { debugLog, ensureIpcEventListener, sleep, LIST_NOT_READY_RETRY_MS, LIST_
 import { switchSession as switchSessionImpl } from './switch-session'
 import { HISTORY_PAGE_SIZE, type DbMessagePage } from './useAgentRuntime.types'
 import { toRuntimeMsg } from './bridge-init'
+import { resolveIncomingPlaceholderId } from './resolve-incoming-placeholder-id'
 
 // ============================================================
 // 状态 Hook
@@ -504,6 +505,38 @@ export function useAgentRuntimeActions() {
     const sessionKey = options?.sessionKey ?? runtimeStore.getState().currentSessionKey
     if (!sessionKey) throw new Error('No active session.')
 
+    // 渠道旧路径会留下 incoming-* 占位 id（与 DB 落库 id 分裂）。重发前按改前正文对齐到真实 id。
+    let resolvedMessageId = messageId
+    if (messageId.startsWith('incoming-')) {
+      const memMsg = runtimeStore.getState().sessions.get(sessionKey)?.messages.find((m) => m.id === messageId)
+      const oldText = memMsg?.content.map((c) => ('text' in c ? c.text : '')).join('') ?? ''
+      try {
+        const page = (await api.sendCommand({
+          type: 'conversation:messages',
+          sessionKey,
+          limit: HISTORY_PAGE_SIZE,
+        })) as DbMessagePage
+        const mapped = resolveIncomingPlaceholderId(messageId, oldText, page.items)
+        if (!mapped) {
+          window.dispatchEvent(
+            new CustomEvent('mtbot:agent-error', {
+              detail: { message: '目标消息不存在（可能已被删除），已取消重发' },
+            }),
+          )
+          return
+        }
+        resolvedMessageId = mapped
+        if (mapped !== messageId) {
+          updateSessionState(sessionKey, (prev) => ({
+            ...prev,
+            messages: prev.messages.map((m) => (m.id === messageId ? { ...m, id: mapped } : m)),
+          }))
+        }
+      } catch (err) {
+        debugLog('[editAndResend] 解析 incoming-* 占位 id 失败', err)
+      }
+    }
+
     // 本地 store 先行清理：只保留该消息及其之前的内容，其余清除（Agent 回复会重新 push）。
     // 必须在 sendCommand 之前执行——主进程 message:edit-and-resend 会 await bridge.prompt(...)，
     // 即命令要等整轮新回复生成完才 resolve；若把清理放在 await 之后，流式新回复会先填入气泡，
@@ -511,12 +544,12 @@ export function useAgentRuntimeActions() {
     // 同时记下改前那条消息，供主进程拒绝时回滚（否则 UI 会显示一条库里并不存在的编辑）。
     let rollback: RuntimeMessage | undefined
     updateSessionState(sessionKey, (prev) => {
-      const idx = prev.messages.findIndex((m) => m.id === messageId)
+      const idx = prev.messages.findIndex((m) => m.id === resolvedMessageId || m.id === messageId)
       if (idx === -1) return prev
       rollback = prev.messages[idx]
       const kept = prev.messages.slice(0, idx + 1).map((m) =>
-        m.id === messageId
-          ? { ...m, content: [{ type: 'text' as const, text: newContent }] }
+        m.id === resolvedMessageId || m.id === messageId
+          ? { ...m, id: resolvedMessageId, content: [{ type: 'text' as const, text: newContent }] }
           : m,
       )
       return { ...prev, messages: kept }
@@ -525,7 +558,7 @@ export function useAgentRuntimeActions() {
     const result = (await api.sendCommand({
       type: 'message:edit-and-resend',
       sessionKey,
-      messageId,
+      messageId: resolvedMessageId,
       newContent,
     })) as { success?: boolean; error?: string } | undefined
 
@@ -536,7 +569,9 @@ export function useAgentRuntimeActions() {
         const restore = rollback
         updateSessionState(sessionKey, (prev) => ({
           ...prev,
-          messages: prev.messages.map((m) => (m.id === restore.id ? restore : m)),
+          messages: prev.messages.map((m) =>
+            m.id === restore.id || m.id === resolvedMessageId ? restore : m,
+          ),
         }))
       }
       window.dispatchEvent(

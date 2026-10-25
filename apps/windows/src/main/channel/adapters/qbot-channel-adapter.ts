@@ -26,6 +26,7 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
+import { persistAndNotifyIncomingUserMessage } from '../persist-incoming-user-message'
 import { getChannelContinuityService } from '../continuity-accessor'
 import { getChannelSessionStore, type RouteSource } from '../channel-session-store'
 import { ChannelRouteService } from '../channel-route'
@@ -314,21 +315,23 @@ export class QbotChannelAdapter implements IChannelAdapter {
         log.warn(`[handleMessage] 发送即时回执失败: ${err instanceof Error ? err.message : String(err)}`)
       })
 
-      this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
+      // 先落库再推 UI（共用 id），避免 incoming-* 占位导致客户端「重新生成」找不到目标
+      let pendingUserMsgId: string | undefined
+      try {
+        pendingUserMsgId = persistAndNotifyIncomingUserMessage(
+          this.bridge.conversationRepo,
+          (sk, text, messageId) => this.bridge.notifyIncomingMessage(sk, text, messageId),
+          session.sessionKey,
+          prompt,
+        )
+      } catch (err) {
+        log.error(`[handleMessage] 持久化失败: ${err instanceof Error ? err.message : String(err)}`)
+        this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
+      }
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
       const sessionWithInstance = { ...session, instanceId }
-
-      try {
-        this.bridge.conversationRepo.saveMessage({
-          conversationId: session.sessionKey,
-          role: 'user',
-          contentJson: { type: 'text', text: prompt },
-        })
-      } catch (err) {
-        log.error(`[handleMessage] 持久化失败: ${err instanceof Error ? err.message : String(err)}`)
-      }
 
       const finalTexts: string[] = []
       let streamError: string | null = null
@@ -351,6 +354,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
           strategy: this.contextStrategy,
           adapter: this,
           session: sessionWithInstance,
+          pendingUserMsgId,
         })
       } finally {
         this.bridge.unregisterNodeStreamCallback(instanceId)
