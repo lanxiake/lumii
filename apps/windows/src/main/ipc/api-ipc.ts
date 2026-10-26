@@ -176,6 +176,31 @@ export function registerApiIpcHandlers(): void {
     }
   })
 
+  // === 自定义模型价格（用量面板里改写「怎么算花费」） ===
+  ipcMain.handle('usage:getPrices', () => {
+    const service = getUsageService()
+    if (!service) return { success: false, error: '用量统计插件未启用' }
+    return { success: true, data: service.getPrices() }
+  })
+  ipcMain.handle('usage:setPrices', (_e, prices: unknown) => {
+    const service = getUsageService()
+    if (!service) return { success: false, error: '用量统计插件未启用' }
+    try {
+      return { success: true, data: service.setPrices(prices as never) }
+    } catch (error) {
+      console.error('[IPC] usage:setPrices 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+  ipcMain.handle('usage:syncPrices', (_e, prefix: unknown) => {
+    const service = getUsageService()
+    if (!service) return { success: false, error: '用量统计插件未启用' }
+    return {
+      success: true,
+      data: service.syncPrices(typeof prefix === 'string' && prefix.trim() ? prefix.trim() : undefined),
+    }
+  })
+
   // === 服务商首字节延迟（Task 4.4）===
   ipcMain.handle('usage:latency', () => ({ success: true, data: getLatency() }))
 

@@ -1774,6 +1774,10 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
     const multiAccount = running.length > 1
     // 单独配置过的账号要有自己的「自聊」条目（它自己的 wxid + 文件传输助手）；
     // 没单独配置的账号沿用顶层，不替用户凭空造一份分账（造了会把它冻在当时的顶层快照上）。
+    //
+    // 注意：这里**只管自聊条目**（filehelper + 该号 wxid），不往账号里复制整份顶层名单——
+    // 用户可能在「默认」视图编辑了 11 个人，只要账号还没被单独配置过，它就沿用那 11 个，
+    // 而不是写进账号分账里各冻一份。
     if (running.length > 0) {
       let selfChanged = false
       for (const acc of running) {

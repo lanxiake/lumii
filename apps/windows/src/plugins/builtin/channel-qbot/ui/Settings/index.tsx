@@ -206,6 +206,7 @@ export const QbotChannelSettings: React.FC<QbotChannelSettingsProps> = ({
         icon={<ChannelBrandIcon kind="qbot" />}
         name="QQ"
         description="手机 QQ 扫码绑定机器人，无需手动填写 AppID/AppSecret"
+        capability="仅会话内被动回复"
         state={STATUS_STATES[status] ?? 'idle'}
         statusLabel={STATUS_LABELS[status] ?? status}
         actions={actions}

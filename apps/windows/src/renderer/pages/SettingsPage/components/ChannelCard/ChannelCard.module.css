@@ -208,6 +208,18 @@
   white-space: nowrap;
 }
 
+/* ---- 附加内容（配置表单等）----
+ * 与上面几段同一条左右留白：不给的话文字会贴着卡片边框（本机微信的摘要与自检块就是
+ * 这么贴上去的）。首个子元素的上边距归零，免得它自带的 margin-top 叠在 padding 上。 */
+
+.children {
+  padding: 12px 16px 14px;
+}
+
+.children > :first-child {
+  margin-top: 0;
+}
+
 /* 窄宽度下让状态与操作换行，避免描述被挤成竖排 */
 @media (max-width: 720px) {
   .row {

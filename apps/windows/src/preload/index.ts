@@ -263,6 +263,23 @@ export interface ElectronAPI {
       to: number
       groupBy: 'hour' | 'day'
     }) => Promise<{ success: boolean; data?: UsageSummary; error?: string }>
+    /** 自定义模型价格（前缀 → 元/1M 或 元/次）；空表 = 全用内置价目表 */
+    getPrices: () => Promise<{
+      success: boolean
+      data?: Record<string, unknown>
+      error?: string
+    }>
+    setPrices: (prices: unknown) => Promise<{
+      success: boolean
+      data?: Record<string, unknown>
+      error?: string
+    }>
+    /** 恢复内置价目表：不传前缀 = 全部恢复，传了 = 只恢复含该前缀的模型 */
+    syncPrices: (prefix?: string) => Promise<{
+      success: boolean
+      data?: Record<string, unknown>
+      error?: string
+    }>
     /** 到当前模�?provider 的首字节延迟（最�?N 次中位数�?*/
     latency: () => Promise<{ success: boolean; data?: LatencyView }>
   }
@@ -1120,6 +1137,11 @@ const electronAPI: ElectronAPI = {
   usage: {
     query: (query: { from: number; to: number; groupBy: 'hour' | 'day' }) =>
       apiServerApi.queryUsage(query),
+    /** 自定义模型价格（前缀 → 元/1M 或 元/次）；空表 = 全用内置价目表 */
+    getPrices: () => apiServerApi.getUsagePrices(),
+    setPrices: (prices: unknown) => apiServerApi.setUsagePrices(prices),
+    /** 恢复内置价目表：不传前缀 = 全部恢复，传了 = 只恢复含该前缀的模型 */
+    syncPrices: (prefix?: string) => apiServerApi.syncUsagePrices(prefix),
     latency: () => apiServerApi.getLatency(),
   },
 

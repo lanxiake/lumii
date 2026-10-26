@@ -57,6 +57,10 @@ export function parseWechatSessions(raw: string): WechatContact[] {
 /**
  * 合并：微信里读到的在前，已配过但微信列表里没有的（改过名/删过会话）补在后。
  * 同一个 id 只留一条。
+ *
+ * **仅在兜底时使用**（MCP 未连接/读失败时，候选 = 已配的人，这样用户至少能编辑已有名单）。
+ * MCP 成功返回会话列表时，**不再merge已配的**：用户期望看到的是"微信里真实存在的会话"，
+ * 而不是"曾经配过但现在已删除的人"（那些人在微信里压根选不到）。
  */
 export function mergeWechatContacts(
   primary: WechatContact[],
@@ -99,7 +103,9 @@ export async function loadWechatContacts(
     if (parsed.length === 0) {
       return { contacts: configured, error: '没读到微信会话（微信可能没登录，或还没有聊天记录）' }
     }
-    return { contacts: mergeWechatContacts(parsed, configured) }
+    // MCP 成功读到会话 → **只返回微信里真实存在的**，不merge已配的
+    // （用户期望看到的是"能在微信里选到的人"，而不是"曾经配过但已删除的人"）
+    return { contacts: parsed }
   } catch (err) {
     return {
       contacts: configured,

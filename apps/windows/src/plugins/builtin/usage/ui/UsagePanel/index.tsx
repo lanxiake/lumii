@@ -7,18 +7,21 @@
  * 数据仍走 usage:query（~/.lumii/usage/*.jsonl），本地估价，不上传。
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Activity,
   ArrowDownToLine,
   ArrowUpFromLine,
   CircleDollarSign,
+  Coins,
   TrendingUp,
   Zap,
 } from 'lucide-react'
 import { useDashboard, type UsageRange } from '../../../../../renderer/hooks/business/useDashboard'
 import { UsageChart } from '../../../../../renderer/pages/DashboardPage/components/UsageChart'
+import { Button } from '../../../../../renderer/components/ui/Button/Button'
 import { formatCostYuan as formatCost } from '../../../../../shared/model-pricing'
+import { PriceModal } from './PriceModal'
 
 /** 模型 id 去掉 provider 前缀，展示更短 */
 function shortModel(id: string): string {
@@ -55,7 +58,8 @@ function formatTokensExact(n: number | undefined): string {
 }
 
 export const UsagePanel: React.FC = () => {
-  const { usage, usageRange, setUsageRange } = useDashboard()
+  const { usage, usageRange, setUsageRange, refresh } = useDashboard()
+  const [priceOpen, setPriceOpen] = useState(false)
 
   const totalTokens = usage ? usage.totalPromptTokens + usage.totalCompletionTokens : undefined
   // 有计价样本才展示花费；全未计价时显示「—」，避免把缺价误当成 0 元
@@ -94,6 +98,10 @@ export const UsagePanel: React.FC = () => {
     <div className={styles.panel}>
       <div className={styles.head}>
         <span className={styles.title}>用量与花费</span>
+        <Button size="sm" variant="secondary" onClick={() => setPriceOpen(true)}>
+          <Coins size={12} />
+          模型价格
+        </Button>
         <div className={styles.seg} role="tablist" aria-label="用量时间区间">
           {RANGE_LABELS.map((r) => (
             <button
@@ -258,13 +266,20 @@ export const UsagePanel: React.FC = () => {
         ) : null}
 
         <div className={styles.footnote}>
-          花费按<b>各模型公开单价</b>本地估算，仅供参考；本地模型不计费。记录写在{' '}
+          花费按<b>各模型单价</b>本地估算，仅供参考；本地模型不计费。记录写在{' '}
           <code>~/.lumii/usage/</code>，按月分片，不上传。
           {usage && usage.unpricedCalls > 0
-            ? ` 其中 ${usage.unpricedCalls} 次调用价格未知，未计入花费。`
+            ? ` 其中 ${usage.unpricedCalls} 次调用价格未知，未计入花费（可在「模型价格」里补）。`
             : ''}
         </div>
       </div>
+
+      <PriceModal
+        open={priceOpen}
+        onClose={() => setPriceOpen(false)}
+        models={models}
+        onSaved={() => void refresh()}
+      />
     </div>
   )
 }

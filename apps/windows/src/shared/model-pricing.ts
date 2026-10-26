@@ -202,6 +202,70 @@ const PRICES: Readonly<Record<string, ModelPrice>> = {
   // 旧版 deepseek-chat / reasoner（原值：¥0.27/¥1.10、¥0.55/¥2.19 —— 保留兼容）
   'deepseek-chat': tok(0.27, 1.1),
   'deepseek-reasoner': tok(0.55, 2.19),
+  // deepseek-flash（CC-switch 预置：$0.15/$0.60/$0.003 cr）
+  'deepseek-flash': usdTok(0.15, 0.6, 0.003, 0),
+
+  // ============ CC-switch 预置（$ → 元，汇率 7.2）============
+  // 来源：~/.cc-switch/model-pricing.json（models.dev 口径，$ / 1M token）。
+  // 只补**内置表里还没有的**模型；同名且已有 CNY 厂商价的（deepseek-v4-pro、glm-5.x、
+  // kimi-k2.6、qwen3.7-max 等）保持原值，不拿美元折算价覆盖更准的人民币官方价。
+  // Claude 系列：$0.1/$0.5 ... $10/$50
+  'claude-fable-5-1': usdTok(10, 50, 0.25, 12.5),
+  'claude-haiku-5-5': usdTok(0.1, 0.5, 0.01, 0.125),
+  'claude-opus-5-5': usdTok(4, 20, 0.2, 5),
+  'claude-sonnet-5-5': usdTok(2, 10, 0.1, 2.5),
+  // Gemini 系列
+  'gemini-3.5-flash-lite': usdTok(0.3, 2.5, 0.03, 0),
+  'gemini-3.7-flash': usdTok(0.75, 3.75, 0.075, 0),
+  'gemini-3.8-flash': usdTok(0.75, 3.75, 0.075, 0),
+  'gemini-4-argon': usdTok(2, 10, 0.1, 0),
+  'gemini-flash-latest': usdTok(0.75, 3.75, 0.075, 0),
+  'gemini-flash-lite-latest': usdTok(0.3, 2.5, 0.03, 0),
+  // 智谱 GLM 补充档位
+  'glm-5.3': usdTok(1.4, 4.4, 0.26, 0),
+  'glm-5.3-flash': usdTok(0.15, 0.5, 0.03, 0),
+  'glm-5.3-flashx': usdTok(0.37, 1.25, 0.075, 0),
+  'glm-5v-turbo': usdTok(1.2, 4, 0.24, 0),
+  // OpenAI gpt-6 系列
+  'gpt-6-astra': usdTok(10, 50, 1, 12.5),
+  'gpt-6-luna': usdTok(0.1, 0.5, 0.01, 0.125),
+  'gpt-6-sol': usdTok(2, 10, 0.2, 2.5),
+  'gpt-6.1-sol': usdTok(2, 10, 0.1, 2.5),
+  'gpt-daybreak-blue-latest': usdTok(4, 20, 0.4, 5),
+  'gpt-daybreak-red-latest': usdTok(12.5, 75, 1.25, 15.625),
+  // xAI Grok 补充档位
+  'grok-4.20-0309-non-reasoning': usdTok(1.25, 2.5, 0.2, 0),
+  'grok-4.3': usdTok(1.25, 2.5, 0.2, 0),
+  'grok-4.7': usdTok(2, 6, 0.5, 0),
+  'grok-build-0.1': usdTok(1, 2, 0.2, 0),
+  // Kimi 补充档位
+  'kimi-k2.7-code-highspeed': usdTok(1.9, 8, 0.38, 0),
+  'kimi-k3': usdTok(3, 15, 0.3, 3),
+  'kimi-k3.1-pro': usdTok(2, 10, 0.2, 2),
+  'kimi-k3.1-pro-highspeed': usdTok(4, 20, 0.2, 4),
+  // LongCat
+  'longcat-2.0': usdTok(0.3, 1.2, 0.006, 0),
+  'longcat-2.5-preview': usdTok(0.3, 1.2, 0.006, 0),
+  // MiMo
+  'mimo-v2.5': usdTok(0.14, 0.28, 0.0028, 0),
+  'mimo-v2.5-pro': usdTok(0.435, 0.87, 0.0036, 0),
+  'mimo-v2.5-pro-ultraspeed': usdTok(1.305, 2.61, 0.0108, 0),
+  'mimo-v2.6-flash': usdTok(0.14, 0.28, 0.0028, 0),
+  'mimo-v2.6-pro': usdTok(0.435, 0.87, 0.0036, 0),
+  'mimo-v2.6-pro-ultraspeed': usdTok(4.35, 8.7, 0.036, 0),
+  // MiniMax
+  'minimax-m2.1': usdTok(0.3, 1.2, 0.03, 0.375),
+  'minimax-m2.5': usdTok(0.3, 1.2, 0.03, 0.375),
+  'minimax-m2.5-highspeed': usdTok(0.6, 2.4, 0.06, 0.375),
+  'minimax-m2.7': usdTok(0.3, 1.2, 0.06, 0.375),
+  'minimax-m2.7-highspeed': usdTok(0.6, 2.4, 0.06, 0.375),
+  'minimax-m3': usdTok(0.3137, 1.2549, 0.0627, 0),
+  'minimax-m3.1-flash': usdTok(0.1494, 0.5976, 0.0149, 0),
+  // Qwen 补充档位
+  'qwen3.7-flash': usdTok(0.03, 0.13, 0.006, 0.0375),
+  'qwen3.8-flash': usdTok(0.15, 0.47, 0.016, 0.2),
+  'qwen3.8-max': usdTok(2, 6, 0.25, 2.5),
+  'qwen3.8-omni-flash': usdTok(0.15, 0.47, 0.016, 0),
 }
 
 /** DeepSeek 高峰闲时价格覆盖表。闲时 = 高峰 × 0.5（文档明确「空闲时段价格为高峰时段价格的一半」） */
@@ -220,6 +284,107 @@ export function isLocalModel(modelId: string): boolean {
 }
 
 /**
+ * **用户自定义价格**：按模型前缀覆盖内置表。
+ *
+ * 为什么要这一层：内置表只写「有据可查的」厂商官网价，而用户实际走的往往是
+ * 中转/自建网关，单价跟官网不一样（折扣、包月、加价）。没有这一层时，
+ * 用量面板上的花费就是一个跟真实账单对不上的数字——比显示「—」更糟。
+ *
+ * 匹配口径与内置表一致（大小写不敏感的最长前缀），**自定义优先**：
+ * 同一前缀两边都有时用自定义那份，用户改过就是用户说了算。
+ * 只存在于内存 + 落盘文件，不上传、不联网。
+ */
+export interface ModelPriceInput {
+  inputYuanPerMTok: number
+  outputYuanPerMTok: number
+  cacheReadYuanPerMTok?: number
+  cacheWriteYuanPerMTok?: number
+  /** 按次计费（生图）填这个，token 三项可填 0 */
+  perCallYuan?: number
+}
+
+/** 前缀 → 价格。进程内单例，主进程启动时从磁盘载入一次 */
+let priceOverrides: Record<string, ModelPrice> = {}
+
+/** 把一段用户输入收成合法的 ModelPrice；有任何非法字段就整条丢弃（不猜） */
+function parsePriceInput(raw: unknown): ModelPrice | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const num = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null
+  const input = num(o.inputYuanPerMTok)
+  const output = num(o.outputYuanPerMTok)
+  if (input === null || output === null) return null
+  const perCall = o.perCallYuan === undefined ? null : num(o.perCallYuan)
+  if (o.perCallYuan !== undefined && perCall === null) return null
+  return {
+    inputYuanPerMTok: input,
+    outputYuanPerMTok: output,
+    cacheReadYuanPerMTok: num(o.cacheReadYuanPerMTok) ?? 0,
+    cacheWriteYuanPerMTok: num(o.cacheWriteYuanPerMTok) ?? 0,
+    ...(perCall !== null ? { perCallYuan: perCall } : {}),
+  }
+}
+
+/** 写入用户自定义价格（整表替换，空对象 = 清空）。坏条目逐条丢弃，绝不抛 */
+export function setPriceOverrides(raw: unknown): void {
+  const next: Record<string, ModelPrice> = {}
+  if (raw && typeof raw === 'object') {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      const prefix = key.trim().toLowerCase()
+      if (!prefix) continue
+      const parsed = parsePriceInput(value)
+      if (parsed) next[prefix] = parsed
+    }
+  }
+  priceOverrides = next
+}
+
+/** 当前生效的自定义价格（给设置页回显用） */
+export function getPriceOverrides(): Record<string, ModelPriceInput> {
+  const out: Record<string, ModelPriceInput> = {}
+  for (const [prefix, p] of Object.entries(priceOverrides)) {
+    out[prefix] = {
+      inputYuanPerMTok: p.inputYuanPerMTok,
+      outputYuanPerMTok: p.outputYuanPerMTok,
+      ...(p.cacheReadYuanPerMTok ? { cacheReadYuanPerMTok: p.cacheReadYuanPerMTok } : {}),
+      ...(p.cacheWriteYuanPerMTok ? { cacheWriteYuanPerMTok: p.cacheWriteYuanPerMTok } : {}),
+      ...(p.perCallYuan !== undefined ? { perCallYuan: p.perCallYuan } : {}),
+    }
+  }
+  return out
+}
+
+/**
+ * 内置价目表（只读快照）。设置页的「同步内置价格」用它把某个模型恢复成官方价，
+ * 也让用户一眼看出「哪些模型本来就有价」。
+ */
+export function listBuiltinPrices(): Array<{ prefix: string; price: ModelPriceInput }> {
+  return Object.entries(PRICES).map(([prefix, p]) => ({
+    prefix,
+    price: {
+      inputYuanPerMTok: p.inputYuanPerMTok,
+      outputYuanPerMTok: p.outputYuanPerMTok,
+      ...(p.cacheReadYuanPerMTok ? { cacheReadYuanPerMTok: p.cacheReadYuanPerMTok } : {}),
+      ...(p.cacheWriteYuanPerMTok ? { cacheWriteYuanPerMTok: p.cacheWriteYuanPerMTok } : {}),
+      ...(p.perCallYuan !== undefined ? { perCallYuan: p.perCallYuan } : {}),
+    },
+  }))
+}
+
+/** 该模型是否命中了用户自定义价（命中就不该再套 DeepSeek 峰谷价——那是内置表的规则） */
+function hasCustomPrice(modelId: string): boolean {
+  const id = modelId.toLowerCase()
+  return Object.keys(priceOverrides).some((prefix) => id.includes(prefix))
+}
+
+/** 内置表里有没有这个前缀（给「恢复官方价」按钮判断可用性） */
+export function hasBuiltinPrice(modelId: string): boolean {
+  const id = modelId.toLowerCase()
+  return Object.keys(PRICES).some((prefix) => id.includes(prefix))
+}
+
+/**
  * 判断给定时间戳（epoch ms）是否为 DeepSeek 高峰时段。
  * 高峰：北京时间 09:00-12:00、14:00-18:00（UTC+8）
  */
@@ -234,6 +399,8 @@ function isDeepSeekPeakHour(tsMs: number): boolean {
 
 /**
  * 取模型基础价格（最长前缀匹配）；查不到返回 undefined。
+ *
+ * 先查**用户自定义**再查内置：用户改过的价就是他实际付的价，内置表只是缺省。
  * 注意：此函数不处理 DeepSeek 峰谷价，只返回「高峰价（保守）」。
  * 真实花费估算请调用 estimateCostYuan。
  */
@@ -241,11 +408,15 @@ function lookupModelPrice(modelId: string): ModelPrice | undefined {
   const id = modelId.toLowerCase()
   let matched: ModelPrice | undefined
   let matchedLen = 0
-  for (const [prefix, price] of Object.entries(PRICES)) {
-    if (id.includes(prefix) && prefix.length > matchedLen) {
-      matched = price
-      matchedLen = prefix.length
+  for (const table of [priceOverrides, PRICES]) {
+    for (const [prefix, price] of Object.entries(table)) {
+      if (id.includes(prefix) && prefix.length > matchedLen) {
+        matched = price
+        matchedLen = prefix.length
+      }
     }
+    // 自定义表命中就不用再看内置（哪怕内置有更长前缀）——用户显式改过就是答案
+    if (matched) return matched
   }
   return matched
 }
@@ -299,7 +470,8 @@ export function estimateCostYuan(
   if (!price) return undefined
 
   // DeepSeek 闲时覆盖：只有显式给了时间戳且判定为闲时才切；否则默认高峰（保守）
-  if (tsMs !== undefined && modelId.toLowerCase().includes('deepseek')) {
+  // 用户给这个模型填了自定义价就跳过——峰谷价是内置表的规则，不该盖掉用户填的数
+  if (tsMs !== undefined && modelId.toLowerCase().includes('deepseek') && !hasCustomPrice(modelId)) {
     if (!isDeepSeekPeakHour(tsMs)) {
       const override = lookupDeepSeekOffpeakOverride(modelId)
       if (override) price = override

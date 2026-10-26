@@ -224,6 +224,7 @@ export const WeixinChannelSettings: React.FC<WeixinChannelSettingsProps> = ({
         icon={<ChannelBrandIcon kind="weixin" />}
         name="微信（个人）"
         description="通过 iLink Bot API 接入，扫码登录后自动收发消息"
+        capability="仅会话内被动回复"
         state={STATUS_STATES[status] ?? 'idle'}
         statusLabel={STATUS_LABELS[status] ?? status}
         actions={actions}

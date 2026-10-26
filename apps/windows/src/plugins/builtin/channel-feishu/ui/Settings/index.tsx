@@ -182,6 +182,7 @@ export const FeishuChannelSettings: React.FC<FeishuChannelSettingsProps> = ({
         icon={<ChannelBrandIcon kind="feishu" />}
         name="飞书"
         description="扫码一键创建飞书机器人，无需手动填写 App Secret"
+        capability="仅会话内被动回复"
         state={STATUS_STATES[status] ?? 'idle'}
         statusLabel={STATUS_LABELS[status] ?? status}
         actions={actions}

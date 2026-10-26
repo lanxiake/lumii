@@ -180,7 +180,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
         }
         explicit.add(key.trim().toLowerCase())
       }
-      // 没单独配过的号也物化一份「当前生效的策略」，切页签看到的就是它自己的数据
+      // 账号列表里的号，即使还没单独配置，也要在草稿表里占一个位（否则切页签拿不到当前生效的策略）
       for (const a of list) {
         if (findDraftKey(next, a.wxid) !== undefined) continue
         const eff = policyForAccount(p, a.wxid)
@@ -305,7 +305,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     }
   }, [])
 
-  /** 切页签时重新拉这个号的数据（策略 + 会话）；有未保存编辑的页签不覆盖 */
+  /** 切页签时重新拉这个号的数据（策略 + 会话）；账号**未被改过**时用新策略，改过了保留编辑态 */
   const refreshAccount = useCallback(
     async (wxid: string) => {
       if (!wxid) return
@@ -316,6 +316,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
       ])
       if (p) {
         setBasePolicy(p)
+        // 只有**未改过**的账号才用新策略覆盖草稿（改过了说明用户在编辑，不能覆盖掉）
         setDrafts((prev) => {
           if (touchedRef.current.has(lower)) return prev
           const key = findDraftKey(prev, wxid) ?? wxid
@@ -631,6 +632,19 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
             <Button size="sm" variant="secondary" onClick={openPicker} disabled={loading}>
               {pickerOpen ? '收起' : '从微信里挑人'}
             </Button>
+            {/* 名单一长（11 人往上）逐条勾就太累：一键全选，再点到下面的「移出名单」 */}
+            {rows.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  setChecked((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id))))
+                }
+                disabled={loading}
+              >
+                {checked.size === rows.length ? '取消全选' : `全选（${rows.length}）`}
+              </Button>
+            )}
             <span style={{ fontSize: 12, color: 'var(--mt-fg-3)' }}>挑完记得点下面的「保存」</span>
           </div>
 

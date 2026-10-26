@@ -2,6 +2,7 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { recordUsage, queryUsage } from './store'
+import { loadPriceOverrides, readPriceOverrides, savePriceOverrides } from './price-store'
 import type { UsageService } from './service-api'
 import { S } from '../../../main/kernel/services'
 
@@ -75,7 +76,27 @@ export const usageExtension = {
     id: 'com.lumii.usage',
     provides: ['usage-recording'],
     apply(ctx) {
-      ctx.provide(S.usage, { query: (query) => queryUsage(query) } satisfies UsageService)
+      // 先把自定义价灌进内存单例，再对外提供查询——顺序反了第一屏花费会用内置价算
+      loadPriceOverrides()
+
+      ctx.provide(S.usage, {
+        query: (query) => queryUsage(query),
+        getPrices: () => readPriceOverrides(),
+        setPrices: (prices) => savePriceOverrides(prices),
+        syncPrices: (prefix) => {
+          // 「同步内置价格」= 把自定义价里被改过的删掉，让内置表重新生效。
+          // 不传前缀 = 全表恢复；传了就只删含该前缀的条目。
+          const current = readPriceOverrides()
+          const next = prefix
+            ? Object.fromEntries(
+                Object.entries(current).filter(
+                  ([key]) => !key.toLowerCase().includes(prefix.toLowerCase()),
+                ),
+              )
+            : {}
+          return savePriceOverrides(next)
+        },
+      } satisfies UsageService)
 
       // 订阅 LLM 响应事件，记录用量
       ctx.on('llm:after-response', (event) => {

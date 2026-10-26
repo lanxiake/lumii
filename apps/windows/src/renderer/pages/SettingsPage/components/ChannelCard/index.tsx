@@ -137,7 +137,7 @@ export const ChannelCard: React.FC<ChannelCardProps> = ({
         </div>
       )}
 
-      {children}
+      {children && <div className={styles.children}>{children}</div>}
     </section>
   )
 }

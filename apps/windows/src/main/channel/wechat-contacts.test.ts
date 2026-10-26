@@ -58,15 +58,17 @@ describe('wechat-contacts', () => {
     expect(res.contacts).toEqual([{ id: 'wxid_a', label: '阿呆', isGroup: false }])
   })
 
-  it('读成功时微信会话在前、已配的补在后', async () => {
-    const policy = policyOf([{ id: 'wxid_old', label: '老同学', mode: 'draft' }])
+  it('读成功时只给微信里真实存在的会话，不把已配过但已删除的人补回来', async () => {
+    // 用户报的坑：名单里配过、但微信里早就删掉的人，不该出现在「从微信里挑人」里
+    // ——那些人在微信里压根选不到，混进来会让人以为微信里还有他们。
+    const policy = policyOf([{ id: 'wxid_old', label: '删掉的老同学', mode: 'draft' }])
     const res = await loadWechatContacts({
       mcpServer: 'wechat-chat',
       callMcpTool: async () => '[{"talker":"wxid_mama","name":"妈妈","last":"在吗"}]',
       getPolicy: () => policy,
     })
     expect(res.error).toBeUndefined()
-    expect(res.contacts.map((c) => c.id)).toEqual(['wxid_mama', 'wxid_old'])
+    expect(res.contacts.map((c) => c.id)).toEqual(['wxid_mama'])
   })
 
   it('已配名单里没备注名的用 id 当显示名', () => {

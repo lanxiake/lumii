@@ -16,6 +16,9 @@ export const apiServerApi = {
 
   // 用量查询
   queryUsage: (query: unknown) => ipcRenderer.invoke('usage:query', query),
+  getUsagePrices: () => ipcRenderer.invoke('usage:getPrices'),
+  setUsagePrices: (prices: unknown) => ipcRenderer.invoke('usage:setPrices', prices),
+  syncUsagePrices: (prefix?: string) => ipcRenderer.invoke('usage:syncPrices', prefix),
   getLatency: () => ipcRenderer.invoke('usage:latency'),
 
   // 资讯和 Feed

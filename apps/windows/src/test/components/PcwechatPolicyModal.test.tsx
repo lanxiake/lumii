@@ -173,6 +173,35 @@ describe('PcwechatPolicyModal', () => {
     })
   })
 
+  it('名单全选 → 一次性移出，保存后名单为空', async () => {
+    const { setPolicy } = mockChannelService({
+      policy: {
+        defaultMode: 'notify',
+        peers: [
+          { id: 'wxid_a', label: '阿呆', mode: 'auto' },
+          { id: 'wxid_b', label: '阿宝', mode: 'auto' },
+          { id: 'wxid_c', label: '阿花', mode: 'auto' },
+        ],
+      },
+    })
+    render(<PolicyModal open onClose={() => undefined} />)
+
+    expect(await screen.findByText('谁可以被代回（3）')).toBeInTheDocument()
+
+    // 一键全选（不必逐条勾）
+    fireEvent.click(screen.getByRole('button', { name: '全选（3）' }))
+    expect(screen.getByText('已勾选 3 人：')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '移出名单' }))
+    expect(await screen.findByText('谁可以被代回（0）')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(setPolicy).toHaveBeenCalledTimes(1))
+    expect(setPolicy.mock.calls[0]?.[1]).toMatchObject({
+      accounts: { wxid_me: { peers: [] } },
+    })
+  })
+
   it('每个号一个页签：页签带名字+wxid，切过去重新拉这个号的数据', async () => {
     const calls: Array<string | undefined> = []
     ;(window as any).channelService = {
