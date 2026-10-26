@@ -2,7 +2,7 @@
  * 右栏面板可用的呈现模式（唯一真相源）。
  *
  * 工具 schema、渲染层校验、错误码提示都从这里衍生 —— 散在三处必然会漂移。
- * **不开放给插件**：面板是宿主能力，`AppPanelMode` 与 `WorkbenchTab` 都是内置联合类型。
+ * **不开放给插件**：面板是宿主能力，`AppPanelMode` 与 `WorkbenchView` 都是内置联合类型。
  */
 
 export const APP_PANEL_MODES = ['doc'] as const

@@ -9,6 +9,12 @@ import type { ConfigManager } from '../config-manager'
 import type { DirectoryManager } from '../directory-manager'
 import { securityUtils } from '../security-utils'
 import { ensureWorkspaceTempLayout } from '../workspace-paths'
+import { listTrash, restoreTrash, runCleanup, scanWorkspace } from '../workspace-cleanup'
+import type {
+  CleanupRunResult,
+  CleanupScanResponse,
+  CleanupTrashEntry,
+} from '../../shared/workspace-cleanup-types'
 
 interface WorkspaceIpcDeps {
   getMainWindow: () => BrowserWindow | null
@@ -129,6 +135,54 @@ export function registerWorkspaceIpcHandlers(): void {
     return dirPath
   })
 
+  // ---- 清理（P0 手动；TTL/配额自动在 P1）----
+  // 主线程不阻塞：服务内部全程 fs.promises + 时间预算；错误一律结构化返回。
+  ipcMain.handle(
+    'workspace:cleanup:scan',
+    async (_event, opts?: { budgetMs?: number }): Promise<CleanupScanResponse> => {
+      try {
+        const scan = await scanWorkspace({
+          dir: resolveActiveWorkspaceDir(),
+          ...(typeof opts?.budgetMs === 'number' ? { budgetMs: opts.budgetMs } : {}),
+        })
+        return { ok: true, scan }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '扫描失败' }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'workspace:cleanup:run',
+    async (
+      _event,
+      payload?: { target?: unknown; dryRun?: unknown },
+    ): Promise<CleanupRunResult> => {
+      const target = payload?.target
+      if (target !== 'intermediate' && target !== 'ephemeral' && target !== 'both') {
+        return { ok: false, dryRun: true, removed: 0, bytes: 0, skipped: 0, error: 'target 非法' }
+      }
+      return runCleanup({
+        dir: resolveActiveWorkspaceDir(),
+        target,
+        dryRun: payload?.dryRun === true,
+      })
+    },
+  )
+
+  ipcMain.handle('workspace:cleanup:listTrash', async (): Promise<CleanupTrashEntry[]> => {
+    return listTrash({ dir: resolveActiveWorkspaceDir() })
+  })
+
+  ipcMain.handle(
+    'workspace:cleanup:restore',
+    async (_event, id?: unknown) => {
+      if (typeof id !== 'string' || id.length === 0) {
+        return { ok: false, restored: 0, conflicts: 0, error: '回收站 id 非法' }
+      }
+      return restoreTrash({ dir: resolveActiveWorkspaceDir(), id })
+    },
+  )
 
 }
 

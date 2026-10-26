@@ -280,7 +280,7 @@ const ContextMenu: React.FC<{
       {state.item.extension === 'md' && (
         <button className={styles.contextMenuItem} onClick={() => { onOpenInDoc(state.item); onClose() }}>
           <span className={styles.contextMenuIcon}><IconBook size={13} /></span>
-          在文档 Tab 打开
+          在工作台打开
         </button>
       )}
       {state.item.isDirectory && (
@@ -349,7 +349,7 @@ export interface WorkspaceFilePanelProps {
   embedded?: boolean
   /** 向共享工作台注册当前面板的刷新函数 */
   refreshRef?: React.MutableRefObject<(() => void) | null>
-  /** 右键「在文档 Tab 打开」（不传则菜单项不出现） */
+  /** 右键「在工作台打开」（不传则菜单项不出现） */
   onOpenInDoc?: (absolutePath: string) => void
 }
 

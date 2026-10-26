@@ -1,44 +1,48 @@
-/* WorkspaceWorkbench — 右侧共享玻璃壳（可拖拽改宽） */
+/* WorkspaceWorkbench — 真 flex 分栏的工作台（宽度动画在 shell 上） */
 
 .shell {
-  position: fixed;
-  top: var(--mt-titlebar-h, 36px);
-  right: 0;
-  /* 避开底部 StatusBar，避免 frameless 缩放时与底栏叠层错位 */
-  bottom: 26px;
-  z-index: 150;
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  flex: 0 0 auto;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
   background: var(--mt-glass-bg);
   backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
   border-left: 1px solid var(--mt-border-hairline);
-  box-shadow: var(--mt-shadow-lg);
-  transform: translateX(100%);
   transition:
-    transform var(--mt-dur-normal) var(--mt-ease-decel),
-    width var(--mt-dur-normal) var(--mt-ease-decel);
-  overflow: hidden;
-  width: 280px;
-  max-width: calc(100% - 120px);
+    width var(--mt-dur-normal) var(--mt-ease-decel),
+    border-color var(--mt-dur-normal) var(--mt-ease-decel);
+  container-type: inline-size;
 }
 
 .shellOpen {
-  transform: translateX(0);
+  box-shadow: var(--mt-shadow-lg);
 }
 
 .shellResizing {
-  transition: transform var(--mt-dur-normal) var(--mt-ease-decel);
+  transition: none;
   user-select: none;
 }
 
-/* 左缘拖拽条 */
+/* 宽度动画由 shell 承担；inner 保持目标宽度，内容不重排 */
+.inner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 左缘拖拽条（8px 热区） */
 .resizeHandle {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 5px;
+  width: 8px;
   z-index: 6;
   cursor: col-resize;
   touch-action: none;
@@ -64,29 +68,29 @@
 .header {
   display: flex;
   align-items: center;
-  gap: var(--mt-space-2);
-  height: 44px;
+  gap: 6px;
+  height: 40px;
   padding: 0 var(--mt-space-2) 0 var(--mt-space-3);
   border-bottom: 1px solid var(--mt-border-hairline);
   flex-shrink: 0;
+  overflow: hidden;
 }
 
-.tabs {
+.views {
   display: flex;
   align-items: stretch;
-  gap: var(--mt-space-1);
-  flex: 1;
-  min-width: 0;
+  gap: 2px;
   height: 100%;
+  flex-shrink: 0;
 }
 
 .tab {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   height: 100%;
-  padding: 0 10px;
+  padding: 0 8px;
   border: none;
   background: transparent;
   color: var(--mt-fg-3);
@@ -106,8 +110,8 @@
 .tabActive::after {
   content: '';
   position: absolute;
-  left: 8px;
-  right: 8px;
+  left: 6px;
+  right: 6px;
   bottom: 0;
   height: 2px;
   background: var(--mt-accent-500);
@@ -128,6 +132,61 @@
   font-weight: 700;
 }
 
+/* 「只看产出」开关 */
+.density {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.density:hover {
+  color: var(--mt-fg-1);
+}
+
+.densityOn {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  color: var(--mt-accent-500);
+}
+
+/* 三档宽度 */
+.presets {
+  display: flex;
+  gap: 1px;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--mt-surface-2);
+  flex-shrink: 0;
+}
+
+.preset {
+  min-width: 22px;
+  padding: 2px 5px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.preset:hover {
+  color: var(--mt-fg-1);
+}
+
+.presetActive {
+  background: var(--mt-bg-primary);
+  color: var(--mt-fg-1);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+}
+
 .actions {
   display: flex;
   gap: 2px;
@@ -138,8 +197,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -152,6 +211,19 @@
   color: var(--mt-fg-1);
 }
 
+/* 窄档先藏密度（仍可键盘 1 切），极窄再藏档位——保留「拖回来」之外的恢复手段 */
+@container (max-width: 380px) {
+  .density {
+    display: none;
+  }
+}
+
+@container (max-width: 300px) {
+  .presets {
+    display: none;
+  }
+}
+
 .body {
   flex: 1;
   min-height: 0;
@@ -160,16 +232,100 @@
   flex-direction: column;
 }
 
-.pane {
+.workspacePane {
   display: none;
   flex: 1;
   min-height: 0;
-  flex-direction: column;
-  overflow: hidden;
 }
 
 .paneVisible {
   display: flex;
+}
+
+.rail {
+  flex-shrink: 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid var(--mt-border-hairline);
+}
+
+.rail[hidden],
+.main[hidden] {
+  display: none;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mainHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+  flex-shrink: 0;
+}
+
+.backBtn {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-accent-500);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.backBtn:hover {
+  background: var(--mt-surface-2);
+}
+
+.openWindowBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.openWindowBtn:hover {
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
+}
+
+.crumb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+
+.vcsPane {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {

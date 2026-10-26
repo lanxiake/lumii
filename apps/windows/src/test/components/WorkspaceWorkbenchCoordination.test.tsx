@@ -108,12 +108,16 @@ describe('WorkspaceWorkbench 面板协调', () => {
     render(
       <WorkspaceWorkbench
         open
-        tab="files"
-        onTabChange={vi.fn()}
+        view="workspace"
+        onlyArtifacts={false}
+        preset="half"
+        onViewChange={vi.fn()}
+        onOnlyArtifactsChange={vi.fn()}
+        onPresetChange={vi.fn()}
         onClose={onClose}
         uncommittedCount={0}
-        childrenFiles={<WorkspaceFilePanel open embedded onClose={onClose} />}
-        childrenVcs={null}
+        rail={<WorkspaceFilePanel open embedded onClose={onClose} />}
+        main={null}
       />,
     )
 

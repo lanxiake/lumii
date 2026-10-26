@@ -1,0 +1,40 @@
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--mt-fg-2);
+}
+
+.emptyHint {
+  margin: 0;
+  max-width: 260px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--mt-fg-3);
+}
+
+.emptyAction {
+  margin-top: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.emptyAction:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  color: var(--mt-accent-500);
+}

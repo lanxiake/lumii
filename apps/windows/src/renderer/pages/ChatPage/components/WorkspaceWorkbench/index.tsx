@@ -1,58 +1,61 @@
 /**
- * WorkspaceWorkbench — Chat 右侧工作空间共享壳
+ * WorkspaceWorkbench — Chat 右侧工作台壳
  *
- * 文件 / 版本共用玻璃侧栏；左侧可拖拽改宽，对话区 padding 随之收缩（Cursor 式）。
- * 全屏 = 拉满对话区可用宽度。
+ * 真 flex 分栏（不再是 fixed + padding）：拖宽时只有左边缘移动，对话区不重排。
+ * 两个视图（工作区 / 版本）+ 「只看产出」开关；宽度三档（半 480 / 宽 860 / 满）。
+ *
+ * 结构：shell（宽度动画）→ inner（固定宽度，避免动画时内容重排）
+ *       → header + [rail | main]
  */
 
 import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { X, RefreshCw } from 'lucide-react'
+import { X, RefreshCw, AppWindow } from 'lucide-react'
+import {
+  CHAT_MIN_REMAIN,
+  PRESET_LABEL,
+  WORKBENCH_WIDTH_MIN,
+  isCompactWidth,
+  railWidthFor,
+  resolveWidth,
+  type WorkbenchPreset,
+  type WorkbenchView,
+} from './layout'
 import styles from './WorkspaceWorkbench.module.css'
 
-export type WorkbenchTab = 'files' | 'changes' | 'vcs' | 'doc'
-export type WorkbenchLayoutMode = 'default' | 'wide' | 'fullscreen'
+export type {
+  WorkbenchLayoutMode,
+  WorkbenchPreset,
+  WorkbenchView,
+} from './layout'
 
 export interface WorkspaceWorkbenchProps {
   open: boolean
-  tab: WorkbenchTab
-  onTabChange: (tab: WorkbenchTab) => void
+  view: WorkbenchView
+  /** 只看产出：工作区视图内的呈现密度开关 */
+  onlyArtifacts: boolean
+  preset: WorkbenchPreset
+  customWidth?: number
+  /** main 当前打开的产物（工作区相对路径） */
+  selectedPath?: string
+  onViewChange: (view: WorkbenchView) => void
+  onOnlyArtifactsChange: (onlyArtifacts: boolean) => void
+  onPresetChange: (preset: WorkbenchPreset, customWidth?: number) => void
   onClose: () => void
+  /** 返回列表（单栏断点下取消选中） */
+  onBack?: () => void
+  /** 在独立窗打开当前选中产物（双击在单栏下做不到，这里给显式入口） */
+  onOpenSelectedWindow?: () => void
   uncommittedCount: number
-  /** 会话级变更文件数（「变更」Tab 角标） */
-  changeCount?: number
   onRefresh?: () => void
-  childrenFiles: ReactNode
-  childrenChanges?: ReactNode
-  childrenVcs?: ReactNode
-  /** 「文档」Tab 内容（嵌入的 FilePreviewModal）；为空时不显示该 Tab */
-  childrenDoc?: ReactNode
-  /** 有稿件才显示文档 Tab（防"点进去空白"，同 vcsEnabled 的做法） */
-  docEnabled?: boolean
-  /** 版本页签归 vcs 插件：插件停用时整页签消失（不是留一个空面板） */
   vcsEnabled?: boolean
-  /** 宽度变化时通知（用于对话区 padding 自适应） */
-  onWidthChange?: (width: number) => void
-  /** 拖拽改宽进行中（对话区关闭 padding 过渡） */
-  onResizingChange?: (resizing: boolean) => void
-  /**
-   * 外部请求布局（版本面板顶栏按钮）。
-   * 传入后由壳层改宽；不传则仅用拖拽。
-   */
-  layoutMode?: WorkbenchLayoutMode
-  onLayoutModeChange?: (mode: WorkbenchLayoutMode) => void
+  /** rail：产物台账 / 工作区文件（由调用方按 onlyArtifacts 决定） */
+  rail: ReactNode
+  /** main：内嵌预览或空态 */
+  main: ReactNode
+  /** 版本视图（vcs 插件） */
+  childrenVcs?: ReactNode
 }
-
-const WIDTH_FILES = 280
-const WIDTH_CHANGES = 480
-const WIDTH_VCS = 760
-const WIDTH_VCS_WIDE = 1100
-/** 稿件编辑宽度：760 够 md-editor 双栏，再宽会把对话柱挤到 280 下限 */
-const WIDTH_DOC = 760
-const WIDTH_MIN = 240
-/** 对话区至少保留的可见宽度（px） */
-const CHAT_MIN_REMAIN = 280
 
 /** 判断焦点是否在可编辑控件内（避免抢快捷键） */
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -63,309 +66,316 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest('[contenteditable="true"]'))
 }
 
-/** 计算工作台最大宽度：对话区宽度减去最小对话残留 */
-function getMaxWidth(): number {
-  const dialog = document.querySelector('[data-chat-dialog]') as HTMLElement | null
-  const base = dialog?.clientWidth ?? Math.floor(window.innerWidth * 0.9)
-  return Math.max(WIDTH_MIN, base - CHAT_MIN_REMAIN)
-}
-
-/** 按 tab / 布局模式解析目标宽度 */
-function resolveWidth(tab: WorkbenchTab, mode: WorkbenchLayoutMode): number {
-  const max = getMaxWidth()
-  if (mode === 'fullscreen') return max
-  if (tab === 'files') return Math.min(WIDTH_FILES, max)
-  if (tab === 'changes') return Math.min(WIDTH_CHANGES, max)
-  if (tab === 'doc') return Math.min(WIDTH_DOC, max)
-  if (mode === 'wide') return Math.min(WIDTH_VCS_WIDE, max)
-  return Math.min(WIDTH_VCS, max)
-}
-
-/**
- * 右侧工作台壳层（可拖拽改宽）
- */
 export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   open,
-  tab,
-  onTabChange,
+  view,
+  onlyArtifacts,
+  preset,
+  customWidth,
+  selectedPath,
+  onViewChange,
+  onOnlyArtifactsChange,
+  onPresetChange,
   onClose,
+  onBack,
+  onOpenSelectedWindow,
   uncommittedCount,
-  changeCount = 0,
   onRefresh,
-  childrenFiles,
-  childrenChanges,
-  childrenVcs,
-  childrenDoc,
   vcsEnabled = true,
-  docEnabled = false,
-  onWidthChange,
-  onResizingChange,
-  layoutMode = 'default',
-  onLayoutModeChange,
+  rail,
+  main,
+  childrenVcs,
 }) => {
-  const [width, setWidth] = useState(() => resolveWidth(tab, layoutMode))
-  /** 页签不可用时的等效页签：退回「文件」，不留空面板 */
-  const visibleTab: WorkbenchTab =
-    !vcsEnabled && tab === 'vcs'
-      ? 'files'
-      : !docEnabled && tab === 'doc'
-        ? 'files'
-        : tab
-  const [resizing, setResizing] = useState(false)
-  const widthRef = useRef(width)
-  widthRef.current = width
-  /** 各 tab 上次拖拽宽度（切换 tab 时恢复） */
-  const remembered = useRef<Record<WorkbenchTab, number>>({
-    files: WIDTH_FILES,
-    changes: WIDTH_CHANGES,
-    vcs: WIDTH_VCS,
-    doc: WIDTH_DOC,
-  })
+  const shellRef = useRef<HTMLElement | null>(null)
+  const [maxWidth, setMaxWidth] = useState(() =>
+    Math.max(WORKBENCH_WIDTH_MIN, (typeof window === 'undefined' ? 1280 : window.innerWidth) - CHAT_MIN_REMAIN),
+  )
+  /** 拖拽中的临时宽度；松手才写回 preset */
+  const [dragWidth, setDragWidth] = useState<number | null>(null)
+  /** 关闭时 inner 保持最后宽度：宽度动画里内容不重排 */
+  const [lastWidth, setLastWidth] = useState(0)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
-  /** 拖拽触发的 layoutMode→default 时跳过一次宽度回弹 */
-  const skipNextLayoutSync = useRef(false)
+  /** 与 dragWidth 同步的最新像素，避免 pointerup 读到尚未提交的 React state */
+  const dragWidthRef = useRef<number | null>(null)
 
-  const applyWidth = useCallback(
-    (next: number, opts?: { remember?: boolean }) => {
-      const max = getMaxWidth()
-      const clamped = Math.min(max, Math.max(WIDTH_MIN, Math.round(next)))
-      setWidth(clamped)
-      if (opts?.remember !== false) {
-        remembered.current[tab] = clamped
-      }
-      onWidthChange?.(open ? clamped : 0)
+  // 可用宽度跟着父容器走（chat-page 去掉侧栏后的真实宽度）
+  useEffect(() => {
+    const parent = shellRef.current?.parentElement
+    if (!parent || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      const available = entry.contentRect.width
+      setMaxWidth(Math.max(WORKBENCH_WIDTH_MIN, Math.floor(available) - CHAT_MIN_REMAIN))
+    })
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [])
+
+  const resolved = resolveWidth(preset, customWidth, maxWidth)
+  const displayWidth = dragWidth ?? resolved
+  const compact = isCompactWidth(displayWidth)
+
+  useEffect(() => {
+    if (displayWidth > 0) setLastWidth(displayWidth)
+  }, [displayWidth])
+
+  /** 按指针位移算出夹紧后的工作台宽度 */
+  const widthFromPointer = useCallback(
+    (clientX: number, startX: number, startW: number): number => {
+      // 向左拖 → 变宽（clientX 减小）
+      const delta = startX - clientX
+      return Math.min(
+        Math.max(WORKBENCH_WIDTH_MIN, Math.round(startW + delta)),
+        Math.max(WORKBENCH_WIDTH_MIN, maxWidth),
+      )
     },
-    [tab, open, onWidthChange],
+    [maxWidth],
   )
 
-  // 打开 / 切换 tab：恢复该 tab 记忆宽度
-  useEffect(() => {
-    if (!open) {
-      onWidthChange?.(0)
-      return
-    }
-    if (layoutMode === 'fullscreen' || layoutMode === 'wide') {
-      applyWidth(resolveWidth(tab, layoutMode), { remember: false })
-      return
-    }
-    applyWidth(remembered.current[tab] || resolveWidth(tab, 'default'), { remember: false })
-  }, [open, tab]) // eslint-disable-line react-hooks/exhaustive-deps -- 仅开合与 tab
+  const onResizePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!open) return
+      event.preventDefault()
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      dragRef.current = { startX: event.clientX, startW: displayWidth }
+      dragWidthRef.current = displayWidth
+      setDragWidth(displayWidth)
+    },
+    [open, displayWidth],
+  )
 
-  // 顶栏布局按钮：改宽（拖拽引起的 default 同步跳过）
-  useEffect(() => {
-    if (!open) return
-    if (skipNextLayoutSync.current) {
-      skipNextLayoutSync.current = false
-      return
-    }
-    if (layoutMode === 'fullscreen' || layoutMode === 'wide') {
-      applyWidth(resolveWidth(tab, layoutMode), { remember: false })
-    } else {
-      applyWidth(resolveWidth(tab, 'default'), { remember: true })
-    }
-  }, [layoutMode]) // eslint-disable-line react-hooks/exhaustive-deps -- 仅模式按钮
+  const onResizePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag) return
+      const next = widthFromPointer(event.clientX, drag.startX, drag.startW)
+      dragWidthRef.current = next
+      setDragWidth(next)
+    },
+    [widthFromPointer],
+  )
 
-  // 窗口尺寸变化时夹紧宽度
-  useEffect(() => {
-    if (!open) return
-    const onResize = () => {
-      const max = getMaxWidth()
-      if (layoutMode === 'fullscreen') {
-        applyWidth(max, { remember: false })
-      } else if (widthRef.current > max) {
-        applyWidth(max, { remember: true })
+  const onResizePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag) return
+      dragRef.current = null
+      // 优先用 pointerup 当场算宽；否则退回 move 写入的 ref（cancel 时可能没有可用坐标）
+      const finalWidth =
+        Number.isFinite(event.clientX)
+          ? widthFromPointer(event.clientX, drag.startX, drag.startW)
+          : dragWidthRef.current
+      dragWidthRef.current = null
+      if (finalWidth !== null) onPresetChange('custom', finalWidth)
+      setDragWidth(null)
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        // ignore
       }
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [open, layoutMode, applyWidth])
+    },
+    [onPresetChange, widthFromPointer],
+  )
+
+  // VCS 插件关掉后，持久化里的 view=vcs 会让内容区空白——强制回工作区
+  useEffect(() => {
+    if (!vcsEnabled && view === 'vcs') onViewChange('workspace')
+  }, [vcsEnabled, view, onViewChange])
+
+  const effectiveView: WorkbenchView = !vcsEnabled && view === 'vcs' ? 'workspace' : view
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (isEditableTarget(e.target)) return
-      if (e.key === 'Escape') {
-        // 文件预览弹窗打开时，Esc 先交给预览关闭，不关工作台
+    const onKey = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return
+      if (event.key === 'Escape') {
+        // 预览打开时，Esc 先交给预览关闭，不整块关掉工作台
+        if (selectedPath) return
         if (document.querySelector('[data-file-preview-open]')) return
-        // 文档 Tab 同理：Esc 由嵌入的预览处理（退出编辑 / 回到文件页），不整块关掉
-        if (visibleTab === 'doc') return
-        e.preventDefault()
+        event.preventDefault()
         onClose()
         return
       }
-      if (e.key === '1') {
-        e.preventDefault()
-        onTabChange('files')
-      } else if (e.key === '2') {
-        e.preventDefault()
-        onTabChange('changes')
-      } else if (e.key === '3') {
-        e.preventDefault()
-        onTabChange('vcs')
-      } else if (e.key === '4' && docEnabled) {
-        e.preventDefault()
-        onTabChange('doc')
+      if (event.key === '1') {
+        event.preventDefault()
+        if (effectiveView !== 'workspace') onViewChange('workspace')
+        else onOnlyArtifactsChange(!onlyArtifacts)
+      } else if (event.key === '2' && vcsEnabled) {
+        event.preventDefault()
+        onViewChange('vcs')
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, onTabChange, docEnabled, visibleTab])
+  }, [
+    open,
+    selectedPath,
+    effectiveView,
+    onlyArtifacts,
+    vcsEnabled,
+    onViewChange,
+    onOnlyArtifactsChange,
+    onClose,
+  ])
 
-  /** 开始拖拽左缘改宽 */
-  const onResizePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!open) return
-      e.preventDefault()
-      e.currentTarget.setPointerCapture(e.pointerId)
-      dragRef.current = { startX: e.clientX, startW: widthRef.current }
-      setResizing(true)
-      onResizingChange?.(true)
-      if (layoutMode !== 'default') {
-        skipNextLayoutSync.current = true
-        onLayoutModeChange?.('default')
-      }
-    },
-    [open, layoutMode, onLayoutModeChange, onResizingChange],
-  )
+  const railWidth = railWidthFor(displayWidth)
 
-  const onResizePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) return
-      // 向左拖 → 变宽（clientX 减小）
-      const delta = dragRef.current.startX - e.clientX
-      applyWidth(dragRef.current.startW + delta, { remember: true })
-    },
-    [applyWidth],
-  )
-
-  const onResizePointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragRef.current) return
-      dragRef.current = null
-      setResizing(false)
-      onResizingChange?.(false)
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId)
-      } catch {
-        /* ignore */
-      }
-    },
-    [onResizingChange],
-  )
-
-  if (typeof document === 'undefined') return null
-
-  return createPortal(
+  return (
     <aside
-      className={clsx(
-        styles.shell,
-        open && styles.shellOpen,
-        resizing && styles.shellResizing,
-      )}
-      style={{ width: open ? width : undefined }}
+      ref={shellRef}
+      className={clsx(styles.shell, open && styles.shellOpen, dragWidth !== null && styles.shellResizing)}
+      style={{ width: open ? displayWidth : 0 }}
       aria-hidden={!open}
       aria-label="工作空间"
+      data-workbench-open={open ? 'true' : 'false'}
     >
-      <div
-        className={styles.resizeHandle}
-        onPointerDown={onResizePointerDown}
-        onPointerMove={onResizePointerMove}
-        onPointerUp={onResizePointerUp}
-        onPointerCancel={onResizePointerUp}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="拖拽调整工作台宽度"
-        title="拖拽调整宽度"
-      />
-      <header className={styles.header}>
-        <nav className={styles.tabs} aria-label="工作空间分区">
-          <button
-            type="button"
-            className={clsx(styles.tab, tab === 'files' && styles.tabActive)}
-            onClick={() => onTabChange('files')}
-          >
-            文件
-          </button>
-          <button
-            type="button"
-            className={clsx(styles.tab, tab === 'changes' && styles.tabActive)}
-            onClick={() => onTabChange('changes')}
-          >
-            变更
-            {changeCount > 0 && (
-              <span className={styles.badge}>{changeCount > 99 ? '99+' : changeCount}</span>
+      <div className={styles.inner} style={{ width: lastWidth || displayWidth }}>
+        <div
+          className={styles.resizeHandle}
+          onPointerDown={onResizePointerDown}
+          onPointerMove={onResizePointerMove}
+          onPointerUp={onResizePointerUp}
+          onPointerCancel={onResizePointerUp}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖拽调整工作台宽度"
+          title="拖拽调整宽度"
+        />
+
+        <header className={styles.header}>
+          <nav className={styles.views} aria-label="工作空间分区">
+            <button
+              type="button"
+              className={clsx(styles.tab, effectiveView === 'workspace' && styles.tabActive)}
+              onClick={() => onViewChange('workspace')}
+              aria-pressed={effectiveView === 'workspace'}
+            >
+              工作区
+            </button>
+            {vcsEnabled && (
+              <button
+                type="button"
+                className={clsx(styles.tab, effectiveView === 'vcs' && styles.tabActive)}
+                onClick={() => onViewChange('vcs')}
+                aria-pressed={effectiveView === 'vcs'}
+              >
+                版本
+                {uncommittedCount > 0 && (
+                  <span className={styles.badge}>{uncommittedCount}</span>
+                )}
+              </button>
             )}
-          </button>
-          {vcsEnabled && (
+          </nav>
+
+          {effectiveView === 'workspace' && (
             <button
               type="button"
-              className={clsx(styles.tab, visibleTab === 'vcs' && styles.tabActive)}
-              onClick={() => onTabChange('vcs')}
+              className={clsx(styles.density, onlyArtifacts && styles.densityOn)}
+              onClick={() => onOnlyArtifactsChange(!onlyArtifacts)}
+              aria-pressed={onlyArtifacts}
+              title="只看产出：隐藏未被识别为产物的文件"
             >
-              版本
-              {uncommittedCount > 0 && (
-                <span className={styles.badge}>{uncommittedCount}</span>
-              )}
+              只看产出
             </button>
           )}
-          {docEnabled && (
-            <button
-              type="button"
-              className={clsx(styles.tab, visibleTab === 'doc' && styles.tabActive)}
-              onClick={() => onTabChange('doc')}
-            >
-              文档
-            </button>
-          )}
-        </nav>
-        <div className={styles.actions}>
-          {onRefresh && (
+
+          <div className={styles.presets} role="group" aria-label="工作台宽度">
+            {(['half', 'wide', 'full'] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={clsx(styles.preset, preset === key && styles.presetActive)}
+                onClick={() => onPresetChange(key)}
+                aria-pressed={preset === key}
+              >
+                {PRESET_LABEL[key]}
+              </button>
+            ))}
+          </div>
+
+          <div className={styles.actions}>
+            {onRefresh && (
+              <button
+                type="button"
+                className={clsx(styles.iconBtn, 'mt-press')}
+                onClick={onRefresh}
+                title="刷新"
+              >
+                <RefreshCw size={14} strokeWidth={1.8} />
+              </button>
+            )}
             <button
               type="button"
               className={clsx(styles.iconBtn, 'mt-press')}
-              onClick={onRefresh}
-              title="刷新"
+              onClick={onClose}
+              title="关闭"
             >
-              <RefreshCw size={14} strokeWidth={1.8} />
+              <X size={14} strokeWidth={2} />
             </button>
-          )}
-          <button
-            type="button"
-            className={clsx(styles.iconBtn, 'mt-press')}
-            onClick={onClose}
-            title="关闭"
+          </div>
+        </header>
+
+        <div className={styles.body}>
+          <div
+            className={clsx(
+              styles.workspacePane,
+              effectiveView === 'workspace' && styles.paneVisible,
+            )}
+            hidden={effectiveView !== 'workspace'}
           >
-            <X size={14} strokeWidth={2} />
-          </button>
-        </div>
-      </header>
-      <div className={styles.body}>
-        <div
-          className={clsx(styles.pane, visibleTab === 'files' && styles.paneVisible)}
-          hidden={visibleTab !== 'files'}
-        >
-          {childrenFiles}
-        </div>
-        <div
-          className={clsx(styles.pane, visibleTab === 'changes' && styles.paneVisible)}
-          hidden={visibleTab !== 'changes'}
-        >
-          {childrenChanges}
-        </div>
-        <div
-          className={clsx(styles.pane, visibleTab === 'vcs' && styles.paneVisible)}
-          hidden={visibleTab !== 'vcs'}
-        >
-          {childrenVcs}
-        </div>
-        <div
-          className={clsx(styles.pane, visibleTab === 'doc' && styles.paneVisible)}
-          hidden={visibleTab !== 'doc'}
-        >
-          {childrenDoc}
+            <div
+              className={styles.rail}
+              style={
+                compact
+                  ? { width: '100%', flexBasis: '100%' }
+                  : { width: railWidth, flexBasis: railWidth }
+              }
+              hidden={compact && Boolean(selectedPath)}
+            >
+              {rail}
+            </div>
+            <div className={styles.main} hidden={compact && !selectedPath}>
+              {selectedPath && (
+                <div className={styles.mainHeader}>
+                  {compact && (
+                    <button
+                      type="button"
+                      className={styles.backBtn}
+                      onClick={() => onBack?.()}
+                      title="返回列表"
+                    >
+                      ‹ 列表
+                    </button>
+                  )}
+                  <span className={styles.crumb} title={selectedPath}>
+                    {selectedPath}
+                  </span>
+                  {onOpenSelectedWindow && (
+                    <button
+                      type="button"
+                      className={styles.openWindowBtn}
+                      onClick={onOpenSelectedWindow}
+                      title="在独立窗口打开"
+                      aria-label="在独立窗口打开"
+                    >
+                      <AppWindow size={13} strokeWidth={1.8} />
+                    </button>
+                  )}
+                </div>
+              )}
+              {main}
+            </div>
+          </div>
+
+          <div
+            className={clsx(styles.vcsPane, effectiveView === 'vcs' && styles.paneVisible)}
+            hidden={effectiveView !== 'vcs'}
+          >
+            {childrenVcs}
+          </div>
         </div>
       </div>
-    </aside>,
-    document.body,
+    </aside>
   )
 }

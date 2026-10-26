@@ -695,6 +695,23 @@ export interface ElectronAPI {
     notifyChanged: (newDirPath?: string) => Promise<void>
     /** 确保工作空间目录及基本子结构存在 */
     ensureDir: (dirPath: string) => Promise<string>
+    /** 扫描工作区四类占用 + 可清理候选（主进程异步 + 时间预算） */
+    cleanupScan: (opts?: { budgetMs?: number }) => Promise<
+      import('../shared/workspace-cleanup-types').CleanupScanResponse
+    >
+    /** 执行清理；dryRun=true 只统计，真实删除先进回收站 */
+    cleanupRun: (payload: {
+      target: 'intermediate' | 'ephemeral' | 'both'
+      dryRun: boolean
+    }) => Promise<import('../shared/workspace-cleanup-types').CleanupRunResult>
+    /** 回收站列表（倒序） */
+    cleanupListTrash: () => Promise<
+      import('../shared/workspace-cleanup-types').CleanupTrashEntry[]
+    >
+    /** 从回收站恢复 */
+    cleanupRestore: (
+      id: string,
+    ) => Promise<import('../shared/workspace-cleanup-types').CleanupRestoreResult>
   }
 
   // 本地技能管�?

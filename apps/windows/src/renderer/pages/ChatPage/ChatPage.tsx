@@ -21,7 +21,6 @@ import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/
 import { executeSlashCommand, BACKEND_INFO } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
 import { updateSessionState, setFocusPermissionRequestId, setPendingPetHandoff, setPendingPanel } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
-import clsx from 'clsx'
 import {
   readPersistedSessionThinkingPrefs,
   writePersistedThinkingEnabled,
@@ -832,22 +831,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const workflowItems = EMPTY_WORKFLOW_ITEMS
   const {
     workbench,
-    workbenchWidth,
-    workbenchResizing,
-    workbenchLayout,
     locateFileTarget,
     uncommittedDiff,
-    toggleFilesWorkbench,
+    toggleWorkbench,
     handleReviewTurnFileChange,
     closeWorkbench,
-    selectWorkbenchTab,
-    setWorkbenchWidth: handleWorkbenchWidthChange,
-    setWorkbenchResizing,
-    setWorkbenchLayout: handleWorkbenchLayoutChange,
+    selectWorkbenchView,
+    setOnlyArtifacts,
+    setPreset,
+    selectPath,
     revealInFiles,
     locateAbsoluteFile,
     openDoc,
-    docPath,
     toAbsolutePath,
   } = useWorkspacePanels(activeView)
   const [autoApprove, setAutoApprove] = useState<boolean>(() => readAutoApproveEnabled())
@@ -1902,18 +1897,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         onRenameSession={handleRenameSession}
       />
 
-      <div
-        className={clsx(styles['chat-main'], workbenchResizing && styles.chatMainResizing)}
-        data-chat-dialog
-        style={{
-          ...(workbench.open && workbenchWidth > 0
-            ? {
-                paddingRight: workbenchWidth,
-                ['--workbench-inset' as string]: `${workbenchWidth}px`,
-              }
-            : {}),
-        }}
-      >
+      <div className={styles['chat-main']} data-chat-dialog>
         {/* 消息层：全屏滚动，顶部/底部浮层可透视；字号跟全局 --chat-font-size */}
         <div className={styles['chat-main-body']}>
           <ChatMessageActionsProvider value={chatMessageActions}>
@@ -1965,7 +1949,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onResetZoom={resetPageZoom}
             onToggleAutoApprove={handleToggleAutoApprove}
             onToggleReadAloud={handleToggleReadAloud}
-            onToggleWorkbench={toggleFilesWorkbench}
+            onToggleWorkbench={toggleWorkbench}
             onOpenWiki={openWikiLibrary}
           />
         </div>
@@ -2094,23 +2078,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         </div>
       ) : null}
 
-      {/* 工作空间共享壳：文件 + 版本（可拖拽改宽，对话区自适应） */}
+      {/* 右侧工作台：真 flex 分栏（对话区自己收窄，不再吃 padding） */}
       <WorkspaceWorkbenchArea
         workbench={workbench}
-        onTabChange={selectWorkbenchTab}
+        onViewChange={selectWorkbenchView}
+        onOnlyArtifactsChange={setOnlyArtifacts}
+        onPresetChange={setPreset}
+        onSelect={selectPath}
         onClose={closeWorkbench}
         uncommittedCount={uncommittedDiff.length}
-        onWidthChange={handleWorkbenchWidthChange}
-        onResizingChange={setWorkbenchResizing}
-        layoutMode={workbenchLayout}
-        onLayoutModeChange={handleWorkbenchLayoutChange}
         locateFileTarget={locateFileTarget}
-        docPath={docPath}
         messages={runtimeMessages}
         toAbsolutePath={toAbsolutePath}
         onRevealInFiles={revealInFiles}
-        onRevealChange={handleReviewTurnFileChange}
         onOpenDoc={openDoc}
+        onAbort={handleAbort}
       />
     </div>
   )
