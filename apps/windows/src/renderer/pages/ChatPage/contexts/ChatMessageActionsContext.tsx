@@ -27,6 +27,8 @@ export interface ChatMessageActions {
   }>
   /** 打开指定会话（转交成功后跳去开发会话看进度） */
   openSession(sessionKey: string): void
+  /** 会话分支：复制当前会话至此消息的历史，创建新分支会话 */
+  forkMessage(messageId: string): void
 }
 
 const ChatMessageActionsContext = createContext<ChatMessageActions | null>(null)

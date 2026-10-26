@@ -20,6 +20,7 @@ describe('Phase 3: 消息功能 - MessageActions组件', () => {
     onEditSave: vi.fn(),
     onDelete: vi.fn(),
     onRegenerate: vi.fn(),
+    onFork: vi.fn(),
   }
 
   beforeEach(() => {
@@ -148,11 +149,21 @@ describe('Phase 3: 消息功能 - MessageActions组件', () => {
       expect(screen.queryByTitle('编辑')).not.toBeInTheDocument()
     })
 
-    it('TC-3.1.14: sessionBusy 时"重新生成"按钮禁用', () => {
+    it('TC-3.1.13b: 点击"分支"把消息 id 交给 onFork', () => {
+      render(<MessageActions {...mockProps} role="user" />)
+
+      fireEvent.click(screen.getByTitle('从此处创建分支会话'))
+
+      expect(mockProps.onFork).toHaveBeenCalledWith(mockProps.messageId)
+    })
+
+    it('TC-3.1.14: sessionBusy 时"重新生成"与"分支"按钮禁用', () => {
       render(<MessageActions {...mockProps} role="assistant" sessionBusy={true} />)
 
-      const regenerateBtn = screen.getByTitle('正在回复中…')
-      expect(regenerateBtn).toBeDisabled()
+      // 两个按钮的 busy 提示文案相同，逐个断言禁用
+      const busyBtns = screen.getAllByTitle('正在回复中…')
+      expect(busyBtns).toHaveLength(2)
+      for (const btn of busyBtns) expect(btn).toBeDisabled()
     })
   })
 })

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   handleConversationDelete,
+  handleConversationFork,
   handleConversationList,
   handleConversationTransferAgent,
   maybeGenerateConversationTitle,
@@ -533,5 +534,78 @@ describe('isEvolutionConversationId 前缀判定', () => {
     expect(isEvolutionConversationId('evolution:code-dev')).toBe(true)
     expect(isEvolutionConversationId('evolutionary:x')).toBe(false)
     expect(isEvolutionConversationId('conversation-1')).toBe(false)
+  })
+})
+
+describe('handleConversationFork 会话分支', () => {
+  const makeBridge = (opts: { parentTitle?: string | null; fail?: Error } = {}) => {
+    const updateTitle = vi.fn()
+    const forwardIpcEvent = vi.fn()
+    const forkConversation = vi.fn(() => {
+      if (opts.fail) throw opts.fail
+      return 'branch-1'
+    })
+    const bridge = {
+      conversationRepo: {
+        getAgentParticipantId: () => 'code-dev',
+        getConversation: () => ({ title: opts.parentTitle ?? null }),
+        forkConversation,
+        updateTitle,
+      },
+      forwardIpcEvent,
+    } as never
+    return { bridge, forkConversation, updateTitle, forwardIpcEvent }
+  }
+
+  it('建分支后写分支标题并广播 conversation:created', async () => {
+    const { bridge, forkConversation, updateTitle, forwardIpcEvent } = makeBridge({
+      parentTitle: '订单页分页修复',
+    })
+
+    const res = await handleConversationFork(bridge, {
+      type: 'conversation:fork',
+      sourceSessionKey: 'src-1',
+      uptoMessageId: 'm2',
+    })
+
+    expect(res).toEqual({ success: true, sessionKey: 'branch-1' })
+    expect(forkConversation).toHaveBeenCalledWith({
+      sourceConversationId: 'src-1',
+      uptoMessageId: 'm2',
+      newUserContent: undefined,
+      userId: 'local-user',
+      agentId: 'code-dev',
+    })
+    // 标题带父标题 + 时间后缀，避免同一会话多次分支重名
+    expect(updateTitle).toHaveBeenCalledWith('branch-1', expect.stringMatching(/^订单页分页修复 · 分支@\d{6}$/))
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'conversation:created', sessionKey: 'branch-1' }),
+    )
+  })
+
+  it('父会话无标题时用「会话」兜底', async () => {
+    const { bridge, updateTitle } = makeBridge({ parentTitle: null })
+
+    await handleConversationFork(bridge, {
+      type: 'conversation:fork',
+      sourceSessionKey: 'src-1',
+      uptoMessageId: 'm1',
+    })
+
+    expect(updateTitle).toHaveBeenCalledWith('branch-1', expect.stringMatching(/^会话 · 分支@\d{6}$/))
+  })
+
+  it('数据层抛错时返回 success:false 且不广播', async () => {
+    const { bridge, forwardIpcEvent } = makeBridge({ fail: new Error('cannot fork from streaming message m1') })
+
+    const res = await handleConversationFork(bridge, {
+      type: 'conversation:fork',
+      sourceSessionKey: 'src-1',
+      uptoMessageId: 'm1',
+    })
+
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/streaming/)
+    expect(forwardIpcEvent).not.toHaveBeenCalled()
   })
 })

@@ -1444,6 +1444,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             onEditSave={handleEditSave}
             onDelete={actions.deleteMessage}
             onRegenerate={actions.regenerateMessage}
+            onFork={actions.forkMessage}
             sessionBusy={sessionBusy}
             isVoice={message.isVoice}
             isReplaying={replayMessageId === message.id}

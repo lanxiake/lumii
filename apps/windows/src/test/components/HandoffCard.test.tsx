@@ -29,6 +29,7 @@ function makeActions(overrides: Partial<ChatMessageActions> = {}): ChatMessageAc
     reviewFileChanges: noop,
     confirmHandoff: vi.fn(async () => ({ ok: true, sessionKey: 'dev-sk-1', title: '订单页分页修复' })),
     openSession: noop,
+    forkMessage: noop,
     ...overrides,
   }
 }

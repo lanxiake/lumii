@@ -941,6 +941,13 @@ export async function handleConversationFork(
   const { sourceSessionKey, uptoMessageId, newContent } = command
   try {
     const agentId = bridge.conversationRepo.getAgentParticipantId(sourceSessionKey)
+
+    // 生成分支标题
+    const sourceRow = bridge.conversationRepo.getConversation(sourceSessionKey)
+    const parentTitle = sourceRow?.title || "会话"
+    const branchSuffix = Date.now().toString().slice(-6)
+    const newTitle = `${parentTitle} · 分支@${branchSuffix}`
+
     const newSessionKey = bridge.conversationRepo.forkConversation({
       sourceConversationId: sourceSessionKey,
       uptoMessageId,
@@ -948,6 +955,18 @@ export async function handleConversationFork(
       userId: LOCAL_USER_ID,
       agentId,
     })
+
+    // 设置分支标题
+    bridge.conversationRepo.updateTitle(newSessionKey, newTitle)
+
+    // 广播会话创建事件：侧栏靠它重拉列表，否则新分支要手动刷新才出现
+    bridge.forwardIpcEvent({
+      type: 'conversation:created',
+      sessionKey: newSessionKey,
+      title: newTitle,
+      createdAt: Date.now(),
+    })
+
     log.info(`[conversation:fork] ${sourceSessionKey} → ${newSessionKey}`)
     return { success: true, sessionKey: newSessionKey }
   } catch (err) {

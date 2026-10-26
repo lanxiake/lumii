@@ -1232,7 +1232,8 @@ interface MessageEditCommand {
 
 /**
  * 基于当前历史创建新对话分支。
- * 复制 sourceSessionKey 中 uptoMessageId（含）之前的历史到新会话，并追加编辑后的 user 消息。
+ * 复制 sourceSessionKey 中 uptoMessageId（含）之前的历史到新会话。
+ * 可选追加新的 user 消息。不提供 newContent 时为纯复制分支。
  * 返回 { sessionKey: string } — 新会话的 key。
  */
 interface ConversationForkCommand {
@@ -1240,8 +1241,8 @@ interface ConversationForkCommand {
   readonly sourceSessionKey: string
   /** 复制至（含）此消息 ID，该消息的后续历史不复制 */
   readonly uptoMessageId: string
-  /** 编辑后的用户消息内容 */
-  readonly newContent: string
+  /** 可选：分支后追加的新用户消息内容。省略时为纯复制分支（不追加消息） */
+  readonly newContent?: string
 }
 
 /**

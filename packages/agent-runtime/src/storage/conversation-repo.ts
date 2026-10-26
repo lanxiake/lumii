@@ -1008,38 +1008,52 @@ export class ConversationRepo {
   }
 
   /**
-   * 将某会话中截止到指定消息（含）的历史复制到新会话，并追加一条新的 user 消息。
-   * 用于「基于当前历史创建新对话」分支：保留上下文，以编辑后的内容重新开始。
+   * 将某会话中截止到指定消息（含）的历史复制到新会话。
+   * 用于「会话分支」：保留上下文，之后可以在新会话里往别的方向继续。
+   * 传了 newUserContent 时再追加一条新的 user 消息；不传就是纯复制分支。
    *
    * @returns 新会话的 ID
    */
   forkConversation(params: {
     readonly sourceConversationId: string;
     readonly uptoMessageId: string;
-    readonly newUserContent: string;
+    readonly newUserContent?: string;
     readonly userId: string;
     readonly agentId?: string;
   }): string {
     const { sourceConversationId, uptoMessageId, newUserContent, userId, agentId } = params;
 
-    // 读锚点消息的 timestamp
+    // 读锚点消息的 timestamp 和 is_streaming 状态
     const anchor = this.db
-      .prepare<{ timestamp: string }>(
-        "SELECT timestamp FROM messages WHERE id = ? AND conversation_id = ?",
+      .prepare<{ timestamp: string; is_streaming: number }>(
+        "SELECT timestamp, is_streaming FROM messages WHERE id = ? AND conversation_id = ?",
       )
       .get(uptoMessageId, sourceConversationId);
     if (!anchor) {
       throw new Error(`forkConversation: message ${uptoMessageId} not found`);
     }
+    if (anchor.is_streaming === 1) {
+      throw new Error(`forkConversation: cannot fork from streaming message ${uptoMessageId}`);
+    }
 
     // 读要复制的消息（timestamp <= anchor，排除 streaming 行）
-    const rows = this.db
+    // 使用 (timestamp, id) 二级排序确保同毫秒消息按插入顺序复制
+    const allRows = this.db
       .prepare<MessageRow>(
         `SELECT * FROM messages
-         WHERE conversation_id = ? AND is_streaming = 0 AND timestamp <= ?
-         ORDER BY timestamp ASC`,
+         WHERE conversation_id = ? AND is_streaming = 0
+         ORDER BY timestamp ASC, id ASC`,
       )
-      .all(sourceConversationId, anchor.timestamp) as MessageRow[];
+      .all(sourceConversationId) as MessageRow[];
+
+    // 在结果集中定位锚点消息的下标
+    const anchorIdx = allRows.findIndex((r) => r.id === uptoMessageId);
+    if (anchorIdx === -1) {
+      throw new Error(
+        `forkConversation: anchor ${uptoMessageId} not found in ordered result (possibly is_streaming=1)`,
+      );
+    }
+    const rows = allRows.slice(0, anchorIdx + 1);
 
     // 新建对话
     const newConv = this.createConversation({
@@ -1071,20 +1085,24 @@ export class ConversationRepo {
           row.compacted_at ?? null,
         );
       }
-      // 追加新 user 消息
-      insertMsg.run(
-        generateId(),
-        newConv.id,
-        null,
-        "user",
-        JSON.stringify({ type: "text", text: newUserContent }),
-        now,
-        0,
-        null,
-      );
+      // 仅当提供了 newUserContent 时才追加 user 消息
+      if (newUserContent) {
+        insertMsg.run(
+          generateId(),
+          newConv.id,
+          null,
+          "user",
+          JSON.stringify({ type: "text", text: newUserContent }),
+          now,
+          0,
+          null,
+        );
+      }
+      // last_msg_at：分支创建时刻（而非锚点时间），保证新会话排在父会话之后
+      const lastMsgAt = newUserContent ? now : new Date().toISOString();
       this.db
         .prepare("UPDATE conversations SET last_msg_at = ? WHERE id = ?")
-        .run(now, newConv.id);
+        .run(lastMsgAt, newConv.id);
     });
 
     this.messageCache.deleteWhere((k) => k.startsWith(`${newConv.id}|`));

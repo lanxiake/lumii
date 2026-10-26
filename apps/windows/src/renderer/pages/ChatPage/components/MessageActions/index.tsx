@@ -16,6 +16,7 @@ interface MessageActionsProps {
   onEditSave: (newContent: string) => void
   onDelete: (messageId: string) => void
   onRegenerate: (messageId: string) => void
+  onFork: (messageId: string) => void
   sessionBusy?: boolean
   isVoice?: boolean
   isReplaying?: boolean
@@ -34,6 +35,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onEditSave,
   onDelete,
   onRegenerate,
+  onFork,
   sessionBusy,
   isVoice,
   isReplaying,
@@ -228,6 +230,24 @@ const MessageActions: React.FC<MessageActionsProps> = ({
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
+      )}
+
+      {/* 会话分支（user / assistant 均可）：复制至此消息的历史创建新会话 */}
+      {(role === 'user' || role === 'assistant') && (
+        <button
+          className={styles['action-btn']}
+          onClick={() => onFork(messageId)}
+          disabled={sessionBusy}
+          title={sessionBusy ? '正在回复中…' : '从此处创建分支会话'}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="18" r="3" />
+            <circle cx="6" cy="6" r="3" />
+            <circle cx="18" cy="6" r="3" />
+            <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
+            <path d="M12 12v3" />
           </svg>
         </button>
       )}

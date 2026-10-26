@@ -1660,6 +1660,27 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [])
 
   /**
+   * 会话分支：复制当前会话至该消息（含）的历史，建一个纯复制的新会话再切过去。
+   * 用 ref 取最新 sessionKey / runtimeActions，身份保持稳定，不击穿 Context 的稳定性契约。
+   */
+  const handleForkMessage = useCallback((messageId: string) => {
+    const sessionKey = runtimeCurrentSessionKeyRef.current
+    if (!sessionKey) return
+    void (async () => {
+      try {
+        // 不传 newContent = 纯复制分支（沿用编辑并新建那条通道）
+        const newKey = await runtimeActionsRef.current.forkConversation(sessionKey, messageId)
+        await refreshLocalSessions()
+        handleOpenSession(newKey)
+        toast.info('已创建分支会话')
+      } catch (err) {
+        logger.error(`[handleForkMessage] 分支失败: ${err instanceof Error ? err.message : String(err)}`)
+        toast.error(`创建分支失败: ${err instanceof Error ? err.message : '未知错误'}`)
+      }
+    })()
+  }, [refreshLocalSessions, handleOpenSession, toast])
+
+  /**
    * 消息级交互动作打包给 Context：只放引用稳定的回调。
    * 流式/打字期间 value 保持不变，消息行的 memo 不受 Context 传播影响；
    * 仅会话切换（edit/delete）与 workspace 初始化（review）时会换新。
@@ -1674,6 +1695,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     reviewFileChanges: handleReviewTurnFileChange,
     confirmHandoff: handleConfirmHandoff,
     openSession: handleOpenSession,
+    forkMessage: handleForkMessage,
   }), [
     formatTime,
     handleCopyMessage,
@@ -1684,6 +1706,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     handleReviewTurnFileChange,
     handleConfirmHandoff,
     handleOpenSession,
+    handleForkMessage,
   ])
 
   // 实时朗读模式开关：开启=启动静默持续 micless 播报（右上角按钮，波纹见 readAloudSpeaking）

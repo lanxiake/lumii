@@ -28,6 +28,7 @@ const messageActions: ChatMessageActions = {
   reviewFileChanges: noop,
   confirmHandoff: vi.fn(async () => ({ ok: true })),
   openSession: noop,
+  forkMessage: noop,
 }
 
 /** 构造带 4 段 parts 的助手消息（thinking → tool → text → text） */

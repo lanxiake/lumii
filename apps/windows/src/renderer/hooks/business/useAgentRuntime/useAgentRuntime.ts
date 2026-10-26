@@ -469,13 +469,14 @@ export function useAgentRuntimeActions() {
   }, [])
 
   /**
-   * 基于当前历史创建新对话分支（「编辑并新建对话」选项）。
-   * 复制 sourceSessionKey 中 uptoMessageId 之前的历史，追加编辑后内容，返回新 sessionKey。
+   * 基于当前历史创建新对话分支。
+   * 复制 sourceSessionKey 中 uptoMessageId（含）之前的历史，返回新 sessionKey。
+   * 不传 newContent 即纯复制分支；传了则追加一条新的 user 消息。
    */
   const forkConversation = useCallback(async (
     sourceSessionKey: string,
     uptoMessageId: string,
-    newContent: string,
+    newContent?: string,
   ): Promise<string> => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) throw new Error('Agent Runtime not available')
@@ -483,7 +484,7 @@ export function useAgentRuntimeActions() {
       type: 'conversation:fork',
       sourceSessionKey,
       uptoMessageId,
-      newContent,
+      ...(newContent !== undefined ? { newContent } : {}),
     }) as { success: boolean; sessionKey?: string; error?: string }
     if (!result.success || !result.sessionKey) {
       throw new Error(result.error ?? 'fork failed')

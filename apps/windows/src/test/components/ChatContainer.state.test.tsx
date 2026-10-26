@@ -34,6 +34,7 @@ const messageActions: ChatMessageActions = {
   reviewFileChanges: noop,
   confirmHandoff: vi.fn(async () => ({ ok: true })),
   openSession: noop,
+  forkMessage: noop,
 }
 
 function makeSession(messages: ChatSession['messages']): ChatSession {

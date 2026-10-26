@@ -35,6 +35,7 @@ const actions: ChatMessageActions = {
   reviewFileChanges: noop,
   confirmHandoff: async () => ({ ok: true }),
   openSession: noop,
+  forkMessage: noop,
 }
 
 function renderWith(parts: AssistantPart[]) {
