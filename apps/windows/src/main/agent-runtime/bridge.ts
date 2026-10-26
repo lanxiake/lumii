@@ -146,6 +146,7 @@ import { getPetService } from './pet-accessor'
 import { DEFAULT_VH_SETTINGS } from '../../shared/virtual-human'
 import { petAgentId } from '@mtbot/pet-core'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
+import { resolvePrimeEffectiveModel } from './session-model-prime'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
 import { loadStoredThinkingPrefs, saveStoredThinkingPrefs } from './session-thinking-store'
 import { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
@@ -2879,19 +2880,31 @@ export class AgentRuntimeBridge {
     this.sessionModelCatalog.setModelCatalogFromApi(entries)
   }
 
-  primeSessionModelCompaction(sessionKey: string, modelRef: string | undefined): void {
-    // 会话已有持久化模型偏好时以它为准：切换会话时 UI 传来的是全局下拉框选中值，
-    // 直接采用会让"会话级模型"被最后一次全局选择覆盖。
-    let effective = modelRef
+  /**
+   * 切换/打开会话时写入压缩参数与流式模型偏好。
+   * 桌面会话：DB preferredModel 粘性优先；渠道会话：跟 UI / live chat，避免历史 deepseek 压过当前 Qwen。
+   */
+  primeSessionModelCompaction(sessionKey: string, modelRef: string | undefined): string | undefined {
+    let saved: string | undefined
     if (this.localDb.isOpen) {
       try {
-        const saved = readSessionConfig(this.localDb.db, sessionKey).preferredModel?.trim()
-        if (saved) effective = saved
+        saved = readSessionConfig(this.localDb.db, sessionKey).preferredModel?.trim() || undefined
       } catch (err) {
         log.error(`[primeSessionModelCompaction] 读取会话模型偏好失败 sessionKey=${sessionKey}:`, err)
       }
     }
+    const liveChatModelId = this.config.getProviderConfig?.()?.modelId?.trim() || undefined
+    const { effective, source } = resolvePrimeEffectiveModel({
+      sessionKey,
+      modelRef,
+      savedPreferred: saved,
+      liveChatModelId,
+    })
+    log.info(
+      `[primeSessionModelCompaction] sessionKey=${sessionKey} modelRef=${modelRef ?? '(none)'} saved=${saved ?? '(none)'} live=${liveChatModelId ?? '(none)'} effective=${effective ?? '(none)'} source=${source}`,
+    )
     this.sessionModelCatalog.primeSessionModelCompaction(sessionKey, effective)
+    return effective
   }
 
   getCompactionForRootSession(rootSessionKey: string): { contextWindow: number; outputReserveTokens: number; summaryReserveTokens: number } {

@@ -39,7 +39,7 @@ describe('session preferred model commands', () => {
   it('primes a session without changing its saved model selection', () => {
     const bridge = {
       setSessionPreferredModel: vi.fn(),
-      primeSessionModelCompaction: vi.fn(),
+      primeSessionModelCompaction: vi.fn(() => 'gpt-5.6-luna'),
       getSessionContextUsage: vi.fn(() => ({
         usedTokens: 0,
         contextWindow: 200_000,
@@ -47,7 +47,7 @@ describe('session preferred model commands', () => {
       })),
     }
 
-    handleSessionPreferredModelPrime(bridge as never, {
+    const result = handleSessionPreferredModelPrime(bridge as never, {
       type: 'session:preferredModel:prime',
       sessionKey: 'conversation-1',
       modelId: 'gpt-5.6-luna',
@@ -58,6 +58,7 @@ describe('session preferred model commands', () => {
       'gpt-5.6-luna',
     )
     expect(bridge.setSessionPreferredModel).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ preferredModel: 'gpt-5.6-luna', contextWindow: 200_000 })
   })
 })
 

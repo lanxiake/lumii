@@ -337,7 +337,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (latest) {
       didAutoRestoreRef.current = true
       logger.info(`[ChatPage] 自动恢复上次会话: ${latest.sessionKey}`)
-      void runtimeActions.switchSession(latest.sessionKey)
+      void switchSessionAndSyncModel(latest.sessionKey, selectedModelId || undefined)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localRuntimeSessions, runtimeCurrentSessionKey])
@@ -1456,12 +1456,32 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [pendingClearStats, localRuntimeSessionsAsChatSessions, runtimeActions, refreshLocalSessions, toast])
 
   /**
+   * 切换会话后按 prime 结果同步下拉框，避免「显示 Qwen、实际 deepseek」。
+   */
+  const switchSessionAndSyncModel = useCallback(
+    async (sessionKey: string, modelHint?: string) => {
+      const result = await runtimeActions.switchSession(sessionKey, modelHint)
+      const next = result?.preferredModel?.trim()
+      if (next && next !== selectedModelId) {
+        setSelectedModelId(next)
+        try {
+          localStorage.setItem('mtbot:chat-model', next)
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(new CustomEvent('mtbot:chat-model-changed', { detail: { modelId: next } }))
+      }
+    },
+    [runtimeActions, selectedModelId],
+  )
+
+  /**
    * 侧栏点选会话：切到对话视图并切换 runtime 会话。
    */
   const handleSelectSidebarSession = useCallback((sessionKey: string) => {
     onViewChange?.('chat')
-    void runtimeActions.switchSession(sessionKey, selectedModelId || undefined)
-  }, [onViewChange, runtimeActions, selectedModelId])
+    void switchSessionAndSyncModel(sessionKey, selectedModelId || undefined)
+  }, [onViewChange, switchSessionAndSyncModel, selectedModelId])
 
   /**
    * 侧栏底部「新建对话」：跟随当前打开会话的 Agent（无会话时为系统默认）。
@@ -1732,6 +1752,37 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (readAloudActive) void voiceCallActions.stopCall()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeCurrentSessionKey])
+
+  /**
+   * 流式中主输入 Enter：先 abort，再把文本作为新消息发出（立即打断并发送）。
+   */
+  const handleAbortAndSend = useCallback(
+    async (text: string) => {
+      const content = text.trim()
+      if (!content) return
+      const sessionKey = runtimeCurrentSessionKey
+      try {
+        await runtimeActions.abort()
+      } catch (err) {
+        logger.warn(
+          `[handleAbortAndSend] abort 失败（仍尝试发送）: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+      try {
+        await runtimeActions.sendMessage(content, {
+          ...(sessionKey ? { sessionKey } : {}),
+          agentId: activeAgentId,
+          modelId: selectedModelId || undefined,
+        })
+      } catch (err) {
+        logger.error(
+          `[handleAbortAndSend] 发送失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+        toast.error('已中断，但新消息发送失败')
+      }
+    },
+    [runtimeActions, runtimeCurrentSessionKey, activeAgentId, selectedModelId, toast],
+  )
 
   // 处理手动中断 Agent
   const handleAbort = useCallback(async () => {
@@ -2020,6 +2071,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onReasoningEffortChange={handleReasoningEffortChange}
             modelContextWindow={selectedModelContextWindow}
             onSteer={runtimeActions.steer}
+            onAbortAndSend={handleAbortAndSend}
             contextUsage={runtimeContextUsage}
             isCompacting={runtimeIsAutoCompacting}
             onCompactContext={handleCompactContext}

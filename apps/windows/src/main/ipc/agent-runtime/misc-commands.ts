@@ -81,8 +81,9 @@ export function handleSessionPreferredModelPrime(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'session:preferredModel:prime' }>,
 ): unknown {
-  bridge.primeSessionModelCompaction(command.sessionKey, command.modelId)
-  return bridge.getSessionContextUsage(command.sessionKey)
+  const preferredModel = bridge.primeSessionModelCompaction(command.sessionKey, command.modelId)
+  const usage = bridge.getSessionContextUsage(command.sessionKey)
+  return preferredModel ? { ...usage, preferredModel } : usage
 }
 
 export function handleSessionThinkingPrefsSet(

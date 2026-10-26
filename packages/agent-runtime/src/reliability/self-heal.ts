@@ -52,6 +52,8 @@ export interface SelfHealDeps {
   readonly continueAgent: () => Promise<void>;
   /** 实例是否已销毁（延迟重试前检查） */
   readonly isDestroyed: () => boolean;
+  /** 用户是否已 abort（延迟 continue 前检查，避免僵尸回合） */
+  readonly isAborted: () => boolean;
   /** 是否正在结束以进入 paused（此时不自愈） */
   readonly isEndingPause: () => boolean;
   /** 自愈彻底失败时回调（AgentInstance 据此置 error 状态并 emit） */
@@ -80,11 +82,18 @@ export class SelfHealController {
     this.attempts = 0;
   }
 
-  /** 清理延迟重试定时器（destroy 时调用） */
+  /**
+   * 取消挂起的延迟重试（destroy / abort 时调用）。
+   * 若正在 healing，复位标志并 settle，避免 prompt() 永远挂起。
+   */
   dispose(): void {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
+    }
+    if (this.healing) {
+      this.healing = false;
+      this.deps.onSettled();
     }
   }
 
@@ -287,19 +296,58 @@ export class SelfHealController {
       } as AgentMessage);
     }
 
-    void this.deps
-      .continueAgent()
-      .catch((err) => {
-        console.error(`[AgentInstance:${this.deps.instanceId}] 自愈重试失败:`, err);
-        this.healing = false;
-        this.deps.onError(
-          `Self-heal retry failed: ${err instanceof Error ? err.message : String(err)}`,
+    // 必须离开 agent_end → processEvents → runLoop 栈后再 continue，
+    // 否则 pi 仍标记 processing，会报 "Agent is already processing"。
+    // 用 setTimeout(0)（不用 queueMicrotask）：同一 tick 内 runLoop 可能尚未完全退出。
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.runContinueAfterUnwind();
+    }, 0);
+  }
+
+  /**
+   * runLoop 退出后真正调用 continue；若仍撞 processing 再短延后重试一次。
+   */
+  private async runContinueAfterUnwind(): Promise<void> {
+    if (this.deps.isDestroyed() || this.deps.isAborted()) {
+      this.healing = false;
+      this.deps.onSettled();
+      return;
+    }
+    try {
+      await this.deps.continueAgent();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const stillProcessing = /already processing/i.test(msg);
+      if (stillProcessing) {
+        console.warn(
+          `[AgentInstance:${this.deps.instanceId}] 自愈 continue 仍 processing，50ms 后再试一次`,
         );
-        // 自愈失败时也要通知 settle，避免 prompt() 永远挂起
-        this.deps.onSettled();
-      })
-      .finally(() => {
-        this.healing = false;
-      });
+        await new Promise<void>((r) => setTimeout(r, 50));
+        if (this.deps.isDestroyed() || this.deps.isAborted()) {
+          this.healing = false;
+          this.deps.onSettled();
+          return;
+        }
+        try {
+          await this.deps.continueAgent();
+          this.healing = false;
+          return;
+        } catch (err2) {
+          const msg2 = err2 instanceof Error ? err2.message : String(err2);
+          console.error(`[AgentInstance:${this.deps.instanceId}] 自愈重试失败:`, err2);
+          this.healing = false;
+          this.deps.onError(`Self-heal retry failed: ${msg2}`);
+          this.deps.onSettled();
+          return;
+        }
+      }
+      console.error(`[AgentInstance:${this.deps.instanceId}] 自愈重试失败:`, err);
+      this.healing = false;
+      this.deps.onError(`Self-heal retry failed: ${msg}`);
+      this.deps.onSettled();
+      return;
+    }
+    this.healing = false;
   }
 }

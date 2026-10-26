@@ -128,7 +128,14 @@ function injectRestoredTasks(
  * 2. 否则从 DB 加载历史，在 setState updater 内与最新内存状态合并（避免竞态）
  * 后台会话的事件已被持续路由到对应会话，无需缓存恢复。
  */
-export async function switchSession(sessionKey: string, preferredModelId?: string): Promise<void> {
+/**
+ * 切换会话。始终 prime 模型（渠道会话即使无 preferredModelId 也要用 live chat 写入 Map）。
+ * @returns preferredModel 供 UI 同步下拉框（桌面会话粘性 / 渠道跟 UI）
+ */
+export async function switchSession(
+  sessionKey: string,
+  preferredModelId?: string,
+): Promise<{ preferredModel?: string } | void> {
   const api = window.electronAPI?.agentRuntime
   if (!api?.sendCommand) return
   const switchRequestId = ++latestSwitchRequestId
@@ -137,10 +144,17 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
   runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: sessionKey }))
 
   // 切换前先 prime 模型偏好，确保 context-usage 返回正确的 contextWindow（而非 128K 默认值）
-  if (preferredModelId) {
-    await api.sendCommand({ type: 'session:preferredModel:prime', sessionKey, modelId: preferredModelId }).catch(() => undefined)
-    if (!isCurrentSwitch()) return
-  }
+  let preferredModel: string | undefined
+  const primeResult = (await api
+    .sendCommand({
+      type: 'session:preferredModel:prime',
+      sessionKey,
+      modelId: preferredModelId,
+    })
+    .catch(() => undefined)) as SessionContextUsageResult | undefined
+  if (!isCurrentSwitch()) return
+  preferredModel = primeResult?.preferredModel?.trim() || undefined
+  // preferredModel 留给调用方同步下拉框；用量条由下方 context-usage 刷新
 
   /** 拉取会话关联的文件与任务（缓存命中与冷加载共用） */
   const fetchSessionMeta = async () => {
@@ -203,7 +217,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
       debugLog('[switchSession] 刷新缓存会话元数据失败（已忽略） sessionKey=' + sessionKey, err)
     }
     debugLog('[switchSession] 切换到已缓存会话 sessionKey=' + sessionKey + ' msgs=' + existingSession.messages.length)
-    return
+    return { preferredModel }
   }
 
   // 先切当前会话，再去 DB 拉历史：useAgentRuntimeState 按 currentSessionKey 选消息，
@@ -328,4 +342,5 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
     })
     return { ...prev, sessions: newSessions, currentSessionKey: sessionKey }
   })
+  return { preferredModel }
 }

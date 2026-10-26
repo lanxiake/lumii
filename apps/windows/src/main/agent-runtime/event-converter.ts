@@ -28,6 +28,12 @@ export interface RunContext {
   readonly instanceId: string
   /** 当前 Agent 解析后的模型 ID（用于 IPC agent:message:start） */
   resolvedModelId?: string
+  /**
+   * 本轮 prompt/run 锁定的流式模型 id。
+   * 首次 LLM 调用写入后，同轮后续跳忽略会话偏好 Map 的中途变更（防 prime 错切）。
+   * 仅在新 prompt 入口清空（自愈 continue 仍属同逻辑轮，不在 agent_end 清）。
+   */
+  pinnedStreamModelRef?: string
   /** 当前消息 ID，在 message:start 时生成 */
   currentMessageId: string
   /** 累积文本长度（当前轮次，已剥离 <think> 内容） */

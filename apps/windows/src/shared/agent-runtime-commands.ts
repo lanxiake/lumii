@@ -25,6 +25,8 @@ export interface SessionContextUsageResult {
   readonly triggerThreshold: number
   readonly breakdown?: readonly ContextUsageBreakdownEntry[]
   readonly budget?: ContextBudgetSnapshot
+  /** prime/set 后写入的会话流式模型偏好（供 UI 同步下拉框） */
+  readonly preferredModel?: string
 }
 
 // ============================================================

@@ -86,6 +86,11 @@ interface ChatInputProps {
    * @returns 是否已发出（该会话当前没有运行中的回合时为 false）
    */
   onSteer?: (sessionKey: string, steerText: string) => void | Promise<boolean>
+  /**
+   * 流式中主输入框 Enter：立即打断当前回合并以该文本新开一轮发送。
+   * 与 onSteer（插话面板注入当前回合）分立。
+   */
+  onAbortAndSend?: (text: string) => void | Promise<void>
   /** 上下文使用量（来自 agent:context:usage 事件） */
   contextUsage?: ContextUsage | null
   /** 自动压缩进行中（显示"压缩中..."动画） */
@@ -184,6 +189,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onRemoveAttachment,
   onViewChange,
   onSteer,
+  onAbortAndSend,
   contextUsage,
   isCompacting = false,
   onCompactContext,
@@ -430,14 +436,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (disabled) return
-      // AI 正在回复时：回车 = 插话，直接注入当前回合
+      // AI 正在回复时：主输入 Enter = 打断并新开一轮；插话面板仍走 onSteer
       if (isStreaming) {
         const text = innerValue.trim()
         if (text) {
-          // 回合进行中发的消息一律当插话：在当前工具跑完的边界注入，
-          // 不必等整轮结束（2026-09-23 统一——不再有「排队等回合结束」那条路径，
-          // 两条路的选择成本高于收益，用户实测反馈「还是得等全部工具跑完」）。
-          if (sessionKey) onSteer?.(sessionKey, text)
+          if (onAbortAndSend) {
+            void onAbortAndSend(text)
+          } else if (sessionKey) {
+            void onSteer?.(sessionKey, text)
+          }
           setDraft('')
           flushDraft('')
         }
@@ -608,7 +615,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const effectivePlaceholder = !isConnected
     ? '请先连接服务器'
     : isStreaming
-      ? 'AI 回复中，回车会作为插话注入当前回合…'
+      ? 'AI 回复中，回车将打断并发送新消息…'
       : rotatingTip
         ? rotatingTip
         : (placeholder || '咱们今天干点啥！')
