@@ -29,12 +29,15 @@ export interface WorkspaceCleanupDialogProps {
   onClose: () => void
   /** 清理完成后通知外部刷新 rail 体积 */
   onCleaned?: () => void
+  /** 当前会话声明为成品的路径（清理时永不删） */
+  protectedPaths?: readonly string[]
 }
 
 export const WorkspaceCleanupDialog: React.FC<WorkspaceCleanupDialogProps> = ({
   open,
   onClose,
   onCleaned,
+  protectedPaths,
 }) => {
   const [scan, setScan] = useState<CleanupScan | null>(null)
   const [loading, setLoading] = useState(false)
@@ -44,6 +47,10 @@ export const WorkspaceCleanupDialog: React.FC<WorkspaceCleanupDialogProps> = ({
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<CleanupRunResult | null>(null)
   const [trash, setTrash] = useState<CleanupTrashEntry[]>([])
+  /** 干跑结果：真实会删多少（含 too-recent/被引用跳过），不再拿分类总数充数 */
+  const [preview, setPreview] = useState<CleanupRunResult | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const protectedSignature = (protectedPaths ?? []).join('\n')
 
   const refresh = useCallback(async () => {
     const api = window.electronAPI?.workspace
@@ -75,27 +82,75 @@ export const WorkspaceCleanupDialog: React.FC<WorkspaceCleanupDialogProps> = ({
   useEffect(() => {
     if (!open) return
     setResult(null)
+    setPreview(null)
     void refresh()
   }, [open, refresh])
+
+  const targetOf = (): 'intermediate' | 'ephemeral' | 'both' | null =>
+    includeIntermediate && includeEphemeral
+      ? 'both'
+      : includeIntermediate
+        ? 'intermediate'
+        : includeEphemeral
+          ? 'ephemeral'
+          : null
+
+  // 勾选变化 → 干跑，得到「实际会删多少」；防抖避免连点触发多次全量扫描
+  useEffect(() => {
+    if (!open) return
+    const target = targetOf()
+    if (!target) {
+      setPreview(null)
+      return
+    }
+    const api = window.electronAPI?.workspace
+    if (!api?.cleanupRun) return
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setPreviewLoading(true)
+      void api
+        .cleanupRun({
+          target,
+          dryRun: true,
+          ...(protectedPaths && protectedPaths.length > 0
+            ? { protectedPaths }
+            : {}),
+        })
+        .then((response) => {
+          if (cancelled) return
+          setPreview(response)
+          if (!response.ok && response.error) setError(response.error)
+        })
+        .catch((err) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : '预检失败')
+        })
+        .finally(() => {
+          if (!cancelled) setPreviewLoading(false)
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+    // protectedSignature 覆盖同一批路径；数组本身每次渲染都可能换引用
+  }, [open, includeIntermediate, includeEphemeral, protectedSignature]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = useCallback(async () => {
     const api = window.electronAPI?.workspace
     if (!api?.cleanupRun) return
-    const target =
-      includeIntermediate && includeEphemeral
-        ? 'both'
-        : includeIntermediate
-          ? 'intermediate'
-          : includeEphemeral
-            ? 'ephemeral'
-            : null
+    const target = targetOf()
     if (!target) return
     setRunning(true)
     setError(null)
     try {
-      const response = await api.cleanupRun({ target, dryRun: false })
+      const response = await api.cleanupRun({
+        target,
+        dryRun: false,
+        ...(protectedPaths && protectedPaths.length > 0 ? { protectedPaths } : {}),
+      })
       setResult(response)
       if (!response.ok && response.error) setError(response.error)
+      setPreview(null)
       await refresh()
       onCleaned?.()
     } catch (err) {
@@ -103,7 +158,7 @@ export const WorkspaceCleanupDialog: React.FC<WorkspaceCleanupDialogProps> = ({
     } finally {
       setRunning(false)
     }
-  }, [includeIntermediate, includeEphemeral, refresh, onCleaned])
+  }, [includeIntermediate, includeEphemeral, refresh, onCleaned, protectedPaths])
 
   const restore = useCallback(
     async (id: string) => {
@@ -117,15 +172,10 @@ export const WorkspaceCleanupDialog: React.FC<WorkspaceCleanupDialogProps> = ({
     [refresh, onCleaned],
   )
 
-  const intermediate = scan?.classes.intermediate
-  const ephemeral = scan?.classes.ephemeral
-  const selectedCount =
-    (includeIntermediate ? intermediate?.count ?? 0 : 0) +
-    (includeEphemeral ? ephemeral?.count ?? 0 : 0)
-  const selectedBytes =
-    (includeIntermediate ? intermediate?.bytes ?? 0 : 0) +
-    (includeEphemeral ? ephemeral?.bytes ?? 0 : 0)
-  const canRun = selectedCount > 0 && !running && !loading
+  const selectedCount = preview?.ok ? preview.removed : 0
+  const selectedBytes = preview?.ok ? preview.bytes : 0
+  const selectedSkipped = preview?.ok ? preview.skipped : 0
+  const canRun = Boolean(preview?.ok && preview.removed > 0) && !running && !previewLoading
 
   return (
     <Modal
@@ -136,8 +186,13 @@ export const WorkspaceCleanupDialog: React.FC<WorkspaceCleanupDialogProps> = ({
       footer={
         <div className={styles.footer}>
           <span className={styles.selection}>
-            将清理 <strong>{selectedCount}</strong> 个 · 释放约{' '}
-            {formatBytes(selectedBytes) ?? '0 B'}
+            {previewLoading
+              ? '正在核对可清理范围…'
+              : preview?.ok
+                ? `实际将清理 ${selectedCount} 个 · 释放约 ${formatBytes(selectedBytes) ?? '0 B'}${
+                    selectedSkipped > 0 ? `（跳过 ${selectedSkipped} 个）` : ''
+                  }`
+                : '暂无可清理项'}
           </span>
           <button type="button" className={styles.cancel} onClick={onClose}>
             取消
@@ -203,7 +258,7 @@ export const WorkspaceCleanupDialog: React.FC<WorkspaceCleanupDialogProps> = ({
             {scan.candidates.length > 0 && (
               <div className={styles.candidates}>
                 <div className={styles.sectionTitle}>体积最大的文件</div>
-                {scan.candidates.slice(0, 6).map((candidate) => (
+                {scan.candidates.slice(0, 20).map((candidate) => (
                   <div className={styles.candidate} key={candidate.path}>
                     <span className={styles.candidatePath} title={candidate.path}>
                       {candidate.path}

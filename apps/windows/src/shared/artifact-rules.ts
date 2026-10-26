@@ -8,27 +8,19 @@
  * 纯函数、无 IO，路径一律是**工作区相对路径**（posix 分隔）。
  */
 
+import type { ArtifactKind } from '@mtbot/agent-runtime/browser'
+
 export type ArtifactRole = 'deliverable' | 'intermediate' | 'ephemeral' | 'internal'
 
 export interface ClassifyInput {
   path: string
 }
 
-export type ArtifactKind =
-  | 'image'
-  | 'image-set'
-  | 'video'
-  | 'audio'
-  | 'doc'
-  | 'slides'
-  | 'sheet'
-  | 'site'
-  | 'code'
-  | 'archive'
-  | 'other'
+/** kind 的联合类型只有一份（agent-runtime 契约），这里只做扩展名映射 */
+export type { ArtifactKind }
 
 const INTERNAL_SEGMENTS = new Set(['.git', 'node_modules', '.cache', '.lumii'])
-const INTERNAL_SUFFIXES = ['.lumii-ref', '.tmp']
+const INTERNAL_SUFFIXES = ['.lumii-ref', '.tmp', '.lumii-artifact.json']
 /** 中间产物目录段：parts / parts-10 / normalized / frames */
 const INTERMEDIATE_SEGMENT = /^parts[^/]*$|^normalized$|^frames$/
 /** 中间产物文件名：cut-13.png（只认词根，不命中 cutting-board.png） */

@@ -1088,7 +1088,22 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
         }
         return {
           content: [{ type: 'text', text: JSON.stringify(echo) }],
-          details: result,
+          details: {
+            ...result,
+            artifacts: [
+              {
+                kind: 'image' as const,
+                path: result.filePath,
+                role: 'deliverable' as const,
+                meta: {
+                  width: result.width,
+                  height: result.height,
+                  model: result.model,
+                  prompt: result.revisedPrompt,
+                },
+              },
+            ],
+          },
         }
       } catch (e) {
         const code = (e as { code?: string }).code ?? 'PROVIDER_ERROR'

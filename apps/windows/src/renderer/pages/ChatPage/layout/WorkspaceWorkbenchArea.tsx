@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   WorkspaceWorkbench,
   type WorkbenchLayoutMode,
@@ -9,13 +9,18 @@ import { WorkspaceFilePanel } from '../components/WorkspaceFilePanel'
 import { SlotHost } from '../../../components/slots/SlotHost'
 import { usePluginEnabled } from '../../../../plugins/renderer/state'
 import { WorkspaceArtifactsPanel } from '../components/WorkspaceArtifactsPanel'
-import { buildArtifactLedger } from '../components/WorkspaceArtifactsPanel/ledger'
+import { applySidecarMeta, buildArtifactLedger } from '../components/WorkspaceArtifactsPanel/ledger'
 import { buildTurnProgress } from '../components/WorkspaceArtifactsPanel/progress'
 import { WorkspaceCleanupDialog } from '../components/WorkspaceCleanupDialog'
 import { FilePreviewModal } from '../../../components/FilePreviewModal'
 import { openFilePreviewWindow } from '../../../services/file-preview-service'
+import { buildCardStates } from '../../../../shared/card-state'
+import type { ArtifactSidecar } from '../../../../shared/artifact-declaration'
 import type { WorkbenchState } from '../hooks/useWorkspacePanels'
-import type { RuntimeMessage } from '../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import type {
+  PendingPermission,
+  RuntimeMessage,
+} from '../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import styles from './WorkspaceWorkbenchArea.module.css'
 
 type WorkbenchProps = React.ComponentProps<typeof WorkspaceWorkbench>
@@ -37,6 +42,12 @@ export interface WorkspaceWorkbenchAreaProps {
   onOpenDoc: (absolutePath: string) => void
   /** 中断当前回合（与输入框停止按钮同一条通道） */
   onAbort: () => void
+  /** 当前会话待审批（其它会话的审批不在这里抢） */
+  pendingPermission?: PendingPermission
+  /** 审批动作复用现有权限通道 */
+  onRespondPermission?: (action: 'allow-once' | 'allow-always' | 'deny') => void
+  /** 失败卡「重试」只把原 prompt 放回输入框 */
+  onRetryPrompt?: (prompt: string) => void
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -71,6 +82,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   onRevealInFiles,
   onOpenDoc,
   onAbort,
+  pendingPermission,
+  onRespondPermission,
+  onRetryPrompt,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const fileRefreshRef = useRef<(() => void) | null>(null)
@@ -92,12 +106,81 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         ...(message.role === 'user'
           ? { text: message.content.map((block) => block.text).join('') }
           : {}),
+        // 产物声明：只带台账需要的三列，避免把整条消息塞进纯函数
+        ...(message.parts.length > 0
+          ? {
+              parts: message.parts.map((part) => ({
+                type: part.type,
+                ...(part.type === 'tool'
+                  ? {
+                      name: part.name,
+                      ...(part.result !== undefined ? { result: part.result } : {}),
+                    }
+                  : {}),
+              })),
+            }
+          : {}),
       })),
     [messages],
   )
 
-  const ledger = useMemo(() => buildArtifactLedger(ledgerMessages), [ledgerMessages])
+  // 卡片/进度走「delta」：每个流式事件立即更新；
+  // 台账是「snapshot 级」计算，降优先级重算，避免每个 token 全量扫会话（P0 L11）。
+  const deferredLedgerMessages = useDeferredValue(ledgerMessages)
+  const ledger = useMemo(
+    () => buildArtifactLedger(deferredLedgerMessages),
+    [deferredLedgerMessages],
+  )
   const progress = useMemo(() => buildTurnProgress(messages), [messages])
+  const cards = useMemo(() => buildCardStates(messages), [messages])
+
+  // 侧车（PPT 等无工具层技能）：只给成品读，最多 200 个
+  const [sidecarMetas, setSidecarMetas] = useState<Record<string, ArtifactSidecar>>({})
+  const deliverablePaths = useMemo(
+    () =>
+      [
+        ...new Set(
+          ledger.groups.flatMap((group) => group.deliverables.map((item) => item.path)),
+        ),
+      ]
+        .sort()
+        .slice(0, 200),
+    [ledger],
+  )
+  const deliverableSignature = deliverablePaths.join('\n')
+  useEffect(() => {
+    if (!workbench.open || deliverablePaths.length === 0) return
+    const api = window.electronAPI?.artifact
+    if (!api?.readMeta) return
+    let cancelled = false
+    void api
+      .readMeta(deliverablePaths)
+      .then((response) => {
+        if (!cancelled && response.ok) setSidecarMetas(response.metas)
+      })
+      .catch(() => {
+        // 侧车只是锦上添花；读失败保持派生结果
+      })
+    return () => {
+      cancelled = true
+    }
+    // deliverableSignature 覆盖「同一批路径」；数组本身每次台账重建都是新引用
+  }, [workbench.open, deliverableSignature]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const enrichedLedger = useMemo(
+    () => applySidecarMeta(ledger, sidecarMetas),
+    [ledger, sidecarMetas],
+  )
+  /** 清理时保护「声明/派生为成品」的路径；即使路径长得像过程文件也不删 */
+  const protectedPaths = useMemo(
+    () =>
+      [
+        ...new Set(
+          enrichedLedger.groups.flatMap((group) => group.deliverables.map((item) => item.path)),
+        ),
+      ].sort(),
+    [enrichedLedger],
+  )
 
   const hasIntermediates = ledger.counts.intermediates > 0
   const refreshBytes = useCallback(async () => {
@@ -195,13 +278,26 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         rail={
           workbench.onlyArtifacts ? (
             <WorkspaceArtifactsPanel
-              ledger={ledger}
+              ledger={enrichedLedger}
               toAbsolutePath={toAbsolutePath}
               {...(selected ? { selectedPath: selected } : {})}
               onSelect={onSelect}
               onOpenWindow={openWindow}
               {...(progress ? { progress } : {})}
               onAbort={onAbort}
+              cards={cards}
+              {...(onRetryPrompt ? { onRetryPrompt } : {})}
+              {...(pendingPermission && onRespondPermission
+                ? {
+                    interrupt: {
+                      title: pendingPermission.description || `${pendingPermission.toolName} 需要授权`,
+                      detail: pendingPermission.toolName,
+                      onAllowOnce: () => onRespondPermission('allow-once'),
+                      onAllowAlways: () => onRespondPermission('allow-always'),
+                      onDeny: () => onRespondPermission('deny'),
+                    },
+                  }
+                : {})}
               onCleanup={() => setCleanupOpen(true)}
               {...(intermediateBytes !== undefined ? { intermediateBytes } : {})}
             />
@@ -240,6 +336,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         open={cleanupOpen}
         onClose={() => setCleanupOpen(false)}
         onCleaned={() => void refreshBytes()}
+        protectedPaths={protectedPaths}
       />
     </>
   )

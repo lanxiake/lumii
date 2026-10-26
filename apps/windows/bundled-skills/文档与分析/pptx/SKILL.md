@@ -158,6 +158,15 @@ When creating a new PowerPoint presentation from scratch, use the **html2pptx** 
    - Use the `html2pptx()` function to process each HTML file
    - Add charts and tables to placeholder areas using PptxGenJS API
    - Save the presentation using `pptx.writeFile()`
+3b. **产物侧车（Lumii 工作台读取）**：保存后在**同一目录**写 `<文件名>.lumii-artifact.json`，让工作台知道这是幻灯片、标题与页数：
+
+   ```json
+   { "kind": "slides", "title": "2026 年 10 月月报", "meta": { "pages": 12 } }
+   ```
+
+   - 文件名必须与产物同名（如 `output.pptx` → `output.pptx.lumii-artifact.json`）；
+   - `pages` 取实际页数（`python-pptx` 的 `len(prs.slides)` 或 thumbnail 脚本输出）；拿不到就省略该字段；
+   - 编辑已有 pptx 后页数变了，**同步更新侧车**，否则工作台显示旧页数。
 4. **Visual validation**: Generate thumbnails and inspect for layout issues
    - Create thumbnail grid: `python scripts/thumbnail.py output.pptx workspace/thumbnails --cols 4`
    - Read and carefully examine the thumbnail image for:

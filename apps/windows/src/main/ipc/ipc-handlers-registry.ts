@@ -22,6 +22,10 @@ import {
   registerWorkspaceIpcHandlers
 } from './workspace-ipc'
 import {
+  setArtifactIpcDeps,
+  registerArtifactIpcHandlers,
+} from './artifact-ipc'
+import {
   setWindowIpcDeps,
   registerWindowIpcHandlers
 } from './window-ipc'
@@ -135,8 +139,14 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     setMemoryInjectionSettings: deps.setMemoryInjectionSettings,
   })
 
+  setArtifactIpcDeps({
+    getWorkspaceDir: deps.getWorkspaceDir,
+    log: deps.log,
+  })
+
   // 注册所有 IPC handlers
   registerWorkspaceIpcHandlers()
+  registerArtifactIpcHandlers()
   registerWindowIpcHandlers()
   registerChannelIpcHandlers()
   registerFileSystemIpcHandlers()

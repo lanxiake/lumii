@@ -34,6 +34,16 @@ function extLabel(filePath: string): string {
   return (ext.length > 4 ? ext.slice(0, 4) : ext).toUpperCase()
 }
 
+/** 卡片副标题：优先给用户能判断「是不是要的那张」的规格 */
+function metaLabelOf(artifact: Artifact): string {
+  const meta = artifact.meta
+  if (meta?.pages !== undefined) return `${meta.pages} 页`
+  if (meta?.width && meta?.height) return `${meta.width}×${meta.height}`
+  if (meta?.durationSec !== undefined) return `${Math.round(meta.durationSec)}s`
+  if (meta?.model) return meta.model
+  return artifact.sourceTool ?? artifact.kind
+}
+
 export interface ArtifactCardProps {
   artifact: Artifact
   absolutePath: string
@@ -76,9 +86,7 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
         </span>
       </span>
       <span className={styles.cardName}>{name}</span>
-      <span className={styles.cardMeta}>
-        {artifact.sourceTool ?? artifact.kind}
-      </span>
+      <span className={styles.cardMeta}>{metaLabelOf(artifact)}</span>
     </button>
   )
 }

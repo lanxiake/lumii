@@ -182,8 +182,11 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
   const openDoc = useCallback((absolutePath: string) => {
     const normalizedRoot = (workspaceDir ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
     const normalized = absolutePath.replace(/\\/g, '/')
-    const inside = normalizedRoot && normalized.startsWith(`${normalizedRoot}/`)
-    const selectedPath = inside ? toRelativePath(absolutePath) : normalized
+    // Windows 路径大小写不敏感；按小写比较，避免 E:\WS 与 e:/ws 被当成工作区外
+    const inside =
+      normalizedRoot &&
+      normalized.toLowerCase().startsWith(`${normalizedRoot.toLowerCase()}/`)
+    const selectedPath = inside ? normalized.slice(normalizedRoot.length + 1) : normalized
     setWorkbench((previous) => ({
       ...previous,
       open: true,

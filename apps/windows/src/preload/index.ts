@@ -30,6 +30,7 @@ import {
   fileApi,
   systemApi,
   workspaceApi,
+  artifactApi,
   dialogApi,
   clipboardApi,
   appApi,
@@ -703,6 +704,7 @@ export interface ElectronAPI {
     cleanupRun: (payload: {
       target: 'intermediate' | 'ephemeral' | 'both'
       dryRun: boolean
+      protectedPaths?: readonly string[]
     }) => Promise<import('../shared/workspace-cleanup-types').CleanupRunResult>
     /** 回收站列表（倒序） */
     cleanupListTrash: () => Promise<
@@ -712,6 +714,15 @@ export interface ElectronAPI {
     cleanupRestore: (
       id: string,
     ) => Promise<import('../shared/workspace-cleanup-types').CleanupRestoreResult>
+  }
+
+  /** 产物元数据（侧车） */
+  artifact: {
+    readMeta: (paths: readonly string[]) => Promise<{
+      ok: boolean
+      metas: Record<string, import('../shared/artifact-declaration').ArtifactSidecar>
+      error?: string
+    }>
   }
 
   // 本地技能管�?
@@ -1254,6 +1265,8 @@ const electronAPI: ElectronAPI = {
 
   // 工作空间 API
   workspace: workspaceApi,
+
+  artifact: artifactApi,
 
   // 本地技能管理 API（补充别名以兼容旧代码）
   skills: {

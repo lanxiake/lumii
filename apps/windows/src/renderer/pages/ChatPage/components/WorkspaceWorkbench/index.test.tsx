@@ -73,6 +73,26 @@ describe('WorkspaceWorkbench · 布局与视图', () => {
     expect(screen.queryByText('版本内容')).not.toBeVisible()
   })
 
+  it('VCS 停用 + view=vcs：工作台关着时不强行打开', () => {
+    const onViewChange = vi.fn()
+    renderShell({ open: false, view: 'vcs', vcsEnabled: false, onViewChange })
+    expect(onViewChange).not.toHaveBeenCalled()
+  })
+
+  it('单击拖拽条（无位移）不写 custom；pointercancel 也不写', () => {
+    const onPresetChange = vi.fn()
+    const { container } = renderShell({ onPresetChange })
+    const handle = container.querySelector('[role="separator"]') as HTMLElement
+    fireEvent.pointerDown(handle, { clientX: 800, pointerId: 1 })
+    fireEvent.pointerUp(handle, { clientX: 800, pointerId: 1 })
+    expect(onPresetChange).not.toHaveBeenCalled()
+
+    fireEvent.pointerDown(handle, { clientX: 800, pointerId: 2 })
+    fireEvent.pointerMove(handle, { clientX: 700, pointerId: 2 })
+    fireEvent.pointerCancel(handle, { pointerId: 2 })
+    expect(onPresetChange).not.toHaveBeenCalled()
+  })
+
   it('拖拽松手按 pointerup 坐标写回 custom 宽度，不依赖过期 state', () => {
     const onPresetChange = vi.fn()
     const { container } = renderShell({ onPresetChange, preset: 'half' })

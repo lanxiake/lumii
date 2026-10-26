@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import {
+  applySidecarMeta,
   artifactGroupKey,
   buildArtifactLedger,
   buildChangeLedger,
@@ -180,6 +181,164 @@ describe('buildArtifactLedger · 分组与版本', () => {
     ])
     expect(ledger.versions.has('wiki/a.md.lumii-ref')).toBe(false)
     expect(ledger.versions.has('outputs/x/gone.png')).toBe(true)
+  })
+
+  it('工具声明补出 fileChanges 没记到的产物，并带 meta/title', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'image_generate',
+            result: {
+              details: {
+                artifacts: [
+                  {
+                    kind: 'image',
+                    path: 'outputs/20261026/rabbit.png',
+                    role: 'deliverable',
+                    title: '正面兔',
+                    meta: { width: 1024, height: 1024, model: 'seedream', prompt: '兔子' },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      }),
+    ])
+    expect(ledger.groups).toHaveLength(1)
+    const artifact = ledger.groups[0]?.deliverables[0]
+    expect(artifact).toMatchObject({
+      path: 'outputs/20261026/rabbit.png',
+      kind: 'image',
+      sourceTool: 'image_generate',
+      title: '正面兔',
+      meta: { width: 1024, height: 1024, model: 'seedream', prompt: '兔子' },
+      status: 'added',
+    })
+    expect(ledger.versions.get('outputs/20261026/rabbit.png')).toHaveLength(1)
+  })
+
+  it('声明覆盖 fileChanges 的 kind/role；同轮不重复记版本', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [{ path: 'outputs/x/deck.bin', status: 'added' }], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'pptx',
+            result: {
+              details: {
+                artifacts: [
+                  { kind: 'slides', path: 'outputs/x/deck.bin', meta: { pages: 12 } },
+                ],
+              },
+            },
+          },
+        ],
+      }),
+    ])
+    const artifact = ledger.groups[0]?.deliverables[0]
+    expect(artifact?.kind).toBe('slides')
+    expect(artifact?.meta).toEqual({ pages: 12 })
+    expect(ledger.versions.get('outputs/x/deck.bin')).toHaveLength(1)
+  })
+
+  it('后续轮次已删除的产物，不被历史声明加回', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'image_generate',
+            result: {
+              details: { artifacts: [{ kind: 'image', path: 'outputs/x/gone.png' }] },
+            },
+          },
+        ],
+      }),
+      message('t2', 200, [{ path: 'outputs/x/gone.png', status: 'deleted' }]),
+    ])
+    expect(ledger.groups).toEqual([])
+  })
+
+  it('声明优先：侧车不覆盖已声明的 kind/title/meta', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'image_generate',
+            result: {
+              details: {
+                artifacts: [
+                  { kind: 'image', path: 'outputs/x/a.png', title: '正面图', meta: { width: 512 } },
+                ],
+              },
+            },
+          },
+        ],
+      }),
+    ])
+    const enriched = applySidecarMeta(ledger, {
+      'outputs/x/a.png': { kind: 'slides', title: '旧标题', meta: { pages: 5 } },
+    })
+    expect(enriched.groups[0]?.deliverables[0]).toMatchObject({
+      kind: 'image',
+      title: '正面图',
+      meta: { width: 512 },
+    })
+  })
+
+  it('声明为 internal 的路径仍被过滤', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'x',
+            result: {
+              details: {
+                artifacts: [{ kind: 'image', path: 'wiki/a.md.lumii-ref' }],
+              },
+            },
+          },
+        ],
+      }),
+    ])
+    expect(ledger.groups).toEqual([])
+  })
+
+  it('parts 缺 result 不崩', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], { parts: [{ type: 'tool', name: 'image_generate' }] }),
+    ])
+    expect(ledger.groups).toEqual([])
+  })
+
+  it('侧车元数据回填 kind/title/meta，并重算 byKind', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [{ path: 'outputs/x/deck.bin', status: 'added' }]),
+    ])
+    expect(ledger.counts.byKind).toEqual({ other: 1 })
+    const enriched = applySidecarMeta(ledger, {
+      'outputs/x/deck.bin': {
+        kind: 'slides',
+        title: '月报',
+        meta: { pages: 12 },
+      },
+    })
+    const artifact = enriched.groups[0]?.deliverables[0]
+    expect(artifact).toMatchObject({ kind: 'slides', title: '月报', meta: { pages: 12 } })
+    expect(enriched.counts.byKind).toEqual({ slides: 1 })
+    expect(enriched.versions).toBe(ledger.versions)
+  })
+
+  it('无侧车时返回原对象（不制造无谓渲染）', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [{ path: 'outputs/x/a.png', status: 'added' }]),
+    ])
+    expect(applySidecarMeta(ledger, {})).toBe(ledger)
   })
 
   it('中间产物不足 20 个时按成品展示（不折叠）', () => {

@@ -202,10 +202,14 @@ async function collectWorkspaceFiles(root: string, budgetMs: number): Promise<Wa
 }
 
 /** 成品里被引用的文件名集合（html 里的 `<img src>`、md 里的相对链接等） */
-async function collectReferencedNames(files: readonly WalkedFile[]): Promise<Set<string>> {
+async function collectReferencedNames(
+  files: readonly WalkedFile[],
+  deadline: number,
+): Promise<{ names: Set<string>; truncated: boolean }> {
   const referenced = new Set<string>()
   const tokenPattern = /[\w一-龥.-]+\.[A-Za-z0-9]{1,6}/g
   for (const file of files) {
+    if (Date.now() > deadline) return { names: referenced, truncated: true }
     if (file.symlink || file.bytes === 0 || file.bytes > MAX_TEXT_REFERENCE_BYTES) continue
     if (!TEXT_REFERENCE_EXTENSIONS.has(extOf(file.rel))) continue
     try {
@@ -217,7 +221,7 @@ async function collectReferencedNames(files: readonly WalkedFile[]): Promise<Set
       // 读失败不影响清理；最坏是多留几个文件
     }
   }
-  return referenced
+  return { names: referenced, truncated: false }
 }
 
 function emptyStats(): CleanupClassStats {
@@ -309,21 +313,55 @@ export async function runCleanup(opts: {
   target: 'intermediate' | 'ephemeral' | 'both'
   dryRun: boolean
   logDir?: string
+  /** 工具声明为成品的路径：即便路径像中间产物也不删（安全闸优先于约定目录） */
+  protectedPaths?: readonly string[]
+  /** 测试用：覆盖扫描预算（默认 8s） */
+  budgetMs?: number
 }): Promise<CleanupRunResult> {
   if (running) return { ok: false, dryRun: opts.dryRun, removed: 0, bytes: 0, skipped: 0, error: '已有清理任务在执行' }
 
   running = (async (): Promise<CleanupRunResult> => {
     const root = path.resolve(opts.dir)
     const now = Date.now()
+    const budgetMs = opts.budgetMs ?? 8000
     // 清理只考虑 outputs/ 与 temp/；引用扫描也只在这两棵树里找成品
-    const { files } = await collectWorkspaceFiles(root, 8000)
+    const { files, truncated } = await collectWorkspaceFiles(root, budgetMs)
+    if (truncated) {
+      // 列举不全 → 「被引用」安全闸必然有盲区，宁可什么都不删
+      return {
+        ok: false,
+        dryRun: opts.dryRun,
+        removed: 0,
+        bytes: 0,
+        skipped: 0,
+        error: '文件太多，本次扫描未完成；已中止（可稍后重试）',
+      }
+    }
     const roles = pickRoles(opts.target)
 
     // 参考集：成品里出现的文件名 → 对应候选跳过
     const deliverables = files.filter(
       (file) => !file.symlink && classifyArtifact({ path: file.rel }) === 'deliverable',
     )
-    const referencedNames = await collectReferencedNames(deliverables)
+    const referenceScan = await collectReferencedNames(deliverables, Date.now() + 3000)
+    if (referenceScan.truncated) {
+      return {
+        ok: false,
+        dryRun: opts.dryRun,
+        removed: 0,
+        bytes: 0,
+        skipped: 0,
+        error: '引用校验未完成；已中止（可稍后重试）',
+      }
+    }
+    const referencedNames = referenceScan.names
+
+    const protectedSet = new Set<string>()
+    for (const raw of opts.protectedPaths ?? []) {
+      if (typeof raw !== 'string') continue
+      const normalized = raw.replace(/\\/g, '/').replace(/^\.\//, '')
+      if (normalized) protectedSet.add(normalized)
+    }
 
     const selected: CleanupCandidate[] = []
     let skipped = 0
@@ -332,6 +370,11 @@ export async function runCleanup(opts: {
       const role = classifyArtifact({ path: file.rel })
       if (role !== 'intermediate' && role !== 'ephemeral') continue
       if (!roles.has(role)) continue
+      if (protectedSet.has(file.rel)) {
+        // 声明为成品的，哪怕长得像过程文件也不动
+        skipped += 1
+        continue
+      }
       if (!insideWorkspace(root, file.abs)) {
         skipped += 1
         continue
@@ -406,7 +449,7 @@ function trashRootOf(root: string): string {
 }
 
 function safeTrashId(id: string): boolean {
-  return /^[\w.-]+$/.test(id) && !id.includes('..')
+  return id !== '.' && id !== '..' && /^[\w.-]+$/.test(id) && !id.includes('..')
 }
 
 async function measureDir(root: string): Promise<{ bytes: number; files: number }> {
@@ -511,13 +554,31 @@ export async function restoreTrash(opts: { dir: string; id: string }): Promise<C
     }
   }
 
-  // 全恢复完就清掉空壳目录（不动剩余文件）
+  // 恢复会把文件搬走，但嵌套目录会留下；自底向上清空壳（有剩余文件就保留）
+  await pruneEmptyDirs(trashDir)
+
+  return { ok: true, restored, conflicts }
+}
+
+/** 递归删除空目录；返回该目录是否已被删除 */
+async function pruneEmptyDirs(dir: string): Promise<boolean> {
+  let entries
   try {
-    const left = await fs.readdir(trashDir)
-    if (left.length === 0) await fs.rmdir(trashDir)
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch {
+    return false
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) await pruneEmptyDirs(path.join(dir, entry.name))
+  }
+  try {
+    const left = await fs.readdir(dir)
+    if (left.length === 0) {
+      await fs.rmdir(dir)
+      return true
+    }
   } catch {
     // ignore
   }
-
-  return { ok: true, restored, conflicts }
+  return false
 }

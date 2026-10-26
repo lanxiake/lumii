@@ -33,5 +33,11 @@ export {
   resolveBuiltinDisplayName,
 } from "./agent-definition.js";
 
+export type {
+  ArtifactDeclaration,
+  ArtifactKind,
+  ArtifactMeta,
+} from "./artifact.js";
+
 export type { AgentRuntimeEvent, AgentInstanceState } from "./events.js";
 export { mapAgentEvent } from "./events.js";

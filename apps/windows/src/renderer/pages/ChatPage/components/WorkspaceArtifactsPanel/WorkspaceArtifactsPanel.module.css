@@ -45,6 +45,163 @@
   color: var(--mt-error);
 }
 
+/* 等审批（interrupt）：卡片式动作 */
+.interrupt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 10px 2px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, #d97706 45%, var(--mt-border-hairline));
+  border-radius: 8px;
+  background: color-mix(in srgb, #d97706 10%, transparent);
+  font-size: 11px;
+}
+
+.interruptLabel {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #d97706 22%, transparent);
+  color: #d97706;
+  font-weight: 600;
+}
+
+.interruptTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1);
+}
+
+.interruptActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.interruptActions button {
+  padding: 2px 8px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 6px;
+  background: var(--mt-bg-primary);
+  color: var(--mt-fg-1);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.interruptActions button:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  color: var(--mt-accent-500);
+}
+
+.interruptDeny:hover {
+  border-color: color-mix(in srgb, var(--mt-error) 45%, transparent) !important;
+  color: var(--mt-error) !important;
+}
+
+/* 当前回合的工具卡（running / failed / cancelled） */
+.pendingList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 2px;
+}
+
+.pendingCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mt-surface-2) 45%, transparent);
+  font-size: 11px;
+}
+
+.pendingBadge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.pending--running .pendingBadge {
+  background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent);
+  color: var(--mt-accent-500);
+}
+
+.pending--failed {
+  border-color: color-mix(in srgb, var(--mt-error) 40%, var(--mt-border-hairline));
+}
+
+.pending--failed .pendingBadge {
+  background: color-mix(in srgb, var(--mt-error) 16%, transparent);
+  color: var(--mt-error);
+}
+
+.pending--cancelled .pendingBadge {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-3);
+}
+
+.pendingTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1);
+}
+
+.pendingPrompt {
+  flex-basis: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+}
+
+.pendingError {
+  flex-basis: 100%;
+  color: var(--mt-error);
+  font-size: 10px;
+}
+
+.pendingMeta {
+  flex-shrink: 0;
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+
+.pendingActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pendingActions button {
+  padding: 2px 8px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 6px;
+  background: var(--mt-bg-primary);
+  color: var(--mt-fg-1);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.pendingActions button:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  color: var(--mt-accent-500);
+}
+
 /* 概要 */
 .summary {
   display: flex;
@@ -65,6 +222,23 @@
 
 .summaryMuted {
   color: var(--mt-fg-3);
+}
+
+.summaryCleanup {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.summaryCleanup:hover {
+  color: var(--mt-error);
+  border-color: color-mix(in srgb, var(--mt-error) 40%, transparent);
 }
 
 /* 搜索 + 筛选 */

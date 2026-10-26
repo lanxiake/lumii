@@ -20,6 +20,12 @@ export type {
   ToolAssistantPart,
 } from "./storage/assistant-parts.js";
 
+export type {
+  ArtifactDeclaration,
+  ArtifactKind,
+  ArtifactMeta,
+} from "./types/artifact.js";
+
 export {
   parseMessageContentJson,
 } from "./storage/message-content-json.js";

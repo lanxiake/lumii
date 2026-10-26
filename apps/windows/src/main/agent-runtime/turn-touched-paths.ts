@@ -185,21 +185,33 @@ function collectWritePaths(toolName: string, args: Record<string, unknown>): str
 
 /** 从工具结果里收集产出文件路径；非产文件工具或无路径时返回空数组 */
 export function collectResultTouchedPaths(toolName: string, result: unknown): string[] {
-  if (!RESULT_FILE_PATH_TOOLS.has(toolName)) return []
   if (!result || typeof result !== 'object') return []
   const rec = result as Record<string, unknown>
   const details =
     rec['details'] && typeof rec['details'] === 'object'
       ? (rec['details'] as Record<string, unknown>)
       : undefined
-  const out: string[] = []
-  for (const key of RESULT_PATH_KEYS) {
-    for (const src of [rec, details]) {
-      const value = src?.[key]
-      if (typeof value === 'string' && value) out.push(value)
+  const out = new Set<string>()
+
+  // 产物声明优先：任何工具都可以通过 details.artifacts 声明自己写了哪些工作区文件
+  const declared = details?.['artifacts']
+  if (Array.isArray(declared)) {
+    for (const item of declared) {
+      if (!item || typeof item !== 'object') continue
+      const path = (item as Record<string, unknown>).path
+      if (typeof path === 'string' && path) out.add(path)
     }
   }
-  return out
+
+  if (RESULT_FILE_PATH_TOOLS.has(toolName)) {
+    for (const key of RESULT_PATH_KEYS) {
+      for (const src of [rec, details]) {
+        const value = src?.[key]
+        if (typeof value === 'string' && value) out.add(value)
+      }
+    }
+  }
+  return [...out]
 }
 
 /**

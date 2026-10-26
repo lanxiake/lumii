@@ -621,7 +621,25 @@ export class BridgePromptDispatcher {
           runId,
           toolCallId,
           toolName: 'image_generate',
-          result: { content: [{ type: 'text', text: JSON.stringify(result) }], details: result },
+          result: {
+            content: [{ type: 'text', text: JSON.stringify(result) }],
+            details: {
+              ...result,
+              artifacts: [
+                {
+                  kind: 'image',
+                  path: result.filePath,
+                  role: 'deliverable',
+                  meta: {
+                    width: result.width,
+                    height: result.height,
+                    model: result.model,
+                    prompt: result.revisedPrompt,
+                  },
+                },
+              ],
+            },
+          },
           isError: false,
           durationMs,
         })

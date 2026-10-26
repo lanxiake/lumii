@@ -81,6 +81,16 @@ describe('scanWorkspace', () => {
     ).toBe(true)
     expect(scan.skipped.some((item) => item.reason === 'too-recent')).toBe(true)
   })
+
+  it('产物侧车算 internal，不进清理候选', async () => {
+    await writeFileAt('outputs/x/final.pptx')
+    await writeFileAt('outputs/x/final.pptx.lumii-artifact.json', '{"kind":"slides"}')
+
+    const scan = await scanWorkspace({ dir: root })
+    expect(scan.classes.deliverable.count).toBe(1)
+    expect(scan.classes.internal.count).toBe(1)
+    expect(scan.candidates).toHaveLength(0)
+  })
 })
 
 describe('runCleanup', () => {
@@ -112,6 +122,41 @@ describe('runCleanup', () => {
     expect(restored).toMatchObject({ ok: true, restored: 3, conflicts: 0 })
     expect(await exists('outputs/pet-demo/cut-1.png')).toBe(true)
     expect(await readFile(path.join(root, 'outputs/pet-demo/cut-1.png'), 'utf8')).toBe('x')
+    // 恢复后回收站条目与嵌套空目录都要消失
+    expect(await listTrash({ dir: root })).toEqual([])
+  })
+
+  it('工具声明为成品的路径即使像中间产物也不删', async () => {
+    await writeFileAt('outputs/x/frames/final.mp4')
+    await writeFileAt('outputs/x/cut-1.png')
+
+    const result = await runCleanup({
+      dir: root,
+      target: 'intermediate',
+      dryRun: false,
+      logDir,
+      protectedPaths: ['outputs/x/frames/final.mp4'],
+    })
+    expect(result).toMatchObject({ ok: true, removed: 1 })
+    expect(await exists('outputs/x/frames/final.mp4')).toBe(true)
+    expect(await exists('outputs/x/cut-1.png')).toBe(false)
+  })
+
+  it('扫描被预算截断时拒绝删除（不拿不完整的引用集冒险）', async () => {
+    await writeFileAt('outputs/x/cut-1.png')
+    const result = await runCleanup({
+      dir: root,
+      target: 'intermediate',
+      dryRun: false,
+      logDir,
+      budgetMs: 0,
+    })
+    expect(result.ok).toBe(false)
+    expect(await exists('outputs/x/cut-1.png')).toBe(true)
+  })
+
+  it('非法回收站 id（含 .）被拒绝', async () => {
+    expect((await restoreTrash({ dir: root, id: '.' })).ok).toBe(false)
   })
 
   it('被成品引用的中间文件跳过（宁可少删）', async () => {

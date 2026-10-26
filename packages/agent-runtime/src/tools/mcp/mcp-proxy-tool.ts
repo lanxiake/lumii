@@ -68,12 +68,27 @@ function createMcpProxyTool(
         })) as {
           content?: Array<{ type: string; text?: string }>;
           isError?: boolean;
+          /** MCP 2025-06 的结构化结果；部分 Server 会把产出清单放这里 */
+          structuredContent?: unknown;
         };
 
         const textContent = (result.content ?? [])
           .filter((c) => c.type === "text" && c.text)
           .map((c) => c.text!)
           .join("\n");
+
+        // structuredContent 只做「可选透传」：太大或不可序列化就不带，
+        // 免得把一次工具结果撑爆 IPC / content_json。
+        let structuredContent: unknown;
+        if (result.structuredContent !== undefined) {
+          try {
+            if (JSON.stringify(result.structuredContent).length <= 64 * 1024) {
+              structuredContent = result.structuredContent;
+            }
+          } catch {
+            // 循环引用等：忽略
+          }
+        }
 
         return {
           content: [{ type: "text", text: textContent || "(no output)" }],
@@ -84,6 +99,7 @@ function createMcpProxyTool(
           details: {
             mcpServer: serverName,
             mcpTool: toolDef.name,
+            ...(structuredContent !== undefined ? { structuredContent } : {}),
           },
         };
       } catch (err) {

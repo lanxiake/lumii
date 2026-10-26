@@ -23,6 +23,8 @@ export const workspaceApi = {
   cleanupRun: (payload: {
     target: 'intermediate' | 'ephemeral' | 'both'
     dryRun: boolean
+    /** 当前会话声明为成品的路径，清理时排除 */
+    protectedPaths?: readonly string[]
   }): Promise<CleanupRunResult> => ipcRenderer.invoke('workspace:cleanup:run', payload),
   cleanupListTrash: (): Promise<CleanupTrashEntry[]> =>
     ipcRenderer.invoke('workspace:cleanup:listTrash'),

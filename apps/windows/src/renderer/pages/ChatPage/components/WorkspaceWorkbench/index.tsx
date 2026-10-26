@@ -156,32 +156,46 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
     [widthFromPointer],
   )
 
-  const onResizePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
+  const finishDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
       const drag = dragRef.current
       if (!drag) return
       dragRef.current = null
-      // 优先用 pointerup 当场算宽；否则退回 move 写入的 ref（cancel 时可能没有可用坐标）
-      const finalWidth =
-        Number.isFinite(event.clientX)
-          ? widthFromPointer(event.clientX, drag.startX, drag.startW)
-          : dragWidthRef.current
-      dragWidthRef.current = null
-      if (finalWidth !== null) onPresetChange('custom', finalWidth)
-      setDragWidth(null)
       try {
         event.currentTarget.releasePointerCapture(event.pointerId)
       } catch {
         // ignore
       }
+      setDragWidth(null)
+
+      if (!commit) {
+        // pointercancel：系统/触控手势打断，不写 preset（事件里的 clientX=0 不是真实坐标）
+        dragWidthRef.current = null
+        return
+      }
+      const finalWidth = widthFromPointer(event.clientX, drag.startX, drag.startW)
+      dragWidthRef.current = null
+      // 只点一下拖拽条（没有位移）不该把「半」档悄悄改成 custom
+      if (Math.abs(finalWidth - drag.startW) < 1) return
+      onPresetChange('custom', finalWidth)
     },
     [onPresetChange, widthFromPointer],
   )
 
-  // VCS 插件关掉后，持久化里的 view=vcs 会让内容区空白——强制回工作区
+  const onResizePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => finishDrag(event, true),
+    [finishDrag],
+  )
+  const onResizePointerCancel = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => finishDrag(event, false),
+    [finishDrag],
+  )
+
+  // VCS 插件关掉后，持久化里的 view=vcs 会让内容区空白——强制回工作区。
+  // 只在「已经打开」时纠正，否则会把用户没打开的工作台强行弹出来。
   useEffect(() => {
-    if (!vcsEnabled && view === 'vcs') onViewChange('workspace')
-  }, [vcsEnabled, view, onViewChange])
+    if (open && !vcsEnabled && view === 'vcs') onViewChange('workspace')
+  }, [open, vcsEnabled, view, onViewChange])
 
   const effectiveView: WorkbenchView = !vcsEnabled && view === 'vcs' ? 'workspace' : view
 
@@ -236,7 +250,7 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
           onPointerDown={onResizePointerDown}
           onPointerMove={onResizePointerMove}
           onPointerUp={onResizePointerUp}
-          onPointerCancel={onResizePointerUp}
+          onPointerCancel={onResizePointerCancel}
           role="separator"
           aria-orientation="vertical"
           aria-label="拖拽调整工作台宽度"

@@ -2093,6 +2093,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         onRevealInFiles={revealInFiles}
         onOpenDoc={openDoc}
         onAbort={handleAbort}
+        {...(runtimePendingPermission && !permissionOnOtherSession
+          ? { pendingPermission: runtimePendingPermission }
+          : {})}
+        onRespondPermission={(action) => runtimeActions.respondPermission(action)}
+        onRetryPrompt={setInputValue}
       />
     </div>
   )

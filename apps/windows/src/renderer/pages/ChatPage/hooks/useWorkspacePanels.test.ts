@@ -58,6 +58,12 @@ describe('useWorkspacePanels · 工作台状态', () => {
     expect(result.current.workbench.selectedPath).toBe('D:/other/b.md')
   })
 
+  it('openDoc 工作区路径大小写不敏感（Windows）', () => {
+    const { result } = renderHook(() => useWorkspacePanels('chat'))
+    act(() => result.current.openDoc('e:/WS/docs/a.md'))
+    expect(result.current.workbench.selectedPath).toBe('docs/a.md')
+  })
+
   it('切视图 / 只看产出 / 选中 / 返回列表', () => {
     const { result } = renderHook(() => useWorkspacePanels('chat'))
     act(() => result.current.selectWorkbenchView('vcs'))

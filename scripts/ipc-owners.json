@@ -1,6 +1,7 @@
 {
   "_comment": "IPC 通道归属表：谁注册了 ipcMain handler，就归谁。键是相对 apps/windows/src/main/ 的路径。新增注册 IPC 的文件必须在这里登记归属，否则 check-wiring 报新断线。owner 只是标签，插件化后由 manifest 取代。",
   "ipc/agent-runtime-ipc.ts": "agent-runtime",
+  "ipc/artifact-ipc.ts": "workspace",
   "ipc/api-ipc.ts": "agent-runtime",
   "ipc/channel-ipc.ts": "channel",
   "ipc/coding-dev-ipc.ts": "coding-dev",

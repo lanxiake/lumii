@@ -9,6 +9,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { Search } from 'lucide-react'
 import { stageOfTool, type ArtifactKind } from '../../../../../shared/artifact-rules'
+import { actionsForCard, type ArtifactCardState } from '../../../../../shared/card-state'
 import { ArtifactCard } from './ArtifactCard'
 import { ArtifactFoldRow } from './ArtifactFoldRow'
 import {
@@ -97,6 +98,18 @@ export interface WorkspaceArtifactsPanelProps {
   onAbort?: () => void
   /** 打开清理对话框 */
   onCleanup?: () => void
+  /** 当前回合的工具卡状态（running / failed / cancelled 占位） */
+  cards?: readonly ArtifactCardState[]
+  /** 等审批（interrupt）：卡片式动作，复用现有权限通道 */
+  interrupt?: {
+    title: string
+    detail?: string
+    onAllowOnce?: () => void
+    onAllowAlways?: () => void
+    onDeny?: () => void
+  }
+  /** 失败卡「重试」：只把原 prompt 放回输入框，不自动发送 */
+  onRetryPrompt?: (prompt: string) => void
   /**
    * 工作区中间产物总体积（主进程 scan 懒加载）。
    * 只在「本屏只有一组过程文件」时挂到该行——scan 是全局数，多组重复显示会错。
@@ -113,6 +126,9 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   progress,
   onAbort,
   onCleanup,
+  cards = [],
+  interrupt,
+  onRetryPrompt,
   intermediateBytes,
 }) => {
   const [filter, setFilter] = useState<KindFilter>('all')
@@ -126,9 +142,10 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   const [expandedFolds, setExpandedFolds] = useState<ReadonlySet<string>>(new Set())
   /** 一次最多铺 200 张过程卡；再多先给按钮（1114 张全铺 ≈ 6800 节点） */
   const [showAllFolds, setShowAllFolds] = useState<ReadonlySet<string>>(new Set())
-  const newestAt = ledger.groups[0]?.timestamp ?? 0
-  const defaultOpen = (key: string, timestamp: number): boolean =>
-    key === ledger.groups[0]?.key || timestamp === newestAt
+  // 默认只展开最新一组；但筛选/搜索时把所有命中组展开，否则用户看不到结果
+  const filterActive = filter !== 'all' || query.trim().length > 0
+  const defaultOpen = (key: string, _timestamp: number): boolean =>
+    filterActive || key === ledger.groups[0]?.key
   const isGroupOpen = (key: string, timestamp: number): boolean =>
     groupOverrides.has(key) ? groupOverrides.get(key)! : defaultOpen(key, timestamp)
   const toggleGroup = (key: string, timestamp: number): void => {
@@ -183,7 +200,10 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
     />
   )
 
-  const nothingAtAll = ledger.groups.length === 0
+  const runningCards = cards.filter((card) => card.lifecycle === 'running')
+  /** 有 running 卡时，卡片本身就是进度视图，不再叠一条进度条（避免同一件事出现两次） */
+  const showProgressBar = Boolean(progress) && runningCards.length === 0
+  const nothingAtAll = ledger.groups.length === 0 && cards.length === 0
   /** scan 字节是工作区全局值；仅当过滤后只有一组含过程文件时才展示，避免多行重复同一体积 */
   const foldBytesGroupKey =
     intermediateBytes &&
@@ -193,7 +213,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
 
   return (
     <div className={styles.panel} data-testid="workspace-artifacts-panel">
-      {progress && (
+      {showProgressBar && progress && (
         <div className={styles.progress} role="status" aria-live="polite">
           <span className={styles.progressStage}>{stage ?? '执行中'}</span>
           <span className={styles.progressMeta}>
@@ -213,15 +233,105 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
         </div>
       )}
 
+      {interrupt && (
+        <div className={styles.interrupt} role="status">
+          <span className={styles.interruptLabel}>等你拍板</span>
+          <span className={styles.interruptTitle} title={interrupt.detail ?? interrupt.title}>
+            {interrupt.title}
+          </span>
+          <div className={styles.interruptActions}>
+            {interrupt.onAllowOnce && (
+              <button type="button" onClick={interrupt.onAllowOnce}>
+                允许一次
+              </button>
+            )}
+            {interrupt.onAllowAlways && (
+              <button type="button" onClick={interrupt.onAllowAlways}>
+                总是允许
+              </button>
+            )}
+            {interrupt.onDeny && (
+              <button type="button" className={styles.interruptDeny} onClick={interrupt.onDeny}>
+                拒绝
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {cards.length > 0 && (
+        <div className={styles.pendingList}>
+          {cards.map((card) => {
+            const actions = actionsForCard(card)
+            return (
+              <div
+                key={card.id}
+                className={clsx(styles.pendingCard, styles[`pending--${card.lifecycle}`])}
+                data-card-lifecycle={card.lifecycle}
+              >
+                <span className={styles.pendingBadge}>
+                  {card.lifecycle === 'running'
+                    ? '进行中'
+                    : card.lifecycle === 'failed'
+                      ? '失败'
+                      : '已中断'}
+                </span>
+                <span className={styles.pendingTitle} title={card.title}>
+                  {card.title ?? card.kind}
+                </span>
+                {card.placeholder?.prompt && (
+                  <span className={styles.pendingPrompt}>{card.placeholder.prompt}</span>
+                )}
+                {card.error && <span className={styles.pendingError}>{card.error}</span>}
+                {card.lifecycle === 'running' && progress && (
+                  <span className={styles.pendingMeta}>
+                    {progress.total > 0 ? `${progress.done}/${progress.total} · ` : ''}
+                    {formatElapsed(elapsed)}
+                  </span>
+                )}
+                <div className={styles.pendingActions}>
+                  {actions.includes('abort') && onAbort && (
+                    <button type="button" onClick={onAbort}>
+                      中断
+                    </button>
+                  )}
+                  {actions.includes('retry') && card.retry?.prompt && onRetryPrompt && (
+                    <button type="button" onClick={() => onRetryPrompt(card.retry!.prompt!)}>
+                      重试
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       <div className={styles.summary}>
         <span className={styles.summaryText}>
-          <strong>{ledger.counts.deliverables}</strong> 个产出
-          {ledger.counts.intermediates > 0 && (
-            <span className={styles.summaryMuted}>
-              · 中间 {ledger.counts.intermediates}
-            </span>
+          {ledger.counts.deliverables === 0 && runningCards.length > 0 ? (
+            <span className={styles.summaryMuted}>正在生成…</span>
+          ) : (
+            <>
+              <strong>{ledger.counts.deliverables}</strong> 个产出
+              {ledger.counts.intermediates > 0 && (
+                <span className={styles.summaryMuted}>
+                  · 中间 {ledger.counts.intermediates}
+                </span>
+              )}
+            </>
           )}
         </span>
+        {onCleanup && (
+          <button
+            type="button"
+            className={styles.summaryCleanup}
+            onClick={onCleanup}
+            title="清理过程文件（先进回收站）"
+          >
+            清理…
+          </button>
+        )}
       </div>
 
       <div className={styles.toolbar}>
@@ -262,7 +372,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
             试着让我写一份文档、做一组图，或整理一下当前工作区。
           </div>
         ) : filteredGroups.length === 0 ? (
-          <div className={styles.empty}>没有匹配的产物。</div>
+          cards.length > 0 ? null : <div className={styles.empty}>没有匹配的产物。</div>
         ) : (
           filteredGroups.map(({ group, deliverables, intermediates }) => {
             const expanded = isGroupOpen(group.key, group.timestamp)

@@ -4,6 +4,7 @@
 export { fileApi } from './file-api'
 export { systemApi } from './system-api'
 export { workspaceApi } from './workspace-api'
+export { artifactApi } from './artifact-api'
 export { dialogApi, clipboardApi } from './dialog-clipboard-api'
 export { appApi, splashApi } from './app-api'
 export { windowApi, notifyApi } from './window-api'

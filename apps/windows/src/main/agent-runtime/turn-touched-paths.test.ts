@@ -382,4 +382,25 @@ describe("turn-touched-paths", () => {
     expect(collectResultTouchedPaths("file_read", { path: "a.txt" })).toEqual([]);
     expect(collectResultTouchedPaths("image_generate", undefined)).toEqual([]);
   });
+
+  it("collectResultTouchedPaths 接受 details.artifacts 声明（不要求工具白名单）", () => {
+    expect(
+      collectResultTouchedPaths("mcp__comfyui__enqueue_workflow", {
+        details: {
+          artifacts: [
+            { kind: "video", path: "outputs/v/a.mp4" },
+            { kind: "video", remoteUrl: "http://x/b.mp4" },
+          ],
+        },
+      }),
+    ).toEqual(["outputs/v/a.mp4"]);
+    expect(
+      collectResultTouchedPaths("image_generate", {
+        details: {
+          filePath: "outputs/a.png",
+          artifacts: [{ kind: "image", path: "outputs/a.png" }],
+        },
+      }),
+    ).toEqual(["outputs/a.png"]);
+  });
 });

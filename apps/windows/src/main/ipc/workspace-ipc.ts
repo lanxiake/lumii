@@ -156,16 +156,22 @@ export function registerWorkspaceIpcHandlers(): void {
     'workspace:cleanup:run',
     async (
       _event,
-      payload?: { target?: unknown; dryRun?: unknown },
+      payload?: { target?: unknown; dryRun?: unknown; protectedPaths?: unknown },
     ): Promise<CleanupRunResult> => {
       const target = payload?.target
       if (target !== 'intermediate' && target !== 'ephemeral' && target !== 'both') {
         return { ok: false, dryRun: true, removed: 0, bytes: 0, skipped: 0, error: 'target 非法' }
       }
+      const protectedPaths = Array.isArray(payload?.protectedPaths)
+        ? payload.protectedPaths
+            .filter((item): item is string => typeof item === 'string')
+            .slice(0, 500)
+        : undefined
       return runCleanup({
         dir: resolveActiveWorkspaceDir(),
         target,
         dryRun: payload?.dryRun === true,
+        ...(protectedPaths ? { protectedPaths } : {}),
       })
     },
   )

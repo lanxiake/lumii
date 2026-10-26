@@ -9,7 +9,11 @@
  *   并记录同一路径的历史版本（工作台 rail 用这个）。
  */
 
-import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
+import type {
+  ArtifactDeclaration,
+  ArtifactMeta,
+  FileChangeEntry,
+} from '@mtbot/agent-runtime/browser'
 import {
   INTERMEDIATE_FOLD_THRESHOLD,
   classifyArtifact,
@@ -17,6 +21,7 @@ import {
   kindOf,
   type ArtifactKind,
 } from '../../../../../shared/artifact-rules'
+import { readDeclarations } from '../../../../../shared/artifact-declaration'
 
 /** 扩展名工具留在台账这一层给面板用（实现只有 shared 一份） */
 export { extOf }
@@ -30,6 +35,20 @@ export interface LedgerMessageLike {
   readonly sourceAgent?: { readonly label: string }
   /** user 消息的纯文本；用于任务组标签（renderer 侧从 content 拼接后传入） */
   readonly text?: string
+  /** P1：tool part 的 `result.details.artifacts` 是产物声明（声明优先、派生兜底） */
+  readonly parts?: readonly {
+    readonly type: string
+    readonly name?: string
+    readonly result?: unknown
+  }[]
+}
+
+interface DeclaredArtifact {
+  declaration: ArtifactDeclaration & { path: string }
+  turnId: string
+  timestamp: number
+  sourceTool?: string
+  sourceLabel?: string
 }
 
 export interface LedgerTurn {
@@ -149,6 +168,16 @@ export interface Artifact {
   timestamp: number
   /** 最近一次写入它的 assistant 消息 id（「回到产生它的那条消息」用） */
   turnId: string
+  /** 声明提供的元数据（尺寸/时长/模型/prompt 等） */
+  meta?: ArtifactMeta
+  /** 声明的展示标题（侧车可能给比文件名更好的标题） */
+  title?: string
+  /** 非工作区产物（ComfyUI 远端）；只展示，不打开/不清理 */
+  remoteUrl?: string
+  /** 「全部」作用域与跨会话跳转用 */
+  conversationId?: string
+  /** 来自工具显式声明：kind/role/meta 以声明为准，侧车不得覆盖 */
+  declared?: boolean
 }
 
 export interface ArtifactGroup {
@@ -217,13 +246,42 @@ export function labelFromText(text: string | undefined): string | undefined {
   return cleaned.length > 24 ? `${cleaned.slice(0, 24)}…` : cleaned
 }
 
+/** 汇总工具声明：同路径取最新一次声明 */
+function collectDeclaredArtifacts(
+  messages: readonly LedgerMessageLike[],
+): Map<string, DeclaredArtifact> {
+  const out = new Map<string, DeclaredArtifact>()
+  for (const message of messages) {
+    if (message.role !== 'assistant' || !message.parts) continue
+    for (const part of message.parts) {
+      if (part.type !== 'tool') continue
+      for (const declaration of readDeclarations(part.result)) {
+        if (!declaration.path) continue
+        const role = classifyArtifact({ path: declaration.path })
+        if (role === 'internal' || role === 'ephemeral') continue
+        const existing = out.get(declaration.path)
+        if (existing && existing.timestamp > message.timestamp) continue
+        out.set(declaration.path, {
+          declaration: { ...declaration, path: declaration.path },
+          turnId: message.id,
+          timestamp: message.timestamp,
+          ...(part.name ? { sourceTool: part.name } : {}),
+          ...(message.sourceAgent?.label ? { sourceLabel: message.sourceAgent.label } : {}),
+        })
+      }
+    }
+  }
+  return out
+}
+
 /**
  * 从会话消息构建产物台账。
  *
  * 1. 复用 `buildChangeLedger().turns`（assistant + 已归属变更）；
  * 2. 按 `turnId + 目录` 归组，同目录跨轮合并；
  * 3. internal 丢弃（记账/缓存），ephemeral 不进 rail（temp/ 由清理功能负责）；
- * 4. 中间产物 ≥20 才折叠，否则按成品展示。
+ * 4. 中间产物 ≥20 才折叠，否则按成品展示；
+ * 5. 工具声明（details.artifacts）覆盖 kind/role/meta，并能补出 fileChanges 没记到的路径。
  */
 export function buildArtifactLedger(
   messages: readonly LedgerMessageLike[],
@@ -246,6 +304,39 @@ export function buildArtifactLedger(
 
   const versions = new Map<string, ArtifactVersion[]>()
   const groups = new Map<string, { group: ArtifactGroup; items: Map<string, Artifact> }>()
+
+  const ensureSlot = (
+    key: string,
+    timestamp: number,
+    sourceLabel?: string,
+  ): { group: ArtifactGroup; items: Map<string, Artifact> } => {
+    let slot = groups.get(key)
+    if (!slot) {
+      slot = {
+        group: {
+          key,
+          label: labelOfTurn(timestamp) ?? formatClock(timestamp),
+          timestamp,
+          startedAt: timestamp,
+          ...(sourceLabel ? { sourceLabel } : {}),
+          deliverables: [],
+          intermediates: [],
+        },
+        items: new Map(),
+      }
+      groups.set(key, slot)
+      return slot
+    }
+    const group = slot.group
+    // 组标签取**最早**那轮的上下文：它才说明这个任务是怎么开始的
+    if (timestamp < group.startedAt) {
+      group.startedAt = timestamp
+      group.label = labelOfTurn(timestamp) ?? formatClock(timestamp)
+    }
+    if (timestamp > group.timestamp) group.timestamp = timestamp
+    if (!group.sourceLabel && sourceLabel) group.sourceLabel = sourceLabel
+    return slot
+  }
 
   // 版本按时间正序记录；分组本身最后再按最新时间倒序
   const ascending = [...turns].sort((a, b) => a.timestamp - b.timestamp)
@@ -276,32 +367,7 @@ export function buildArtifactLedger(
     }
 
     for (const [key, entries] of byKey) {
-      let slot = groups.get(key)
-      if (!slot) {
-        const label = labelOfTurn(turn.timestamp) ?? formatClock(turn.timestamp)
-        slot = {
-          group: {
-            key,
-            label,
-            timestamp: turn.timestamp,
-            startedAt: turn.timestamp,
-            ...(turn.sourceLabel ? { sourceLabel: turn.sourceLabel } : {}),
-            deliverables: [],
-            intermediates: [],
-          },
-          items: new Map(),
-        }
-        groups.set(key, slot)
-      }
-
-      const group = slot.group
-      // 组标签取**最早**那轮的上下文：它才说明这个任务是怎么开始的
-      if (turn.timestamp < group.startedAt) {
-        group.startedAt = turn.timestamp
-        group.label = labelOfTurn(turn.timestamp) ?? formatClock(turn.timestamp)
-      }
-      if (turn.timestamp > group.timestamp) group.timestamp = turn.timestamp
-      if (!group.sourceLabel && turn.sourceLabel) group.sourceLabel = turn.sourceLabel
+      const slot = ensureSlot(key, turn.timestamp, turn.sourceLabel)
 
       for (const entry of entries) {
         const existing = slot.items.get(entry.path)
@@ -319,6 +385,58 @@ export function buildArtifactLedger(
         slot.items.set(entry.path, artifact)
       }
     }
+  }
+
+  // 工具声明：覆盖 kind/role/meta；fileChanges 没记到的路径也补卡（如直连生图/后台产物）
+  const latestStatus = new Map<string, FileChangeEntry['status']>()
+  for (const [path, list] of versions) {
+    const last = list[list.length - 1]
+    if (last) latestStatus.set(path, last.status)
+  }
+  const declared = collectDeclaredArtifacts(messages)
+  for (const [path, info] of declared) {
+    // 后续轮次已删除/改名的产物，不能因为历史里有声明又被加回 rail
+    if (latestStatus.get(path) === 'deleted') continue
+    const { declaration } = info
+    const role: Artifact['role'] =
+      declaration.role ??
+      (classifyArtifact({ path }) === 'intermediate' ? 'intermediate' : 'deliverable')
+
+    const list = versions.get(path)
+    if (!list || !list.some((version) => version.turnId === info.turnId)) {
+      const version: ArtifactVersion = {
+        turnId: info.turnId,
+        timestamp: info.timestamp,
+        status: 'added',
+      }
+      if (list) list.push(version)
+      else versions.set(path, [version])
+    }
+
+    const slot = ensureSlot(artifactGroupKey(path), info.timestamp, info.sourceLabel)
+    const existing = slot.items.get(path)
+    if (existing) {
+      existing.kind = declaration.kind
+      existing.role = role
+      existing.declared = true
+      if (declaration.meta) existing.meta = declaration.meta
+      if (declaration.title) existing.title = declaration.title
+      if (info.sourceTool) existing.sourceTool = info.sourceTool
+      continue
+    }
+    slot.items.set(path, {
+      path,
+      kind: declaration.kind,
+      role,
+      status: 'added',
+      timestamp: info.timestamp,
+      turnId: info.turnId,
+      declared: true,
+      ...(info.sourceTool ? { sourceTool: info.sourceTool } : {}),
+      ...(declaration.meta ? { meta: declaration.meta } : {}),
+      ...(declaration.title ? { title: declaration.title } : {}),
+      ...(declaration.remoteUrl ? { remoteUrl: declaration.remoteUrl } : {}),
+    })
   }
 
   const byKind: Partial<Record<ArtifactKind, number>> = {}
@@ -358,5 +476,49 @@ export function buildArtifactLedger(
     groups: out,
     counts: { deliverables, intermediates, byKind },
     versions,
+  }
+}
+
+/** 侧车元数据回填（异步读完再合并，避免台账构建依赖 IPC） */
+export function applySidecarMeta(
+  ledger: ArtifactLedger,
+  metas: Readonly<Record<string, { kind?: ArtifactKind; title?: string; meta?: ArtifactMeta }>>,
+): ArtifactLedger {
+  if (Object.keys(metas).length === 0) return ledger
+
+  const enrich = (artifact: Artifact): Artifact => {
+    // 声明优先：工具已经说清楚 kind/title/meta 的，不让旧侧车覆盖
+    if (artifact.declared) return artifact
+    const sidecar = metas[artifact.path]
+    if (!sidecar) return artifact
+    return {
+      ...artifact,
+      ...(sidecar.kind ? { kind: sidecar.kind } : {}),
+      ...(sidecar.title ? { title: sidecar.title } : {}),
+      ...(sidecar.meta ? { meta: { ...artifact.meta, ...sidecar.meta } } : {}),
+    }
+  }
+
+  const byKind: Partial<Record<ArtifactKind, number>> = {}
+  let deliverables = 0
+  let intermediates = 0
+  const groups = ledger.groups.map((group) => {
+    const nextDeliverables = group.deliverables.map(enrich)
+    const nextIntermediates = group.intermediates.map(enrich)
+    for (const item of nextDeliverables) {
+      deliverables += 1
+      byKind[item.kind] = (byKind[item.kind] ?? 0) + 1
+    }
+    for (const item of nextIntermediates) {
+      intermediates += 1
+      byKind[item.kind] = (byKind[item.kind] ?? 0) + 1
+    }
+    return { ...group, deliverables: nextDeliverables, intermediates: nextIntermediates }
+  })
+
+  return {
+    groups,
+    counts: { deliverables, intermediates, byKind },
+    versions: ledger.versions,
   }
 }

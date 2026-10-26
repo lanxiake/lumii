@@ -688,6 +688,11 @@ export { resolveSkillActivations, type ActivationContext } from "./skill/index.j
 
 // === ask_user_question 工具类型（v12 扩展） ===
 export type { AskUserQuestionContextInput, AskUserQuestionContextResult } from "./types/index.js";
+export type {
+  ArtifactDeclaration,
+  ArtifactKind,
+  ArtifactMeta,
+} from "./types/index.js";
 export {
   askUserQuestionToolConfig,
   formatAskUserQuestionResult,
