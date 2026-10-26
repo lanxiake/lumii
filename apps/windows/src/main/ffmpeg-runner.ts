@@ -151,7 +151,7 @@ export function resetFfmpegRunnerDeps(): void {
  */
 export function runFfmpeg(
   args: string[],
-  opts?: { cwd?: string },
+  opts?: { cwd?: string; timeoutMs?: number },
 ): Promise<FfmpegRunResult> {
   return new Promise((resolve) => {
     let bin: string
@@ -187,16 +187,28 @@ export function runFfmpeg(
     child.stderr?.on('data', (chunk: Buffer | string) => {
       stderr += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
     })
+    // 缩略图抽帧是「坏了也不能卡死」的路径：损坏/截断的容器可能让 ffmpeg 一直等，
+    // 而并发闸只有 2 个槽，挂住两帧就整条 rail 不动了。
+    const timer = opts?.timeoutMs
+      ? setTimeout(() => {
+          child.kill('SIGKILL')
+          resolve({ ok: false, message: `ffmpeg timeout ${opts.timeoutMs}ms` })
+        }, opts.timeoutMs)
+      : null
+    const done = (result: FfmpegRunResult): void => {
+      if (timer) clearTimeout(timer)
+      resolve(result)
+    }
     child.on('error', (err) => {
-      resolve({ ok: false, message: err.message })
+      done({ ok: false, message: err.message })
     })
     child.on('close', (code) => {
       if (code === 0) {
-        resolve({ ok: true })
+        done({ ok: true })
         return
       }
       const tail = stderr.trim().slice(-800)
-      resolve({
+      done({
         ok: false,
         message: `ffmpeg exit ${code ?? 'null'}${tail ? `: ${tail}` : ''}`,
       })

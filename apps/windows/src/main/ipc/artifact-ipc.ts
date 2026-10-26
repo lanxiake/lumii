@@ -15,6 +15,8 @@ import {
   sidecarPathFor,
   type ArtifactSidecar,
 } from '../../shared/artifact-declaration'
+import type { ArtifactThumbResult } from '../../shared/artifact-thumbs-types'
+import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
 
 const MAX_PATHS = 200
 const MAX_SIDECAR_BYTES = 64 * 1024
@@ -95,6 +97,35 @@ export interface ArtifactMetaResponse {
 
 export function registerArtifactIpcHandlers(): void {
   if (!deps) throw new Error('ArtifactIpc deps not set')
+
+  ipcMain.handle(
+    'artifact:thumb',
+    async (_event, relPath: unknown): Promise<ArtifactThumbResult> => {
+      if (typeof relPath !== 'string' || !relPath) {
+        return { ok: false, error: '路径非法' }
+      }
+      try {
+        return await getArtifactThumb({
+          workspaceDir: deps!.getWorkspaceDir(),
+          relPath,
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '缩略图失败' }
+      }
+    },
+  )
+
+  // 启动后延迟清一次缓存；日常清理由 P1 的存储清理任务接管。
+  // getWorkspaceDir 是同步的，配置未初始化时会 throw —— 必须在 try 里调，
+  // 否则异常冒到 uncaughtException 处理器直接 process.exit(1)。
+  const timer = setTimeout(() => {
+    try {
+      void pruneThumbCache(deps!.getWorkspaceDir()).catch(() => undefined)
+    } catch {
+      // 工作区还拿不到就跳过这次清理
+    }
+  }, 60_000)
+  timer.unref?.()
 
   ipcMain.handle('artifact:readMeta', async (_event, paths: unknown): Promise<ArtifactMetaResponse> => {
     if (!Array.isArray(paths)) return { ok: false, metas: {}, error: 'paths 必须是数组' }

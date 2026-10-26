@@ -723,6 +723,9 @@ export interface ElectronAPI {
       metas: Record<string, import('../shared/artifact-declaration').ArtifactSidecar>
       error?: string
     }>
+    thumb: (relPath: string) => Promise<
+      import('../shared/artifact-thumbs-types').ArtifactThumbResult
+    >
   }
 
   // 本地技能管�?

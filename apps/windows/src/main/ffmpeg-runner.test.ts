@@ -67,6 +67,23 @@ describe('runFfmpeg', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.message).toContain('boom')
   })
+
+  it('超时会杀进程并返回失败（不永远挂着）', async () => {
+    // 假 child 永远不 close：模拟损坏容器让 ffmpeg 卡住
+    const kill = vi.fn()
+    const stuck = Object.assign(new EventEmitter(), {
+      stderr: new EventEmitter(),
+      kill,
+    })
+    setFfmpegRunnerDepsForTest({
+      resolveFfmpegPath: () => 'C:/fake/ffmpeg.exe',
+      spawn: vi.fn(() => stuck) as never,
+    })
+    const r = await runFfmpeg(['-i', 'x'], { timeoutMs: 20 })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toContain('timeout')
+    expect(kill).toHaveBeenCalledWith('SIGKILL')
+  })
 })
 
 describe('webmToMp4', () => {

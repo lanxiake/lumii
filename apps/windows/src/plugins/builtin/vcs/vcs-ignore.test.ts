@@ -36,6 +36,18 @@ describe('vcs-ignore', () => {
     expect(shouldSkipWalkDir('', 'node_modules')).toBe(true)
   })
 
+  it('shouldSkipWalkDir 跳过应用元数据 .lumii（缩略图缓存/回收站）', () => {
+    // 缓存上限 500MB、可达数万文件；扫进去会让每轮快照退化到伪哈希
+    expect(shouldSkipWalkDir('', '.lumii')).toBe(true)
+    expect(shouldSkipWalkDir('outputs/demo', '.lumii')).toBe(true)
+  })
+
+  it('硬剪枝规则含 .lumii/ 但不含 outputs', () => {
+    const c = buildVcsExcludeContent().split('\n')
+    expect(c).toContain('.lumii/')
+    expect(c).not.toContain('outputs/')
+  })
+
   it('硬剪枝规则排除二进制，但不排除 outputs 目录本身', () => {
     const c = buildVcsExcludeContent()
     // 实测 1.9GB 的对象库里 1.25GB 是 PNG —— 这几条是主要收益来源
