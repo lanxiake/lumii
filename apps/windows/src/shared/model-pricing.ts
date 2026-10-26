@@ -31,6 +31,17 @@ interface ModelPrice {
   readonly cacheWriteYuanPerMTok: number
   /** 按次计费（生图等），元 / 次。按 token 计费的模型填 undefined */
   readonly perCallYuan?: number
+  /**
+   * 阶梯（分段）计价：厂商按**单次请求的输入 token 总量**选档，整单按该档单价结算。
+   * 有它时上面几项只是第一档的镜像（给不吃 token 数的调用方兜底），实际算钱用档位。
+   */
+  readonly tiers?: readonly PriceTier[]
+}
+
+/** 阶梯计价的一档；`maxPromptTokens` 为该档覆盖的输入 token 上限（含） */
+interface PriceTier {
+  readonly maxPromptTokens: number
+  readonly price: ModelPrice
 }
 
 /** 构造按 token 计费的价格项（元 / 1M，cache 未公布时按 0 处理） */
@@ -63,6 +74,16 @@ function usdTok(
   )
 }
 
+/**
+ * 构造阶梯价。第一档同时作为兜底价（展示用），所以 `steps` 必须按 `maxPromptTokens`
+ * 升序给全，最后一档通常写 `Infinity`（无上限）。
+ *
+ * 例：qwen3.7-flash 0-32K ¥0.2/¥0.8、32K-256K ¥0.6/¥2.4、>256K ¥1.2/¥4.8。
+ */
+function tiered(steps: Array<{ maxPromptTokens: number; price: ModelPrice }>): ModelPrice {
+  return { ...steps[0].price, tiers: steps }
+}
+
 /** 构造按次计费的价格项 */
 function perCall(yuan: number): ModelPrice {
   return {
@@ -81,168 +102,279 @@ function perCall(yuan: number): ModelPrice {
  * 仅用于本地估算，不作账单依据。
  */
 const PRICES: Readonly<Record<string, ModelPrice>> = {
-  // ============ OpenAI GPT 系列（$ → 元，汇率 7.2） ============
-  // gpt-5.4: $2.5/M 入, $15/M 出, cache write $0.25/M
-  'gpt-5.4': usdTok(2.5, 15, 0, 0.25),
-  // gpt-5.4-mini: $0.75/M 入, $4.5/M 出, cache write $0.075/M
-  'gpt-5.4-mini': usdTok(0.75, 4.5, 0, 0.075),
-  // gpt-5.5 / gpt-5.5-openai-compact: $5/M 入, $30/M 出, cache write $0.5/M
+  // ============ OpenAI GPT 系列（$ → 元，汇率 7.2；官方定价页核对于 2026-10-26）============
+  // 缓存列口径：cacheRead = 缓存命中；cacheWrite = 默认 30 分钟写入（12 小时写入更贵，未建模）
+  // gpt-6-astra: $10 / $50 / cr $1.00 / cw $12.50
+  'gpt-6-astra': usdTok(10, 50, 1, 12.5),
+  // gpt-6.1-sol: $2 / $10 / cr $0.10 / cw $2.50
+  'gpt-6.1-sol': usdTok(2, 10, 0.1, 2.5),
+  // gpt-6-sol: $2 / $10 / cr $0.20 / cw $2.50
+  'gpt-6-sol': usdTok(2, 10, 0.2, 2.5),
+  // gpt-6-luna: $0.10 / $0.50 / cr $0.01 / cw $0.125
+  'gpt-6-luna': usdTok(0.1, 0.5, 0.01, 0.125),
+  // gpt-daybreak-blue/red：接口名不同，价位与 5.6-sol / 5.6-cyber 一致
+  'gpt-daybreak-blue-latest': usdTok(4, 20, 0.4, 5),
+  'gpt-daybreak-red-latest': usdTok(12.5, 75, 1.25, 15.625),
+  // gpt-5.6-sol: $4 / $20 / cr $0.40 / cw $5.00
+  'gpt-5.6-sol': usdTok(4, 20, 0.4, 5),
+  // gpt-5.6-cyber: $12.50 / $75 / cr $1.25 / cw $15.625
+  'gpt-5.6-cyber': usdTok(12.5, 75, 1.25, 15.625),
+  // gpt-5.6-terra: $2 / $12 / cr $0.20 / cw $2.50
+  'gpt-5.6-terra': usdTok(2, 12, 0.2, 2.5),
+  // gpt-5.6-luna: $0.20 / $1.20 / cr $0.02 / cw $0.25
+  'gpt-5.6-luna': usdTok(0.2, 1.2, 0.02, 0.25),
+  // gpt-5.5 / gpt-5.4（未在最新定价页核对，沿用原值，避免历史记录失价）
   'gpt-5.5': usdTok(5, 30, 0, 0.5),
   'gpt-5.5-openai-compact': usdTok(5, 30, 0, 0.5),
-  // gpt-5.6-luna: $0.2/M 入, $1.2/M 出, cache write $0.25/M, cache read $0.02/M
-  'gpt-5.6-luna': usdTok(0.2, 1.2, 0.02, 0.25),
-  // gpt-5.6-sol 上下文 ≤272K 段: $5/$30/$6.25(cw)/$0.5(cr?文档列3 cache write;列4 cache read 按 $0.5/M)
-  // 其余段: $10/$45/$12.5/$1。这里取较贵的「其余」段做保守估算，长上下文不低估。
-  'gpt-5.6-sol': usdTok(10, 45, 1, 12.5),
-  // gpt-5.6-terra: $2/$12/$2.5(cw)/$0.2(cr)
-  'gpt-5.6-terra': usdTok(2, 12, 0.2, 2.5),
-  // 旧版 GPT 兼容（保留，避免历史记录失价）
+  'gpt-5.4': usdTok(2.5, 15, 0, 0.25),
+  'gpt-5.4-mini': usdTok(0.75, 4.5, 0, 0.075),
+  // 旧版 GPT 兼容
   'gpt-4o-mini': usdTok(0.15, 0.6),
   'gpt-4o': usdTok(2.5, 10),
   'gpt-4.1-mini': usdTok(0.4, 1.6),
+  'gpt-4.1-nano': usdTok(0.1, 0.4),
   'gpt-4.1': usdTok(2, 8),
-  o3: usdTok(2, 8),
+  // o3 家族单价差 10 倍，具体档位必须单独列（否则 o3-pro 会被 o3 的低价吞掉）
+  'o3': usdTok(2, 8),
+  'o3-mini': usdTok(1.1, 4.4),
+  'o3-pro': usdTok(20, 80),
 
-  // ============ Anthropic Claude 系列（$ → 元） ============
-  // claude-fable-5: $10/$50/$12.5(cw)/$1(cr)
+  // ============ Anthropic Claude 系列（$ → 元；官方定价页核对于 2026-10-26）============
+  // claude-fable-5-1 / fable-5: $10 / $50 / cr $0.25（fable-5 为 $1）/ cw $12.50
+  'claude-fable-5-1': usdTok(10, 50, 0.25, 12.5),
   'claude-fable-5': usdTok(10, 50, 1, 12.5),
-  // claude-haiku-4-5-20251001: $1/$5/$1.25(cw)/$0.1(cr)
-  'claude-haiku-4-5': usdTok(1, 5, 0.1, 1.25),
-  // claude-opus-4-6 / 4-7 / 4-8 / 5: $5/$25/$6.25(cw)/$0.5(cr)
-  'claude-opus-4': usdTok(5, 25, 0.5, 6.25),
+  // claude-opus-5-5: $4 / $20 / cr $0.20 / cw $5
+  'claude-opus-5-5': usdTok(4, 20, 0.2, 5),
+  // claude-opus-5 / 4.5-4.8: $5 / $25 / cr $0.50 / cw $6.25
   'claude-opus-5': usdTok(5, 25, 0.5, 6.25),
-  // claude-sonnet-4-6: $3/$15/$3.75(cw)/$0.3(cr)
+  'claude-opus-4': usdTok(5, 25, 0.5, 6.25),
+  // claude-sonnet-5-5: $2 / $10 / cr $0.10 / cw $2.50
+  'claude-sonnet-5-5': usdTok(2, 10, 0.1, 2.5),
+  // claude-sonnet-5: $2 / $10 / cr $0.20 / cw $2.50
+  'claude-sonnet-5': usdTok(2, 10, 0.2, 2.5),
+  // claude-sonnet-4-6 / 4.5 / 4: $3 / $15 / cr $0.30 / cw $3.75
   'claude-sonnet-4-6': usdTok(3, 15, 0.3, 3.75),
   'claude-sonnet-4': usdTok(3, 15, 0.3, 3.75),
-  // claude-sonnet-5: $2/$10/$2.5(cw)/$0.2(cr)
-  'claude-sonnet-5': usdTok(2, 10, 0.2, 2.5),
-  // 旧版
+  // claude-haiku-5-5 按单次输入 token 分档：≤100K $0.10/$0.50，>100K $0.50/$2.50
+  'claude-haiku-5-5': tiered([
+    { maxPromptTokens: 100_000, price: usdTok(0.1, 0.5, 0.01, 0.125) },
+    { maxPromptTokens: Infinity, price: usdTok(0.5, 2.5, 0.05, 0.625) },
+  ]),
+  // claude-haiku-4-5 / 4: $1 / $5 / cr $0.10 / cw $1.25
+  'claude-haiku-4-5': usdTok(1, 5, 0.1, 1.25),
   'claude-haiku-4': usdTok(1, 5, 0.1, 1.25),
-  'claude-3-5-haiku': usdTok(0.8, 4),
+  // claude-3-5-haiku: $0.80 / $4 / cr $0.08 / cw $1
+  'claude-3-5-haiku': usdTok(0.8, 4, 0.08, 1),
 
-  // ============ xAI Grok 系列（$ → 元） ============
-  // grok-4.5: $2/$6/$2(cw)/$0.3(cr)
-  'grok-4.5': usdTok(2, 6, 0.3, 2),
-  // grok-4.6: $2/$6/$2(cw)/$0.5(cr)
-  'grok-4.6': usdTok(2, 6, 0.5, 2),
+  // ============ xAI Grok 系列（$ → 元；官方模型页核对于 2026-10-26）============
+  // xAI 的缓存是自动的、不单独收写入费（cacheWrite = 0）；输入超过 200K 后整单翻倍。
+  // grok-4.7 / 4.6: $2 / $6 / cr $0.50（>200K：$4 / $12 / cr $1）
+  'grok-4.7': tiered([
+    { maxPromptTokens: 200_000, price: usdTok(2, 6, 0.5) },
+    { maxPromptTokens: Infinity, price: usdTok(4, 12, 1) },
+  ]),
+  'grok-4.6': tiered([
+    { maxPromptTokens: 200_000, price: usdTok(2, 6, 0.5) },
+    { maxPromptTokens: Infinity, price: usdTok(4, 12, 1) },
+  ]),
+  // grok-4.5: $2 / $6 / cr $0.30（>200K：$4 / $12 / cr $0.60）
+  'grok-4.5': tiered([
+    { maxPromptTokens: 200_000, price: usdTok(2, 6, 0.3) },
+    { maxPromptTokens: Infinity, price: usdTok(4, 12, 0.6) },
+  ]),
+  // grok-4.3 / 4.20-0309-non-reasoning: $1.25 / $2.50 / cr $0.20（>200K 翻倍）
+  'grok-4.3': tiered([
+    { maxPromptTokens: 200_000, price: usdTok(1.25, 2.5, 0.2) },
+    { maxPromptTokens: Infinity, price: usdTok(2.5, 5, 0.4) },
+  ]),
+  'grok-4.20-0309-non-reasoning': tiered([
+    { maxPromptTokens: 200_000, price: usdTok(1.25, 2.5, 0.2) },
+    { maxPromptTokens: Infinity, price: usdTok(2.5, 5, 0.4) },
+  ]),
+  // grok-build-0.1: $1 / $2 / cr $0.20（>200K 翻倍）
+  'grok-build-0.1': tiered([
+    { maxPromptTokens: 200_000, price: usdTok(1, 2, 0.2) },
+    { maxPromptTokens: Infinity, price: usdTok(2, 4, 0.4) },
+  ]),
 
-  // ============ Google Gemini 系列（$ → 元） ============
-  // gemini-3-flash-preview: $0.5/$3
+  // ============ Google Gemini 系列（$ → 元）============
+  // gemini-4-argon: $2 / $10 / cr $0.10
+  'gemini-4-argon': usdTok(2, 10, 0.1),
+  // gemini-3.8-flash / 3.7-flash / flash-latest: $0.75 / $3.75 / cr $0.075
+  // （3.8-flash 的 $0.75 为限时价，2026-12-31 后回到 $1.50；届时改本行）
+  'gemini-3.8-flash': usdTok(0.75, 3.75, 0.075),
+  'gemini-3.7-flash': usdTok(0.75, 3.75, 0.075),
+  'gemini-flash-latest': usdTok(0.75, 3.75, 0.075),
+  // gemini-3.5-flash-lite / flash-lite-latest: $0.30 / $2.50 / cr $0.03
+  'gemini-3.5-flash-lite': usdTok(0.3, 2.5, 0.03),
+  'gemini-flash-lite-latest': usdTok(0.3, 2.5, 0.03),
+  // 其余 Gemini（未在最新定价页核对，沿用原值）
   'gemini-3-flash': usdTok(0.5, 3),
-  // gemini-3.1-pro / preview: $2/$12
   'gemini-3.1-pro': usdTok(2, 12),
-  // gemini-3.5-flash: $1.5/$9
   'gemini-3.5-flash': usdTok(1.5, 9),
-  // gemini-3.6-flash: $1.5/$7.5
   'gemini-3.6-flash': usdTok(1.5, 7.5),
 
   // ============ 生图模型（按次计费，人民币元 / 次）============
-  // gpt-image-2: $0.04/次
   'gpt-image-2': perCall(0.04 * USD_TO_CNY),
-  // gpt-image-2.5: $0.06/次
   'gpt-image-2.5': perCall(0.06 * USD_TO_CNY),
-  // gpt-image-2-vip: $0.13/次
   'gpt-image-2-vip': perCall(0.13 * USD_TO_CNY),
-  // nano-banana: $0.14/次
   'nano-banana': perCall(0.14 * USD_TO_CNY),
-  // nano-banana-2: $0.12/次
   'nano-banana-2': perCall(0.12 * USD_TO_CNY),
-  // nano-banana-2-lite: $0.05/次
   'nano-banana-2-lite': perCall(0.05 * USD_TO_CNY),
-  // nano-banana-pro: $0.18/次
   'nano-banana-pro': perCall(0.18 * USD_TO_CNY),
 
-  // ============ 智谱 GLM 系列（人民币元 / 1M）============
-  // glm-4.7 上下文 ≤32K · 出 ≤200：¥2/¥8 cache write ¥0.4
-  // 其余上下文 ≤32K：¥3/¥14 cache write ¥0.6
-  // 取较贵的段保守估算
-  'glm-4.7': tok(3, 14, 0, 0.6),
-  // glm-5 上下文 ≤32K：¥4/¥18 cache write ¥1；其余：¥6/¥22 cache write ¥1.5 → 取其余
-  'glm-5': tok(6, 22, 0, 1.5),
-  // glm-5.1 上下文 ≤32K：¥6/¥24 cw ¥1.3；其余 ¥8/¥28 cw ¥2 → 取其余
-  'glm-5.1': tok(8, 28, 0, 2),
-  // glm-5.2: ¥8/¥28 cw ¥2
-  'glm-5.2': tok(8, 28, 0, 2),
-  // 旧版 glm-4 兼容
-  'glm-4': tok(0.14, 0.14),
+  // ============ 智谱 GLM 系列（人民币元 / 1M；官方定价页核对于 2026-10-26）============
+  // 口径：第三项是「缓存命中」（老表把 ¥2 之类的缓存命中数错填到了缓存写，已纠正）；
+  // 缓存存储目前限时免费，所以 cacheWrite = 0。
+  // glm-5.3: ¥8 / ¥28 / cr ¥2
+  'glm-5.3': tok(8, 28, 2),
+  // glm-5.3-flash: ¥0.8 / ¥2.8 / cr ¥0.23
+  'glm-5.3-flash': tok(0.8, 2.8, 0.23),
+  // glm-5.3-flashx: ¥2 / ¥7 / cr ¥0.57
+  'glm-5.3-flashx': tok(2, 7, 0.57),
+  // glm-5.2: ¥8 / ¥28 / cr ¥2
+  'glm-5.2': tok(8, 28, 2),
+  // glm-5.1: 输入 <32K ¥6/¥24/cr¥1.3；≥32K ¥8/¥28/cr¥2
+  'glm-5.1': tiered([
+    { maxPromptTokens: 32_000, price: tok(6, 24, 1.3) },
+    { maxPromptTokens: Infinity, price: tok(8, 28, 2) },
+  ]),
+  // glm-5v-turbo / glm-5-turbo: <32K ¥5/¥22/cr¥1.2；≥32K ¥7/¥26/cr¥1.8
+  'glm-5v-turbo': tiered([
+    { maxPromptTokens: 32_000, price: tok(5, 22, 1.2) },
+    { maxPromptTokens: Infinity, price: tok(7, 26, 1.8) },
+  ]),
+  'glm-5-turbo': tiered([
+    { maxPromptTokens: 32_000, price: tok(5, 22, 1.2) },
+    { maxPromptTokens: Infinity, price: tok(7, 26, 1.8) },
+  ]),
+  // glm-5: <32K ¥4/¥18/cr¥1；≥32K ¥6/¥22/cr¥1.5
+  'glm-5': tiered([
+    { maxPromptTokens: 32_000, price: tok(4, 18, 1) },
+    { maxPromptTokens: Infinity, price: tok(6, 22, 1.5) },
+  ]),
+  // glm-4.7: 输入 <32K ¥3/¥14、32K-200K ¥4/¥16；cr 分别 ¥0.6 / ¥0.8
+  // （<32K 还有「输出 <200 token 时 ¥2/¥8」的更低价，按常规输出取 ¥3/¥14 不低估）
+  'glm-4.7': tiered([
+    { maxPromptTokens: 32_000, price: tok(3, 14, 0.6) },
+    { maxPromptTokens: Infinity, price: tok(4, 16, 0.8) },
+  ]),
+  // glm-4.5-air: <32K ¥0.8/¥6/cr¥0.16；32K-128K ¥1.2/¥8/cr¥0.24
+  'glm-4.5-air': tiered([
+    { maxPromptTokens: 32_000, price: tok(0.8, 6, 0.16) },
+    { maxPromptTokens: Infinity, price: tok(1.2, 8, 0.24) },
+  ]),
+  // glm-4 家族：只写具体型号。原表用一条 `glm-4` 把 4.5/4.6/4.7 全按 ¥0.14 记，
+  // 差了两个数量级，已拆开。
+  'glm-4-plus': tok(5, 5, 2.5),
+  'glm-4-long': tok(1, 1, 0.5),
+  'glm-4-flashx': tok(0.1, 0.1, 0.05),
+  'glm-4-airx': tok(10, 10),
+  'glm-4-air': tok(0.5, 0.5, 0.25),
+  // glm-4.6v: <32K ¥1/¥3/cr¥0.2；32K-128K ¥2/¥6/cr¥0.4
+  'glm-4.6v': tiered([
+    { maxPromptTokens: 32_000, price: tok(1, 3, 0.2) },
+    { maxPromptTokens: Infinity, price: tok(2, 6, 0.4) },
+  ]),
+  // glm-4.5v: <32K ¥2/¥6/cr¥0.4；32K-64K ¥4/¥12/cr¥0.8
+  'glm-4.5v': tiered([
+    { maxPromptTokens: 32_000, price: tok(2, 6, 0.4) },
+    { maxPromptTokens: Infinity, price: tok(4, 12, 0.8) },
+  ]),
 
-  // ============ 月之暗面 Kimi 系列（人民币元 / 1M）============
-  // kimi-k2.5: ¥4/¥21 cw ¥0.7
-  'kimi-k2.5': tok(4, 21, 0, 0.7),
-  // kimi-k2.6: ¥6.5/¥27 cw ¥1.1
-  'kimi-k2.6': tok(6.5, 27, 0, 1.1),
-  // kimi-k2.7-code: ¥6.5/¥27 cw ¥1.3
-  'kimi-k2.7-code': tok(6.5, 27, 0, 1.3),
-  // 旧版 kimi-k2 兼容（文档未列，沿用原值，折算后约 ¥0.56/¥2.22 —— 但 ¥ 口径此处直接写原估算）
+  // ============ 月之暗面 Kimi 系列（人民币元 / 1M；官方定价页核对于 2026-10-26）============
+  // 平台表格的第三列是「缓存命中」（不是写入），缓存写入 5min 档与输入同价、1h 档约 2 倍。
+  // kimi-k3: ¥20 / ¥100 / cr ¥2 / cw ¥20
+  'kimi-k3': tok(20, 100, 2, 20),
+  // kimi-k3.1-pro: ¥13 / ¥68 / cr ¥1.3 / cw ¥13
+  'kimi-k3.1-pro': tok(13, 68, 1.3, 13),
+  // kimi-k3.1-pro-highspeed: ¥26 / ¥136 / cr ¥1.3 / cw ¥26
+  'kimi-k3.1-pro-highspeed': tok(26, 136, 1.3, 26),
+  // kimi-k2.7-code: ¥6.5 / ¥27 / cr ¥1.3
+  'kimi-k2.7-code': tok(6.5, 27, 1.3),
+  // kimi-k2.7-code-highspeed: ¥13 / ¥54 / cr ¥2.6
+  'kimi-k2.7-code-highspeed': tok(13, 54, 2.6),
+  // kimi-k2.6: ¥6.5 / ¥27 / cr ¥1.1
+  'kimi-k2.6': tok(6.5, 27, 1.1),
+  // kimi-k2.5: ¥4 / ¥21 / cr ¥0.7（官网当前表格已不列，沿用旧表并按同一口径把 ¥0.7 归为缓存命中）
+  'kimi-k2.5': tok(4, 21, 0.7),
+  // 旧版 kimi-k2 兼容
   'kimi-k2': tok(0.56, 2.22),
 
-  // ============ 阿里通义 Qwen 系列（人民币元 / 1M）============
-  // qwen3.6-flash: ≤256K 时 ¥1.2/¥7.2 cr¥1.5 cw¥0.12；其余 ¥4.8/¥28.8 cr¥6 cw¥0.48 → 取其余保守
-  'qwen3.6-flash': tok(4.8, 28.8, 6, 0.48),
-  // qwen3.6-max-preview: ≤128K ¥9/¥54 cr¥11.25 cw¥0.9；其余 ¥15/¥90 cr¥18.75 cw¥1.5 → 取其余
-  'qwen3.6-max': tok(15, 90, 18.75, 1.5),
-  'qwen3.6-max-preview': tok(15, 90, 18.75, 1.5),
-  // qwen3.6-plus: ≤256K ¥0.5/¥3 cr¥0.625 cw¥0.05；其余 ¥2/¥6 cr¥2.5 cw¥0.2 → 取其余
-  'qwen3.6-plus': tok(2, 6, 2.5, 0.2),
-  // qwen3.7-max: ¥12/¥36 cr¥15 cw¥2.4
-  'qwen3.7-max': tok(12, 36, 15, 2.4),
-  // qwen3.7-plus: ≤256K ¥2/¥8 cr¥2.5 cw¥0.2；其余 ¥6/¥24 cr¥7.5 cw¥0.6 → 取其余
-  'qwen3.7-plus': tok(6, 24, 7.5, 0.6),
-  // 旧版 qwen 兼容（折算口径：原注释 qwen-max ¥33/133 美分 = $0.33/$1.33 → 新体系统一为 ¥/1M，需重新对齐）
-  // 原注释 ¥ 折算：qwen-max 33 美分 = $0.33 → 人民币约 ¥2.38/1M。为避免与新文档冲突，保留旧估算即可。
-  'qwen-max': tok(2.38, 9.58),
+  // ============ 阿里通义 Qwen 系列（人民币元 / 1M；官方定价页核对于 2026-10-26）============
+  // 百炼的通用缓存规则：缓存命中 ≈ 输入 ×10%，显式缓存创建 ≈ 输入 ×125%
+  // （qwen3.8-flash / 3.8-omni-flash 官方直接给了 ¥0.1 命中价，按官方值写）。
+  // qwen3.8-flash: 0-1M ¥0.8 / ¥2.7 / cr ¥0.1
+  'qwen3.8-flash': tok(0.8, 2.7, 0.1, 1),
+  // qwen3.8-omni-flash: ¥0.8 / ¥2.7 / cr ¥0.1
+  'qwen3.8-omni-flash': tok(0.8, 2.7, 0.1),
+  // qwen3.8-max: 0-1M ¥12 / ¥36
+  'qwen3.8-max': tok(12, 36, 1.2, 15),
+  // qwen3.8-27b: 0-1M ¥3 / ¥12（中国内地）
+  'qwen3.8-27b': tok(3, 12, 0.3, 3.75),
+  // qwen3.7-max: 0-1M ¥12 / ¥36
+  'qwen3.7-max': tok(12, 36, 1.2, 15),
+  // qwen3.7-flash: ≤32K ¥0.2/¥0.8；32K-256K ¥0.6/¥2.4；256K-1M ¥1.2/¥4.8
+  'qwen3.7-flash': tiered([
+    { maxPromptTokens: 32_000, price: tok(0.2, 0.8, 0.02, 0.25) },
+    { maxPromptTokens: 256_000, price: tok(0.6, 2.4, 0.06, 0.75) },
+    { maxPromptTokens: Infinity, price: tok(1.2, 4.8, 0.12, 1.5) },
+  ]),
+  // qwen3.7-plus: ≤256K ¥2/¥8；256K-1M ¥6/¥24
+  'qwen3.7-plus': tiered([
+    { maxPromptTokens: 256_000, price: tok(2, 8, 0.2, 2.5) },
+    { maxPromptTokens: Infinity, price: tok(6, 24, 0.6, 7.5) },
+  ]),
+  // qwen3.6-flash: ≤256K ¥1.2/¥7.2；256K-1M ¥4.8/¥28.8
+  'qwen3.6-flash': tiered([
+    { maxPromptTokens: 256_000, price: tok(1.2, 7.2, 0.12, 1.5) },
+    { maxPromptTokens: Infinity, price: tok(4.8, 28.8, 0.48, 6) },
+  ]),
+  // qwen3.6-plus: ≤256K ¥2/¥12；256K-1M ¥8/¥48
+  'qwen3.6-plus': tiered([
+    { maxPromptTokens: 256_000, price: tok(2, 12, 0.2, 2.5) },
+    { maxPromptTokens: Infinity, price: tok(8, 48, 0.8, 10) },
+  ]),
+  // qwen3.6-max-preview: ≤128K ¥9/¥54；128K-1M ¥15/¥90
+  'qwen3.6-max': tiered([
+    { maxPromptTokens: 128_000, price: tok(9, 54, 0.9, 11.25) },
+    { maxPromptTokens: Infinity, price: tok(15, 90, 1.5, 18.75) },
+  ]),
+  'qwen3.6-max-preview': tiered([
+    { maxPromptTokens: 128_000, price: tok(9, 54, 0.9, 11.25) },
+    { maxPromptTokens: Infinity, price: tok(15, 90, 1.5, 18.75) },
+  ]),
+  // 旧版 qwen 兼容
+  'qwen-max': tok(2.4, 9.6),
   'qwen-plus': tok(0.79, 2.02),
   'qwen-turbo': tok(0.29, 0.58),
 
-  // ============ DeepSeek 系列（人民币元 / 1M。高峰/闲时在 estimateCostYuan 中按时间戳动态切换）============
-  // 高峰时段（默认，保守）：v4-flash cache未命中入 ¥3.0 / cache命中 ¥0.10 / 输出 ¥9.0
-  //                      v4-pro  cache未命中入 ¥9.0 / cache命中 ¥0.30 / 输出 ¥27.0
-  'deepseek-v4-flash': tok(3, 9, 0.1, 0),
-  'deepseek-v4-pro': tok(9, 27, 0.3, 0),
-  // 旧版 deepseek-chat / reasoner（原值：¥0.27/¥1.10、¥0.55/¥2.19 —— 保留兼容）
+  // ============ DeepSeek 系列（人民币元 / 1M；官方定价页核对于 2026-10-26）============
+  // 下表写的是**高峰价**；闲时自动半价（见 DEEPSEEK_OFFPEAK_OVERRIDE + isDeepSeekPeakHour）。
+  // 模型名以 deepseek-flash 为准；旧名 deepseek-v4-flash 仍可调用，按 Flash 计价。
+  'deepseek-flash': tok(2, 8, 0.04),
+  'deepseek-v4-flash': tok(2, 8, 0.04),
+  'deepseek-v4-pro': tok(9, 27, 0.3),
+  // 旧版 deepseek-chat / reasoner（保留兼容）
   'deepseek-chat': tok(0.27, 1.1),
   'deepseek-reasoner': tok(0.55, 2.19),
-  // deepseek-flash（CC-switch 预置：$0.15/$0.60/$0.003 cr）
-  'deepseek-flash': usdTok(0.15, 0.6, 0.003, 0),
 
-  // ============ CC-switch 预置（$ → 元，汇率 7.2）============
-  // 来源：~/.cc-switch/model-pricing.json（models.dev 口径，$ / 1M token）。
-  // 只补**内置表里还没有的**模型；同名且已有 CNY 厂商价的（deepseek-v4-pro、glm-5.x、
-  // kimi-k2.6、qwen3.7-max 等）保持原值，不拿美元折算价覆盖更准的人民币官方价。
-  // Claude 系列：$0.1/$0.5 ... $10/$50
-  'claude-fable-5-1': usdTok(10, 50, 0.25, 12.5),
-  'claude-haiku-5-5': usdTok(0.1, 0.5, 0.01, 0.125),
-  'claude-opus-5-5': usdTok(4, 20, 0.2, 5),
-  'claude-sonnet-5-5': usdTok(2, 10, 0.1, 2.5),
-  // Gemini 系列
-  'gemini-3.5-flash-lite': usdTok(0.3, 2.5, 0.03, 0),
-  'gemini-3.7-flash': usdTok(0.75, 3.75, 0.075, 0),
-  'gemini-3.8-flash': usdTok(0.75, 3.75, 0.075, 0),
-  'gemini-4-argon': usdTok(2, 10, 0.1, 0),
-  'gemini-flash-latest': usdTok(0.75, 3.75, 0.075, 0),
-  'gemini-flash-lite-latest': usdTok(0.3, 2.5, 0.03, 0),
-  // 智谱 GLM 补充档位
-  'glm-5.3': usdTok(1.4, 4.4, 0.26, 0),
-  'glm-5.3-flash': usdTok(0.15, 0.5, 0.03, 0),
-  'glm-5.3-flashx': usdTok(0.37, 1.25, 0.075, 0),
-  'glm-5v-turbo': usdTok(1.2, 4, 0.24, 0),
-  // OpenAI gpt-6 系列
-  'gpt-6-astra': usdTok(10, 50, 1, 12.5),
-  'gpt-6-luna': usdTok(0.1, 0.5, 0.01, 0.125),
-  'gpt-6-sol': usdTok(2, 10, 0.2, 2.5),
-  'gpt-6.1-sol': usdTok(2, 10, 0.1, 2.5),
-  'gpt-daybreak-blue-latest': usdTok(4, 20, 0.4, 5),
-  'gpt-daybreak-red-latest': usdTok(12.5, 75, 1.25, 15.625),
-  // xAI Grok 补充档位
-  'grok-4.20-0309-non-reasoning': usdTok(1.25, 2.5, 0.2, 0),
-  'grok-4.3': usdTok(1.25, 2.5, 0.2, 0),
-  'grok-4.7': usdTok(2, 6, 0.5, 0),
-  'grok-build-0.1': usdTok(1, 2, 0.2, 0),
-  // Kimi 补充档位
-  'kimi-k2.7-code-highspeed': usdTok(1.9, 8, 0.38, 0),
-  'kimi-k3': usdTok(3, 15, 0.3, 3),
-  'kimi-k3.1-pro': usdTok(2, 10, 0.2, 2),
-  'kimi-k3.1-pro-highspeed': usdTok(4, 20, 0.2, 4),
+  // ============ MiniMax（人民币元 / 1M；官方定价页核对于 2026-10-26）============
+  // minimax-m3: ≤512K ¥2.1/¥8.4/cr¥0.42（永久五折价）；>512K ¥4.2/¥16.8/cr¥0.84
+  'minimax-m3': tiered([
+    { maxPromptTokens: 512_000, price: tok(2.1, 8.4, 0.42) },
+    { maxPromptTokens: Infinity, price: tok(4.2, 16.8, 0.84) },
+  ]),
+  // minimax-m3.1-flash: ¥1 / ¥4 / cr ¥0.1
+  'minimax-m3.1-flash': tok(1, 4, 0.1),
+  // 旧档位（官网当前只列 M3 / M3.1-Flash，以下保留 models.dev 折算值，避免历史记录失价）
+  'minimax-m2.1': usdTok(0.3, 1.2, 0.03, 0.375),
+  'minimax-m2.5': usdTok(0.3, 1.2, 0.03, 0.375),
+  'minimax-m2.5-highspeed': usdTok(0.6, 2.4, 0.06, 0.375),
+  'minimax-m2.7': usdTok(0.3, 1.2, 0.06, 0.375),
+  'minimax-m2.7-highspeed': usdTok(0.6, 2.4, 0.06, 0.375),
+
+  // ============ 其他（models.dev 折算，未逐条核官网）============
   // LongCat
   'longcat-2.0': usdTok(0.3, 1.2, 0.006, 0),
   'longcat-2.5-preview': usdTok(0.3, 1.2, 0.006, 0),
@@ -253,25 +385,13 @@ const PRICES: Readonly<Record<string, ModelPrice>> = {
   'mimo-v2.6-flash': usdTok(0.14, 0.28, 0.0028, 0),
   'mimo-v2.6-pro': usdTok(0.435, 0.87, 0.0036, 0),
   'mimo-v2.6-pro-ultraspeed': usdTok(4.35, 8.7, 0.036, 0),
-  // MiniMax
-  'minimax-m2.1': usdTok(0.3, 1.2, 0.03, 0.375),
-  'minimax-m2.5': usdTok(0.3, 1.2, 0.03, 0.375),
-  'minimax-m2.5-highspeed': usdTok(0.6, 2.4, 0.06, 0.375),
-  'minimax-m2.7': usdTok(0.3, 1.2, 0.06, 0.375),
-  'minimax-m2.7-highspeed': usdTok(0.6, 2.4, 0.06, 0.375),
-  'minimax-m3': usdTok(0.3137, 1.2549, 0.0627, 0),
-  'minimax-m3.1-flash': usdTok(0.1494, 0.5976, 0.0149, 0),
-  // Qwen 补充档位
-  'qwen3.7-flash': usdTok(0.03, 0.13, 0.006, 0.0375),
-  'qwen3.8-flash': usdTok(0.15, 0.47, 0.016, 0.2),
-  'qwen3.8-max': usdTok(2, 6, 0.25, 2.5),
-  'qwen3.8-omni-flash': usdTok(0.15, 0.47, 0.016, 0),
 }
 
-/** DeepSeek 高峰闲时价格覆盖表。闲时 = 高峰 × 0.5（文档明确「空闲时段价格为高峰时段价格的一半」） */
+/** DeepSeek 闲时价格表。闲时 = 高峰 × 0.5（官方：「空闲时段价格为高峰时段价格的一半」） */
 const DEEPSEEK_OFFPEAK_OVERRIDE: Readonly<Record<string, ModelPrice>> = {
-  'deepseek-v4-flash': tok(1.5, 4.5, 0.05, 0),
-  'deepseek-v4-pro': tok(4.5, 13.5, 0.15, 0),
+  'deepseek-flash': tok(1, 4, 0.02),
+  'deepseek-v4-flash': tok(1, 4, 0.02),
+  'deepseek-v4-pro': tok(4.5, 13.5, 0.15),
 }
 
 /** 本地推理的模型 id 特征，命中即视为零成本而非未知价格 */
@@ -386,13 +506,19 @@ export function hasBuiltinPrice(modelId: string): boolean {
 
 /**
  * 判断给定时间戳（epoch ms）是否为 DeepSeek 高峰时段。
- * 高峰：北京时间 09:00-12:00、14:00-18:00（UTC+8）
+ *
+ * 官方规则：北京时间**周一至周五**（不含中国法定节假日）09:00-12:00、14:00-18:00 为高峰；
+ * 其余时段（含周末）全天闲时。
+ *
+ * 节假日没有内置日历 → 法定节假日会被当成高峰，属于「宁可高估」的偏差（半天 ×2）。
+ * 要精确就接一份节假日表；这里先不做。
  */
 function isDeepSeekPeakHour(tsMs: number): boolean {
-  const d = new Date(tsMs)
-  const beijingHour = (d.getUTCHours() + 8) % 24
-  const beijingMinute = d.getUTCMinutes()
-  const t = beijingHour * 60 + beijingMinute
+  // 先整体挪到 UTC+8 再取日期/时间，否则 UTC 16:00 之后「北京已跨日、周几却还是前一天」
+  const bj = new Date(tsMs + 8 * 3_600_000)
+  const day = bj.getUTCDay() // 0 = 周日
+  if (day === 0 || day === 6) return false
+  const t = bj.getUTCHours() * 60 + bj.getUTCMinutes()
   // 09:00-12:00 = 540-720 min; 14:00-18:00 = 840-1080 min（含起始，不含结束边界）
   return (t >= 540 && t < 720) || (t >= 840 && t < 1080)
 }
@@ -466,8 +592,23 @@ export function estimateCostYuan(
 ): number | undefined {
   if (isLocalModel(modelId)) return 0
 
+  const {
+    inputTokens = 0,
+    outputTokens = 0,
+    cacheReadTokens = 0,
+    cacheWriteTokens = 0,
+    callCount = 1,
+  } = tokens
+
   let price = lookupModelPrice(modelId)
   if (!price) return undefined
+
+  // 阶梯计价：按单次请求的输入总量（未命中 + 缓存读 + 缓存写）整单落档
+  if (price.tiers?.length) {
+    const promptTokens = inputTokens + cacheReadTokens + cacheWriteTokens
+    const hit = price.tiers.find((t) => promptTokens <= t.maxPromptTokens)
+    price = (hit ?? price.tiers[price.tiers.length - 1]).price
+  }
 
   // DeepSeek 闲时覆盖：只有显式给了时间戳且判定为闲时才切；否则默认高峰（保守）
   // 用户给这个模型填了自定义价就跳过——峰谷价是内置表的规则，不该盖掉用户填的数
@@ -477,14 +618,6 @@ export function estimateCostYuan(
       if (override) price = override
     }
   }
-
-  const {
-    inputTokens = 0,
-    outputTokens = 0,
-    cacheReadTokens = 0,
-    cacheWriteTokens = 0,
-    callCount = 1,
-  } = tokens
 
   const M = 1_000_000
   let yuan =
