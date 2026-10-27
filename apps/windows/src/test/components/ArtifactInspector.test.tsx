@@ -363,3 +363,60 @@ describe('ArtifactInspector · 以此为准（T6）', () => {
     expect(screen.queryByRole('button', { name: '以此为准' })).toBeNull()
   })
 })
+
+describe('ArtifactInspector · 恢复到此轮（T7）', () => {
+  beforeEach(() => {
+    ;(window.electronAPI as any).agentRuntime = {}
+  })
+
+  it('有回调时 turn 版给「恢复到此轮」，点击把该版交给上层', async () => {
+    mockSendCommand(async () => ({
+      versions: [
+        {
+          versionId: 'turn:m1',
+          source: 'turn',
+          turnId: 'm1',
+          timestamp: Date.parse('2026-01-01T10:00:00.000Z'),
+          status: 'added',
+          content: { available: true, kind: 'git' },
+        },
+        {
+          versionId: 'local:edit-1',
+          source: 'local',
+          timestamp: Date.parse('2026-01-01T10:05:00.000Z'),
+          status: 'edited',
+          content: { available: true, kind: 'store' },
+        },
+      ],
+      total: 2,
+    }))
+    const onCheckpointVersion = vi.fn()
+    renderInspector({ artifact: DOC_ARTIFACT, onCheckpointVersion })
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: '恢复到此轮' })).toHaveLength(1),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '恢复到此轮' }))
+    expect(onCheckpointVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ versionId: 'turn:m1' }),
+    )
+  })
+
+  it('没有回调时不出现该按钮', async () => {
+    mockSendCommand(async () => ({
+      versions: [
+        {
+          versionId: 'turn:m1',
+          source: 'turn',
+          turnId: 'm1',
+          timestamp: Date.parse('2026-01-01T10:00:00.000Z'),
+          status: 'added',
+          content: { available: true, kind: 'git' },
+        },
+      ],
+      total: 1,
+    }))
+    renderInspector({ artifact: DOC_ARTIFACT })
+    await waitFor(() => expect(screen.getByText('回到消息')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '恢复到此轮' })).toBeNull()
+  })
+})

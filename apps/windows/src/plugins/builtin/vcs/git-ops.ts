@@ -189,6 +189,27 @@ function parseLsTree(stdout: string): string[] {
 // ─────────────────────────── 读历史 ───────────────────────────
 
 /** 提交历史（最新在前）。`limit` 语义与原先 iso 的 depth 一致。 */
+/**
+ * 某路径最近一次被改动时的提交（`git log -1 -- <path>`）。
+ *
+ * checkpoint 的跨会话保护用它：拿到提交后再读 trailer 的 conversationId，
+ * 判断锚点之后是不是别的会话改过这个文件。
+ */
+export async function lastCommitTouchingPathCli(
+  workspaceDir: string,
+  gitdir: string,
+  filepath: string,
+): Promise<RawLogEntry | null> {
+  const r = await runGit(workspaceDir, gitdir, ['log', '-n1', LOG_FORMAT, '--', filepath])
+  if (r.code !== 0 || hasFatalError(r.stderr)) {
+    if (/does not have any commits|unknown revision|bad revision|ambiguous argument/i.test(r.stderr)) {
+      return null
+    }
+    throw new Error(`git log 退出码 ${r.code}: ${r.stderr.trim().slice(0, 300)}`)
+  }
+  return parseLogOutput(r.stdout)[0] ?? null
+}
+
 export async function logCli(
   workspaceDir: string,
   gitdir: string,

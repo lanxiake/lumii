@@ -235,6 +235,23 @@ export class FileRepo {
     return { files: rows.map(toClientFile), total };
   }
 
+  /**
+   * 某工作区路径最近一次登记所属的会话（跨会话归属判定用）。
+   *
+   * checkpoint 恢复二进制时拿它判断「这份文件是不是别的会话在改」；
+   * 查不到（旧数据/未登记）返回 null，调用方按「无法判定」处理。
+   */
+  findLatestOwner(
+    localPath: string,
+  ): { conversationId: string | null; updatedAt: string } | null {
+    const row = this.db
+      .prepare<{ conversation_id: string | null; updated_at: string }>(
+        "SELECT conversation_id, updated_at FROM client_files WHERE local_path = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1",
+      )
+      .get(localPath);
+    return row ? { conversationId: row.conversation_id ?? null, updatedAt: row.updated_at } : null;
+  }
+
   /** 按对话查询所有文件（不过滤软删除，用于级联删除） */
   listByConversation(conversationId: string): ClientFile[] {
     const rows = this.db

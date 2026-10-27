@@ -76,6 +76,14 @@ export const vcsExtension = {
         maybeSnapshot,
         readFileAt: (workspaceDir, oid, filepath) =>
           getWorkspaceVcs(workspaceDir).readFileAt(oid, filepath),
+        commit: async (workspaceDir, message, author = 'user') => {
+          const result = await getWorkspaceVcs(workspaceDir).commit({ message, author })
+          return result ? { oid: result.oid } : null
+        },
+        revertFile: (workspaceDir, oid, filepath) =>
+          getWorkspaceVcs(workspaceDir).revertFile(oid, filepath),
+        lastCommitForPath: (workspaceDir, filepath) =>
+          getWorkspaceVcs(workspaceDir).lastCommitForPath(filepath),
       } satisfies VcsService)
 
       // 接线就在 apply 里：`ctx.registerIpc` 把通道挂在插件作用域上，

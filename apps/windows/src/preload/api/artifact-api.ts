@@ -40,6 +40,12 @@ import type {
   ExportVersionOptions,
   PinVersionInput,
 } from '../../shared/artifact-pin-types'
+import type {
+  CheckpointApplyInput,
+  CheckpointApplyResult,
+  CheckpointPlanResult,
+  CheckpointUndoResult,
+} from '../../shared/artifact-checkpoint-types'
 
 export const artifactApi = {
   /** 批量读 `<path>.lumii-artifact.json`；缺失/坏 JSON 不返回该项 */
@@ -137,4 +143,23 @@ export const artifactApi = {
   /** 清空固化（设置页显式操作） */
   clearPins: (): Promise<{ ok: true; removed: number; freedBytes: number } | ArtifactPinFailure> =>
     ipcRenderer.invoke('artifact:pins:clear'),
+
+  /** 恢复到这一轮：预览计划（只读） */
+  checkpointPlan: (input: {
+    sessionKey: string
+    turnId: string
+  }): Promise<CheckpointPlanResult> =>
+    ipcRenderer.invoke('artifact:checkpoint:plan', input),
+
+  /** 恢复到这一轮：应用（服务端会重新算一次计划） */
+  checkpointApply: (
+    input: CheckpointApplyInput,
+  ): Promise<CheckpointApplyResult | ArtifactEditFailure> =>
+    ipcRenderer.invoke('artifact:checkpoint:apply', input),
+
+  /** 撤销一次恢复（备份 oid + 回收站批次） */
+  checkpointUndo: (
+    checkpointId: string,
+  ): Promise<CheckpointUndoResult | ArtifactEditFailure> =>
+    ipcRenderer.invoke('artifact:checkpoint:undo', { checkpointId }),
 }

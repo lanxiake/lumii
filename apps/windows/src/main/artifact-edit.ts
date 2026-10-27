@@ -628,6 +628,37 @@ export async function getLocalEditContent(opts: {
 }
 
 /**
+ * 读某次本地编辑的原始字节（before / candidate）。
+ *
+ * checkpoint 恢复二进制（PPT 等）时要用 before 覆盖回锚点内容；`getLocalEditContent`
+ * 只给文本，二进制场景会拿到 null。
+ */
+export async function readLocalEditBytes(opts: {
+  workspaceDir: string
+  editId: unknown
+  which?: 'candidate' | 'before'
+}): Promise<Buffer | null> {
+  const editId = normalizeEditId(opts.editId)
+  if (!editId) return null
+  let root: string
+  try {
+    root = await fs.realpath(path.resolve(opts.workspaceDir))
+  } catch {
+    return null
+  }
+  const meta = await readMeta(editDirFor(root, editId))
+  if (!meta) return null
+  const file = opts.which === 'before' ? meta.beforeFile : meta.candidateFile
+  if (!file) return null
+  try {
+    const bytes = await fs.readFile(path.join(editDirFor(root, editId), file))
+    return bytes.byteLength > 0 ? bytes : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * 手工保存（`file:write` 完成后）记录一条 local 版本。
  * 同一文件 60s 内的连续保存合并为同一条：candidate 更新，before 保留最早。
  */

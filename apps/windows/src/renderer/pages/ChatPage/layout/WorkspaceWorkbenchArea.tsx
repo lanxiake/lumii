@@ -37,6 +37,8 @@ import type {
 } from '../../../../shared/artifact-slide-types'
 import { mergeLocalEdits } from '../components/WorkspaceArtifactsPanel/local-edits'
 import { EditProposalPanel } from '../components/WorkspaceArtifactsPanel/EditProposalPanel'
+import { CheckpointDialog } from '../components/WorkspaceArtifactsPanel/CheckpointDialog'
+import type { CheckpointApplyResult } from '../../../../shared/artifact-checkpoint-types'
 import { ARTIFACT_EDITS_CHANGED_EVENT, useArtifactEdits } from '../hooks/useArtifactEdits'
 import { artifactEditService } from '../../../services/artifact-edit-service'
 import { buildTurnProgress } from '../components/WorkspaceArtifactsPanel/progress'
@@ -99,6 +101,8 @@ export interface WorkspaceWorkbenchAreaProps {
   workspaceDir?: string
   /** 「全部」里点开一项：调用方负责切会话再预览 */
   onOpenArtifact?: (item: AllArtifact) => void
+  /** T7：恢复到这一轮后切到分支会话 */
+  onSwitchSession?: (sessionKey: string) => void
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -161,6 +165,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   streaming = false,
   workspaceDir,
   onOpenArtifact,
+  onSwitchSession,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const toast = useOptionalToast()
@@ -443,6 +448,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const [pinBusy, setPinBusy] = useState(false)
   /** 固化/取消后让检查器重查版本列表 */
   const [historyToken, setHistoryToken] = useState(0)
+  /** T7：恢复到这一轮（打开对话框的锚点 turnId） */
+  const [checkpointTurn, setCheckpointTurn] = useState<string | null>(null)
   const [previewVersion, setPreviewVersion] = useState(0)
   const editTokenRef = useRef(0)
   const pendingEditIdRef = useRef<string | null>(null)
@@ -527,6 +534,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         onUnpinVersion={(version) => void handleUnpinVersion(version)}
         refreshToken={historyToken}
         pinBusy={pinBusy}
+        onCheckpointVersion={(version) => {
+          if (version.turnId) setCheckpointTurn(version.turnId)
+        }}
         onClose={() => setInspectorOpen(false)}
       />
     ) : undefined
@@ -604,6 +614,14 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         void loadSlidesOutline(selected, false)
       }
       toast.success('已撤销最近一次本地修改')
+      return
+    }
+    if (menu === 'checkpoint') {
+      if (!selectedArtifact.turnId) {
+        toast.info('这个产物没有对应的对话轮次（本地修改）')
+        return
+      }
+      setCheckpointTurn(selectedArtifact.turnId)
       return
     }
     if (menu === 'reveal') {
@@ -731,6 +749,25 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       toast.error(err instanceof Error ? err.message : '导出失败')
     }
   }, [selectedArtifact, selectedPin, sessionKey, toast])
+
+  /** T7：恢复完成后刷新预览与产物；有分支则切过去 */
+  const handleCheckpointApplied = useCallback(
+    (result: CheckpointApplyResult, meta?: { undone?: boolean }) => {
+      if (!meta?.undone && result.newSessionKey) onSwitchSession?.(result.newSessionKey)
+      setPreviewVersion((value) => value + 1)
+      window.dispatchEvent(new CustomEvent(ARTIFACT_EDITS_CHANGED_EVENT))
+      if (meta?.undone) {
+        toast.success('已撤销这次恢复')
+        return
+      }
+      toast.success(
+        `已恢复 ${result.restored} 个文件` +
+          (result.trashed > 0 ? `，移入回收站 ${result.trashed} 个` : '') +
+          (result.skipped > 0 ? `，跳过 ${result.skipped} 个` : ''),
+      )
+    },
+    [onSwitchSession, toast],
+  )
 
   const handleCompareCurrent = (): void => {
     if (!selectedArtifact) return
@@ -1321,6 +1358,15 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         onCleaned={() => void refreshBytes()}
         protectedPaths={protectedPaths}
       />
+
+      {checkpointTurn && (selectedArtifact?.conversationId ?? sessionKey) && (
+        <CheckpointDialog
+          sessionKey={(selectedArtifact?.conversationId ?? sessionKey)!}
+          turnId={checkpointTurn}
+          onClose={() => setCheckpointTurn(null)}
+          onApplied={handleCheckpointApplied}
+        />
+      )}
     </>
   )
 }

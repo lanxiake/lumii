@@ -66,9 +66,25 @@ import { compareVersionPair } from '../artifact-version-compare'
 import {
   clearPins,
   listPins,
+  pinFilePath,
   pinVersion,
   unpinVersion,
 } from '../artifact-pins'
+import {
+  applyCheckpoint,
+  planCheckpoint,
+  undoCheckpoint,
+  writeWorkspaceFileAtomic,
+} from '../artifact-checkpoint'
+import { readLocalEditBytes } from '../artifact-edit'
+import { readTurnTextVersion } from '../turn-version-store'
+import { getVcsService } from '../agent-runtime/vcs-accessor'
+import { handleConversationFork } from './agent-runtime/conversation-commands'
+import type {
+  CheckpointApplyResult,
+  CheckpointPlanResult,
+  CheckpointUndoResult,
+} from '../../shared/artifact-checkpoint-types'
 import type { SingleTurnLlmService } from '../single-turn-llm'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
 import { exportArtifacts, resolveExportFiles } from '../artifact-export'
@@ -81,7 +97,7 @@ import {
   undoEdit,
   type AppliedEditInfo,
 } from '../artifact-edit'
-import { trashPaths } from '../workspace-cleanup'
+import { restoreTrash, trashPaths } from '../workspace-cleanup'
 
 const MAX_PATHS = 200
 const MAX_SIDECAR_BYTES = 64 * 1024
@@ -935,6 +951,210 @@ export function registerArtifactIpcHandlers(): void {
       const root = workspaceRoot()
       if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
       return clearPins({ workspaceDir: root })
+    },
+  )
+
+  // ---- 恢复到这一轮（P2 T7）----
+  interface CheckpointContext {
+    bridge: AgentRuntimeBridge
+    workspaceDir: string
+    sessionKey: string
+    turns: ReturnType<AgentRuntimeBridge['conversationRepo']['listFileChangeTurns']>
+    localEdits: readonly LocalArtifactEdit[]
+    pins: readonly import('../../shared/artifact-pin-types').PinEntryInfo[]
+  }
+
+  async function loadCheckpointContext(
+    sessionKey: unknown,
+  ): Promise<
+    | { ok: true; data: CheckpointContext }
+    | { ok: false; result: { ok: false; error: string; code?: ArtifactEditFailure['code'] } }
+  > {
+    if (typeof sessionKey !== 'string' || !sessionKey) {
+      return { ok: false, result: { ok: false, error: '参数非法', code: 'invalid-scope' } }
+    }
+    const bridge = deps!.getAgentRuntimeBridge?.()
+    if (!bridge) {
+      return { ok: false, result: { ok: false, error: 'Agent Runtime 未就绪', code: 'unavailable' } }
+    }
+    if (!bridge.conversationRepo.getConversation(sessionKey)) {
+      return { ok: false, result: { ok: false, error: '会话不存在', code: 'not-found' } }
+    }
+    let workspaceDir: string
+    try {
+      workspaceDir = bridge.getCwd()
+    } catch {
+      return { ok: false, result: { ok: false, error: '工作区不可用', code: 'unavailable' } }
+    }
+    const turns = bridge.conversationRepo.listFileChangeTurns(sessionKey)
+    const local = await listEdits({ workspaceDir, sessionKey, limit: 500 })
+    const pinList = await listPins({ workspaceDir, sessionKey })
+    return {
+      ok: true,
+      data: {
+        bridge,
+        workspaceDir,
+        sessionKey,
+        turns,
+        localEdits: local.ok ? local.edits : [],
+        pins: pinList.ok ? pinList.pins : [],
+      },
+    }
+  }
+
+  ipcMain.handle(
+    'artifact:checkpoint:plan',
+    async (
+      _event,
+      payload?: { sessionKey?: unknown; turnId?: unknown },
+    ): Promise<CheckpointPlanResult> => {
+      const ctx = await loadCheckpointContext(payload?.sessionKey)
+      if (!ctx.ok) return ctx.result
+      const turnId = payload?.turnId
+      if (typeof turnId !== 'string' || !turnId) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const { bridge, workspaceDir, sessionKey, turns, localEdits, pins } = ctx.data
+      const vcs = getVcsService()
+      return planCheckpoint({
+        workspaceDir,
+        sessionKey,
+        turnId,
+        turns,
+        localEdits,
+        pins,
+        vcs: vcs
+          ? {
+              lastCommitForPath: (filePath) => vcs.lastCommitForPath(workspaceDir, filePath),
+              readFileAt: (oid, filePath) => vcs.readFileAt(workspaceDir, oid, filePath),
+            }
+          : null,
+        ownerOf: (filePath) => {
+          try {
+            return bridge.fileRepo.findLatestOwner(filePath)?.conversationId ?? null
+          } catch {
+            return null
+          }
+        },
+        canRestoreConversation: typeof bridge.conversationRepo.forkConversation === 'function',
+      })
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:checkpoint:apply',
+    async (
+      _event,
+      payload?: {
+        sessionKey?: unknown
+        turnId?: unknown
+        restoreConversation?: unknown
+      },
+    ): Promise<CheckpointApplyResult | ArtifactEditFailure> => {
+      const ctx = await loadCheckpointContext(payload?.sessionKey)
+      if (!ctx.ok) return ctx.result
+      const turnId = payload?.turnId
+      if (typeof turnId !== 'string' || !turnId) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const { bridge, workspaceDir, sessionKey, turns, localEdits, pins } = ctx.data
+      const vcs = getVcsService()
+      // 服务端重建计划：预览与真正动手之间工作区可能又变了
+      const planned = await planCheckpoint({
+        workspaceDir,
+        sessionKey,
+        turnId,
+        turns,
+        localEdits,
+        pins,
+        vcs: vcs
+          ? {
+              lastCommitForPath: (filePath) => vcs.lastCommitForPath(workspaceDir, filePath),
+              readFileAt: (oid, filePath) => vcs.readFileAt(workspaceDir, oid, filePath),
+            }
+          : null,
+        ownerOf: (filePath) => {
+          try {
+            return bridge.fileRepo.findLatestOwner(filePath)?.conversationId ?? null
+          } catch {
+            return null
+          }
+        },
+        canRestoreConversation: typeof bridge.conversationRepo.forkConversation === 'function',
+      })
+      if (!planned.ok) return planned
+
+      return applyCheckpoint({
+        workspaceDir,
+        sessionKey,
+        turnId,
+        plan: planned.plan,
+        restoreConversation: payload?.restoreConversation !== false,
+        deps: {
+          vcs: vcs
+            ? {
+                commit: (message, author) => vcs.commit(workspaceDir, message, author),
+                revertFile: (oid, filePath) => vcs.revertFile(workspaceDir, oid, filePath),
+              }
+            : null,
+          readEditBytes: (editId) =>
+            readLocalEditBytes({ workspaceDir, editId, which: 'before' }),
+          readTurnStoreBytes: async (messageId, filePath) => {
+            const text = await readTurnTextVersion({ workspaceDir, messageId, path: filePath })
+            return text === null ? null : Buffer.from(text, 'utf8')
+          },
+          readPinBytes: async (pinId) => {
+            const pin = pins.find((entry) => entry.pinId === pinId)
+            if (!pin) return null
+            try {
+              return await fs.readFile(pinFilePath(workspaceDir, pin))
+            } catch {
+              return null
+            }
+          },
+          writeFile: (filePath, bytes) =>
+            writeWorkspaceFileAtomic(workspaceDir, filePath, bytes),
+          // 用户显式动作、批量小：给足引用校验预算（默认 3s 在 1GB 工作区会被截断）
+          trash: (paths) => trashPaths({ dir: workspaceDir, paths, budgetMs: 20_000 }),
+          forkConversation: async (uptoMessageId) => {
+            const result = await handleConversationFork(bridge, {
+              type: 'conversation:fork',
+              sourceSessionKey: sessionKey,
+              uptoMessageId,
+            })
+            return {
+              ok: result.success,
+              ...(result.sessionKey ? { sessionKey: result.sessionKey } : {}),
+              ...(result.error ? { error: result.error } : {}),
+            }
+          },
+        },
+      })
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:checkpoint:undo',
+    async (
+      _event,
+      payload?: { checkpointId?: unknown },
+    ): Promise<CheckpointUndoResult | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      if (typeof payload?.checkpointId !== 'string' || !payload.checkpointId) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const vcs = getVcsService()
+      return undoCheckpoint({
+        workspaceDir: root,
+        checkpointId: payload.checkpointId,
+        deps: {
+          vcs: vcs
+            ? { revertFile: (oid, filePath) => vcs.revertFile(root, oid, filePath) }
+            : null,
+          restoreTrash: (batchId) => restoreTrash({ dir: root, id: batchId }),
+        },
+      })
     },
   )
 

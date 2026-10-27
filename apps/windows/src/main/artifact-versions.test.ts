@@ -50,6 +50,9 @@ function fakeVcs(contentByOid: Record<string, string | null>) {
       if (filepath !== FILE) return null
       return contentByOid[oid] ?? null
     },
+    commit: async () => null,
+    revertFile: async () => ({ reverted: true }),
+    lastCommitForPath: async () => null,
   }
 }
 

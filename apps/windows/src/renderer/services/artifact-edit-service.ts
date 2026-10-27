@@ -35,6 +35,12 @@ import type {
   ArtifactPinResult,
   PinVersionInput,
 } from '../../shared/artifact-pin-types'
+import type {
+  CheckpointApplyInput,
+  CheckpointApplyResult,
+  CheckpointPlanResult,
+  CheckpointUndoResult,
+} from '../../shared/artifact-checkpoint-types'
 
 function api() {
   return window.electronAPI?.artifact
@@ -167,5 +173,37 @@ export const artifactEditService = {
       return Promise.resolve({ ok: false, error: '当前版本不支持固化版本', code: 'unavailable' })
     }
     return target.clearPins()
+  },
+
+  /** T7：恢复到这一轮（预览/应用/撤销） */
+  checkpointPlan: (input: {
+    sessionKey: string
+    turnId: string
+  }): Promise<CheckpointPlanResult> => {
+    const target = api()
+    if (!target?.checkpointPlan) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持恢复到这一轮', code: 'unavailable' })
+    }
+    return target.checkpointPlan(input)
+  },
+
+  checkpointApply: (
+    input: CheckpointApplyInput,
+  ): Promise<CheckpointApplyResult | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.checkpointApply) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持恢复到这一轮', code: 'unavailable' })
+    }
+    return target.checkpointApply(input)
+  },
+
+  checkpointUndo: (
+    checkpointId: string,
+  ): Promise<CheckpointUndoResult | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.checkpointUndo) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持恢复到这一轮', code: 'unavailable' })
+    }
+    return target.checkpointUndo(checkpointId)
   },
 }

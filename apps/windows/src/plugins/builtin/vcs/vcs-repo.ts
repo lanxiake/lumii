@@ -47,6 +47,7 @@ import {
   diffFileCli,
   hasStagedChangesCli,
   initCli,
+  lastCommitTouchingPathCli,
   listFilesAt,
   logCli,
   readBlobBytes,
@@ -457,6 +458,22 @@ export class WorkspaceVcs {
     fs.writeFileSync(abs, content)
     log.info(`[revertFile] 已将 ${filepath} 恢复到 ${ref.slice(0, 8)}`)
     return { reverted: true }
+  }
+
+  /**
+   * 某路径最近一次被改动时的提交 + 该提交的会话归属（checkpoint 跨会话保护用）。
+   * 仓库未初始化/没有提交时返回 null。
+   */
+  async lastCommitForPath(
+    filepath: string,
+  ): Promise<{ oid: string; conversationId: string | null } | null> {
+    if (!this.isInitialized()) return null
+    const entry = await lastCommitTouchingPathCli(this.workspaceDir, this.gitdir, filepath)
+    if (!entry) return null
+    return {
+      oid: entry.oid,
+      conversationId: this.parseTrailer(entry.body, TRAILER_CONV) ?? null,
+    }
   }
 
   /**

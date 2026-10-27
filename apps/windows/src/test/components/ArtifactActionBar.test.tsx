@@ -273,3 +273,12 @@ describe('ArtifactActionBar · 导出选定版（T6）', () => {
     expect(screen.queryByRole('menuitem', { name: /导出选定版/ })).toBeNull()
   })
 })
+
+describe('ArtifactActionBar · 恢复到此轮（T7）', () => {
+  it('⋯ 菜单里有「恢复到此轮…」，点了回调 checkpoint', () => {
+    const props = renderBar('doc')
+    fireEvent.click(screen.getByRole('button', { name: '更多' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '恢复到此轮…' }))
+    expect(props.onMore).toHaveBeenCalledWith('checkpoint')
+  })
+})

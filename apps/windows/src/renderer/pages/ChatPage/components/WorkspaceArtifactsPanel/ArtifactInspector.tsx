@@ -55,6 +55,8 @@ export interface ArtifactInspectorProps {
   /** 固化/取消后递增，触发版本列表重查 */
   refreshToken?: number
   pinBusy?: boolean
+  /** T7：把工作区恢复到产生这一版的那一轮 */
+  onCheckpointVersion?: (version: ArtifactVersion) => void
   onClose?: () => void
 }
 
@@ -122,6 +124,7 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
   onUnpinVersion,
   refreshToken = 0,
   pinBusy = false,
+  onCheckpointVersion,
   onClose,
 }) => {
   const fallback = versions ?? []
@@ -415,6 +418,16 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
                         >
                           <CornerUpLeft size={11} strokeWidth={2} />
                           回到消息
+                        </button>
+                      )}
+                      {version.turnId && onCheckpointVersion && (
+                        <button
+                          type="button"
+                          className={styles.versionGo}
+                          onClick={() => onCheckpointVersion(version)}
+                          title="把工作区文件恢复到这一轮（可先预览清单）"
+                        >
+                          恢复到此轮
                         </button>
                       )}
                       {!contentAvailable && version.content?.reason && (

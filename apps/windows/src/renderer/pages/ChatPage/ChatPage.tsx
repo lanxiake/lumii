@@ -2198,6 +2198,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         lastSeenAt={seenDividerSince}
         {...(workspaceDir ? { workspaceDir } : {})}
         onOpenArtifact={handleOpenAllArtifact}
+        onSwitchSession={(sk) => void runtimeActions.switchSession(sk)}
         follow={workbench.follow}
         onFollowChange={setFollow}
         streaming={runtimeIsStreaming}

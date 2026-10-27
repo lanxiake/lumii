@@ -846,6 +846,25 @@ export interface ElectronAPI {
       | { ok: true; removed: number; freedBytes: number }
       | import('../shared/artifact-pin-types').ArtifactPinFailure
     >
+    /** 恢复到这一轮：预览计划 */
+    checkpointPlan: (input: {
+      sessionKey: string
+      turnId: string
+    }) => Promise<import('../shared/artifact-checkpoint-types').CheckpointPlanResult>
+    /** 恢复到这一轮：应用 */
+    checkpointApply: (
+      input: import('../shared/artifact-checkpoint-types').CheckpointApplyInput,
+    ) => Promise<
+      | import('../shared/artifact-checkpoint-types').CheckpointApplyResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    /** 撤销一次恢复 */
+    checkpointUndo: (
+      checkpointId: string,
+    ) => Promise<
+      | import('../shared/artifact-checkpoint-types').CheckpointUndoResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
   }
 
   // 本地技能管�?

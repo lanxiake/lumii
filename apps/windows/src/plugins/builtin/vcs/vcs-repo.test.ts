@@ -432,3 +432,54 @@ describe('WorkspaceVcs', () => {
     expect(await vcs.readFileAt(c!.oid, 'a.md')).toBe('ZZZZ')
   })
 })
+
+describe('checkpoint 用的单文件回退与归属（真 git）', () => {
+  let workspaceDir: string
+  let vcs: WorkspaceVcs
+
+  beforeEach(() => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mtbot-vcs-cp-'))
+    vcs = new WorkspaceVcs({ workspaceDir })
+  })
+
+  afterEach(() => {
+    fs.rmSync(workspaceDir, { recursive: true, force: true })
+  })
+
+  const write = (name: string, content: string) => {
+    const abs = path.join(workspaceDir, name)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, content, 'utf-8')
+  }
+
+  it('revertFile：恢复到指定提交；目标版没有该文件则删除', async () => {
+    await vcs.ensureInitialized()
+    write('a.md', 'v1')
+    const c1 = await vcs.commit({ author: 'user', message: 'v1', conversationId: 'conv-1' })
+    write('a.md', 'v2')
+    write('b.md', 'b1')
+    const c2 = await vcs.commit({ author: 'agent', message: 'v2', conversationId: 'conv-1' })
+    expect(c1 && c2).toBeTruthy()
+
+    expect(await vcs.revertFile(c1!.oid, 'a.md')).toEqual({ reverted: true })
+    expect(fs.readFileSync(path.join(workspaceDir, 'a.md'), 'utf8')).toBe('v1')
+
+    expect(await vcs.revertFile(c1!.oid, 'b.md')).toEqual({ reverted: true })
+    expect(fs.existsSync(path.join(workspaceDir, 'b.md'))).toBe(false)
+  })
+
+  it('lastCommitForPath：返回最近改动该路径的提交与会话 trailer', async () => {
+    await vcs.ensureInitialized()
+    write('a.md', 'v1')
+    await vcs.commit({ author: 'user', message: 'v1', conversationId: 'conv-1' })
+    write('a.md', 'v2')
+    const c2 = await vcs.commit({ author: 'agent', message: 'v2', conversationId: 'conv-2' })
+
+    const last = await vcs.lastCommitForPath('a.md')
+    expect(last?.oid).toBe(c2!.oid)
+    expect(last?.conversationId).toBe('conv-2')
+
+    // 从未被提交的路径 → null
+    expect(await vcs.lastCommitForPath('never.md')).toBeNull()
+  })
+})
