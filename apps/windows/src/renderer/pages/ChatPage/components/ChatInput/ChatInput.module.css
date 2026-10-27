@@ -50,11 +50,33 @@
   align-items: center;
 }
 
+.attachment-chip-thumb {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 3px;
+  background: var(--mt-bg-secondary);
+}
+
 .attachment-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  /* 以 button 呈现（可点击预览）：清掉浏览器默认按钮样式 */
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attachment-chip-name:hover {
+  color: var(--mt-accent-500);
+  text-decoration: underline;
 }
 
 .attachment-chip-remove {

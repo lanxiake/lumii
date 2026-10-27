@@ -25,6 +25,9 @@ import {
   type QuoteInput,
 } from '../../../../services/quote-bridge'
 import { RichComposer, type RichComposerHandle } from './RichComposer'
+import { collectClipboardFiles } from './clipboard-files'
+import { FilePreviewModal } from '../../../../components/FilePreviewModal'
+import { loadLocalImageDataUrl } from '../mediaPreview'
 
 interface ChatInputProps {
   value: string
@@ -113,6 +116,25 @@ export interface FileReference {
   name: string
   absolutePath: string
   isDirectory: boolean
+}
+
+/** 图片附件 chip 的缩略图：按 workspace 路径读 data URL，读不到退回图标 */
+const AttachmentThumb: React.FC<{ filePath: string }> = ({ filePath }) => {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void loadLocalImageDataUrl(filePath).then((url) => {
+      if (!cancelled) setSrc(url)
+    })
+    return () => { cancelled = true }
+  }, [filePath])
+
+  if (src) return <img className={styles['attachment-chip-thumb']} src={src} alt="" />
+  return (
+    <span className={styles['attachment-chip-icon']} aria-hidden>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    </span>
+  )
 }
 
 /**
@@ -248,6 +270,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   // 拖入的工作空间文件 @引用（textarea 为纯文本，引用以独立 chip 展示，可点击定位）
   const [isDragOver, setIsDragOver] = useState(false)
+  /** 点开附件 chip 时预览的文件 */
+  const [previewAttachment, setPreviewAttachment] = useState<{ filePath: string; fileName: string } | null>(null)
 
   const {
     innerValue,
@@ -305,21 +329,29 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     const raw = e.dataTransfer.getData('application/x-mtbot-file')
-    if (!raw) return
+    const droppedFiles = e.dataTransfer.files
+    if (!raw && droppedFiles.length === 0) return
     e.preventDefault()
     setIsDragOver(false)
-    try {
-      const ref = JSON.parse(raw) as FileReference
-      // 在光标处插一个 @引用 chip：序列化出来是 `@相对路径 `，带空格分隔便于 Agent 解析
-      composerRef.current?.insertFileReference(ref)
-      onFileReferenceAdd?.(ref)
-    } catch (err) {
-      console.error('[ChatInput] 解析拖入文件失败:', err)
+    // 工作空间里拖来的引用：插 @chip，不走上传
+    if (raw) {
+      try {
+        const ref = JSON.parse(raw) as FileReference
+        // 在光标处插一个 @引用 chip：序列化出来是 `@相对路径 `，带空格分隔便于 Agent 解析
+        composerRef.current?.insertFileReference(ref)
+        onFileReferenceAdd?.(ref)
+      } catch (err) {
+        console.error('[ChatInput] 解析拖入文件失败:', err)
+      }
+      return
     }
-  }, [onFileReferenceAdd])
+    // 从系统文件管理器拖入：与「+ 附件」走同一条上传通路
+    ;(onFileUpload ?? onImageUpload)?.(droppedFiles)
+  }, [onFileUpload, onImageUpload, onFileReferenceAdd])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('application/x-mtbot-file')) {
+    const types = e.dataTransfer.types
+    if (types.includes('application/x-mtbot-file') || types.includes('Files')) {
       e.preventDefault()
       e.dataTransfer.dropEffect = 'copy'
       setIsDragOver(true)
@@ -366,16 +398,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   // 剪贴板粘贴处理：提取文件/图片并上传
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
-    const { clipboardData } = e
-    if (!clipboardData || !clipboardData.files || clipboardData.files.length === 0) {
+    const files = collectClipboardFiles(e.clipboardData)
+    if (files.length === 0) {
       return // 无文件，交给 RichComposer 按纯文本粘贴
     }
     // 有文件：阻止默认行为（避免粘贴 [object File] 等无效文本），调用上传处理器
     e.preventDefault()
-    const handler = onFileUpload ?? onImageUpload
-    if (handler) {
-      handler(clipboardData.files)
-    }
+    // 上传回调吃 FileList；items 回退拿到的是 File[]，转一手保持接口不变
+    const transfer = new DataTransfer()
+    for (const file of files) transfer.items.add(file)
+    ;(onFileUpload ?? onImageUpload)?.(transfer.files)
   }, [onFileUpload, onImageUpload])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -781,14 +813,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
               const isImage = /\.(png|jpe?g|gif|webp|svg|bmp|tiff?)$/i.test(att.fileName)
               return (
                 <div key={att.filePath} className={styles['attachment-chip']}>
-                  <span className={styles['attachment-chip-icon']} aria-hidden>
-                    {isImage ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                    ) : (
+                  {isImage ? (
+                    <AttachmentThumb filePath={att.filePath} />
+                  ) : (
+                    <span className={styles['attachment-chip-icon']} aria-hidden>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                    )}
-                  </span>
-                  <span className={styles['attachment-chip-name']} title={att.filePath}>{att.fileName}</span>
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className={styles['attachment-chip-name']}
+                    title={`点击预览 ${att.filePath}`}
+                    onClick={() => setPreviewAttachment({ filePath: att.filePath, fileName: att.fileName })}
+                  >
+                    {att.fileName}
+                  </button>
                   <button
                     type="button"
                     className={styles['attachment-chip-remove']}
@@ -1187,6 +1226,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
         multiple
         onChange={handleAttachmentInputChange}
       />
+
+      {previewAttachment && (
+        <FilePreviewModal
+          filePath={previewAttachment.filePath}
+          fileName={previewAttachment.fileName}
+          userId="local-user"
+          onClose={() => setPreviewAttachment(null)}
+        />
+      )}
     </div>
   )
 }
