@@ -23,13 +23,21 @@ import {
   type Artifact,
 } from '../components/WorkspaceArtifactsPanel/ledger'
 import { mergeLocalEdits } from '../components/WorkspaceArtifactsPanel/local-edits'
-import { useArtifactEdits } from '../hooks/useArtifactEdits'
+import { EditProposalPanel } from '../components/WorkspaceArtifactsPanel/EditProposalPanel'
+import { ARTIFACT_EDITS_CHANGED_EVENT, useArtifactEdits } from '../hooks/useArtifactEdits'
+import { artifactEditService } from '../../../services/artifact-edit-service'
 import { buildTurnProgress } from '../components/WorkspaceArtifactsPanel/progress'
 import { WorkspaceCleanupDialog } from '../components/WorkspaceCleanupDialog'
 import { FilePreviewModal } from '../../../components/FilePreviewModal'
+import type { PreviewSelectionPayload } from '../../../components/FilePreviewModal'
 import { openFilePreviewWindow } from '../../../services/file-preview-service'
 import { buildCardStates } from '../../../../shared/card-state'
 import type { ArtifactSidecar } from '../../../../shared/artifact-declaration'
+import type {
+  ArtifactEditProposal,
+  DocumentEditAction,
+  EditTone,
+} from '../../../../shared/artifact-edit-types'
 import type { WorkbenchState } from '../hooks/useWorkspacePanels'
 import type {
   PendingPermission,
@@ -93,6 +101,19 @@ function layoutModeFromPreset(preset: WorkbenchPreset): WorkbenchLayoutMode {
   if (preset === 'full') return 'fullscreen'
   if (preset === 'wide') return 'wide'
   return 'default'
+}
+
+/** Markdown 编辑态选中文字后的动作；tone:* 映射到「换语气」 */
+const SELECTION_ACTIONS = [
+  { id: 'rewrite', label: '改写' },
+  { id: 'expand', label: '扩写' },
+  { id: 'shorten', label: '精简' },
+  { id: 'tone:formal', label: '更正式' },
+  { id: 'tone:casual', label: '更口语' },
+] as const
+
+function newEditId(): string {
+  return `edit-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`
 }
 
 
@@ -391,6 +412,15 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   // main 用渲染函数：对比视图要知道当前工作台宽度（<860 只并排 2 项）
   // inspector 只对「选中且来自台账」的产物出现：文件面板里的普通文件没有版本历史
   const [inspectorOpen, setInspectorOpen] = useState(false)
+  /** P2 就地修改：loading / ready / error 三态提案；应用后 previewVersion 触发重载 */
+  const [editStatus, setEditStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [editProposal, setEditProposal] = useState<ArtifactEditProposal | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
+  const [previewVersion, setPreviewVersion] = useState(0)
+  const editTokenRef = useRef(0)
+  const pendingEditIdRef = useRef<string | null>(null)
+  const editProposalRef = useRef<ArtifactEditProposal | null>(null)
   const selectedArtifact = useMemo(() => {
     if (!selected) return undefined
     for (const group of mergedLedger.groups) {
@@ -401,6 +431,12 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     }
     return undefined
   }, [mergedLedger, selected])
+
+  /** 最近一次本地修改（listEdits 已按时间倒序）；有才显示「撤销」菜单项 */
+  const undoableEdit = useMemo(() => {
+    if (!selectedArtifact) return undefined
+    return localEdits.find((edit) => edit.path === selectedArtifact.path)
+  }, [localEdits, selectedArtifact])
 
   // 换产物时收起浮层：新产物默认不弹，宽档的并排栏会自己出现
   useEffect(() => {
@@ -475,6 +511,22 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       await copyArtifactPath()
       return
     }
+    if (menu === 'undoEdit') {
+      const edit = localEdits.find((item) => item.path === selectedArtifact.path)
+      if (!edit) {
+        toast.info('没有可撤销的本地修改')
+        return
+      }
+      const result = await artifactEditService.undoEdit(edit.editId)
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      window.dispatchEvent(new CustomEvent(ARTIFACT_EDITS_CHANGED_EVENT))
+      setPreviewVersion((value) => value + 1)
+      toast.success('已撤销最近一次本地修改')
+      return
+    }
     if (menu === 'reveal') {
       void window.electronAPI?.app?.showItemInFolder?.(toAbsolutePath(selectedArtifact.path))
       return
@@ -505,6 +557,119 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     setComparePaths(merged)
   }
 
+  useEffect(() => {
+    editProposalRef.current = editProposal
+  }, [editProposal])
+
+  /**
+   * 清空提案；生成中按 editId 取消；已就绪的候选在换产物/换会话时一并丢弃，
+   * 避免 `.lumii/edits` 里留下没人用的候选目录。
+   */
+  const clearEditProposal = useCallback((abortPending = true, discardProposal = false) => {
+    editTokenRef.current += 1
+    const pending = pendingEditIdRef.current
+    pendingEditIdRef.current = null
+    if (abortPending && pending) void artifactEditService.abortEdit(pending)
+    if (discardProposal && editProposalRef.current) {
+      void artifactEditService.discardEdit(editProposalRef.current.editId)
+    }
+    setEditStatus('idle')
+    setEditProposal(null)
+    setEditError(null)
+    setEditBusy(false)
+  }, [])
+
+  const handleSelectionAction = useCallback(
+    async (actionId: string, selection: PreviewSelectionPayload) => {
+      if (!selected) return
+      const [kind, toneValue] = actionId.split(':')
+      let action: DocumentEditAction
+      let tone: EditTone | undefined
+      if (kind === 'rewrite' || kind === 'expand' || kind === 'shorten') {
+        action = kind
+      } else if (kind === 'tone') {
+        action = 'tone'
+        tone = toneValue === 'casual' || toneValue === 'confident' ? toneValue : 'formal'
+      } else {
+        return
+      }
+
+      const editId = newEditId()
+      const token = ++editTokenRef.current
+      pendingEditIdRef.current = editId
+      setEditStatus('loading')
+      setEditProposal(null)
+      setEditError(null)
+      setEditBusy(false)
+      try {
+        const result = await artifactEditService.proposeEdit({
+          editId,
+          ...(sessionKey ? { sessionKey } : {}),
+          path: selected,
+          start: selection.start,
+          end: selection.end,
+          action,
+          ...(tone ? { tone } : {}),
+          baseHash: selection.baseHash,
+        })
+        if (editTokenRef.current !== token) return
+        if (!result.ok) {
+          if (result.code === 'cancelled') clearEditProposal(false)
+          else {
+            setEditStatus('error')
+            setEditError(result.error)
+          }
+          return
+        }
+        setEditProposal(result)
+        setEditStatus('ready')
+      } catch (err) {
+        if (editTokenRef.current !== token) return
+        setEditStatus('error')
+        setEditError(err instanceof Error ? err.message : '生成改写建议失败')
+      } finally {
+        if (editTokenRef.current === token) pendingEditIdRef.current = null
+      }
+    },
+    [clearEditProposal, selected, sessionKey],
+  )
+
+  const handleApplyProposal = useCallback(async () => {
+    if (!editProposal) return
+    setEditBusy(true)
+    try {
+      const result = await artifactEditService.applyEdit(editProposal.editId)
+      if (!result.ok) {
+        toast.error(result.error)
+        setEditBusy(false)
+        return
+      }
+      if (result.warning) toast.warning(result.warning)
+      else toast.success('已应用；可在 ⋯ 里撤销最近一次本地修改')
+      window.dispatchEvent(new CustomEvent(ARTIFACT_EDITS_CHANGED_EVENT))
+      setPreviewVersion((value) => value + 1)
+      clearEditProposal(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '应用失败')
+      setEditBusy(false)
+    }
+  }, [clearEditProposal, editProposal, toast])
+
+  const handleDiscardProposal = useCallback(() => {
+    const proposal = editProposal
+    clearEditProposal(false)
+    if (proposal) void artifactEditService.discardEdit(proposal.editId)
+  }, [clearEditProposal, editProposal])
+
+  // 换产物 / 换会话 / 进对比：取消在飞请求、丢弃候选并清空提案
+  useEffect(() => {
+    clearEditProposal(true, true)
+  }, [selected, sessionKey, clearEditProposal])
+
+  useEffect(() => {
+    if (comparing) clearEditProposal(true, true)
+  }, [comparing, clearEditProposal])
+
   const renderMainContent = (width: number): React.ReactNode =>
     comparing ? (
       <ArtifactCompareView
@@ -519,11 +684,16 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       />
     ) : absoluteSelected ? (
       <FilePreviewModal
-        key={absoluteSelected}
+        key={`${absoluteSelected}-${previewVersion}`}
         variant="embedded"
         filePath={absoluteSelected}
         fileName={selectedName ?? absoluteSelected}
         {...(editTarget && editTarget === selected ? { initialEdit: true } : {})}
+        selectionActions={SELECTION_ACTIONS}
+        onSelectionAction={(actionId, selection) => {
+          void handleSelectionAction(actionId, selection)
+        }}
+        selectionBusy={editStatus === 'loading'}
         onClose={() => onSelect(undefined)}
       />
     ) : (
@@ -545,6 +715,17 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const main = ({ width }: { width: number }) => (
     <div className={styles.mainColumn}>
       <div className={styles.mainContent}>{renderMainContent(width)}</div>
+      {!comparing && editStatus !== 'idle' && (
+        <EditProposalPanel
+          status={editStatus}
+          proposal={editProposal}
+          error={editError}
+          busy={editBusy}
+          onApply={() => void handleApplyProposal()}
+          onDiscard={handleDiscardProposal}
+          onCancel={() => clearEditProposal(true, false)}
+        />
+      )}
       {!comparing && selectedArtifact && (
         <ArtifactActionBar
           artifact={selectedArtifact}
@@ -556,6 +737,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
             else toast.info('这是本地修改，没有对应的对话消息')
           }}
           onCompare={handleCompareCurrent}
+          canUndoEdit={Boolean(undoableEdit)}
         />
       )}
     </div>

@@ -1,15 +1,14 @@
 /**
  * Workspace VCS — 逐行 diff 计算
  *
- * 基于 npm `diff` 库的 structuredPatch，将两个版本的文件内容转为
- * 行级 hunks 与 ±统计。git 的 plumbing 输出不适合直接喂面板，故在此独立实现。
+ * 纯计算已抽到 `shared/text-diff.ts`（P2 工作台共用）；这里保留 VCS 的类型形状，
+ * 避免现有调用方与测试大改。
  */
 
-import { structuredPatch } from 'diff'
+import { diffText, MAX_DIFF_BYTES } from '../../../shared/text-diff'
 import type { VcsDiffHunk } from './types'
 
-/** 单文件参与行级 diff 的最大字节数（任一侧） */
-export const MAX_DIFF_BYTES = 512_000
+export { MAX_DIFF_BYTES }
 
 /** 单文件 diff 结果 */
 export interface FileDiffResult {
@@ -29,36 +28,7 @@ export function computeFileDiff(
   oldContent: string,
   newContent: string,
 ): FileDiffResult {
-  const patch = structuredPatch(
-    filepath,
-    filepath,
-    oldContent,
-    newContent,
-    undefined,
-    undefined,
-    { context: 3 },
-  )
-
-  let insertions = 0
-  let deletions = 0
-  const hunks: VcsDiffHunk[] = []
-
-  for (const h of patch.hunks) {
-    for (const line of h.lines) {
-      if (line.startsWith('+')) insertions++
-      else if (line.startsWith('-')) deletions++
-    }
-    hunks.push({
-      oldStart: h.oldStart,
-      oldLines: h.oldLines,
-      newStart: h.newStart,
-      newLines: h.newLines,
-      // 强制扁平字符串副本，避免 V8 sliced string 持有大父串引用
-      lines: h.lines.map((l) => '' + l),
-    })
-  }
-
-  return { insertions, deletions, hunks }
+  return diffText(oldContent, newContent, filepath)
 }
 
 /**
@@ -68,16 +38,6 @@ export function computeDiffStats(
   oldContent: string,
   newContent: string,
 ): { insertions: number; deletions: number } {
-  const patch = structuredPatch('a', 'a', oldContent, newContent, undefined, undefined, {
-    context: 0,
-  })
-  let insertions = 0
-  let deletions = 0
-  for (const h of patch.hunks) {
-    for (const line of h.lines) {
-      if (line.startsWith('+')) insertions++
-      else if (line.startsWith('-')) deletions++
-    }
-  }
-  return { insertions, deletions }
+  const result = diffText(oldContent, newContent, 'a', 0)
+  return { insertions: result.insertions, deletions: result.deletions }
 }

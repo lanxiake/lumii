@@ -30,6 +30,8 @@ export interface ArtifactActionBarProps {
   onCompare: () => void
   onExport: (menu: ExportMenuKey) => void
   onMore: (menu: MoreMenuKey) => void
+  /** 当前产物有可撤销的本地修改时才显示「撤销」菜单项 */
+  canUndoEdit?: boolean
 }
 
 /** 危险动作的确认窗口：3s 内再点一次才执行 */
@@ -42,6 +44,7 @@ export const ArtifactActionBar: React.FC<ArtifactActionBarProps> = ({
   onCompare,
   onExport,
   onMore,
+  canUndoEdit = false,
 }) => {
   const [openMenu, setOpenMenu] = useState<'export' | 'more' | null>(null)
   const [confirmTrash, setConfirmTrash] = useState(false)
@@ -144,7 +147,7 @@ export const ArtifactActionBar: React.FC<ArtifactActionBarProps> = ({
           </button>
           {openMenu === 'more' && (
             <div className={clsx(styles.actionMenu, styles.actionMenuRight)} role="menu">
-              {MORE_MENU.map((key) => (
+              {MORE_MENU.filter((key) => key !== 'undoEdit' || canUndoEdit).map((key) => (
                 <button
                   key={key}
                   type="button"

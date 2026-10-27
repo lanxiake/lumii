@@ -116,3 +116,34 @@ describe('ArtifactActionBar', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 })
+
+describe('ArtifactActionBar · 撤销本地修改', () => {
+  function renderWithUndo(canUndoEdit: boolean) {
+    const onMore = vi.fn()
+    render(
+      <ArtifactActionBar
+        artifact={makeArtifact('doc')}
+        onEdit={vi.fn()}
+        onLocate={vi.fn()}
+        onCompare={vi.fn()}
+        onExport={vi.fn()}
+        onMore={onMore}
+        canUndoEdit={canUndoEdit}
+      />,
+    )
+    return { onMore }
+  }
+
+  it('没有本地修改时不出现撤销项', () => {
+    renderWithUndo(false)
+    fireEvent.click(screen.getByRole('button', { name: '更多' }))
+    expect(screen.queryByRole('menuitem', { name: '撤销最近一次本地修改' })).toBeNull()
+  })
+
+  it('有本地修改时出现并回调 undoEdit', () => {
+    const props = renderWithUndo(true)
+    fireEvent.click(screen.getByRole('button', { name: '更多' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '撤销最近一次本地修改' }))
+    expect(props.onMore).toHaveBeenCalledWith('undoEdit')
+  })
+})

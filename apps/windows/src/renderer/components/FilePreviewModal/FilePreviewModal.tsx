@@ -33,6 +33,23 @@ import { createMermaidMarkdownComponents } from './mermaid-markdown-components'
 import styles from './FilePreviewModal.module.css'
 import { buildZoomedSrcDoc, clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './zoom-utils'
 import { buildIframeSelectionInjection } from '../../services/webview-selection-bridge'
+import { mapNormalizedSelectionToRaw } from './selection-range'
+import { sha256Text } from '../../utils/hash-text'
+
+interface PreviewSelectionAction {
+  id: string
+  label: string
+}
+
+export interface PreviewSelectionPayload {
+  /** 磁盘原文偏移（已按 CRLF 补偿） */
+  start: number
+  end: number
+  /** 归一化后的选中文本（仅展示） */
+  text: string
+  /** 渲染层按加载内容算的 sha256 */
+  baseHash: string
+}
 
 /** PPTX 预览按需加载，避免启动时拉 pptx-preview/lodash 导致白屏 */
 const PptxPreview = React.lazy(() =>
@@ -435,6 +452,11 @@ export interface FilePreviewModalProps {
    * 只有真正可编辑时生效；不可编辑（PPT/图片等）保持普通预览。
    */
   initialEdit?: boolean
+  /** Markdown 编辑态选中文字时显示的动作（改写/扩写/精简/语气） */
+  selectionActions?: readonly PreviewSelectionAction[]
+  onSelectionAction?: (actionId: string, selection: PreviewSelectionPayload) => void
+  /** 父层正在生成改写建议：动作条显示进度并禁用 */
+  selectionBusy?: boolean
   onClose: () => void
   /**
    * 呈现形态：modal=应用内弹窗；window=独立窗；embedded=填满父级
@@ -483,6 +505,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   mdBasePath,
   editablePath,
   initialEdit = false,
+  selectionActions,
+  onSelectionAction,
+  selectionBusy = false,
   onClose,
   variant: variantProp,
   embedded = false,
@@ -534,6 +559,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null)
   /** md 图片缓存失效版本：内容重载或保存后递增，强制 MarkdownImage 旁路旧缓存 */
   const [imageVersion, setImageVersion] = useState(0)
+  /** P2：编辑态选区（磁盘原文偏移；text 为归一化展示文本） */
+  const [selection, setSelection] = useState<{ start: number; end: number; text: string } | null>(
+    null,
+  )
+  const editorRootRef = useRef<HTMLDivElement | null>(null)
 
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen((v) => !v)
@@ -736,6 +766,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const handleEnterEdit = useCallback(() => {
     setEditingContent(result?.content ?? '')
     setSaveError(null)
+    setSelection(null)
     setZoom(1)
     setIsEditingMarkdown(true)
   }, [result])
@@ -751,6 +782,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const handleCancelEdit = useCallback(() => {
     setIsEditingMarkdown(false)
     setSaveError(null)
+    setSelection(null)
   }, [])
 
   const handleSaveEdit = useCallback(async () => {
@@ -764,6 +796,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       setResult((prev) => prev ? { ...prev, content: editingContent } : prev)
       // 图片路径可能已变更，递增版本号使图片缓存失效并重新拉取
       setImageVersion((v) => v + 1)
+      setSelection(null)
       setIsEditingMarkdown(false)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : '保存失败')
@@ -771,6 +804,50 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       setIsSaving(false)
     }
   }, [filePath, editablePath, editingContent])
+
+  /** 读取 textarea 选区并映射回磁盘原文；空选区/非编辑态隐藏动作条 */
+  const updateSelection = useCallback(() => {
+    if (!isEditingMarkdown) {
+      setSelection(null)
+      return
+    }
+    const textarea = editorRootRef.current?.querySelector('textarea')
+    if (!textarea) {
+      setSelection(null)
+      return
+    }
+    const start = textarea.selectionStart ?? 0
+    const end = textarea.selectionEnd ?? 0
+    if (end <= start) {
+      setSelection(null)
+      return
+    }
+    const mapped = mapNormalizedSelectionToRaw(editingContent, start, end)
+    setSelection(mapped && mapped.text.trim() ? mapped : null)
+  }, [editingContent, isEditingMarkdown])
+
+  const handleSelectionAction = useCallback(
+    async (actionId: string) => {
+      if (!onSelectionAction || !selection || !result?.content) return
+      if (editingContent !== result.content) {
+        setSaveError('请先保存当前修改，再使用 AI 改写')
+        return
+      }
+      setSaveError(null)
+      try {
+        const baseHash = await sha256Text(result.content)
+        onSelectionAction(actionId, { ...selection, baseHash })
+        setSelection(null)
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : '无法发起改写')
+      }
+    },
+    [editingContent, onSelectionAction, result, selection],
+  )
+
+  useEffect(() => {
+    if (!isEditingMarkdown) setSelection(null)
+  }, [isEditingMarkdown])
 
   useEffect(() => {
     let cancelled = false
@@ -1191,11 +1268,42 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           )}
 
           {!loading && !error && result && !result.truncated && route === 'code' && result.mimeType === 'text/markdown' && (
-            <div className={clsx(styles.markdownWrap, isEditingMarkdown && styles.markdownWrapEditing)} data-color-mode={mdColorMode}>
+            <div
+              ref={editorRootRef}
+              className={clsx(styles.markdownWrap, isEditingMarkdown && styles.markdownWrapEditing)}
+              data-color-mode={mdColorMode}
+              onMouseUp={isEditingMarkdown ? updateSelection : undefined}
+              onKeyUp={isEditingMarkdown ? updateSelection : undefined}
+              onSelect={isEditingMarkdown ? updateSelection : undefined}
+            >
+              {isEditingMarkdown && (selection || selectionBusy) && !!selectionActions?.length && (
+                <div className={styles.selectionBar} role="toolbar" aria-label="选区改写">
+                  {selectionBusy ? (
+                    <span className={styles.selectionBusy}>正在生成改写建议…</span>
+                  ) : (
+                    <>
+                      <span className={styles.selectionHint}>已选 {selection?.text.length ?? 0} 字</span>
+                      {selectionActions.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          className={styles.selectionAction}
+                          onClick={() => void handleSelectionAction(action.id)}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
               {isEditingMarkdown ? (
                 <MDEditor
                   value={editingContent}
-                  onChange={(v) => setEditingContent(v ?? '')}
+                  onChange={(v) => {
+                    setEditingContent(v ?? '')
+                    setSelection(null)
+                  }}
                   preview="live"
                   height="100%"
                   style={{ flex: 1, minHeight: 0 }}

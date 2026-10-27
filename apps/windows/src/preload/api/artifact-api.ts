@@ -16,6 +16,7 @@ import type {
   ArtifactEditProposal,
   ArtifactEditUndoResult,
   ProposeTextEditInput,
+  ProposeTextRangeInput,
 } from '../../shared/artifact-edit-types'
 
 export const artifactApi = {
@@ -38,11 +39,21 @@ export const artifactApi = {
   trash: (paths: readonly string[]): Promise<ArtifactTrashResult> =>
     ipcRenderer.invoke('artifact:trash', paths),
 
-  /** 文本区间替换：只生成候选稿，不改目标文件 */
+  /** 文本区间替换（无 LLM）：只生成候选稿，不改目标文件 */
   proposeTextEdit: (
     input: ProposeTextEditInput,
   ): Promise<ArtifactEditProposal | ArtifactEditFailure> =>
     ipcRenderer.invoke('artifact:edit:proposeText', input),
+
+  /** 文档选区改写（单轮 LLM）：先生成候选稿；editId 同时用于取消 */
+  proposeEdit: (
+    input: ProposeTextRangeInput,
+  ): Promise<ArtifactEditProposal | ArtifactEditFailure> =>
+    ipcRenderer.invoke('artifact:edit:propose', input),
+
+  /** 取消在飞的改写请求 */
+  abortEdit: (editId: string): Promise<{ ok: true; aborted: boolean }> =>
+    ipcRenderer.invoke('artifact:edit:abort', { editId }),
 
   /** 应用候选稿（校验 baseHash；冲突拒绝） */
   applyEdit: (editId: string): Promise<ArtifactEditApplyResult | ArtifactEditFailure> =>

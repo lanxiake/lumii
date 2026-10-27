@@ -36,8 +36,8 @@ export type ExportMenuKey = 'saveAs' | 'toFolder' | 'copyPath'
 export const EXPORT_MENU: readonly ExportMenuKey[] = ['saveAs', 'toFolder', 'copyPath']
 
 /** ⋯ 的子项 */
-export type MoreMenuKey = 'copyPath' | 'reveal' | 'trash'
-export const MORE_MENU: readonly MoreMenuKey[] = ['copyPath', 'reveal', 'trash']
+export type MoreMenuKey = 'copyPath' | 'undoEdit' | 'reveal' | 'trash'
+export const MORE_MENU: readonly MoreMenuKey[] = ['copyPath', 'undoEdit', 'reveal', 'trash']
 
 export const EXPORT_MENU_LABEL: Record<ExportMenuKey, string> = {
   saveAs: '另存为…',
@@ -47,6 +47,7 @@ export const EXPORT_MENU_LABEL: Record<ExportMenuKey, string> = {
 
 export const MORE_MENU_LABEL: Record<MoreMenuKey, string> = {
   copyPath: '复制路径',
+  undoEdit: '撤销最近一次本地修改',
   reveal: '在系统中打开',
   trash: '移入回收站…',
 }

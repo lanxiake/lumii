@@ -27,8 +27,12 @@ import type {
   ArtifactEditListResult,
   ArtifactEditProposal,
   ArtifactEditUndoResult,
+  EditTone,
   ProposeTextEditInput,
 } from '../../shared/artifact-edit-types'
+import { normalizeDocumentAction } from '../artifact-edit-prompts'
+import { proposeTextRangeEdit } from '../artifact-edit-llm'
+import type { SingleTurnLlmService } from '../single-turn-llm'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
 import { exportArtifacts, resolveExportFiles } from '../artifact-export'
 import {
@@ -67,6 +71,8 @@ interface ArtifactIpcDeps {
   getMainWindow?: () => BrowserWindow | null
   /** 本地编辑应用后登记到 client_files（「全部」作用域可见）；未接时不登记 */
   getAgentRuntimeBridge?: () => { fileRepo: ClientFileRegistrar } | null
+  /** 文档选区改写用的单轮 LLM（主进程单例，带取消） */
+  singleTurn?: SingleTurnLlmService
   log?: { warn: (...args: unknown[]) => void }
 }
 
@@ -387,6 +393,72 @@ export function registerArtifactIpcHandlers(): void {
           error: err instanceof Error ? err.message : '生成候选稿失败',
         }
       }
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:edit:propose',
+    async (
+      _event,
+      payload?: Record<string, unknown>,
+    ): Promise<ArtifactEditProposal | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      const singleTurn = deps!.singleTurn
+      if (!singleTurn) {
+        return { ok: false, error: '当前版本不支持 AI 改写', code: 'unavailable' }
+      }
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const action = normalizeDocumentAction(payload.action)
+      if (!action) return { ok: false, error: '不支持的动作', code: 'invalid-scope' }
+      const { editId, path: relPath, start, end } = payload
+      if (
+        typeof editId !== 'string' ||
+        typeof relPath !== 'string' ||
+        typeof start !== 'number' ||
+        typeof end !== 'number'
+      ) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const tone: EditTone | undefined =
+        payload.tone === 'formal' || payload.tone === 'casual' || payload.tone === 'confident'
+          ? payload.tone
+          : undefined
+      try {
+        return await proposeTextRangeEdit({
+          workspaceDir: root,
+          input: {
+            editId,
+            path: relPath,
+            start,
+            end,
+            action,
+            ...(tone ? { tone } : {}),
+            ...(typeof payload.sessionKey === 'string' ? { sessionKey: payload.sessionKey } : {}),
+            ...(typeof payload.instruction === 'string'
+              ? { instruction: payload.instruction }
+              : {}),
+            ...(typeof payload.baseHash === 'string' ? { baseHash: payload.baseHash } : {}),
+          },
+          run: singleTurn,
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '生成改写建议失败' }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:edit:abort',
+    async (
+      _event,
+      payload?: { editId?: unknown },
+    ): Promise<{ ok: true; aborted: boolean }> => {
+      const editId = payload?.editId
+      if (typeof editId !== 'string' || !editId) return { ok: true, aborted: false }
+      return { ok: true, aborted: deps!.singleTurn?.abort(editId) ?? false }
     },
   )
 

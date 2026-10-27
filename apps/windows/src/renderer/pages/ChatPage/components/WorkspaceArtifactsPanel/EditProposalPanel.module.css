@@ -1,0 +1,133 @@
+/* 就地修改提议面板：固定在 main 底部、可滚动；只表达差异与两个动作 */
+.panel {
+  flex-shrink: 0;
+  max-height: 38%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--mt-border-hairline);
+  background: var(--mt-surface-2);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.title {
+  font-weight: 600;
+  color: var(--mt-fg-1);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--mt-fg-3);
+}
+
+.stats {
+  display: flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plus {
+  color: var(--mt-success);
+}
+
+.minus {
+  color: var(--mt-error);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.ghostBtn,
+.primaryBtn {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ghostBtn {
+  border: 1px solid var(--mt-border-hairline);
+  background: transparent;
+  color: var(--mt-fg-2);
+}
+
+.ghostBtn:hover {
+  background: var(--mt-surface-3);
+}
+
+.primaryBtn {
+  border: 1px solid var(--mt-accent-500);
+  background: var(--mt-accent-500);
+  color: var(--mt-fg-on-accent);
+}
+
+.primaryBtn:hover {
+  filter: brightness(1.05);
+}
+
+.ghostBtn:disabled,
+.primaryBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.error,
+.empty {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: var(--mt-fg-3);
+}
+
+.error {
+  color: var(--mt-error);
+}
+
+.diff {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 10px;
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.hunk + .hunk {
+  margin-top: 6px;
+}
+
+.hunkHead {
+  color: var(--mt-fg-3);
+  user-select: none;
+}
+
+.add {
+  color: var(--mt-success);
+  background: color-mix(in srgb, var(--mt-success) 10%, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.del {
+  color: var(--mt-error);
+  background: color-mix(in srgb, var(--mt-error) 10%, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ctx {
+  color: var(--mt-fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

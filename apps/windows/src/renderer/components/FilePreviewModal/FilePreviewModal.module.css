@@ -408,6 +408,44 @@
   padding: 0;
 }
 
+/* P2：Markdown 编辑态选中文字后的改写动作条（固定位置，不跟随选区） */
+.selectionBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-2);
+  font-size: 11px;
+}
+
+.selectionHint {
+  margin-right: 4px;
+  color: var(--mt-fg-3);
+}
+
+.selectionBusy {
+  color: var(--mt-accent-500);
+}
+
+.selectionAction {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.selectionAction:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
+  color: var(--mt-accent-500);
+}
+
 /* 代码/源码滚动容器：pre 内层可应用 CSS zoom 缩放，滚动区域随内容同步变化 */
 .codeScroll {
   flex: 1;

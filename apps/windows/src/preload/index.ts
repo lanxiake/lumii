@@ -757,13 +757,22 @@ export interface ElectronAPI {
     trash: (paths: readonly string[]) => Promise<
       import('../shared/artifact-export-types').ArtifactTrashResult
     >
-    /** 文本区间替换：只生成候选稿 */
+    /** 文本区间替换（无 LLM）：只生成候选稿 */
     proposeTextEdit: (
       input: import('../shared/artifact-edit-types').ProposeTextEditInput,
     ) => Promise<
       | import('../shared/artifact-edit-types').ArtifactEditProposal
       | import('../shared/artifact-edit-types').ArtifactEditFailure
     >
+    /** 文档选区改写（单轮 LLM）：editId 同时用于取消 */
+    proposeEdit: (
+      input: import('../shared/artifact-edit-types').ProposeTextRangeInput,
+    ) => Promise<
+      | import('../shared/artifact-edit-types').ArtifactEditProposal
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    /** 取消在飞的改写 */
+    abortEdit: (editId: string) => Promise<{ ok: true; aborted: boolean }>
     /** 应用候选稿（baseHash 冲突拒绝） */
     applyEdit: (
       editId: string,

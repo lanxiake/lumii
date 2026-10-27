@@ -38,3 +38,19 @@
   border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
   color: var(--mt-accent-500);
 }
+
+/* main 里「内容 + 提议面板 + 动作条」这一列（P1 遗漏的类，P2 提案面板需要） */
+.mainColumn {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+}
+
+.mainContent {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}

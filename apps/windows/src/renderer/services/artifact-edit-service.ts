@@ -12,6 +12,7 @@ import type {
   ArtifactEditProposal,
   ArtifactEditUndoResult,
   ProposeTextEditInput,
+  ProposeTextRangeInput,
 } from '../../shared/artifact-edit-types'
 
 function api() {
@@ -27,6 +28,22 @@ export const artifactEditService = {
       return Promise.resolve({ ok: false, error: '当前版本不支持就地修改', code: 'unavailable' })
     }
     return target.proposeTextEdit(input)
+  },
+
+  proposeEdit: (
+    input: ProposeTextRangeInput,
+  ): Promise<ArtifactEditProposal | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.proposeEdit) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持 AI 改写', code: 'unavailable' })
+    }
+    return target.proposeEdit(input)
+  },
+
+  abortEdit: (editId: string): Promise<{ ok: true; aborted: boolean }> => {
+    const target = api()
+    if (!target?.abortEdit) return Promise.resolve({ ok: true, aborted: false })
+    return target.abortEdit(editId)
   },
 
   applyEdit: (editId: string): Promise<ArtifactEditApplyResult | ArtifactEditFailure> => {

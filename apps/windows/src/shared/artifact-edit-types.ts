@@ -7,6 +7,8 @@
  * - 渲染层只拿 editId / candidate 路径，不把整份内容塞进 IPC 返回值。
  */
 
+import type { TextDiffResult } from './text-diff'
+
 export type ArtifactEditScope =
   /** UTF-16 偏移，基于 propose 时的磁盘内容 */
   | { type: 'text-range'; start: number; end: number }
@@ -26,10 +28,14 @@ export type ArtifactEditAction =
   | 'variant'
   | 'undo'
 
+/** 文档选区的四种改写动作 */
+export type DocumentEditAction = 'rewrite' | 'expand' | 'shorten' | 'tone'
+export type EditTone = 'formal' | 'casual' | 'confident'
+
 export interface ArtifactEditFailure {
   ok: false
   error: string
-  code?: 'invalid-path' | 'invalid-scope' | 'conflict' | 'not-found' | 'unavailable'
+  code?: 'invalid-path' | 'invalid-scope' | 'conflict' | 'not-found' | 'unavailable' | 'cancelled'
 }
 
 export interface ArtifactEditProposal {
@@ -42,6 +48,8 @@ export interface ArtifactEditProposal {
   baseHash: string
   beforeBytes: number
   afterBytes: number
+  /** 文本类：候选与原内容的行级 diff（T2 提案面板用） */
+  diff?: TextDiffResult
 }
 
 export interface ArtifactEditApplyResult {
@@ -91,4 +99,19 @@ export interface ProposeTextEditInput {
   baseHash?: string
   /** 渲染层 requestId；缺省由主进程生成 */
   editId?: string
+}
+
+/** 文档选区改写（走单轮 LLM）的输入 */
+export interface ProposeTextRangeInput {
+  /** 渲染层生成的 requestId，同时用于取消 */
+  editId: string
+  sessionKey?: string | null
+  path: string
+  start: number
+  end: number
+  action: DocumentEditAction
+  tone?: EditTone
+  instruction?: string
+  /** 渲染层按加载内容算的 sha256；主进程按磁盘再算一遍 */
+  baseHash?: string
 }

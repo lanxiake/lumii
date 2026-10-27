@@ -16,6 +16,7 @@ import type { FeishuLoginService } from '../feishu-login-service'
 import type { QbotLoginService } from '../qbot-login-service'
 import type { ChannelHub } from '../channel/channel-hub-bootstrap'
 import type { AgentRuntimeBridge } from '../agent-runtime'
+import { SingleTurnLlmService } from '../single-turn-llm'
 
 import {
   setWorkspaceIpcDeps,
@@ -146,6 +147,10 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     getWorkspaceDir: deps.getWorkspaceDir,
     getMainWindow: deps.getMainWindow,
     getAgentRuntimeBridge: deps.getAgentRuntimeBridge,
+    // 单轮改写：与划词共用 bridge 的 stream/model 解析；取消按 requestId
+    singleTurn: new SingleTurnLlmService({
+      resolveStream: () => deps.getAgentRuntimeBridge()?.resolveSelectionChatStream(),
+    }),
     log: deps.log,
   })
 

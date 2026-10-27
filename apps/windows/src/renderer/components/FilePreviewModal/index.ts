@@ -1,2 +1,2 @@
 export { FilePreviewModal } from './FilePreviewModal'
-export type { FilePreviewModalProps } from './FilePreviewModal'
+export type { FilePreviewModalProps, PreviewSelectionPayload } from './FilePreviewModal'
