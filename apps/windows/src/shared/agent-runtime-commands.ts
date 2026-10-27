@@ -244,6 +244,19 @@ interface ConversationMessagesCommand {
 }
 
 /**
+ * 某文件在整个会话里的版本历史（工作台 inspector 用）。
+ *
+ * 渲染层只加载最近几十条消息，版本历史却要覆盖全会话——所以走主进程扫库，
+ * 而不是复用已加载的台账。数据源同样只有 `assistant_parts.fileChanges`。
+ */
+interface ArtifactHistoryCommand {
+  readonly type: 'artifact:history'
+  readonly sessionKey: string
+  /** 工作区相对路径（正斜杠）；与台账里的 `Artifact.path` 同一口径 */
+  readonly path: string
+}
+
+/**
  * 查询指定会话的实时上下文使用量（用于会话切换后立即展示真实窗口占用）
  */
 interface ConversationContextUsageCommand {
@@ -1690,6 +1703,7 @@ export type AgentRuntimeCommand =
   | ConversationListCommand
   | ConversationSearchCommand
   | ConversationMessagesCommand
+  | ArtifactHistoryCommand
   | ConversationContextUsageCommand
   | ConversationDeleteCommand
   | ConversationRenameCommand
@@ -1895,6 +1909,17 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       nextCursor?: ConversationMessagesCursor
     }
   : T extends 'conversation:context-usage' ? SessionContextUsageResult
+  : T extends 'artifact:history' ? {
+      /** 时间正序（旧 → 新）；① = 最早一版 */
+      versions: readonly {
+        /** 产生这一版的那条 assistant 消息 id（「回到消息」用） */
+        turnId: string
+        /** epoch ms */
+        timestamp: number
+        status: 'added' | 'modified' | 'deleted'
+      }[]
+      total: number
+    }
   : T extends 'conversation:delete' ? void
   : T extends 'conversation:rename' ? { success: boolean }
   : T extends 'conversation:pin-toggle' ? { isPinned: boolean }

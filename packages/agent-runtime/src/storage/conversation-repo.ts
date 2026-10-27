@@ -11,6 +11,7 @@ import { providerPromptTokens } from "../compact/token-estimate.js";
 import type {
   AssistantPart,
   AssistantPartsContent,
+  FileChangeEntry,
   ToolAssistantPart,
 } from "./assistant-parts.js";
 import { finalizeAssistantParts } from "./assistant-parts.js";
@@ -402,6 +403,54 @@ export class ConversationRepo {
       )
       .all(conversationId, limit)
       .map((row) => row.content_json);
+  }
+
+  /**
+   * 全会话的「文件变更回合」列表（时间升序）。
+   *
+   * UI 只加载最近几十条消息，而版本历史要覆盖整个会话——这里直接按会话扫库。
+   * 只认 `assistant_parts.fileChanges`：那是回合收尾时按快照 diff 落盘的唯一真相；
+   * `unattributed` 是旧数据里「归属不明」的标记，渲染层一直过滤，这里同样不给出去。
+   *
+   * SQL 用 LIKE 先粗筛（避免逐行 JSON.parse 整个会话），再逐条解析确认。
+   */
+  listFileChangeTurns(conversationId: string): readonly {
+    readonly messageId: string;
+    readonly timestamp: string;
+    readonly changes: readonly FileChangeEntry[];
+  }[] {
+    const rows = this.db
+      .prepare<Pick<MessageRow, "id" | "timestamp" | "content_json">>(
+        `SELECT id, timestamp, content_json FROM messages
+          WHERE conversation_id = ? AND role = 'assistant' AND is_streaming = 0
+            AND content_json LIKE '%fileChanges%'
+          ORDER BY timestamp ASC, id ASC`,
+      )
+      .all(conversationId);
+
+    const turns: Array<{
+      messageId: string;
+      timestamp: string;
+      changes: FileChangeEntry[];
+    }> = [];
+    for (const row of rows) {
+      const parsed = parseMessageContentJson(row.content_json);
+      const raw = parsed?.type === "assistant_parts" ? parsed.fileChanges : undefined;
+      if (!Array.isArray(raw)) continue;
+      const changes = raw.filter(
+        (entry): entry is FileChangeEntry =>
+          Boolean(entry) &&
+          typeof entry.path === "string" &&
+          entry.path.length > 0 &&
+          (entry.status === "added" ||
+            entry.status === "modified" ||
+            entry.status === "deleted") &&
+          entry.confidence !== "unattributed",
+      );
+      if (changes.length === 0) continue;
+      turns.push({ messageId: row.id, timestamp: row.timestamp, changes });
+    }
+    return turns;
   }
 
   /**

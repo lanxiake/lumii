@@ -5,17 +5,19 @@
  * 两个视图（工作区 / 版本）+ 「只看产出」开关；宽度三档（半 480 / 宽 860 / 满）。
  *
  * 结构：shell（宽度动画）→ inner（固定宽度，避免动画时内容重排）
- *       → header + [rail | main]
+ *       → header + [rail | main | inspector]
  */
 
 import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { X, RefreshCw, AppWindow } from 'lucide-react'
+import { X, RefreshCw, AppWindow, Info } from 'lucide-react'
 import {
   CHAT_MIN_REMAIN,
+  INSPECTOR_WIDTH,
   PRESET_LABEL,
   WORKBENCH_WIDTH_MIN,
   isCompactWidth,
+  isInspectorInline,
   railWidthFor,
   resolveWidth,
   type WorkbenchPreset,
@@ -53,6 +55,11 @@ export interface WorkspaceWorkbenchProps {
   rail: ReactNode
   /** main：内嵌预览或空态 */
   main: ReactNode
+  /** inspector：选中产物的规格 + 版本历史；宽度 ≥900 时并排，否则浮在 main 右侧 */
+  inspector?: ReactNode
+  /** inspector 是否展开（宽度不足时由 header 的「信息」按钮开关） */
+  inspectorOpen?: boolean
+  onInspectorOpenChange?: (open: boolean) => void
   /** 版本视图（vcs 插件） */
   childrenVcs?: ReactNode
 }
@@ -84,6 +91,9 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   vcsEnabled = true,
   rail,
   main,
+  inspector,
+  inspectorOpen = false,
+  onInspectorOpenChange,
   childrenVcs,
 }) => {
   const shellRef = useRef<HTMLElement | null>(null)
@@ -115,6 +125,7 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   const resolved = resolveWidth(preset, customWidth, maxWidth)
   const displayWidth = dragWidth ?? resolved
   const compact = isCompactWidth(displayWidth)
+  const inlineInspector = isInspectorInline(displayWidth)
 
   useEffect(() => {
     if (displayWidth > 0) setLastWidth(displayWidth)
@@ -309,6 +320,19 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
           </div>
 
           <div className={styles.actions}>
+            {/* 窄档没有 inspector 栏位：「信息」按钮把它叫成浮层 */}
+            {inspector && !inlineInspector && selectedPath && (
+              <button
+                type="button"
+                className={clsx(styles.iconBtn, inspectorOpen && styles.iconBtnActive, 'mt-press')}
+                onClick={() => onInspectorOpenChange?.(!inspectorOpen)}
+                aria-pressed={inspectorOpen}
+                title="产物信息与版本"
+                aria-label="产物信息与版本"
+              >
+                <Info size={14} strokeWidth={1.8} />
+              </button>
+            )}
             {onRefresh && (
               <button
                 type="button"
@@ -379,7 +403,17 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
                 </div>
               )}
               {main}
+              {/* 窄档放不下第三栏：「信息」按钮把它叫成浮层，盖在预览上 */}
+              {inspector && !inlineInspector && inspectorOpen && (
+                <div className={styles.inspectorFloat}>{inspector}</div>
+              )}
             </div>
+            {/* inspector 只在够宽时并排（<900 走上面的浮层），单栏下也不出现 */}
+            {inspector && inlineInspector && (
+              <div className={styles.inspectorSlot} style={{ width: INSPECTOR_WIDTH }}>
+                {inspector}
+              </div>
+            )}
           </div>
 
           <div

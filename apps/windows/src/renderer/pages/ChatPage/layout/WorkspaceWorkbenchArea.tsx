@@ -9,6 +9,7 @@ import { WorkspaceFilePanel } from '../components/WorkspaceFilePanel'
 import { SlotHost } from '../../../components/slots/SlotHost'
 import { usePluginEnabled } from '../../../../plugins/renderer/state'
 import { WorkspaceArtifactsPanel } from '../components/WorkspaceArtifactsPanel'
+import { ArtifactInspector } from '../components/WorkspaceArtifactsPanel/ArtifactInspector'
 import { applySidecarMeta, buildArtifactLedger } from '../components/WorkspaceArtifactsPanel/ledger'
 import { buildTurnProgress } from '../components/WorkspaceArtifactsPanel/progress'
 import { WorkspaceCleanupDialog } from '../components/WorkspaceCleanupDialog'
@@ -48,6 +49,10 @@ export interface WorkspaceWorkbenchAreaProps {
   onRespondPermission?: (action: 'allow-once' | 'allow-always' | 'deny') => void
   /** 失败卡「重试」只把原 prompt 放回输入框 */
   onRetryPrompt?: (prompt: string) => void
+  /** 「回到产生它的那条消息」：向上传到 ChatPage 做滚动定位 */
+  onGoToMessage?: (messageId: string) => void
+  /** 当前会话 key（inspector 查全会话版本历史用） */
+  sessionKey?: string
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -85,6 +90,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   pendingPermission,
   onRespondPermission,
   onRetryPrompt,
+  onGoToMessage,
+  sessionKey,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const fileRefreshRef = useRef<(() => void) | null>(null)
@@ -253,6 +260,37 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     </div>
   )
 
+  // inspector 只对「选中且来自台账」的产物出现：文件面板里的普通文件没有版本历史
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const selectedArtifact = useMemo(() => {
+    if (!selected) return undefined
+    for (const group of enrichedLedger.groups) {
+      const hit =
+        group.deliverables.find((item) => item.path === selected) ??
+        group.intermediates.find((item) => item.path === selected)
+      if (hit) return hit
+    }
+    return undefined
+  }, [enrichedLedger, selected])
+
+  // 换产物时收起浮层：新产物默认不弹，宽档的并排栏会自己出现
+  useEffect(() => {
+    setInspectorOpen(false)
+  }, [selectedArtifact?.path])
+
+  const inspectorNode =
+    selectedArtifact && onGoToMessage ? (
+      <ArtifactInspector
+        artifact={selectedArtifact}
+        {...(sessionKey ? { sessionKey } : {})}
+        {...(enrichedLedger.versions.get(selectedArtifact.path)
+          ? { versions: enrichedLedger.versions.get(selectedArtifact.path)! }
+          : {})}
+        onGoToTurn={onGoToMessage}
+        onClose={() => setInspectorOpen(false)}
+      />
+    ) : undefined
+
   return (
     <>
       <WorkspaceWorkbench
@@ -313,6 +351,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           )
         }
         main={main}
+        {...(inspectorNode ? { inspector: inspectorNode } : {})}
+        inspectorOpen={inspectorOpen}
+        onInspectorOpenChange={setInspectorOpen}
         childrenVcs={
           <SlotHost
             name="workspace.version"

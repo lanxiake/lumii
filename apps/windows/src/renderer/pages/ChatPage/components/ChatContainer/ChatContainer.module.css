@@ -85,6 +85,23 @@
  * 240px 那个兜底 **不参与判定**：这个类只在「已实测高度」的行上才加，所以它永远用不到，
  * 纯粹是防「变量没写进来」时属性整体失效（那会让行塌成 0 高，比一个不准的兜底更糟）。
  */
+/*
+ * 「回到产生它的那条消息」的落点高亮：2px accent 描边 + 同色淡底，1.6s 后由组件移除类。
+ * 用 outline 而不是 border：不改变行高，不会把窗口化的实测高度弄脏。
+ */
+.message-row--focused {
+  outline: 2px solid color-mix(in srgb, var(--mt-accent-500) 65%, transparent);
+  outline-offset: 4px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mt-accent-500) 7%, transparent);
+  animation: focus-pulse 1.6s ease-out;
+}
+
+@keyframes focus-pulse {
+  0% { background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent); }
+  100% { background: color-mix(in srgb, var(--mt-accent-500) 7%, transparent); }
+}
+
 .message-row--skippable {
   content-visibility: auto;
   contain-intrinsic-block-size: auto var(--row-h, 240px);

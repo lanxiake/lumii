@@ -211,6 +211,11 @@
   color: var(--mt-fg-1);
 }
 
+.iconBtnActive {
+  color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+}
+
 /* 窄档先藏密度（仍可键盘 1 切），极窄再藏档位——保留「拖回来」之外的恢复手段 */
 @container (max-width: 380px) {
   .density {
@@ -256,6 +261,7 @@
 }
 
 .main {
+  position: relative; /* 窄档 inspectorFloat 的定位上下文 */
   flex: 1;
   min-width: 0;
   height: 100%;
@@ -332,4 +338,22 @@
   .shell {
     transition: none;
   }
+}
+
+/* inspector 槽位：固定宽（内层自己也有 240，外层只负责不参与 flex 计算） */
+.inspectorSlot {
+  flex-shrink: 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 窄档浮层：盖在预览右侧，点「信息」开关；不改变 flex 计算 */
+.inspectorFloat {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  box-shadow: var(--mt-shadow-lg);
 }

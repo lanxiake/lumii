@@ -876,6 +876,49 @@ export function handleConversationContextUsage(
   return bridge.getSessionContextUsage(command.sessionKey)
 }
 
+// ============================================================
+// 产物版本历史（工作台 inspector）
+// ============================================================
+
+export interface ArtifactHistoryVersion {
+  readonly turnId: string
+  /** epoch ms（渲染层直接用，不在 UI 里再做 ISO 解析） */
+  readonly timestamp: number
+  readonly status: 'added' | 'modified' | 'deleted'
+}
+
+export interface ArtifactHistoryResult {
+  /** 时间正序（旧 → 新）；① = 最早一版 */
+  readonly versions: readonly ArtifactHistoryVersion[]
+  /** 全会话该路径出现过的次数（含已删除的版本），UI 明示「N 个版本」 */
+  readonly total: number
+}
+
+export function handleArtifactHistory(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'artifact:history' }>,
+): ArtifactHistoryResult {
+  const { sessionKey } = command
+  const path = command.path.trim()
+  if (!path) throw new Error('bad_request: path 不能为空')
+  assertConversationExists(bridge, sessionKey)
+
+  // 不缓存：一次回合就能给同一文件添一版，缓存住反而让面板少一版；扫库只在点开时发生。
+  const versions: ArtifactHistoryVersion[] = []
+  for (const turn of bridge.conversationRepo.listFileChangeTurns(sessionKey)) {
+    for (const change of turn.changes) {
+      if (change.path !== path) continue
+      versions.push({
+        turnId: turn.messageId,
+        timestamp: Date.parse(turn.timestamp),
+        status: change.status,
+      })
+    }
+  }
+
+  return { versions, total: versions.length }
+}
+
 export function handleConversationDismissInterrupt(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'conversation:dismiss-interrupt' }>,

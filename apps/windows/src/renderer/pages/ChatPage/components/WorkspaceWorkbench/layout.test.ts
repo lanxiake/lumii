@@ -5,6 +5,8 @@ import {
   hashWorkspaceDir,
   isCompactWidth,
   railWidthFor,
+  isInspectorInline,
+  INSPECTOR_WIDTH,
   resolveWidth,
 } from './layout'
 
@@ -35,6 +37,12 @@ describe('断点与 rail 宽度', () => {
     expect(isCompactWidth(560)).toBe(false)
     expect(railWidthFor(480)).toBe(220)
     expect(railWidthFor(860)).toBe(260)
+  })
+
+  it('inspector 只在 ≥900 时并排（更窄退浮层）', () => {
+    expect(isInspectorInline(899)).toBe(false)
+    expect(isInspectorInline(900)).toBe(true)
+    expect(INSPECTOR_WIDTH).toBe(240)
   })
 
   it('对话区残留常量保持 280', () => {

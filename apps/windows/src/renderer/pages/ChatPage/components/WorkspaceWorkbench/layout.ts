@@ -53,6 +53,17 @@ export function railWidthFor(workbenchWidth: number): number {
   return workbenchWidth < 560 ? 220 : 260
 }
 
+/** inspector 固定宽度（设计 §8：属性 + 版本历史） */
+export const INSPECTOR_WIDTH = 240
+
+/**
+ * inspector 何时能并排：宽度 ≥900 才有位置。
+ * 更窄时它退化成浮层，由「信息」按钮开关——否则 main 会被挤到没法看。
+ */
+export function isInspectorInline(workbenchWidth: number): boolean {
+  return workbenchWidth >= 900
+}
+
 /** FNV-1a 32 位：给 localStorage key 防串档（不承担安全职责） */
 export function hashWorkspaceDir(dir: string): string {
   let hash = 0x811c9dc5

@@ -115,6 +115,12 @@ interface ChatContainerProps {
   isLoadingHistory?: boolean
   /** 请求加载更早的一页历史消息 */
   onLoadOlderMessages?: () => void
+  /**
+   * 要定位的消息 id（工作台「回到产生它的那条消息」）。
+   * 找不到且还有更早历史时自动向上翻页；定位完成后回调 `onFocusHandled` 清空。
+   */
+  focusMessageId?: string | null
+  onFocusHandled?: () => void
   /** 本会话的长耗时后台任务（远程视频生成等），渲染为对话流内任务卡 */
   backgroundTasks?: readonly BackgroundTask[]
   /** 本会话的活动实例（含主 Agent），≥2 个子 Agent 时渲染并行看板 */
@@ -262,6 +268,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   hasMoreHistory = false,
   isLoadingHistory = false,
   onLoadOlderMessages,
+  focusMessageId,
+  onFocusHandled,
   backgroundTasks,
   activeAgents,
   onCancelAgent,
@@ -598,6 +606,58 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   // "Rendered more hooks than during the previous render"。
   const todoProgress = useMemo(() => computeTodoProgress(todoCalls), [todoCalls])
 
+  // ── 「回到产生它的那条消息」 ──
+  //
+  // 目标行可能还没加载（长会话只加载了最近几十条），也可能被窗口化占位。
+  // 处理顺序：关掉粘底 → 找到就滚过去并高亮；找不到且还有历史就翻一页再来。
+  // 上限 20 次/10s：一次点击最多翻这么多，避免用户手滑点到很老的卡片时把整个会话拉进来。
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+  const focusTriesRef = useRef(0)
+  const focusDeadlineRef = useRef(0)
+
+  useEffect(() => {
+    if (!focusMessageId) return
+    // 会话刚切过来、消息还没到：这一轮什么都判断不了，等 messages 到位后 effect 会再跑
+    if (messages.length === 0) return
+    const now = Date.now()
+    if (focusTriesRef.current === 0 || now > focusDeadlineRef.current) {
+      focusTriesRef.current = 0
+      focusDeadlineRef.current = now + 10_000
+    }
+
+    // 用户主动跳转，先解除粘底，否则新消息会把视口拽回底部
+    stickToBottomRef.current = false
+    setShowScrollToLatest(true)
+
+    const el = scrollContainerRef.current?.querySelector<HTMLElement>(
+      `[data-row-key="m:${focusMessageId}"]`,
+    )
+    if (el) {
+      focusTriesRef.current = 0
+      el.scrollIntoView({ block: 'center' })
+      setHighlightedMessageId(focusMessageId)
+      onFocusHandled?.()
+      return
+    }
+
+    if (hasMoreHistory && onLoadOlderMessages && focusTriesRef.current < 20) {
+      focusTriesRef.current += 1
+      onLoadOlderMessages()
+      return
+    }
+
+    // 翻到底也没找到（消息被压缩移除 / 已删除）：清掉请求，不要把界面吊住
+    focusTriesRef.current = 0
+    onFocusHandled?.()
+  }, [focusMessageId, hasMoreHistory, messages, onLoadOlderMessages, onFocusHandled])
+
+  // 高亮 1.6s 后自动褪去；换目标时重新计时
+  useEffect(() => {
+    if (!highlightedMessageId) return
+    const timer = window.setTimeout(() => setHighlightedMessageId(null), 1600)
+    return () => window.clearTimeout(timer)
+  }, [highlightedMessageId])
+
   if (isLoading && chatItems.length === 0) {
     return (
       <div className={styles['chat-container']}>
@@ -733,6 +793,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               className={clsx(
                 styles['message-row'],
                 skippable && styles['message-row--skippable'],
+                highlightedMessageId === item.id && styles['message-row--focused'],
               )}
               style={rowStyle}
             >

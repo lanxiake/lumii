@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   handleConversationDelete,
   handleConversationFork,
+  handleArtifactHistory,
   handleConversationList,
   handleConversationTransferAgent,
   maybeGenerateConversationTitle,
@@ -607,5 +608,87 @@ describe('handleConversationFork 会话分支', () => {
     expect(res.success).toBe(false)
     expect(res.error).toMatch(/streaming/)
     expect(forwardIpcEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('artifact:history 版本历史', () => {
+  const makeBridge = (turns: {
+    messageId: string
+    timestamp: string
+    changes: { path: string; status: 'added' | 'modified' | 'deleted' }[]
+  }[]) =>
+    ({
+      conversationRepo: {
+        getConversation: (id: string) => (id === 'conv-1' ? { id } : undefined),
+        listFileChangeTurns: () => turns,
+      },
+    }) as never
+
+  it('只挑该路径的版本，按时间正序，turnId 保留', () => {
+    const bridge = makeBridge([
+      {
+        messageId: 'm1',
+        timestamp: '2026-01-01T00:00:01.000Z',
+        changes: [
+          { path: 'outputs/a.png', status: 'added' },
+          { path: 'outputs/b.png', status: 'added' },
+        ],
+      },
+      {
+        messageId: 'm2',
+        timestamp: '2026-01-01T00:00:05.000Z',
+        changes: [{ path: 'outputs/a.png', status: 'modified' }],
+      },
+    ])
+    const result = handleArtifactHistory(bridge, {
+      type: 'artifact:history',
+      sessionKey: 'conv-1',
+      path: 'outputs/a.png',
+    })
+    expect(result.total).toBe(2)
+    expect(result.versions.map((v) => v.turnId)).toEqual(['m1', 'm2'])
+    expect(result.versions.map((v) => v.status)).toEqual(['added', 'modified'])
+    expect(result.versions[0]!.timestamp).toBe(Date.parse('2026-01-01T00:00:01.000Z'))
+  })
+
+  it('会话不存在时报错，而不是返回空列表', () => {
+    expect(() =>
+      handleArtifactHistory(makeBridge([]), {
+        type: 'artifact:history',
+        sessionKey: 'nope',
+        path: 'outputs/a.png',
+      }),
+    ).toThrow(/not_found/)
+  })
+
+  it('空路径是参数错误', () => {
+    expect(() =>
+      handleArtifactHistory(makeBridge([]), {
+        type: 'artifact:history',
+        sessionKey: 'conv-1',
+        path: '   ',
+      }),
+    ).toThrow(/bad_request/)
+  })
+
+  it('不缓存：两次查询之间新增的一版必须立刻可见', () => {
+    type Turn = {
+      messageId: string
+      timestamp: string
+      changes: { path: string; status: 'added' | 'modified' | 'deleted' }[]
+    }
+    const turns: Turn[] = [
+      { messageId: 'm1', timestamp: '2026-01-01T00:00:01.000Z', changes: [{ path: 'outputs/a.png', status: 'added' }] },
+    ]
+    const bridge = {
+      conversationRepo: {
+        getConversation: () => ({ id: 'conv-1' }),
+        listFileChangeTurns: () => [...turns],
+      },
+    } as never
+    const cmd = { type: 'artifact:history' as const, sessionKey: 'conv-1', path: 'outputs/a.png' }
+    expect(handleArtifactHistory(bridge, cmd).total).toBe(1)
+    turns.push({ messageId: 'm2', timestamp: '2026-01-01T00:00:09.000Z', changes: [{ path: 'outputs/a.png', status: 'modified' }] })
+    expect(handleArtifactHistory(bridge, cmd).versions.map((v) => v.turnId)).toEqual(['m1', 'm2'])
   })
 })

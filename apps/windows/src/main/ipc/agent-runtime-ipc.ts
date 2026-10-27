@@ -78,6 +78,7 @@ import {
   handleConversationContinueInterrupted,
   handleConversationTransferAgent,
   handleConversationFork,
+  handleArtifactHistory,
   setConversationDependencies,
 } from './agent-runtime/conversation-commands'
 import {
@@ -809,6 +810,10 @@ export async function handleCommand(
 
       case 'conversation:messages':
         return handleConversationMessages(bridge, command)
+
+      // ---- 产物版本历史（工作台 inspector，扫全会话而不仅是已加载的消息）----
+      case 'artifact:history':
+        return handleArtifactHistory(bridge, command)
 
       case 'conversation:context-usage':
         return handleConversationContextUsage(bridge, command)

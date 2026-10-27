@@ -499,6 +499,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const [voiceCallState, voiceCallActions] = useVoiceCall()
   const conversationReplay = useConversationReplay()
   /**
+   * 「回到产生它的那条消息」的目标消息 id。
+   * 工作台 inspector 点版本/定位时设，ChatContainer 滚动到并高亮后回调清空。
+   */
+  const [focusMessageId, setFocusMessageId] = useState<string | null>(null)
+  const clearFocusMessage = useCallback(() => setFocusMessageId(null), [])
+  /** 工作台 inspector 的「回到消息」：只滚动定位，不改会话（台账只含当前会话） */
+  const handleGoToMessage = useCallback((messageId: string) => {
+    setFocusMessageId(messageId)
+  }, [])
+  /**
    * pendingAttachments 存储当前待发附件的元信息：
    * - fileName / filePath / category 来自策略层
    * - recognitionResults 为图片识别策略的输出（可选，图片类才有）
@@ -1912,6 +1922,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
               fileEvents={runtimeFileEvents}
               compactionEvents={runtimeCompactionEvents}
               replayMessageId={conversationReplay.replayMessageId}
+              focusMessageId={focusMessageId}
+              onFocusHandled={clearFocusMessage}
               todoCalls={sessionTodoCalls}
               hasMoreHistory={runtimeHistoryPaging?.hasMore ?? false}
               isLoadingHistory={runtimeHistoryPaging?.isLoading ?? false}
@@ -2098,6 +2110,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           : {})}
         onRespondPermission={(action) => runtimeActions.respondPermission(action)}
         onRetryPrompt={setInputValue}
+        onGoToMessage={(messageId) => handleGoToMessage(messageId)}
+        {...(runtimeCurrentSessionKey ? { sessionKey: runtimeCurrentSessionKey } : {})}
       />
     </div>
   )
