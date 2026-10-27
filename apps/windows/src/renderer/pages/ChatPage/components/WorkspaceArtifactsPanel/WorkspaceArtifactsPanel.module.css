@@ -818,7 +818,9 @@
 .versionRow {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  row-gap: 3px;
   padding: 4px 4px 4px 2px;
   border-radius: 6px;
   font-size: 11px;
@@ -874,11 +876,25 @@
   font-size: 9px;
 }
 
+.versionPin {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
+  color: var(--mt-accent-500);
+  font-size: 9px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
 .versionActions {
   margin-left: auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
+  row-gap: 3px;
 }
 
 .versionUnavailable {
@@ -891,6 +907,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  white-space: nowrap;
   padding: 2px 6px;
   border: 1px solid var(--mt-border-hairline);
   border-radius: 5px;

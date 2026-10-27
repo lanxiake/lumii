@@ -48,6 +48,13 @@ export interface ArtifactInspectorProps {
   onShowDiff?: (version: ArtifactVersion, previous: ArtifactVersion) => void
   /** 只读预览某一版内容 */
   onPreviewVersion?: (version: ArtifactVersion) => void
+  /** T6：「以此为准」固化这一版 */
+  onPinVersion?: (version: ArtifactVersion) => void
+  /** T6：取消选定 */
+  onUnpinVersion?: (version: ArtifactVersion) => void
+  /** 固化/取消后递增，触发版本列表重查 */
+  refreshToken?: number
+  pinBusy?: boolean
   onClose?: () => void
 }
 
@@ -111,6 +118,10 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
   onGoToTurn,
   onShowDiff,
   onPreviewVersion,
+  onPinVersion,
+  onUnpinVersion,
+  refreshToken = 0,
+  pinBusy = false,
   onClose,
 }) => {
   const fallback = versions ?? []
@@ -160,14 +171,27 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
     return () => {
       cancelled = true
     }
-    // 换产物/换会话才重查；fallback 是台账引用，变了也不该打断本次请求
+    // 换产物/换会话/固化后重查；fallback 是台账引用，变了也不该打断本次请求
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifact.path, targetSession])
+  }, [artifact.path, targetSession, refreshToken])
 
   const specs = specRows(artifact)
   const prompts = promptRows(artifact)
   const chips = paramChips(artifact)
   const shown = history.versions.length > 0 ? history.versions : fallback
+
+  /** 已选定版不是最新版时，列表顶部明示「已选定 ③（当前 ④）」 */
+  const pinnedIndex = shown.findIndex((version) => version.pinned)
+  const latestIndex = (() => {
+    for (let index = shown.length - 1; index >= 0; index -= 1) {
+      if (shown[index]!.status !== 'deleted') return index
+    }
+    return -1
+  })()
+  const pinnedNote =
+    pinnedIndex >= 0 && pinnedIndex !== latestIndex && latestIndex >= 0
+      ? `已选定 ${pinnedIndex + 1}（当前 ${latestIndex + 1}）；导出与恢复用的是选定版`
+      : null
 
   /** 一次性复制「复现这张图」需要的全部参数（尺寸/模型/提示词） */
   const paramBlock = (): string => {
@@ -278,6 +302,7 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
               {shown.length > 0 ? ` ${shown.length} 个` : ' 暂无'}
             </span>
           </div>
+          {pinnedNote && <div className={styles.inspectorNote}>{pinnedNote}</div>}
           {history.partial && shown.length > 0 && (
             <div className={styles.inspectorNote}>
               只含已加载的消息；更早的版本会在主进程返回后补全。
@@ -296,11 +321,11 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
                 // 最新一版就是文件现在的内容（版本列表按时间正序）
                 const isCurrent = index === shown.length - 1 && version.status !== 'deleted'
                 const contentAvailable = version.content?.available === true
-                // 文本/代码才有「逐行差异」与内联预览；图片/PPT 的版本对照在 T6
+                // 「差异」按类型分派：文本逐行、图片并排、PPT 页级（T6）。
+                // 内联文本预览仍只对文本开放。
                 const textArtifact = isTextArtifactPath(artifact.path)
                 const canDiff = Boolean(
-                  textArtifact &&
-                    onShowDiff &&
+                  onShowDiff &&
                     previous &&
                     contentAvailable &&
                     previous.content?.available === true,
@@ -322,7 +347,45 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
                       {STATUS_LABEL[version.status]}
                     </span>
                     <span className={styles.versionSource}>{sourceLabel}</span>
+                    {version.pinned && (
+                      <span
+                        className={styles.versionPin}
+                        title={`${formatClock(version.pinned.at)} 固化${
+                          version.pinned.bytes !== undefined
+                            ? ` · ${formatBytes(version.pinned.bytes)}`
+                            : ''
+                        }`}
+                      >
+                        已选定
+                      </span>
+                    )}
                     <span className={styles.versionActions}>
+                      {version.pinned ? (
+                        onUnpinVersion && (
+                          <button
+                            type="button"
+                            className={styles.versionGo}
+                            onClick={() => onUnpinVersion(version)}
+                            disabled={pinBusy}
+                            title="不再选定这一版（副本留到清理）"
+                          >
+                            取消
+                          </button>
+                        )
+                      ) : (
+                        contentAvailable &&
+                        onPinVersion && (
+                          <button
+                            type="button"
+                            className={styles.versionGo}
+                            onClick={() => onPinVersion(version)}
+                            disabled={pinBusy}
+                            title="把这一版内容固化下来；导出与恢复都用它"
+                          >
+                            以此为准
+                          </button>
+                        )
+                      )}
                       {canDiff && previous && (
                         <button
                           type="button"

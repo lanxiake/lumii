@@ -90,3 +90,69 @@
 .error {
   color: var(--mt-error);
 }
+
+/* P2 T6：图片并排 / PPT 页级对照 */
+.imagePair {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 14px;
+  overflow: auto;
+}
+
+.imageCell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.imageCell img {
+  width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--mt-surface-2);
+}
+
+.imageLabel {
+  color: var(--mt-fg-3);
+  font-size: 11px;
+  text-align: center;
+}
+
+.slidePages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 14px 14px;
+}
+
+.slidePage {
+  margin-top: 10px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.slideHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+  background: var(--mt-surface-2);
+  font-size: 11px;
+}
+
+.slideTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1);
+}

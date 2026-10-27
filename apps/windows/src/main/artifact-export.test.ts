@@ -125,3 +125,21 @@ describe('exportArtifacts', () => {
     await expect(readFile(path.join(base, 'too-big.zip'))).rejects.toThrow()
   })
 })
+
+describe('导出历史版本副本（P2 T6）', () => {
+  it('另存为写出的是物化副本的旧内容，当前文件不变', async () => {
+    await writeFileAt('outputs/x/doc.md', 'CURRENT')
+    await writeFileAt('.lumii/exports/versions/abc123/doc.md', 'OLD-VERSION')
+
+    const savedPath = path.join(base, 'saved.md')
+    const saved = await exportArtifacts({
+      workspaceDir: root,
+      relPaths: ['.lumii/exports/versions/abc123/doc.md'],
+      mode: 'save',
+      destPath: savedPath,
+    })
+    expect(saved.ok).toBe(true)
+    expect(await readFile(savedPath, 'utf8')).toBe('OLD-VERSION')
+    expect(await readFile(path.join(root, 'outputs/x/doc.md'), 'utf8')).toBe('CURRENT')
+  })
+})

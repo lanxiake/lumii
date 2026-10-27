@@ -51,6 +51,7 @@ import type {
   DocumentEditAction,
   EditTone,
 } from '../../../../shared/artifact-edit-types'
+import type { PinEntryInfo } from '../../../../shared/artifact-pin-types'
 import type { WorkbenchState } from '../hooks/useWorkspacePanels'
 import type {
   PendingPermission,
@@ -437,6 +438,11 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const [editBusy, setEditBusy] = useState(false)
   /** T5：图片变体生成中（耗时可达数十秒，按钮转圈防重入） */
   const [variantBusy, setVariantBusy] = useState(false)
+  /** T6：本会话已固化（以此为准）的版本 */
+  const [pins, setPins] = useState<readonly PinEntryInfo[]>([])
+  const [pinBusy, setPinBusy] = useState(false)
+  /** 固化/取消后让检查器重查版本列表 */
+  const [historyToken, setHistoryToken] = useState(0)
   const [previewVersion, setPreviewVersion] = useState(0)
   const editTokenRef = useRef(0)
   const pendingEditIdRef = useRef<string | null>(null)
@@ -485,6 +491,22 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   /** T5：变体参数只来自**工具声明**（D9：没有声明就不显示变体） */
   const variantSource = useMemo(() => variantSourceFor(selectedArtifact), [selectedArtifact])
 
+  /** T6：当前产物是否已选定某一版（固化） */
+  const selectedPin = useMemo(() => {
+    if (!selectedArtifact) return undefined
+    return pins.find((pin) => pin.path === selectedArtifact.path)
+  }, [pins, selectedArtifact])
+
+  const refreshPins = useCallback(async () => {
+    const result = await artifactEditService.pins(sessionKey ? { sessionKey } : undefined)
+    if (result.ok) setPins(result.pins)
+  }, [sessionKey])
+
+  useEffect(() => {
+    if (!workbench.open) return
+    void refreshPins()
+  }, [workbench.open, refreshPins])
+
   // 换产物时收起浮层：新产物默认不弹，宽档的并排栏会自己出现
   useEffect(() => {
     setInspectorOpen(false)
@@ -501,6 +523,10 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         onGoToTurn={onGoToMessage}
         onShowDiff={(version, previous) => void handleShowVersionDiff(version, previous)}
         onPreviewVersion={(version) => void handlePreviewVersion(version)}
+        onPinVersion={(version) => void handlePinVersion(version)}
+        onUnpinVersion={(version) => void handleUnpinVersion(version)}
+        refreshToken={historyToken}
+        pinBusy={pinBusy}
         onClose={() => setInspectorOpen(false)}
       />
     ) : undefined
@@ -626,6 +652,85 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       setVariantBusy(false)
     }
   }, [selectedArtifact, sessionKey, toast, variantSource])
+
+  /** T6：「以此为准」= 立即固化该版内容（不是指针） */
+  const handlePinVersion = useCallback(
+    async (version: ArtifactVersion) => {
+      if (!selectedArtifact || !version.versionId) return
+      const targetSession = selectedArtifact.conversationId ?? sessionKey
+      if (!targetSession) {
+        toast.error('缺少会话信息，无法固化版本')
+        return
+      }
+      setPinBusy(true)
+      try {
+        const result = await artifactEditService.pinVersion({
+          sessionKey: targetSession,
+          path: selectedArtifact.path,
+          versionId: version.versionId,
+        })
+        if (!result.ok) {
+          toast.error(result.error)
+          return
+        }
+        toast.success(
+          result.replaced ? '已改选这一版（原选定副本留到清理）' : '已选定这一版',
+        )
+        await refreshPins()
+        setHistoryToken((value) => value + 1)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : '固化版本失败')
+      } finally {
+        setPinBusy(false)
+      }
+    },
+    [refreshPins, selectedArtifact, sessionKey, toast],
+  )
+
+  const handleUnpinVersion = useCallback(
+    async (version: ArtifactVersion) => {
+      const pinId = version.pinned?.pinId
+      if (!pinId) return
+      setPinBusy(true)
+      try {
+        const result = await artifactEditService.unpin(pinId)
+        if (!result.ok) {
+          toast.error(result.error)
+          return
+        }
+        toast.success('已取消选定')
+        await refreshPins()
+        setHistoryToken((value) => value + 1)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : '取消选定失败')
+      } finally {
+        setPinBusy(false)
+      }
+    },
+    [refreshPins, toast],
+  )
+
+  /** T6：导出「选定版」（主进程把该版物化后走现有另存为） */
+  const handleExportVersion = useCallback(async () => {
+    if (!selectedArtifact || !selectedPin) return
+    const targetSession = selectedArtifact.conversationId ?? sessionKey
+    if (!targetSession) {
+      toast.error('缺少会话信息，无法导出历史版本')
+      return
+    }
+    const api = window.electronAPI?.artifact
+    if (!api?.exportFiles) return
+    try {
+      const result = await api.exportFiles([selectedArtifact.path], 'save', {
+        versionId: selectedPin.versionId,
+        sessionKey: targetSession,
+      })
+      if (result.ok) toast.success(`已导出选定版到 ${result.destPath ?? '目标位置'}`)
+      else if (result.error !== '已取消') toast.error(result.error ?? '导出失败')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '导出失败')
+    }
+  }, [selectedArtifact, selectedPin, sessionKey, toast])
 
   const handleCompareCurrent = (): void => {
     if (!selectedArtifact) return
@@ -849,6 +954,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           path: selectedArtifact.path,
           fromVersionId: previous.versionId,
           toVersionId: version.versionId,
+          fromLabel: versionLabelOf(previous),
+          toLabel: versionLabelOf(version),
         })
         setVersionView({
           kind: 'diff',
@@ -938,6 +1045,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           fromLabel={versionView.fromLabel}
           toLabel={versionView.toLabel}
           result={versionView.result}
+          toAbsolutePath={toAbsolutePath}
           onClose={() => setVersionView(null)}
         />
       )
@@ -1106,6 +1214,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           canVariant={Boolean(variantSource)}
           variantBusy={variantBusy}
           onVariant={() => void handleGenerateVariant()}
+          {...(selectedPin ? { pinnedAt: selectedPin.at } : {})}
+          onExportVersion={() => void handleExportVersion()}
         />
       )}
     </div>

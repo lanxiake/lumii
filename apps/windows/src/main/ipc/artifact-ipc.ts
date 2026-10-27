@@ -43,13 +43,32 @@ import type {
   ArtifactVariantResult,
   CreateVariantInput,
 } from '../../shared/artifact-variant-types'
-import { MAX_DIFF_BYTES, diffText } from '../../shared/text-diff'
+import type { LocalArtifactEdit } from '../../shared/artifact-edit-types'
+import type {
+  ArtifactPinFailure,
+  ArtifactPinListResult,
+  ArtifactPinResult,
+  PinVersionInput,
+} from '../../shared/artifact-pin-types'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { normalizeDocumentAction } from '../artifact-edit-prompts'
 import { proposeTextRangeEdit } from '../artifact-edit-llm'
 import { proposeSlideEdit, readSlideOutline } from '../artifact-slides'
 import { createImageVariant } from '../artifact-variant'
-import { buildMergedVersions, resolveVersionContent } from '../artifact-versions'
+import {
+  attachPins,
+  buildMergedVersions,
+  materializeVersionFile,
+  readVersionBytes,
+  resolveVersionContent,
+} from '../artifact-versions'
+import { compareVersionPair } from '../artifact-version-compare'
+import {
+  clearPins,
+  listPins,
+  pinVersion,
+  unpinVersion,
+} from '../artifact-pins'
 import type { SingleTurnLlmService } from '../single-turn-llm'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
 import { exportArtifacts, resolveExportFiles } from '../artifact-export'
@@ -188,9 +207,10 @@ function registerAppliedFile(info: AppliedEditInfo): void {
 interface LoadedVersions {
   workspaceDir: string
   versions: readonly ArtifactVersionInfo[]
+  localEdits: readonly LocalArtifactEdit[]
 }
 
-/** 版本列表（turn + local）；raw IPC 与命令 handler 共用同一套构建 */
+/** 版本列表（turn + local + 固化标记）；raw IPC 与命令 handler 共用同一套构建 */
 async function loadArtifactVersions(
   bridge: AgentRuntimeBridge,
   sessionKey: string,
@@ -209,14 +229,17 @@ async function loadArtifactVersions(
   const local = workspaceDir
     ? await listEdits({ workspaceDir, sessionKey, limit: 500 })
     : { ok: true as const, edits: [] }
+  const localEdits = local.ok ? local.edits : []
   try {
-    const versions = await buildMergedVersions({
+    const built = await buildMergedVersions({
       workspaceDir,
       path,
       turns,
-      localEdits: local.ok ? local.edits : [],
+      localEdits,
     })
-    return { ok: true, data: { workspaceDir, versions } }
+    const pinList = await listPins({ workspaceDir, sessionKey, path })
+    const versions = attachPins(built, pinList.ok ? pinList.pins : [])
+    return { ok: true, data: { workspaceDir, versions, localEdits } }
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : '读取版本失败' }
   }
@@ -282,7 +305,12 @@ export function registerArtifactIpcHandlers(): void {
     'artifact:export',
     async (
       _event,
-      payload?: { paths?: unknown; mode?: unknown },
+      payload?: {
+        paths?: unknown
+        mode?: unknown
+        versionId?: unknown
+        sessionKey?: unknown
+      },
     ): Promise<ArtifactExportResult> => {
       const mode = payload?.mode
       if (mode !== 'zip' && mode !== 'copy' && mode !== 'save') {
@@ -298,8 +326,52 @@ export function registerArtifactIpcHandlers(): void {
         return { ok: false, exported: 0, bytes: 0, error: err instanceof Error ? err.message : '工作区不可用' }
       }
 
+      // 导出「选定版」：先把该版物化成临时文件，再走现有导出；完成后清理临时目录
+      let exportRelPaths: readonly unknown[] = paths
+      let materializedDir: string | null = null
+      if (payload?.versionId !== undefined) {
+        const versionId = payload.versionId
+        const sessionKey = payload.sessionKey
+        if (typeof versionId !== 'string' || !versionId) {
+          return { ok: false, exported: 0, bytes: 0, error: '版本标识非法' }
+        }
+        if (typeof sessionKey !== 'string' || !sessionKey) {
+          return { ok: false, exported: 0, bytes: 0, error: '缺少会话信息，无法导出历史版本' }
+        }
+        if (paths.length !== 1) {
+          return { ok: false, exported: 0, bytes: 0, error: '导出选定版只支持单个文件' }
+        }
+        // 物化副本在 `.lumii/exports/...` 下；打进 zip 会把这串临时目录带进包内，
+        // 所以历史版本只提供「另存为」（动作条也是这么用的）。
+        if (mode !== 'save') {
+          return { ok: false, exported: 0, bytes: 0, error: '导出选定版只支持另存为' }
+        }
+        const relPath = normalizeArtifactPath(paths[0])
+        if (!relPath) return { ok: false, exported: 0, bytes: 0, error: '路径不合法' }
+        const bridge = deps!.getAgentRuntimeBridge?.()
+        if (!bridge) return { ok: false, exported: 0, bytes: 0, error: 'Agent Runtime 未就绪' }
+        const loaded = await loadArtifactVersions(bridge, sessionKey, relPath)
+        if (!loaded.ok) return { ok: false, exported: 0, bytes: 0, error: loaded.reason }
+        const version = loaded.data.versions.find((item) => item.versionId === versionId)
+        if (!version) return { ok: false, exported: 0, bytes: 0, error: '找不到指定的版本' }
+        const materialized = await materializeVersionFile({
+          workspaceDir: loaded.data.workspaceDir,
+          path: relPath,
+          version,
+          allVersions: loaded.data.versions,
+          localEdits: loaded.data.localEdits,
+        })
+        if (!materialized.ok) {
+          return { ok: false, exported: 0, bytes: 0, error: materialized.reason }
+        }
+        exportRelPaths = [materialized.rel]
+        materializedDir = path.dirname(
+          path.join(loaded.data.workspaceDir, ...materialized.rel.split('/')),
+        )
+      }
+
       // 先解析（同时做安全闸与体积校验），再弹框——用户选完目标却导不出来最恼人
-      const resolved = await resolveExportFiles(root, paths)
+      const resolved = await resolveExportFiles(root, exportRelPaths)
       if (!resolved.ok) return { ok: false, exported: 0, bytes: 0, error: resolved.error }
 
       const mainWindow = deps!.getMainWindow?.() ?? null
@@ -347,7 +419,19 @@ export function registerArtifactIpcHandlers(): void {
         destPath = result.filePaths[0]
       }
 
-      return exportArtifacts({ workspaceDir: root, relPaths: paths, mode, destPath: destPath! })
+      try {
+        return await exportArtifacts({
+          workspaceDir: root,
+          relPaths: exportRelPaths,
+          mode,
+          destPath: destPath!,
+        })
+      } finally {
+        // 只清本次物化的临时版本目录；每日清理兜底
+        if (materializedDir) {
+          await fs.rm(materializedDir, { recursive: true, force: true }).catch(() => undefined)
+        }
+      }
     },
   )
 
@@ -682,6 +766,8 @@ export function registerArtifactIpcHandlers(): void {
         path?: unknown
         fromVersionId?: unknown
         toVersionId?: unknown
+        fromLabel?: unknown
+        toLabel?: unknown
       },
     ): Promise<ArtifactVersionDiffResult> => {
       const sessionKey = payload?.sessionKey
@@ -708,29 +794,16 @@ export function registerArtifactIpcHandlers(): void {
       const to = loaded.data.versions.find((version) => version.versionId === toId)
       if (!from || !to) return { ok: false, reason: '找不到指定的版本' }
 
-      const fromContent = await resolveVersionContent({
+      return compareVersionPair({
         workspaceDir: loaded.data.workspaceDir,
         path: relPath,
-        version: from,
+        from,
+        to,
         allVersions: loaded.data.versions,
+        localEdits: loaded.data.localEdits,
+        fromLabel: typeof payload?.fromLabel === 'string' ? payload.fromLabel : '起始版',
+        toLabel: typeof payload?.toLabel === 'string' ? payload.toLabel : '目标版',
       })
-      if (!fromContent.ok) return { ok: false, reason: `起始版：${fromContent.reason}` }
-      const toContent = await resolveVersionContent({
-        workspaceDir: loaded.data.workspaceDir,
-        path: relPath,
-        version: to,
-        allVersions: loaded.data.versions,
-      })
-      if (!toContent.ok) return { ok: false, reason: `目标版：${toContent.reason}` }
-
-      if (
-        Buffer.byteLength(fromContent.content.text, 'utf8') > MAX_DIFF_BYTES ||
-        Buffer.byteLength(toContent.content.text, 'utf8') > MAX_DIFF_BYTES
-      ) {
-        return { ok: false, reason: '文件过大（超过 512KB），暂不显示逐行差异' }
-      }
-      const diff = diffText(fromContent.content.text, toContent.content.text, relPath)
-      return { ok: true, ...diff }
     },
   )
 
@@ -771,6 +844,97 @@ export function registerArtifactIpcHandlers(): void {
         text: resolved.content.text,
         ...(resolved.content.approximate ? { approximate: true } : {}),
       }
+    },
+  )
+
+  // ---- 固化「以此为准」（P2 T6）----
+  ipcMain.handle(
+    'artifact:pinVersion',
+    async (
+      _event,
+      payload?: Partial<PinVersionInput>,
+    ): Promise<ArtifactPinResult | ArtifactPinFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      const relPath = payload?.path
+      const versionId = payload?.versionId
+      if (typeof relPath !== 'string' || !relPath || typeof versionId !== 'string' || !versionId) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const sessionKey =
+        typeof payload?.sessionKey === 'string' && payload.sessionKey.trim()
+          ? payload.sessionKey
+          : null
+      if (!sessionKey) {
+        return { ok: false, error: '缺少会话信息，无法固化版本', code: 'invalid-scope' }
+      }
+      const bridge = deps!.getAgentRuntimeBridge?.()
+      if (!bridge) return { ok: false, error: 'Agent Runtime 未就绪', code: 'unavailable' }
+      const loaded = await loadArtifactVersions(bridge, sessionKey, relPath)
+      if (!loaded.ok) return { ok: false, error: loaded.reason, code: 'not-found' }
+      const version = loaded.data.versions.find((item) => item.versionId === versionId)
+      if (!version) return { ok: false, error: '找不到指定的版本', code: 'not-found' }
+      const bytes = await readVersionBytes({
+        workspaceDir: loaded.data.workspaceDir,
+        path: relPath,
+        version,
+        allVersions: loaded.data.versions,
+        localEdits: loaded.data.localEdits,
+      })
+      if (!bytes.ok) return { ok: false, error: bytes.reason, code: 'unavailable' }
+      return pinVersion({
+        workspaceDir: loaded.data.workspaceDir,
+        sessionKey,
+        path: relPath,
+        versionId,
+        content: bytes.bytes,
+      })
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:unpin',
+    async (
+      _event,
+      payload?: { pinId?: unknown },
+    ): Promise<{ ok: true } | ArtifactPinFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      if (typeof payload?.pinId !== 'string' || !payload.pinId) {
+        return { ok: false, error: 'pinId 非法', code: 'invalid-scope' }
+      }
+      return unpinVersion({ workspaceDir: root, pinId: payload.pinId })
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:pins',
+    async (
+      _event,
+      payload?: { sessionKey?: unknown; path?: unknown },
+    ): Promise<ArtifactPinListResult> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      if (payload?.path !== undefined && typeof payload.path !== 'string') {
+        return { ok: false, error: '路径非法', code: 'invalid-scope' }
+      }
+      if (payload?.sessionKey !== undefined && typeof payload.sessionKey !== 'string') {
+        return { ok: false, error: 'sessionKey 非法', code: 'invalid-scope' }
+      }
+      return listPins({
+        workspaceDir: root,
+        ...(typeof payload?.sessionKey === 'string' ? { sessionKey: payload.sessionKey } : {}),
+        ...(typeof payload?.path === 'string' ? { path: payload.path } : {}),
+      })
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:pins:clear',
+    async (): Promise<{ ok: true; removed: number; freedBytes: number } | ArtifactPinFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      return clearPins({ workspaceDir: root })
     },
   )
 

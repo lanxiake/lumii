@@ -245,3 +245,31 @@ describe('ArtifactActionBar · 撤销本地修改', () => {
     expect(props.onMore).toHaveBeenCalledWith('undoEdit')
   })
 })
+
+describe('ArtifactActionBar · 导出选定版（T6）', () => {
+  it('有固化版本时导出菜单第一项是「导出选定版（HH:mm）」并回调', () => {
+    const onExportVersion = vi.fn()
+    const pinnedAt = new Date(2026, 0, 1, 17, 3).getTime()
+    render(
+      <ArtifactActionBar
+        artifact={makeArtifact('image')}
+        onEdit={vi.fn()}
+        onLocate={vi.fn()}
+        onCompare={vi.fn()}
+        onExport={vi.fn()}
+        onMore={vi.fn()}
+        pinnedAt={pinnedAt}
+        onExportVersion={onExportVersion}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /导出/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出选定版（17:03）' }))
+    expect(onExportVersion).toHaveBeenCalledTimes(1)
+  })
+
+  it('没有固化版本时菜单里没有这一项', () => {
+    renderBar('image')
+    fireEvent.click(screen.getByRole('button', { name: /导出/ }))
+    expect(screen.queryByRole('menuitem', { name: /导出选定版/ })).toBeNull()
+  })
+})

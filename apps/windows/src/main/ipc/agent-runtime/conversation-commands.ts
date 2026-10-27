@@ -19,7 +19,8 @@ import { deriveConversationTitleFromUserText } from '../../../shared/conversatio
 import type { LocalArtifactEdit } from '../../../shared/artifact-edit-types'
 import type { ArtifactVersionInfo } from '../../../shared/artifact-version-types'
 import { listEdits } from '../../artifact-edit'
-import { buildMergedVersions } from '../../artifact-versions'
+import { attachPins, buildMergedVersions } from '../../artifact-versions'
+import { listPins } from '../../artifact-pins'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -910,12 +911,15 @@ export async function handleArtifactHistory(
     const local = await listEdits({ workspaceDir, sessionKey, limit: 500 })
     if (local.ok) localEdits = local.edits
   }
-  const versions = await buildMergedVersions({
+  const built = await buildMergedVersions({
     workspaceDir,
     path,
     turns,
     localEdits,
   })
+  // 固化标记是版本上的增量信息（T6）；读不到就按未固化显示
+  const pinList = workspaceDir ? await listPins({ workspaceDir, sessionKey, path }) : null
+  const versions = attachPins(built, pinList?.ok ? pinList.pins : [])
   return { versions, total: versions.length }
 }
 

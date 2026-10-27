@@ -271,3 +271,95 @@ describe('ArtifactInspector · 图片可复现参数（T5）', () => {
     expect(screen.queryByText(/变体 · 来自/)).toBeNull()
   })
 })
+
+describe('ArtifactInspector · 以此为准（T6）', () => {
+  beforeEach(() => {
+    ;(window.electronAPI as any).agentRuntime = {}
+  })
+
+  it('内容可取的版本给「以此为准」，点击把该版交给上层', async () => {
+    mockSendCommand(async () => ({
+      versions: [
+        {
+          versionId: 'turn:m1',
+          source: 'turn',
+          turnId: 'm1',
+          timestamp: Date.parse('2026-01-01T10:00:00.000Z'),
+          status: 'added',
+          content: { available: true, kind: 'git' },
+        },
+        {
+          versionId: 'local:edit-1',
+          source: 'local',
+          timestamp: Date.parse('2026-01-01T10:05:00.000Z'),
+          status: 'edited',
+          content: { available: true, kind: 'store' },
+        },
+      ],
+      total: 2,
+    }))
+    const onPinVersion = vi.fn()
+    renderInspector({ artifact: DOC_ARTIFACT, onPinVersion })
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '以此为准' })).toHaveLength(2))
+    fireEvent.click(screen.getAllByRole('button', { name: '以此为准' })[1]!)
+    expect(onPinVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ versionId: 'local:edit-1' }),
+    )
+  })
+
+  it('已选定：徽标 + 取消按钮 + 「已选定 1（当前 2）」', async () => {
+    mockSendCommand(async () => ({
+      versions: [
+        {
+          versionId: 'turn:m1',
+          source: 'turn',
+          turnId: 'm1',
+          timestamp: Date.parse('2026-01-01T10:00:00.000Z'),
+          status: 'added',
+          content: { available: true, kind: 'git' },
+          pinned: { pinId: 'pin-1', at: Date.parse('2026-01-01T10:02:00.000Z'), bytes: 2048 },
+        },
+        {
+          versionId: 'local:edit-1',
+          source: 'local',
+          timestamp: Date.parse('2026-01-01T10:05:00.000Z'),
+          status: 'edited',
+          content: { available: true, kind: 'store' },
+        },
+      ],
+      total: 2,
+    }))
+    const onUnpinVersion = vi.fn()
+    const onPinVersion = vi.fn()
+    renderInspector({ artifact: DOC_ARTIFACT, onPinVersion, onUnpinVersion })
+    await waitFor(() => expect(screen.getByText(/已选定 1（当前 2）/)).toBeInTheDocument())
+    expect(screen.getByText('已选定')).toBeInTheDocument()
+    // 已选定的那一行不再给「以此为准」
+    expect(screen.getAllByRole('button', { name: '以此为准' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(onUnpinVersion).toHaveBeenCalledWith(
+      expect.objectContaining({ pinned: expect.objectContaining({ pinId: 'pin-1' }) }),
+    )
+  })
+
+  it('没有固化回调时不出现「以此为准」/「取消」', async () => {
+    mockSendCommand(async () => ({
+      versions: [
+        {
+          versionId: 'turn:m1',
+          source: 'turn',
+          turnId: 'm1',
+          timestamp: Date.parse('2026-01-01T10:00:00.000Z'),
+          status: 'added',
+          content: { available: true, kind: 'git' },
+          pinned: { pinId: 'pin-1', at: 1, bytes: 1 },
+        },
+      ],
+      total: 1,
+    }))
+    renderInspector({ artifact: DOC_ARTIFACT })
+    await waitFor(() => expect(screen.getByText('已选定')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '取消' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '以此为准' })).toBeNull()
+  })
+})

@@ -214,7 +214,7 @@ export interface ArtifactVersion {
     approximate?: boolean
     reason?: string
   }
-  pinned?: { pinId: string; at: number }
+  pinned?: { pinId: string; at: number; bytes?: number }
 }
 
 export interface ArtifactLedger {

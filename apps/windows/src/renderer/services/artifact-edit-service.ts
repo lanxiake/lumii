@@ -29,6 +29,12 @@ import type {
   ArtifactVariantResult,
   CreateVariantInput,
 } from '../../shared/artifact-variant-types'
+import type {
+  ArtifactPinFailure,
+  ArtifactPinListResult,
+  ArtifactPinResult,
+  PinVersionInput,
+} from '../../shared/artifact-pin-types'
 
 function api() {
   return window.electronAPI?.artifact
@@ -128,5 +134,38 @@ export const artifactEditService = {
       return Promise.resolve({ ok: false, error: '当前版本不支持图片变体', code: 'unavailable' })
     }
     return target.variant(input)
+  },
+
+  /** T6：「以此为准」固化某一版 */
+  pinVersion: (input: PinVersionInput): Promise<ArtifactPinResult | ArtifactPinFailure> => {
+    const target = api()
+    if (!target?.pinVersion) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持固化版本', code: 'unavailable' })
+    }
+    return target.pinVersion(input)
+  },
+
+  unpin: (pinId: string): Promise<{ ok: true } | ArtifactPinFailure> => {
+    const target = api()
+    if (!target?.unpin) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持取消选定', code: 'unavailable' })
+    }
+    return target.unpin(pinId)
+  },
+
+  pins: (input?: { sessionKey?: string; path?: string }): Promise<ArtifactPinListResult> => {
+    const target = api()
+    if (!target?.pins) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持固化版本', code: 'unavailable' })
+    }
+    return target.pins(input)
+  },
+
+  clearPins: (): Promise<{ ok: true; removed: number; freedBytes: number } | ArtifactPinFailure> => {
+    const target = api()
+    if (!target?.clearPins) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持固化版本', code: 'unavailable' })
+    }
+    return target.clearPins()
   },
 }

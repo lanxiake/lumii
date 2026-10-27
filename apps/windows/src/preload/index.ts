@@ -748,10 +748,11 @@ export interface ElectronAPI {
     thumb: (relPath: string) => Promise<
       import('../shared/artifact-thumbs-types').ArtifactThumbResult
     >
-    /** 多选导出（主进程弹框选目标） */
+    /** 多选导出（主进程弹框选目标）；带 versionId 时导出该历史版本 */
     exportFiles: (
       paths: readonly string[],
       mode: import('../shared/artifact-export-types').ArtifactExportMode,
+      options?: import('../shared/artifact-pin-types').ExportVersionOptions,
     ) => Promise<import('../shared/artifact-export-types').ArtifactExportResult>
     /** 多选移入回收站 */
     trash: (paths: readonly string[]) => Promise<
@@ -820,6 +821,30 @@ export interface ElectronAPI {
     ) => Promise<
       | import('../shared/artifact-variant-types').ArtifactVariantResult
       | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    /** 「以此为准」固化某一版 */
+    pinVersion: (
+      input: import('../shared/artifact-pin-types').PinVersionInput,
+    ) => Promise<
+      | import('../shared/artifact-pin-types').ArtifactPinResult
+      | import('../shared/artifact-pin-types').ArtifactPinFailure
+    >
+    /** 取消选定 */
+    unpin: (
+      pinId: string,
+    ) => Promise<
+      | { ok: true }
+      | import('../shared/artifact-pin-types').ArtifactPinFailure
+    >
+    /** 已固化版本列表 */
+    pins: (input?: {
+      sessionKey?: string
+      path?: string
+    }) => Promise<import('../shared/artifact-pin-types').ArtifactPinListResult>
+    /** 清空固化（设置页显式操作） */
+    clearPins: () => Promise<
+      | { ok: true; removed: number; freedBytes: number }
+      | import('../shared/artifact-pin-types').ArtifactPinFailure
     >
   }
 

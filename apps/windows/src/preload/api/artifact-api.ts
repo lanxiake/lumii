@@ -33,6 +33,13 @@ import type {
   ArtifactVariantResult,
   CreateVariantInput,
 } from '../../shared/artifact-variant-types'
+import type {
+  ArtifactPinFailure,
+  ArtifactPinListResult,
+  ArtifactPinResult,
+  ExportVersionOptions,
+  PinVersionInput,
+} from '../../shared/artifact-pin-types'
 
 export const artifactApi = {
   /** 批量读 `<path>.lumii-artifact.json`；缺失/坏 JSON 不返回该项 */
@@ -47,8 +54,16 @@ export const artifactApi = {
     ipcRenderer.invoke('artifact:thumb', relPath),
 
   /** 多选导出：主进程弹框选目标，zip（保留目录结构）或 copy（平铺到目录） */
-  exportFiles: (paths: readonly string[], mode: ArtifactExportMode): Promise<ArtifactExportResult> =>
-    ipcRenderer.invoke('artifact:export', { paths, mode }),
+  exportFiles: (
+    paths: readonly string[],
+    mode: ArtifactExportMode,
+    options?: ExportVersionOptions,
+  ): Promise<ArtifactExportResult> =>
+    ipcRenderer.invoke('artifact:export', {
+      paths,
+      mode,
+      ...(options ? { versionId: options.versionId, sessionKey: options.sessionKey } : {}),
+    }),
 
   /** 多选移入回收站（可在「清理」对话框里恢复） */
   trash: (paths: readonly string[]): Promise<ArtifactTrashResult> =>
@@ -106,4 +121,20 @@ export const artifactApi = {
     input: CreateVariantInput,
   ): Promise<ArtifactVariantResult | ArtifactEditFailure> =>
     ipcRenderer.invoke('artifact:variant', input),
+
+  /** 「以此为准」：把某一版内容立即复制固化 */
+  pinVersion: (input: PinVersionInput): Promise<ArtifactPinResult | ArtifactPinFailure> =>
+    ipcRenderer.invoke('artifact:pinVersion', input),
+
+  /** 取消选定（只删索引项，副本留到清理） */
+  unpin: (pinId: string): Promise<{ ok: true } | ArtifactPinFailure> =>
+    ipcRenderer.invoke('artifact:unpin', { pinId }),
+
+  /** 已固化版本（设置页占用 / 动作条导出选定版） */
+  pins: (input?: { sessionKey?: string; path?: string }): Promise<ArtifactPinListResult> =>
+    ipcRenderer.invoke('artifact:pins', input ?? {}),
+
+  /** 清空固化（设置页显式操作） */
+  clearPins: (): Promise<{ ok: true; removed: number; freedBytes: number } | ArtifactPinFailure> =>
+    ipcRenderer.invoke('artifact:pins:clear'),
 }

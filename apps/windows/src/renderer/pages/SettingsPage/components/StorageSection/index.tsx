@@ -44,22 +44,26 @@ export function StorageSection() {
   const [trash, setTrash] = useState<CleanupTrashEntry[]>([])
   const [history, setHistory] = useState<CleanupHistoryEntry[]>([])
   const [busy, setBusy] = useState(false)
+  /** 「以此为准」固化副本占用（P2 T6；不自动删，只能在这里清） */
+  const [pinUsage, setPinUsage] = useState<{ count: number; bytes: number } | null>(null)
 
   const refresh = useCallback(async () => {
     if (!api) return
     setScanning(true)
     try {
-      const [prefsRes, scanRes, trashRes, historyRes] = await Promise.all([
+      const [prefsRes, scanRes, trashRes, historyRes, pinsRes] = await Promise.all([
         api.cleanupGetPrefs?.(),
         // 1.1 万个临时文件的大工作区，3s 会截断；8s 在本机能跑完（实测约 6s）
         api.cleanupScan?.({ budgetMs: 8000 }),
         api.cleanupListTrash?.(),
         api.cleanupHistory?.(50),
+        window.electronAPI?.artifact?.pins?.(),
       ])
       if (prefsRes) setPrefs(prefsRes)
       if (scanRes?.ok) setScan(scanRes.scan)
       if (Array.isArray(trashRes)) setTrash(trashRes)
       if (Array.isArray(historyRes)) setHistory(historyRes)
+      if (pinsRes?.ok) setPinUsage({ count: pinsRes.pins.length, bytes: pinsRes.totalBytes })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '读取存储信息失败')
     } finally {
@@ -97,6 +101,27 @@ export function StorageSection() {
       const summary = `TTL ${result.ttlRemoved} 个 · 配额 ${result.quotaRemoved} 个 · 回收站 ${result.trashRemoved} 批`
       if (result.errors.length > 0) toast.warning(`清理完成但有 ${result.errors.length} 个错误：${summary}`)
       else toast.success(`清理完成：${summary}`)
+      await refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '清理失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 清空「以此为准」副本（显式操作；副本删掉后导出选定版不可用） */
+  const clearPinned = async (): Promise<void> => {
+    const artifactApi = window.electronAPI?.artifact
+    if (!artifactApi?.clearPins) return
+    if (!window.confirm('清理所有「以此为准」的固化副本？导出选定版将不可用。')) return
+    setBusy(true)
+    try {
+      const result = await artifactApi.clearPins()
+      if (!result.ok) {
+        toast.error(result.error ?? '清理失败')
+        return
+      }
+      toast.success(`已清理 ${result.removed} 个固化副本（${formatBytes(result.freedBytes)}）`)
       await refresh()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '清理失败')
@@ -166,6 +191,26 @@ export function StorageSection() {
               )}
             </div>
           )}
+        </div>
+
+        <div className={styles['setting-item']}>
+          <label className={styles['setting-label']} data-app-ui-label>
+            已固化版本（以此为准）
+          </label>
+          <div className={styles['setting-hint']}>
+            导出与恢复选定版用的内容副本；不会自动删除，只能在这里清。
+          </div>
+          <div className={styles['storage-row']} data-testid="pin-usage">
+            <span>{pinUsage?.count ?? 0} 个</span>
+            <span>{formatBytes(pinUsage?.bytes ?? 0)}</span>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => void clearPinned()}
+            disabled={!pinUsage?.count || busy}
+          >
+            清理固化副本
+          </Button>
         </div>
 
         {prefs && (

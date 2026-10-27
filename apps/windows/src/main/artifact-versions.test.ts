@@ -9,12 +9,16 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { setVcsAccessor } from './agent-runtime/vcs-accessor'
 import { listEdits, recordManualSave, recordVariantEdit } from './artifact-edit'
 import {
+  attachPins,
   buildMergedVersions,
   localVersionId,
+  readVersionBytes,
   resolveVersionContent,
   turnVersionId,
   type TurnChangeRow,
 } from './artifact-versions'
+import { pinVersion } from './artifact-pins'
+import type { ArtifactVersionInfo } from '../shared/artifact-version-types'
 
 let base = ''
 let root = ''
@@ -260,5 +264,204 @@ describe('buildMergedVersions · 图片变体（T5）', () => {
       available: false,
       reason: '变体文件已不在工作区',
     })
+  })
+})
+
+describe('readVersionBytes / attachPins（T6）', () => {
+  const PIC = 'outputs/x/pic.png'
+
+  async function writeEditDir(
+    editId: string,
+    relPath: string,
+    candidate: Buffer,
+  ): Promise<void> {
+    const dir = path.join(root, '.lumii', 'edits', editId)
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      path.join(dir, 'meta.json'),
+      JSON.stringify({
+        editId,
+        sessionKey: 'conv-1',
+        path: relPath,
+        action: 'manual',
+        scope: { type: 'file' },
+        at: Date.now(),
+        status: 'applied',
+        baseHash: 'x',
+        candidateFile: 'candidate.bin',
+        beforeFile: 'before.bin',
+        originalBytes: 0,
+      }),
+    )
+    await writeFile(path.join(dir, 'candidate.bin'), candidate)
+  }
+
+  function version(overrides: Partial<ArtifactVersionInfo>): ArtifactVersionInfo {
+    return {
+      versionId: 'turn:m1',
+      source: 'turn',
+      turnId: 'm1',
+      timestamp: 1000,
+      status: 'modified',
+      content: { available: true, kind: 'git' },
+      ...overrides,
+    }
+  }
+
+  it('本地编辑副本按字节读（二进制也可以）', async () => {
+    await writeFile(path.join(root, ...PIC.split('/')), 'CURRENT')
+    await writeEditDir('edit-bin', PIC, Buffer.from([1, 2, 3]))
+    const item = version({
+      versionId: 'local:edit-bin',
+      source: 'local',
+      turnId: undefined,
+      status: 'edited',
+    })
+    const result = await readVersionBytes({
+      workspaceDir: root,
+      path: PIC,
+      version: item,
+      allVersions: [item],
+      localEdits: [
+        {
+          editId: 'edit-bin',
+          sessionKey: 'conv-1',
+          path: PIC,
+          action: 'manual',
+          scope: { type: 'file' },
+          at: 1,
+          bytes: 3,
+        },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect([...result.bytes]).toEqual([1, 2, 3])
+  })
+
+  it('变体版本读工作区里的新文件', async () => {
+    await writeFile(path.join(root, ...PIC.split('/')), 'VARIANT-BYTES')
+    const item = version({
+      versionId: 'local:edit-v',
+      source: 'local',
+      turnId: undefined,
+      status: 'edited',
+    })
+    const result = await readVersionBytes({
+      workspaceDir: root,
+      path: PIC,
+      version: item,
+      allVersions: [item],
+      localEdits: [
+        {
+          editId: 'edit-v',
+          sessionKey: 'conv-1',
+          path: PIC,
+          action: 'variant',
+          scope: { type: 'image-variant' },
+          at: 1,
+          bytes: 13,
+          derivedFrom: 'outputs/x/src.png',
+        },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.bytes.toString('utf8')).toBe('VARIANT-BYTES')
+  })
+
+  it('二进制 turn 版：当前版读工作区文件，旧版如实不可取', async () => {
+    await writeFile(path.join(root, ...PIC.split('/')), 'CURRENT')
+    const older = version({ versionId: 'turn:m0', turnId: 'm0', timestamp: 900 })
+    const current = version({ versionId: 'turn:m1', turnId: 'm1', timestamp: 1000 })
+    const versions = [older, current]
+
+    const readCurrent = await readVersionBytes({
+      workspaceDir: root,
+      path: PIC,
+      version: current,
+      allVersions: versions,
+    })
+    expect(readCurrent.ok).toBe(true)
+    if (readCurrent.ok) expect(readCurrent.bytes.toString('utf8')).toBe('CURRENT')
+
+    const readOlder = await readVersionBytes({
+      workspaceDir: root,
+      path: PIC,
+      version: older,
+      allVersions: versions,
+    })
+    expect(readOlder).toMatchObject({ ok: false })
+    if (!readOlder.ok) expect(readOlder.reason).toContain('二进制')
+  })
+
+  it('有固化副本时优先用固化内容（文件被覆盖后仍是选定版）', async () => {
+    await writeFile(path.join(root, ...PIC.split('/')), 'LATER-OVERWRITE')
+    const item = version({ versionId: 'turn:m1' })
+    const pinned = await pinVersion({
+      workspaceDir: root,
+      sessionKey: 'conv-1',
+      path: PIC,
+      versionId: 'turn:m1',
+      content: Buffer.from('PINNED-BYTES'),
+    })
+    expect(pinned.ok).toBe(true)
+
+    const result = await readVersionBytes({
+      workspaceDir: root,
+      path: PIC,
+      version: item,
+      allVersions: [item],
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.kind).toBe('pin')
+      expect(result.bytes.toString('utf8')).toBe('PINNED-BYTES')
+    }
+  })
+
+  it('attachPins 标出选定并让「原本不可取」的内容变为可取', () => {
+    const versionItem = version({
+      versionId: 'turn:m1',
+      content: { available: false, reason: '该版本的原始文件未被保留（VCS 不含二进制）' },
+    })
+    const [withPin] = attachPins([versionItem], [
+      {
+        pinId: 'pin-1',
+        sessionKey: 'conv-1',
+        path: PIC,
+        versionId: 'turn:m1',
+        bytes: 42,
+        at: 2000,
+      },
+    ])
+    expect(withPin?.pinned).toEqual({ pinId: 'pin-1', at: 2000, bytes: 42 })
+    expect(withPin?.content).toEqual({ available: true, kind: 'store' })
+    expect(attachPins([versionItem], [])[0]?.pinned).toBeUndefined()
+  })
+})
+
+describe('buildMergedVersions · 媒体最新版（T6）', () => {
+  it('最新一版内容就是当前文件（可固化）；历史二进制仍如实不可取', async () => {
+    const PIC = 'outputs/x/latest.png'
+    await writeFile(path.join(root, ...PIC.split('/')), 'LATEST')
+    const versions = await buildMergedVersions({
+      workspaceDir: root,
+      path: PIC,
+      turns: [
+        {
+          messageId: 'm0',
+          timestamp: '2026-10-27T10:00:00.000Z',
+          changes: [{ path: PIC, status: 'added' }],
+        },
+        {
+          messageId: 'm1',
+          timestamp: '2026-10-27T10:01:00.000Z',
+          changes: [{ path: PIC, status: 'modified' }],
+        },
+      ],
+      localEdits: [],
+    })
+    expect(versions).toHaveLength(2)
+    expect(versions[0]?.content.available).toBe(false)
+    expect(versions[1]?.content).toEqual({ available: true, kind: 'store' })
   })
 })

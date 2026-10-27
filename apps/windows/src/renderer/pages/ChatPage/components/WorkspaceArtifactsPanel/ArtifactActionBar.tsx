@@ -9,7 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronDown, Ellipsis } from 'lucide-react'
-import type { Artifact } from './ledger'
+import { formatClock, type Artifact } from './ledger'
 import {
   ACTION_LABEL,
   EXPORT_MENU,
@@ -37,6 +37,9 @@ export interface ArtifactActionBarProps {
   /** 变体生成中（按钮 loading，防重复点击） */
   variantBusy?: boolean
   onVariant?: () => void
+  /** T6：当前产物已选定版本的固化时间（有才显示「导出选定版」） */
+  pinnedAt?: number
+  onExportVersion?: () => void
 }
 
 /** 危险动作的确认窗口：3s 内再点一次才执行 */
@@ -53,6 +56,8 @@ export const ArtifactActionBar: React.FC<ArtifactActionBarProps> = ({
   canVariant = false,
   variantBusy = false,
   onVariant,
+  pinnedAt,
+  onExportVersion,
 }) => {
   const [openMenu, setOpenMenu] = useState<'export' | 'more' | null>(null)
   const [confirmTrash, setConfirmTrash] = useState(false)
@@ -122,6 +127,19 @@ export const ArtifactActionBar: React.FC<ArtifactActionBarProps> = ({
           </button>
           {openMenu === 'export' && (
             <div className={styles.actionMenu} role="menu">
+              {pinnedAt !== undefined && onExportVersion && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.actionMenuItem}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    onExportVersion()
+                  }}
+                >
+                  导出选定版（{formatClock(pinnedAt)}）
+                </button>
+              )}
               {EXPORT_MENU.map((key) => (
                 <button
                   key={key}

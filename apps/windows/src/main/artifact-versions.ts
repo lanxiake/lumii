@@ -11,6 +11,7 @@
  * 列表阶段只做「可用性推断」，不读 blob；真正读内容发生在 diff/预览时。
  */
 
+import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { FileChangeEntry } from '@mtbot/agent-runtime'
@@ -19,9 +20,11 @@ import type {
   ArtifactVersionInfo,
   VersionContentInfo,
 } from '../shared/artifact-version-types'
+import type { PinEntryInfo } from '../shared/artifact-pin-types'
 import { isTextArtifactPath } from '../shared/artifact-rules'
 import { parseTurnIndex, resolveTurnOid, type TurnIndexEntry } from '../shared/turn-index'
 import { getLocalEditContent } from './artifact-edit'
+import { findPinEntry, pinFilePath } from './artifact-pins'
 import { getVcsService } from './agent-runtime/vcs-accessor'
 import {
   hasTurnTextVersion,
@@ -160,10 +163,11 @@ export async function buildMergedVersions(opts: {
       workspaceDir: opts.workspaceDir,
       editId: edit.editId,
     })
-    const content: VersionContentInfo =
-      store && store.text !== null
-        ? { available: true, kind: 'store' }
-        : { available: false, reason: store ? '该版本不是文本文件' : '本地编辑内容已清理' }
+    // 本地编辑副本对文本/二进制都保留（PPT 的 before/candidate 就是复制出来的 pptx），
+    // 所以「有副本」即内容可取；文本 diff 能力由调用方按类型决定（T6 页级对照）。
+    const content: VersionContentInfo = store
+      ? { available: true, kind: 'store' }
+      : { available: false, reason: '本地编辑内容已清理' }
     versions.push({
       versionId: localVersionId(edit.editId),
       source: 'local',
@@ -190,6 +194,24 @@ export async function buildMergedVersions(opts: {
       }
     } else {
       version.content = { available: false, reason: '该版本已删除，且没有可用的前一版内容' }
+    }
+  }
+
+  // 最新一版就是工作区里的当前文件（媒体/Office 也一样）：内容可取、可固化。
+  // 历史二进制版本没有副本，保持不可取（T6 的「以此为准」对旧版如实禁用）。
+  const latestIndex = (() => {
+    for (let index = versions.length - 1; index >= 0; index -= 1) {
+      if (versions[index]!.status !== 'deleted') return index
+    }
+    return -1
+  })()
+  const latest = latestIndex >= 0 ? versions[latestIndex] : undefined
+  if (latest && !latest.content.available && latest.source === 'turn') {
+    try {
+      const stat = await fs.stat(path.join(opts.workspaceDir, ...opts.path.split('/')))
+      if (stat.isFile()) latest.content = { available: true, kind: 'store' }
+    } catch {
+      // 当前文件不在工作区：保持不可取
     }
   }
 
@@ -278,4 +300,180 @@ export async function resolveVersionContent(opts: {
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : '读取历史版本失败' }
   }
+}
+
+// ---------------------------------------------------------------------------
+// 版本内容 · 字节层（P2 T6：固化 / 导出选定版 / 并排对照）
+// ---------------------------------------------------------------------------
+
+/** 版本对照物化副本的落点（`.lumii/exports` 由每日清理回收） */
+const VERSION_MATERIAL_DIR = '.lumii/exports/versions'
+
+export type ReadVersionBytesResult =
+  | { ok: true; bytes: Buffer; kind: 'pin' | 'store' | 'git' | 'file' }
+  | { ok: false; reason: string }
+
+/** 版本的「当前」判定：列表里最后一版且不是删除版 */
+export function isLatestVersion(
+  versions: readonly ArtifactVersionInfo[],
+  version: ArtifactVersionInfo,
+): boolean {
+  for (let index = versions.length - 1; index >= 0; index -= 1) {
+    const candidate = versions[index]!
+    if (candidate.status === 'deleted') continue
+    return candidate.versionId === version.versionId
+  }
+  return false
+}
+
+async function readWorkspaceBytes(
+  workspaceDir: string,
+  relPath: string,
+): Promise<ReadVersionBytesResult> {
+  try {
+    const bytes = await fs.readFile(path.join(workspaceDir, ...relPath.split('/')))
+    if (bytes.byteLength === 0) return { ok: false, reason: '文件是空的' }
+    return { ok: true, bytes, kind: 'file' }
+  } catch {
+    return { ok: false, reason: '文件已不在工作区' }
+  }
+}
+
+/**
+ * 读某一版的**字节**（文本/二进制通用）。
+ *
+ * 优先级：固化副本 → 本地编辑候选 → turn 文本副本/git → （二进制且是当前版）工作区文件。
+ * 删除版按前一版解析；二进制旧版没有副本，如实返回原因。
+ */
+export async function readVersionBytes(opts: {
+  workspaceDir: string
+  path: string
+  version: ArtifactVersionInfo
+  allVersions: readonly ArtifactVersionInfo[]
+  localEdits?: readonly LocalArtifactEdit[]
+}): Promise<ReadVersionBytesResult> {
+  const { version } = opts
+  if (version.status === 'deleted') {
+    const index = opts.allVersions.findIndex((item) => item.versionId === version.versionId)
+    const previous = index > 0 ? opts.allVersions[index - 1] : undefined
+    if (!previous) return { ok: false, reason: '没有可用的前一版内容' }
+    return readVersionBytes({ ...opts, version: previous })
+  }
+
+  // 固化副本优先：选定后文件再被覆盖，这一版的内容仍然在
+  const pin = await findPinEntry({
+    workspaceDir: opts.workspaceDir,
+    path: opts.path,
+    versionId: version.versionId,
+  })
+  if (pin) {
+    try {
+      const bytes = await fs.readFile(pinFilePath(opts.workspaceDir, pin))
+      if (bytes.byteLength > 0) return { ok: true, bytes, kind: 'pin' }
+    } catch {
+      // 副本被清理：落到其它来源
+    }
+  }
+
+  if (version.source === 'local') {
+    const parsed = parseVersionId(version.versionId)
+    if (!parsed || parsed.source !== 'local') return { ok: false, reason: '版本 id 非法' }
+    const edit = opts.localEdits?.find((item) => item.editId === parsed.id)
+    // 变体是**新文件**：这一版的内容就是工作区里那个文件
+    if (edit?.action === 'variant') {
+      return readWorkspaceBytes(opts.workspaceDir, opts.path)
+    }
+    const store = await getLocalEditContent({
+      workspaceDir: opts.workspaceDir,
+      editId: parsed.id,
+    })
+    if (!store) return { ok: false, reason: '本地编辑内容已清理' }
+    try {
+      const bytes = await fs.readFile(store.absPath)
+      if (bytes.byteLength === 0) return { ok: false, reason: '该版本的副本是空的' }
+      return { ok: true, bytes, kind: 'store' }
+    } catch {
+      return { ok: false, reason: '本地编辑副本不可读' }
+    }
+  }
+
+  if (isTextArtifactPath(opts.path)) {
+    const resolved = await resolveVersionContent({
+      workspaceDir: opts.workspaceDir,
+      path: opts.path,
+      version,
+      allVersions: opts.allVersions,
+    })
+    if (resolved.ok) {
+      return {
+        ok: true,
+        bytes: Buffer.from(resolved.content.text, 'utf8'),
+        kind: resolved.content.kind,
+      }
+    }
+    // 快照不可用时，最新一版就是工作区里的那个文件（别再编不存在的原因）
+    if (version.turnId && isLatestVersion(opts.allVersions, version)) {
+      const fromFile = await readWorkspaceBytes(opts.workspaceDir, opts.path)
+      if (fromFile.ok) return fromFile
+    }
+    return resolved
+  }
+
+  // 二进制 turn 版：只有「当前版」能读——它就是工作区里的文件；历史版本没有副本
+  if (version.turnId && isLatestVersion(opts.allVersions, version)) {
+    return readWorkspaceBytes(opts.workspaceDir, opts.path)
+  }
+  return { ok: false, reason: '该版本的原始文件未被保留（VCS 不含二进制）' }
+}
+
+/**
+ * 把某一版物化成工作区里的临时文件（对照 / 导出用）。
+ *
+ * 落点 `.lumii/exports/versions/<hash>/<basename>`：同一版重复调用复用同一份；
+ * `.lumii/exports` 由每日清理按 24h 回收。
+ */
+export async function materializeVersionFile(opts: {
+  workspaceDir: string
+  path: string
+  version: ArtifactVersionInfo
+  allVersions: readonly ArtifactVersionInfo[]
+  localEdits?: readonly LocalArtifactEdit[]
+}): Promise<{ ok: true; rel: string } | { ok: false; reason: string }> {
+  const read = await readVersionBytes(opts)
+  if (!read.ok) return read
+  const key = createHash('sha256')
+    .update(`${opts.version.versionId}\n${opts.path}`)
+    .digest('hex')
+    .slice(0, 16)
+  const base = opts.path.split('/').pop() ?? 'artifact.bin'
+  const rel = `${VERSION_MATERIAL_DIR}/${key}/${base}`
+  const abs = path.join(opts.workspaceDir, ...rel.split('/'))
+  try {
+    await fs.mkdir(path.dirname(abs), { recursive: true })
+    await fs.writeFile(abs, read.bytes)
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : '写入临时副本失败' }
+  }
+  return { ok: true, rel }
+}
+
+/** 把固化标记合并进版本列表（列表本身不读内容） */
+export function attachPins(
+  versions: readonly ArtifactVersionInfo[],
+  pins: readonly PinEntryInfo[],
+): ArtifactVersionInfo[] {
+  if (pins.length === 0) return versions.map((version) => version)
+  const byVersion = new Map(pins.map((pin) => [pin.versionId, pin]))
+  return versions.map((version) => {
+    const pin = byVersion.get(version.versionId)
+    if (!pin) return version
+    return {
+      ...version,
+      pinned: { pinId: pin.pinId, at: pin.at, bytes: pin.bytes },
+      // 固化副本本身就是内容
+      content: version.content.available
+        ? version.content
+        : { available: true, kind: 'store' as const },
+    }
+  })
 }

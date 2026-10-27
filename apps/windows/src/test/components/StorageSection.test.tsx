@@ -131,3 +131,38 @@ describe('StorageSection', () => {
     await waitFor(() => expect(api.cleanupRestore).toHaveBeenCalledWith('batch-1'))
   })
 })
+
+describe('StorageSection · 已固化版本（T6）', () => {
+  it('显示固化副本数量/占用，显式清理后刷新', async () => {
+    installApi()
+    const pins = vi.fn(async () => ({
+      ok: true,
+      pins: [{ pinId: 'pin-1' }],
+      totalBytes: 3 * 1024 * 1024,
+      limitBytes: 2 * 1024 ** 3,
+    }))
+    const clearPins = vi.fn(async () => ({ ok: true, removed: 1, freedBytes: 3 * 1024 * 1024 }))
+    ;(window.electronAPI as unknown as { artifact: unknown }).artifact = { pins, clearPins }
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderSection()
+    await waitFor(() => expect(screen.getByTestId('pin-usage')).toHaveTextContent('3.0 MB'))
+    expect(screen.getByTestId('pin-usage')).toHaveTextContent('1 个')
+
+    fireEvent.click(screen.getByRole('button', { name: '清理固化副本' }))
+    await waitFor(() => expect(clearPins).toHaveBeenCalledTimes(1))
+    expect(confirmSpy).toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('没有固化副本时清理按钮不可用', async () => {
+    installApi()
+    ;(window.electronAPI as unknown as { artifact: unknown }).artifact = {
+      pins: vi.fn(async () => ({ ok: true, pins: [], totalBytes: 0, limitBytes: 1 })),
+      clearPins: vi.fn(),
+    }
+    renderSection()
+    await waitFor(() => expect(screen.getByTestId('pin-usage')).toHaveTextContent('0 个'))
+    expect(screen.getByRole('button', { name: '清理固化副本' })).toBeDisabled()
+  })
+})
