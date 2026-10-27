@@ -67,6 +67,15 @@ export interface AppConfig {
   autonomousAgents?: string[]
   /** 开发类 Agent 的本机绑定列表（Agent → CLI 后端 + 工作目录） */
   codingDevAgentBindings?: AgentDevBinding[]
+  /** 工作区自动清理（缺省开启：中间 7 天 / 临时 24h / 配额 10GB→80% / 回收站 7 天） */
+  storageCleanup?: {
+    enabled?: boolean
+    intermediateDays?: number
+    ephemeralHours?: number
+    quotaGb?: number
+    targetPercent?: number
+    trashDays?: number
+  }
   /** 桌面通知策略（缺省 = 仅提醒「等你拍板」，免打扰 22–08） */
   notifications?: {
     /** 「等你拍板」是否弹系统通知 */

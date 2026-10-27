@@ -31,6 +31,7 @@ import {
   showDesktopTaskNotification
 } from './window-ipc'
 import { setNotificationDispatchDeps } from '../notification-dispatch'
+import { setStorageCleanupPrefsProvider } from '../storage-cleanup-prefs'
 import {
   setChannelIpcDeps,
   registerChannelIpcHandlers
@@ -146,6 +147,11 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     getMainWindow: deps.getMainWindow,
     log: deps.log,
   })
+
+  // 自动清理的设置在 AppConfig；触发点（cron / companion / 启动补跑）不在 IPC 层
+  setStorageCleanupPrefsProvider(
+    () => deps.getConfigManager()?.getAppConfig().storageCleanup,
+  )
 
   // 通知唯一出口：策略/免打扰/去重都在 dispatch 里判
   setNotificationDispatchDeps({

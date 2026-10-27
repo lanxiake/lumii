@@ -98,6 +98,7 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__pet_sensing__',
   '__pet_evolve__',
   '__wechat_watch__',
+  '__workspace_cleanup__',
 ])
 
 export function isLocalCompanionInstruction(message: string): boolean {
@@ -132,6 +133,8 @@ export interface LocalCompanionDeps {
   runWikiPurgeBrokenRefs?: () => Promise<string>
   /** Wiki 不合规文件清理（cron / 手动触发） */
   runWikiPurgeInvalidFiles?: () => Promise<string>
+  /** 工作区自动清理（TTL / 配额 / 回收站到期）；返回人话摘要 */
+  runWorkspaceCleanup?: () => Promise<string>
   /** 自主进化心跳 tick（cron 触发，见 evolution-tick.ts） */
   runEvolutionTick?: () => Promise<string>
   /** 宠物侧派发一轮（cron 触发，见 pet-dispatch.ts） */
@@ -209,6 +212,10 @@ export async function handleLocalCompanionInstruction(
       // 反思走 `manual` 绕的是**日界守卫**（一天一次）——手动点一下不该什么都不发生；
       // 冷启动与"让路于用户回合"那两道不绕（见 pet-evolve.ts 的 `manual` 注释）
       return deps.runPetEvolve({ manual: options.manual === true })
+    }
+    case '__workspace_cleanup__': {
+      if (!deps.runWorkspaceCleanup) return 'workspace cleanup unavailable'
+      return deps.runWorkspaceCleanup()
     }
     case '__wechat_watch__': {
       if (!deps.runWechatWatch) return 'wechat watch unavailable'

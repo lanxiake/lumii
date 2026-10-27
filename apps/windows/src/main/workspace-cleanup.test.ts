@@ -269,3 +269,71 @@ describe('trashPaths（显式删除）', () => {
     expect(await exists('outputs/x/cover.png')).toBe(true)
   })
 })
+
+describe('runCleanup 扩展（TTL / 配额）', () => {
+  it('olderThanMs 覆盖默认的 1 小时门槛', async () => {
+    // 10 分钟前写的：默认 1 小时门槛会跳过，TTL 传 1 分钟则应当清掉
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000)
+    const abs = await writeFileAt('outputs/x/cut-tenmin.png', 'x', false)
+    await utimes(abs, tenMinAgo, tenMinAgo)
+
+    const kept = await runCleanup({
+      dir: root,
+      target: 'intermediate',
+      dryRun: false,
+      logDir,
+      budgetMs: 30000,
+    })
+    expect(kept.removed).toBe(0)
+    expect(await exists('outputs/x/cut-tenmin.png')).toBe(true)
+
+    const result = await runCleanup({
+      dir: root,
+      target: 'intermediate',
+      dryRun: false,
+      logDir,
+      olderThanMs: 60_000,
+      trigger: 'ttl',
+      budgetMs: 30000,
+    })
+    expect(result.removed).toBe(1)
+    expect(await exists('outputs/x/cut-tenmin.png')).toBe(false)
+  })
+
+  it('budgetBytes 按最老优先，达到预算即停', async () => {
+    const older = await writeFileAt('outputs/x/cut-old.png', 'aaaa')
+    const newer = await writeFileAt('outputs/x/cut-new.png', 'bbbb')
+    await utimes(older, OLD, OLD)
+    const mid = new Date(Date.now() - 30 * 60 * 1000)
+    await utimes(newer, mid, mid)
+
+    const result = await runCleanup({
+      dir: root,
+      target: 'intermediate',
+      dryRun: false,
+      logDir,
+      budgetBytes: 1,
+      trigger: 'quota',
+    })
+    expect(result.removed).toBe(1)
+    expect(await exists('outputs/x/cut-old.png')).toBe(false)
+    expect(await exists('outputs/x/cut-new.png')).toBe(true)
+  })
+})
+
+describe('purgeTrash', () => {
+  it('只删超过 TTL 的批次，且报告释放字节', async () => {
+    const { purgeTrash } = await import('./workspace-cleanup')
+    const trashRoot = path.join(root, '.lumii', 'trash')
+    const oldBatch = path.join(trashRoot, `${Date.now() - 10 * 24 * 60 * 60 * 1000}-aaa`)
+    const freshBatch = path.join(trashRoot, `${Date.now() - 60 * 1000}-bbb`)
+    await mkdir(oldBatch, { recursive: true })
+    await mkdir(freshBatch, { recursive: true })
+    await writeFile(path.join(oldBatch, 'a.png'), 'xxxxx')
+
+    const result = await purgeTrash({ dir: root, olderThanMs: 7 * 24 * 60 * 60 * 1000 })
+    expect(result).toEqual({ removed: 1, bytes: 5 })
+    expect(await exists('.lumii/trash/' + path.basename(oldBatch))).toBe(false)
+    expect(await exists('.lumii/trash/' + path.basename(freshBatch))).toBe(true)
+  })
+})

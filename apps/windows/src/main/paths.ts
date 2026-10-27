@@ -88,3 +88,8 @@ export function resolveLegacyWorkspaceDir(): string {
 export function resolveLegacySkillsDir(): string {
   return path.join(resolveLegacyWorkspaceDir(), 'skills')
 }
+
+/** 日志/审计目录（清理审计 jsonl 落这里；设置页读取与写入共用同一路径） */
+export function resolveLogsDir(): string {
+  return path.join(resolveClientStateDir(), 'logs')
+}

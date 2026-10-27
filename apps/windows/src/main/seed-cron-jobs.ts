@@ -175,6 +175,16 @@ const SEED_JOBS: readonly SeedJob[] = [
     enabled: true,
   },
   {
+    // 工作区自动清理：TTL / 配额 / 回收站到期，全部走安全闸（只动过程文件、先回收站）
+    id: 'workspace-cleanup-daily',
+    name: '工作区自动清理',
+    taskText: '__workspace_cleanup__',
+    agentId: null,
+    scheduleType: 'cron',
+    scheduleExpr: '0 3 * * *',
+    notifyTargets: 'silent',
+  },
+  {
     id: 'wiki-purge-invalid-files',
     name: 'Wiki 无效文件清理',
     taskText: '__wiki_purge_invalid_files__',

@@ -290,6 +290,7 @@ export class CronScheduler {
     this.stopped = false
     this.startLocalCronScheduler()
     this.startFileCleanupScheduler()
+    this.startWorkspaceCleanupCatchUp()
   }
 
   /**
@@ -829,6 +830,47 @@ export class CronScheduler {
       void run()
       setInterval(() => { void run() }, 24 * 60 * 60 * 1000)
     }, 60 * 1000)
+  }
+
+  /**
+   * 工作区自动清理的启动补跑。
+   *
+   * 只在「今天还没跑过」且系统空闲时补一次——否则用户只在 03:00 之后开机的机器上
+   * 永远等不到清理。失败只写日志，不打扰用户。
+   */
+  private startWorkspaceCleanupCatchUp(): void {
+    const timer = setTimeout(() => {
+      void (async () => {
+        if (this.stopped) return
+        try {
+          const [{ getStorageCleanupPrefs }, { hasRunCleanupToday, runScheduledCleanup }, { resolveLogsDir }] =
+            await Promise.all([
+              import('../storage-cleanup-prefs'),
+              import('../workspace-cleanup-runner'),
+              import('../paths'),
+            ])
+          const logDir = resolveLogsDir()
+          if (await hasRunCleanupToday(logDir)) return
+          const prefs = getStorageCleanupPrefs()
+          if (!prefs.enabled) return
+          const { powerMonitor } = await import('electron')
+          const result = await runScheduledCleanup({
+            dir: this.deps.getCwd(),
+            prefs,
+            idleSeconds: powerMonitor.getSystemIdleTime(),
+            logDir,
+          })
+          if (result.ran) {
+            log.info(
+              `[workspaceCleanup] 启动补跑完成：TTL ${result.ttlRemoved} · 配额 ${result.quotaRemoved} · 回收站 ${result.trashRemoved}`,
+            )
+          }
+        } catch (err) {
+          log.warn('[workspaceCleanup] 启动补跑失败:', err)
+        }
+      })()
+    }, 90 * 1000)
+    timer.unref?.()
   }
 
   /**

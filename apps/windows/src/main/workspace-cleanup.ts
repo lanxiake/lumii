@@ -14,6 +14,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { resolveClientStateDir } from './paths'
+import { getLocalDateString } from './local-time'
 import { classifyArtifact, extOf } from '../shared/artifact-rules'
 import { normalizeArtifactPath } from '../shared/artifact-declaration'
 
@@ -70,7 +71,7 @@ async function walkDir(
 ): Promise<boolean> {
   const queue: Array<{ abs: string; rel: string }> = [{ abs: absRoot, rel: relRoot }]
   while (queue.length > 0) {
-    if (Date.now() > deadline) return true
+    if (Date.now() >= deadline) return true
     const dir = queue.pop()!
     let entries
     try {
@@ -95,7 +96,7 @@ async function walkDir(
     }
     // 批量 stat（每批 64）：串行 stat 是扫描慢的主因，13k 文件要 1s+
     for (let start = 0; start < plainFiles.length; start += 64) {
-      if (Date.now() > deadline) return true
+      if (Date.now() >= deadline) return true
       const batch = plainFiles.slice(start, start + 64)
       const stats = await Promise.all(
         batch.map(async (file) => {
@@ -156,7 +157,7 @@ async function collectWorkspaceFiles(root: string, budgetMs: number): Promise<Wa
     return { files, truncated }
   }
   for (const entry of topLevel) {
-    if (Date.now() > deadline) return { files, truncated: true }
+    if (Date.now() >= deadline) return { files, truncated: true }
     if ((CLEANUP_ROOTS as readonly string[]).includes(entry.name)) continue
     if (INTERNAL_WALK_SEGMENTS.has(entry.name) || entry.name.startsWith('.')) continue
     const abs = path.join(root, entry.name)
@@ -211,7 +212,7 @@ async function collectReferencedNames(
   const referenced = new Set<string>()
   const tokenPattern = /[\w一-龥.-]+\.[A-Za-z0-9]{1,6}/g
   for (const file of files) {
-    if (Date.now() > deadline) return { names: referenced, truncated: true }
+    if (Date.now() >= deadline) return { names: referenced, truncated: true }
     if (file.symlink || file.bytes === 0 || file.bytes > MAX_TEXT_REFERENCE_BYTES) continue
     if (!TEXT_REFERENCE_EXTENSIONS.has(extOf(file.rel))) continue
     try {
@@ -230,9 +231,13 @@ function emptyStats(): CleanupClassStats {
   return { count: 0, bytes: 0 }
 }
 
-function skippedReason(file: WalkedFile, now: number): CleanupSkipped['reason'] | null {
+function skippedReason(
+  file: WalkedFile,
+  now: number,
+  minAgeMs: number = MIN_AGE_MS,
+): CleanupSkipped['reason'] | null {
   if (file.symlink) return 'symlink'
-  if (file.mtimeMs > now - MIN_AGE_MS) return 'too-recent'
+  if (file.mtimeMs > now - minAgeMs) return 'too-recent'
   return null
 }
 
@@ -299,7 +304,8 @@ async function appendAuditLog(
   if (lines.length === 0) return
   try {
     await fs.mkdir(logDir, { recursive: true })
-    const name = `cleanup-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.jsonl`
+    // 本地日期：用户看的是本机日历，UTC 会把 03:00 的清理记到前一天
+    const name = `cleanup-${getLocalDateString().replace(/-/g, '')}.jsonl`
     const payload = lines.map((line) => JSON.stringify(line)).join('\n') + '\n'
     await fs.appendFile(path.join(logDir, name), payload, 'utf8')
   } catch {
@@ -317,6 +323,12 @@ export async function runCleanup(opts: {
   logDir?: string
   /** 工具声明为成品的路径：即便路径像中间产物也不删（安全闸优先于约定目录） */
   protectedPaths?: readonly string[]
+  /** 只清比这更老的文件（TTL 触发时按角色不同传值；缺省 1 小时） */
+  olderThanMs?: number
+  /** 配额触发：按 mtime 最老优先选到目标字节即停 */
+  budgetBytes?: number
+  /** 审计里的触发来源：manual / quota / ttl / session-delete */
+  trigger?: 'manual' | 'quota' | 'ttl' | 'session-delete'
   /** 测试用：覆盖扫描预算（默认 8s） */
   budgetMs?: number
 }): Promise<CleanupRunResult> {
@@ -381,7 +393,7 @@ export async function runCleanup(opts: {
         skipped += 1
         continue
       }
-      if (skippedReason(file, now)) {
+      if (skippedReason(file, now, opts.olderThanMs)) {
         skipped += 1
         continue
       }
@@ -390,6 +402,19 @@ export async function runCleanup(opts: {
         continue
       }
       selected.push({ path: file.rel, role, bytes: file.bytes, mtimeMs: file.mtimeMs })
+    }
+
+    // 配额触发：老的最先走，达到目标字节就停（不被顺眼的排序影响）
+    if (opts.budgetBytes !== undefined && opts.budgetBytes > 0) {
+      selected.sort((a, b) => a.mtimeMs - b.mtimeMs)
+      const capped: CleanupCandidate[] = []
+      let acc = 0
+      for (const item of selected) {
+        if (acc >= opts.budgetBytes) break
+        capped.push(item)
+        acc += item.bytes
+      }
+      selected.splice(0, selected.length, ...capped)
     }
 
     const totalBytes = selected.reduce((sum, item) => sum + item.bytes, 0)
@@ -424,6 +449,7 @@ export async function runCleanup(opts: {
           path: candidate.path,
           role: candidate.role,
           bytes: candidate.bytes,
+          trigger: opts.trigger ?? 'manual',
         })
       } catch (err) {
         skipped += 1
@@ -698,4 +724,41 @@ export async function trashPaths(opts: {
   await appendAuditLog(opts.logDir ?? path.join(resolveClientStateDir(), 'logs'), audit)
 
   return { ok: true, removed, bytes, skipped, ...(removed > 0 ? { trashId } : {}) }
+}
+
+/**
+ * 删除超期的回收站批次（trash TTL）。
+ * 只删整批目录：批次按时间命名，用户要恢复时也按批次找。
+ */
+export async function purgeTrash(opts: {
+  dir: string
+  olderThanMs: number
+  now?: number
+}): Promise<{ removed: number; bytes: number }> {
+  const root = trashRootOf(path.resolve(opts.dir))
+  const now = opts.now ?? Date.now()
+  let entries
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true })
+  } catch {
+    return { removed: 0, bytes: 0 }
+  }
+  let removed = 0
+  let bytes = 0
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !safeTrashId(entry.name)) continue
+    const created = Number(entry.name.split('-')[0])
+    if (!Number.isFinite(created) || created <= 0) continue
+    if (now - created < opts.olderThanMs) continue
+    const abs = path.join(root, entry.name)
+    const measured = await measureDir(abs)
+    try {
+      await fs.rm(abs, { recursive: true, force: true })
+      removed += 1
+      bytes += measured.bytes
+    } catch {
+      // 删不掉（被占用）就留到下一轮
+    }
+  }
+  return { removed, bytes }
 }

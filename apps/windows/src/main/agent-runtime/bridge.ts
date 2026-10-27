@@ -2153,6 +2153,27 @@ export class AgentRuntimeBridge {
               const { deleted, titles } = purgeInvalidWikiFilesOnDisk(this.wikiRepo)
               return formatWikiInvalidFilePurgeSummary(deleted, titles)
             },
+            runWorkspaceCleanup: async () => {
+              const { runScheduledCleanup } = await import('../workspace-cleanup-runner')
+              const { getStorageCleanupPrefs } = await import('../storage-cleanup-prefs')
+              const { powerMonitor } = await import('electron')
+              const { resolveLogsDir } = await import('../paths')
+              const result = await runScheduledCleanup({
+                dir: this.config.getCwd(),
+                prefs: getStorageCleanupPrefs(),
+                // 手动/定时触发都要求系统空闲；「立即清理」走 IPC，不经过这条通道
+                idleSeconds: powerMonitor.getSystemIdleTime(),
+                logDir: resolveLogsDir(),
+              })
+              if (!result.ran) return `workspace cleanup skipped: ${result.reason ?? 'unknown'}`
+              const parts = [
+                `TTL ${result.ttlRemoved} 个`,
+                `配额 ${result.quotaRemoved} 个`,
+                `回收站 ${result.trashRemoved} 批`,
+              ]
+              if (result.errors.length > 0) parts.push(`错误 ${result.errors.length} 条`)
+              return `workspace cleanup done: ${parts.join(' · ')}`
+            },
             runEvolutionTick: () =>
               getAutonomousService()?.handleTick({
                 getDb: () => this.localDb.db,
