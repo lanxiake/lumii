@@ -315,9 +315,18 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const onRefresh =
     workbench.view === 'vcs' || !workbench.onlyArtifacts ? handleRefresh : undefined
 
-  const openWindow = useCallback((absolutePath: string, fileName: string) => {
-    void openFilePreviewWindow({ filePath: absolutePath, fileName })
-  }, [])
+  /** 预览已移到独立窗口：满屏档把工作台收回半档，让对话区重新可用 */
+  const restoreChatAfterPopup = useCallback(() => {
+    if (workbench.preset === 'full') onPresetChange('half')
+  }, [workbench.preset, onPresetChange])
+
+  const openWindow = useCallback(
+    (absolutePath: string, fileName: string) => {
+      void openFilePreviewWindow({ filePath: absolutePath, fileName })
+      restoreChatAfterPopup()
+    },
+    [restoreChatAfterPopup],
+  )
 
   const selected = workbench.selectedPath
   const absoluteSelected = selected
@@ -1157,6 +1166,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           fileName={`候选 · ${selectedName ?? 'PPT'}`}
           pptxPage={slideCandidatePage}
           onPptxPageChange={(index) => setSlideCandidatePage(index)}
+          onPoppedOut={restoreChatAfterPopup}
           onClose={handleDiscardProposal}
         />
       )
@@ -1188,6 +1198,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         {...(selectedArtifact?.kind === 'slides'
           ? { onPptxPageChange: handlePptxPageChange }
           : {})}
+        onPoppedOut={restoreChatAfterPopup}
         onClose={() => onSelect(undefined)}
       />
     ) : (

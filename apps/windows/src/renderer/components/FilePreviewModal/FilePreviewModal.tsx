@@ -461,6 +461,8 @@ export interface FilePreviewModalProps {
   pptxPage?: number
   onPptxPageChange?: (index: number, count: number) => void
   onClose: () => void
+  /** 已弹出独立窗口（父层可据此恢复布局，例如满屏档收回半档） */
+  onPoppedOut?: () => void
   /**
    * 呈现形态：modal=应用内弹窗；window=独立窗；embedded=填满父级
    * 兼容旧 prop：embedded=true 等价于 variant='embedded'
@@ -514,6 +516,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   pptxPage,
   onPptxPageChange,
   onClose,
+  onPoppedOut,
   variant: variantProp,
   embedded = false,
 }) => {
@@ -587,11 +590,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         mdBasePath,
         editablePath,
       })
+      onPoppedOut?.()
       onClose()
     } catch (err) {
       console.error('[FilePreviewModal] 弹出独立窗口失败:', err)
     }
-  }, [fileName, fileId, filePath, userId, startLine, endLine, mdBasePath, editablePath, onClose])
+  }, [fileName, fileId, filePath, userId, startLine, endLine, mdBasePath, editablePath, onClose, onPoppedOut])
 
   const route = useMemo(
     () =>

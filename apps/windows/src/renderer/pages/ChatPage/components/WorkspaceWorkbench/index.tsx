@@ -104,8 +104,9 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   childrenVcs,
 }) => {
   const shellRef = useRef<HTMLElement | null>(null)
-  const [maxWidth, setMaxWidth] = useState(() =>
-    Math.max(WORKBENCH_WIDTH_MIN, (typeof window === 'undefined' ? 1280 : window.innerWidth) - CHAT_MIN_REMAIN),
+  /** 父容器真实可用宽度：满档直接吃满，其余档才给对话区留 CHAT_MIN_REMAIN */
+  const [availableWidth, setAvailableWidth] = useState(() =>
+    typeof window === 'undefined' ? 1280 : window.innerWidth,
   )
   /** 拖拽中的临时宽度；松手才写回 preset */
   const [dragWidth, setDragWidth] = useState<number | null>(null)
@@ -122,14 +123,17 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (!entry) return
-      const available = entry.contentRect.width
-      setMaxWidth(Math.max(WORKBENCH_WIDTH_MIN, Math.floor(available) - CHAT_MIN_REMAIN))
+      setAvailableWidth(Math.max(WORKBENCH_WIDTH_MIN, Math.floor(entry.contentRect.width)))
     })
     observer.observe(parent)
     return () => observer.disconnect()
   }, [])
 
-  const resolved = resolveWidth(preset, customWidth, maxWidth)
+  /** 半/宽/自定义档的可用上限（满档另算） */
+  const maxWidth = Math.max(WORKBENCH_WIDTH_MIN, availableWidth - CHAT_MIN_REMAIN)
+  /** 拖拽上限：满档本来就吃满，别再按「给对话留 280」夹它，否则一拖就跳回去 */
+  const dragMaxWidth = preset === 'full' ? availableWidth : maxWidth
+  const resolved = resolveWidth(preset, customWidth, preset === 'full' ? availableWidth : maxWidth)
   const displayWidth = dragWidth ?? resolved
   const compact = isCompactWidth(displayWidth)
   const inlineInspector = isInspectorInline(displayWidth)
@@ -147,10 +151,10 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
       const delta = startX - clientX
       return Math.min(
         Math.max(WORKBENCH_WIDTH_MIN, Math.round(startW + delta)),
-        Math.max(WORKBENCH_WIDTH_MIN, maxWidth),
+        Math.max(WORKBENCH_WIDTH_MIN, dragMaxWidth),
       )
     },
-    [maxWidth],
+    [dragMaxWidth],
   )
 
   const onResizePointerDown = useCallback(
@@ -322,6 +326,11 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
                 className={clsx(styles.preset, preset === key && styles.presetActive)}
                 onClick={() => onPresetChange(key)}
                 aria-pressed={preset === key}
+                title={
+                  key === 'full'
+                    ? '满屏预览（对话区收起；要边聊边看请弹出独立窗口）'
+                    : undefined
+                }
               >
                 {PRESET_LABEL[key]}
               </button>

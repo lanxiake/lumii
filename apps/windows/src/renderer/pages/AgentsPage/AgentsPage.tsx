@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { Zap, Network, LayoutGrid, List, Check, X, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import { useAgents } from '../../hooks/business/useAgents/useAgents'
@@ -67,6 +68,13 @@ function selectedMcpServers(blacklist: string[] | undefined, servers: McpServerO
     .filter((s) => !(s.tools.length > 0 && s.tools.every((t) => black.has(t))))
     .map((s) => s.name)
 }
+
+/**
+ * 弹窗挂到 body：本页嵌在设置中心里，而 Hub 面板有 `overflow:hidden` + `backdrop-filter`
+ * （后者会成为 fixed 后代的包含块），原地渲染的遮罩会被裁掉——表现就是「保存按钮不见了」。
+ */
+const ModalPortal: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+  createPortal(children, document.body)
 
 const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false }) => {
   const {
@@ -637,6 +645,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
 
       {/* 编辑 Modal */}
       {editingAgent && (
+        <ModalPortal>
         <div className={styles['modal-overlay']} onClick={() => setEditingAgent(null)}>
           <div className={styles['modal']} onClick={(e) => e.stopPropagation()}>
             <div className={styles['modal-header']}>
@@ -699,10 +708,12 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* 新建 Modal */}
       {showCreateModal && (
+        <ModalPortal>
         <div className={styles['modal-overlay']} onClick={() => setShowCreateModal(false)}>
           <div className={styles['modal']} onClick={(e) => e.stopPropagation()}>
             <div className={styles['modal-header']}>
@@ -756,6 +767,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
 
       {/* AI 生成团队向导 */}
@@ -786,6 +798,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
 
       {/* 删除确认 */}
       {confirmDeleteId && (
+        <ModalPortal>
         <div className={styles['modal-overlay']} onClick={() => setConfirmDeleteId(null)}>
           <div className={clsx(styles['modal'], styles['modal--sm'])} onClick={(e) => e.stopPropagation()}>
             <div className={styles['modal-header']}>
@@ -814,6 +827,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </div>
   )

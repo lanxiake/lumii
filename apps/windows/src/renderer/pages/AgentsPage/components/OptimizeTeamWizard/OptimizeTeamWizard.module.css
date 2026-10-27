@@ -9,7 +9,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  /* 挂到 body 后要盖过设置中心浮层 */
+  z-index: calc(var(--z-settings-hub, 12000) + 40);
 }
 
 .modal {

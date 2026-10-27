@@ -554,7 +554,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  /* 挂在 body 上后必须高过设置中心浮层（--z-settings-hub），否则弹窗会被 Hub 盖住 */
+  z-index: calc(var(--z-settings-hub, 12000) + 40);
   backdrop-filter: blur(6px) saturate(120%);
   -webkit-backdrop-filter: blur(6px) saturate(120%);
 }

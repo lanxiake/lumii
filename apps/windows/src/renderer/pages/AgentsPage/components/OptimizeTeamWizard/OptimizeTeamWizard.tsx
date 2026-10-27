@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { updateAgent, type AgentUpdatePayload } from '../../../../services/agent-service'
 import type {
   AgentIdleEvent,
@@ -213,7 +214,8 @@ export const OptimizeTeamWizard: React.FC<OptimizeTeamWizardProps> = ({
 
   const allHandled = optimized.length > 0 && optimized.every((o) => o.id && ['success', 'error', 'skipped'].includes(applyStatuses[o.id] ?? ''))
 
-  return (
+  // 挂到 body：嵌在设置中心里时，Hub 面板的 overflow/backdrop-filter 会裁掉 fixed 遮罩
+  return createPortal(
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
@@ -370,6 +372,7 @@ export const OptimizeTeamWizard: React.FC<OptimizeTeamWizardProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

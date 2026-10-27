@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { Step1Requirement } from './Step1Requirement'
 import { Step2Planning } from './Step2Planning'
@@ -119,7 +120,8 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
     onClose()
   }
 
-  return (
+  // 挂到 body：嵌在设置中心里时，Hub 面板的 overflow/backdrop-filter 会裁掉 fixed 遮罩
+  return createPortal(
     <div className={styles.wizardOverlay} onClick={handleClose}>
       <div
         className={clsx(styles.wizardModal, step === 3 && styles['wizardModal--wide'])}
@@ -160,6 +162,7 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
