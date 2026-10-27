@@ -184,6 +184,9 @@ export type { LargeQueueStats }
 export class SyncLargeQueue {
   private pumping = false
   private lastStats: Omit<LargeQueueStats, 'pumping'> = { pendingFiles: 0, pendingBytes: 0, at: 0 }
+  /** 近几批累计字节 / 耗时，用于 ETA（跨 pump 保留，避免每轮归零） */
+  private recentBytes = 0
+  private recentMs = 0
 
   constructor(
     private readonly deps: LargeQueueDeps,
@@ -202,7 +205,17 @@ export class SyncLargeQueue {
    * 而 UI 会随状态事件频繁拉取 —— 现扫会把进度查询变成 IO 负担。
    */
   getStats(): LargeQueueStats {
-    return { ...this.lastStats, pumping: this.pumping }
+    const speedBytesPerSec =
+      this.recentMs > 0 ? Math.round((this.recentBytes * 1000) / this.recentMs) : undefined
+    const etaSeconds =
+      speedBytesPerSec && speedBytesPerSec > 0 && this.lastStats.pendingBytes > 0
+        ? Math.ceil(this.lastStats.pendingBytes / speedBytesPerSec)
+        : undefined
+    return {
+      ...this.lastStats,
+      pumping: this.pumping,
+      ...(speedBytesPerSec ? { speedBytesPerSec, etaSeconds } : {}),
+    }
   }
 
   /**
@@ -245,6 +258,8 @@ export class SyncLargeQueue {
 
         const batches = splitIntoBatches(pending, limits.batchBytes)
         const batch = batches[0]
+        const batchBytes = batch.reduce((sum, e) => sum + e.size, 0)
+        const batchStarted = Date.now()
 
         const ok = await this.deps.enqueue(() =>
           this.commitAndPushBatch(batch, limits.branch, dirs),
@@ -255,12 +270,17 @@ export class SyncLargeQueue {
           break
         }
 
+        const batchMs = Math.max(1, Date.now() - batchStarted)
+        // 指数衰减：新批次权重大，旧样本慢慢淡出，避免首批畸高/畸低锁死 ETA
+        this.recentBytes = Math.round(this.recentBytes * 0.5 + batchBytes)
+        this.recentMs = Math.round(this.recentMs * 0.5 + batchMs)
+
         result.batches += 1
         result.files += batch.length
-        result.bytes += batch.reduce((sum, e) => sum + e.size, 0)
+        result.bytes += batchBytes
         fence.touchProgress()
         logger.info(
-          `[pump] 批次 ${result.batches} 完成：${batch.length} 个文件 / ${(batch.reduce((s, e) => s + e.size, 0) / 1048576).toFixed(1)} MB`,
+          `[pump] 批次 ${result.batches} 完成：${batch.length} 个文件 / ${(batchBytes / 1048576).toFixed(1)} MB`,
         )
 
         // 批间喘息：给高优先级同步插入的机会（低优先级队列的本分）

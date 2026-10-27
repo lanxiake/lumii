@@ -4,7 +4,7 @@
  * 读取类接口失败 / 无数据返回 null（原调用点均为「静默跳过」）；
  * 动作类接口原样返回 {success, error} 结果，由调用方负责提示。
  */
-import type { CloudSyncConfigView, SyncStatus } from '@shared/cloud-sync'
+import type { CloudSyncConfigView, LargeQueueStats, SyncStatus } from '@shared/cloud-sync'
 import type { SyncLogEntry } from '@shared/cloud-sync'
 
 export interface CloudSyncActionResult {
@@ -74,12 +74,7 @@ export async function confirmCloudSyncMassDelete(
 }
 
 /** 阶段二（大文件队列）进度快照；失败或无数据返回 null */
-export async function fetchLargeQueueStats(): Promise<{
-  pendingFiles: number
-  pendingBytes: number
-  pumping: boolean
-  at: number
-} | null> {
+export async function fetchLargeQueueStats(): Promise<LargeQueueStats | null> {
   const r = await window.electronAPI.cloudSync.getLargeQueueStats()
   return r.success && r.data ? r.data : null
 }

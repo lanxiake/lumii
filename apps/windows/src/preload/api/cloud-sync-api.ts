@@ -40,7 +40,7 @@ export const cloudSyncApi = {
   /** 阶段二（大文件队列）进度快照；队列未启动过时 data 为 null */
   getLargeQueueStats: (): Promise<{
     success: boolean
-    data?: { pendingFiles: number; pendingBytes: number; pumping: boolean; at: number } | null
+    data?: import('../../shared/cloud-sync').LargeQueueStats | null
   }> => ipcRenderer.invoke('cloudSync:getLargeQueueStats'),
   onStatusChange: (callback: (status: SyncStatus) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, status: SyncStatus) => callback(status)
