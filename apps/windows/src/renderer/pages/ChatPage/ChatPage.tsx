@@ -855,10 +855,27 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     locateAbsoluteFile,
     openDoc,
     toAbsolutePath,
+    workspaceDir,
     lastSeenAt,
     seenDividerSince,
     setFollow,
   } = useWorkspacePanels(activeView, runtimeCurrentSessionKey)
+  /** 「全部」作用域里点开跨会话产物：先切会话，再在工作台里预览 */
+  const handleOpenAllArtifact = useCallback(
+    async (item: { path: string; conversationId?: string }) => {
+      if (item.conversationId && item.conversationId !== runtimeCurrentSessionKey) {
+        try {
+          await runtimeActions.switchSession(item.conversationId)
+        } catch {
+          // 会话已删/切换失败就不硬跳，至少别卡住
+          return
+        }
+      }
+      selectPath(item.path)
+    },
+    [runtimeActions, runtimeCurrentSessionKey, selectPath],
+  )
+
   /** 工具栏角标：上次打开工作台之后新增的成品数（打开工作台即清零） */
   const unseenArtifactCount = useMemo(
     () => countDeliverablesSince(runtimeMessages, lastSeenAt),
@@ -2139,6 +2156,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         onRetryPrompt={setInputValue}
         onGoToMessage={(messageId) => handleGoToMessage(messageId)}
         lastSeenAt={seenDividerSince}
+        {...(workspaceDir ? { workspaceDir } : {})}
+        onOpenArtifact={handleOpenAllArtifact}
         follow={workbench.follow}
         onFollowChange={setFollow}
         streaming={runtimeIsStreaming}

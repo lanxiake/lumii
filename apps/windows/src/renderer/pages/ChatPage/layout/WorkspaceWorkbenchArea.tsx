@@ -12,6 +12,8 @@ import { WorkspaceArtifactsPanel } from '../components/WorkspaceArtifactsPanel'
 import { ArtifactInspector } from '../components/WorkspaceArtifactsPanel/ArtifactInspector'
 import { ArtifactCompareView } from '../components/WorkspaceArtifactsPanel/CompareView'
 import { ArtifactActionBar } from '../components/WorkspaceArtifactsPanel/ArtifactActionBar'
+import { mapAllFiles, type AllArtifact } from '../components/WorkspaceArtifactsPanel/all-files'
+import type { ArtifactScope } from '../components/WorkspaceArtifactsPanel'
 import type { ExportMenuKey, MoreMenuKey } from '../components/WorkspaceArtifactsPanel/artifact-actions'
 import { useOptionalToast } from '../../../components/ui/Toast/useOptionalToast'
 import { writeClipboardFiles } from '../../../services/clipboard-service'
@@ -69,6 +71,10 @@ export interface WorkspaceWorkbenchAreaProps {
   onFollowChange?: (follow: boolean) => void
   /** 当前回合是否在流式运行（跟随只在运行时跟） */
   streaming?: boolean
+  /** 工作区根目录（「全部」作用域把绝对路径相对化） */
+  workspaceDir?: string
+  /** 「全部」里点开一项：调用方负责切会话再预览 */
+  onOpenArtifact?: (item: AllArtifact) => void
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -112,6 +118,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   follow = false,
   onFollowChange,
   streaming = false,
+  workspaceDir,
+  onOpenArtifact,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const toast = useOptionalToast()
@@ -308,6 +316,39 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     (paths: readonly string[]) => setComparePaths(paths),
     [],
   )
+
+  // ── 「全部」作用域（client_files 登记，跨会话） ──
+  const [scope, setScope] = useState<ArtifactScope>('session')
+  const [allItems, setAllItems] = useState<readonly AllArtifact[]>([])
+  const [allLoading, setAllLoading] = useState(false)
+  useEffect(() => {
+    if (scope !== 'all' || !workbench.open) return
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return
+    let cancelled = false
+    setAllLoading(true)
+    api
+      .sendCommand({ type: 'files:list', userId: 'local-user', limit: 100 })
+      .then((response) => {
+        if (cancelled) return
+        const files = (response as { files?: unknown })?.files
+        setAllItems(Array.isArray(files) ? mapAllFiles(files as never[], workspaceDir) : [])
+      })
+      .catch(() => {
+        if (!cancelled) setAllItems([])
+      })
+      .finally(() => {
+        if (!cancelled) setAllLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [scope, workbench.open, workspaceDir])
+
+  // 关掉工作台再打开时回到本会话（「全部」是临时视角，不记忆）
+  useEffect(() => {
+    if (!workbench.open) setScope('session')
+  }, [workbench.open])
 
   /**
    * 跟随模式：运行中，最新成品一变就把 main 切过去。
@@ -541,6 +582,11 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
               onOpenWindow={openWindow}
               onCompare={handleCompareSelect}
               onSelectionChange={setRailSelection}
+              scope={scope}
+              onScopeChange={setScope}
+              allItems={allItems}
+              allLoading={allLoading}
+              {...(onOpenArtifact ? { onOpenAll: onOpenArtifact } : {})}
               {...(lastSeenAt !== undefined ? { lastSeenAt } : {})}
               follow={follow}
               {...(onFollowChange ? { onFollowChange } : {})}

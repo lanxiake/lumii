@@ -318,3 +318,52 @@ describe('WorkspaceArtifactsPanel 状态点 / 上次查看 / 跟随', () => {
     expect(onFollowChange).toHaveBeenCalledWith(false)
   })
 })
+
+describe('WorkspaceArtifactsPanel 作用域 / 视图模式', () => {
+  const ALL_ITEMS = [
+    {
+      path: 'outputs/all/a.md',
+      kind: 'doc' as const,
+      fileName: 'a.md',
+      createdAt: Date.now(),
+      conversationId: 'conv-x',
+    },
+    {
+      path: 'outputs/all/b.png',
+      kind: 'image' as const,
+      fileName: 'b.png',
+      createdAt: Date.now() - 26 * 60 * 60 * 1000,
+    },
+  ]
+
+  it('切到「全部」用 allItems 渲染（按天分节），点一项交给 onOpenAll', () => {
+    const onOpenAll = vi.fn()
+    const onScopeChange = vi.fn()
+    renderPanel({ scope: 'all', allItems: ALL_ITEMS, onOpenAll, onScopeChange })
+
+    expect(screen.getByText('今天')).toBeInTheDocument()
+    expect(screen.getByText('昨天')).toBeInTheDocument()
+    expect(screen.getByText(/只包含已登记的产物/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /a\.md/ }))
+    expect(onOpenAll).toHaveBeenCalledWith(expect.objectContaining({ path: 'outputs/all/a.md' }))
+  })
+
+  it('全部为空时给出限制文案，不是空白', () => {
+    renderPanel({ scope: 'all', allItems: [] })
+    expect(screen.getByText(/还没有登记过产物/)).toBeInTheDocument()
+  })
+
+  it('作用域 tab 回调正确；视图模式可切到列表并持久化', () => {
+    localStorage.clear()
+    const onScopeChange = vi.fn()
+    renderPanel({ onScopeChange })
+    fireEvent.click(screen.getByRole('tab', { name: '全部' }))
+    expect(onScopeChange).toHaveBeenCalledWith('all')
+
+    fireEvent.click(screen.getByRole('button', { name: '列表' }))
+    expect(localStorage.getItem('lumii.workbench.viewMode')).toBe('list')
+    // 切到列表后按钮变成「网格」（点它可以切回来）
+    expect(screen.getByRole('button', { name: '网格' })).toBeInTheDocument()
+  })
+})

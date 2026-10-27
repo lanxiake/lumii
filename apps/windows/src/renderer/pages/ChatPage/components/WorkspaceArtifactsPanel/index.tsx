@@ -14,6 +14,8 @@ import { ArtifactCard } from './ArtifactCard'
 import { ArtifactFoldRow } from './ArtifactFoldRow'
 import { applySelect, type ToggleMode } from './selection'
 import { groupStatusOf, GROUP_STATUS_LABEL } from './status'
+import { groupBySections, sectionOf } from './time-sections'
+import type { AllArtifact } from './all-files'
 import { useOptionalToast } from '../../../../components/ui/Toast/useOptionalToast'
 import { writeClipboardFiles } from '../../../../services/clipboard-service'
 import {
@@ -25,6 +27,18 @@ import {
 import styles from './WorkspaceArtifactsPanel.module.css'
 
 type KindFilter = 'all' | 'image' | 'video' | 'doc' | 'code' | 'other'
+export type ArtifactScope = 'session' | 'all'
+export type ViewMode = 'grid' | 'list'
+
+const VIEW_MODE_KEY = 'lumii.workbench.viewMode'
+
+function loadViewMode(): ViewMode {
+  try {
+    return localStorage.getItem(VIEW_MODE_KEY) === 'list' ? 'list' : 'grid'
+  } catch {
+    return 'grid'
+  }
+}
 
 /** 折叠网格一次最多铺这么多张，超出给「显示全部」 */
 const FOLD_RENDER_CAP = 200
@@ -109,6 +123,14 @@ export interface WorkspaceArtifactsPanelProps {
   /** 跟随本轮最新成品；用户任何手动操作都会把它关掉 */
   follow?: boolean
   onFollowChange?: (follow: boolean) => void
+  /** 作用域：本会话 / 全部（全部来自 client_files 登记，跨会话） */
+  scope?: ArtifactScope
+  onScopeChange?: (scope: ArtifactScope) => void
+  /** 「全部」作用域的数据（已由调用方映射成工作区相对路径） */
+  allItems?: readonly AllArtifact[]
+  allLoading?: boolean
+  /** 点「全部」里的一项：调用方负责切会话再预览 */
+  onOpenAll?: (item: AllArtifact) => void
   /** 当前回合有工具在跑时的进度（阶段 + 已完成/总数 + 起始时间） */
   progress?: ArtifactProgress | null
   /** 中断当前回合（复用 ChatInput 的同一条中止通道） */
@@ -144,6 +166,11 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   trashedPaths,
   onTrashed,
   onSelectionChange,
+  scope = 'session',
+  onScopeChange,
+  allItems = [],
+  allLoading = false,
+  onOpenAll,
   lastSeenAt,
   follow = false,
   onFollowChange,
@@ -157,6 +184,18 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
 }) => {
   const [filter, setFilter] = useState<KindFilter>('all')
   const [query, setQuery] = useState('')
+  const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode)
+  const toggleViewMode = (): void => {
+    setViewMode((previous) => {
+      const next: ViewMode = previous === 'grid' ? 'list' : 'grid'
+      try {
+        localStorage.setItem(VIEW_MODE_KEY, next)
+      } catch {
+        // 存不了就只在内存里生效
+      }
+      return next
+    })
+  }
   /** 多选：Ctrl/Cmd 加选、Shift 区间（区间只在可见顺序里算） */
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set())
   const [anchor, setAnchor] = useState<string | null>(null)
@@ -362,6 +401,82 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
     />
   )
 
+  /** 「全部」作用域：同一套 kind/关键词过滤，再按天分节 */
+  const allFiltered = useMemo(() => {
+    if (scope !== 'all') return []
+    return allItems.filter(
+      (item) => matchesKind(item.kind, filter) && (!needle || item.path.toLowerCase().includes(needle)),
+    )
+  }, [scope, allItems, filter, needle])
+  const allSections = useMemo(
+    () => groupBySections(allFiltered, (item) => item.createdAt),
+    [allFiltered],
+  )
+
+  const KIND_TEXT: Record<ArtifactKind, string> = {
+    image: '图片',
+    'image-set': '图集',
+    video: '视频',
+    audio: '音频',
+    doc: '文档',
+    slides: '幻灯片',
+    sheet: '表格',
+    site: '网页',
+    code: '代码',
+    archive: '压缩包',
+    other: '文件',
+  }
+
+  const asArtifact = (item: AllArtifact): Artifact => ({
+    path: item.path,
+    kind: item.kind,
+    role: 'deliverable',
+    status: 'added',
+    timestamp: item.createdAt,
+    turnId: '',
+    ...(item.conversationId ? { conversationId: item.conversationId } : {}),
+  })
+
+  /** 会话内成品：网格或列表（列表更省高度，适合几十份文档） */
+  const renderDeliverables = (items: readonly Artifact[]): React.ReactNode =>
+    viewMode === 'grid' ? (
+      <div className={styles.grid}>{items.map(renderCard)}</div>
+    ) : (
+      <div className={styles.listRows}>
+        {items.map((item) =>
+          renderListRow(
+            item.path,
+            item.path.split('/').pop() ?? item.path,
+            `${KIND_TEXT[item.kind]} · ${formatClock(item.timestamp)}`,
+            selectedPath === item.path || selection.has(item.path),
+            () => handleCardSelect(item),
+            item.path,
+          ),
+        )}
+      </div>
+    )
+
+  const renderListRow = (
+    key: string,
+    name: string,
+    meta: string,
+    active: boolean,
+    onClick: () => void,
+    title: string,
+  ): React.ReactNode => (
+    <button
+      key={key}
+      type="button"
+      className={clsx(styles.listRow, active && styles.listRowActive)}
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+    >
+      <span className={styles.listName}>{name}</span>
+      <span className={styles.listMeta}>{meta}</span>
+    </button>
+  )
+
   const runningCards = cards.filter((card) => card.lifecycle === 'running')
   /** 有 running 卡时，卡片本身就是进度视图，不再叠一条进度条（避免同一件事出现两次） */
   const showProgressBar = Boolean(progress) && runningCards.length === 0
@@ -469,9 +584,36 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
         </div>
       )}
 
+      {onScopeChange && (
+        <div className={styles.scope} role="tablist" aria-label="产物作用域">
+          <button
+            type="button"
+            role="tab"
+            className={clsx(styles.scopeTab, scope === 'session' && styles.scopeTabActive)}
+            onClick={() => onScopeChange('session')}
+            aria-selected={scope === 'session'}
+          >
+            本会话
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={clsx(styles.scopeTab, scope === 'all' && styles.scopeTabActive)}
+            onClick={() => onScopeChange('all')}
+            aria-selected={scope === 'all'}
+          >
+            全部
+          </button>
+        </div>
+      )}
+
       <div className={styles.summary}>
         <span className={styles.summaryText}>
-          {ledger.counts.deliverables === 0 && runningCards.length > 0 ? (
+          {scope === 'all' ? (
+            <>
+              <strong>{allItems.length}</strong> 件已登记
+            </>
+          ) : ledger.counts.deliverables === 0 && runningCards.length > 0 ? (
             <span className={styles.summaryMuted}>正在生成…</span>
           ) : (
             <>
@@ -484,7 +626,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
             </>
           )}
         </span>
-        {onFollowChange && (
+        {scope === 'session' && onFollowChange && (
           <button
             type="button"
             className={clsx(styles.summaryFollow, follow && styles.summaryFollowOn)}
@@ -495,7 +637,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
             跟随
           </button>
         )}
-        {onCleanup && (
+        {scope === 'session' && onCleanup && (
           <button
             type="button"
             className={styles.summaryCleanup}
@@ -541,10 +683,66 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
             )
           })}
         </div>
+        <button
+          type="button"
+          className={styles.viewToggle}
+          onClick={toggleViewMode}
+          aria-pressed={viewMode === 'list'}
+          title={viewMode === 'grid' ? '切换为列表' : '切换为网格'}
+        >
+          {viewMode === 'grid' ? '列表' : '网格'}
+        </button>
       </div>
 
       <div className={styles.scroll}>
-        {nothingAtAll ? (
+        {scope === 'all' ? (
+          allLoading && allItems.length === 0 ? (
+            <div className={styles.empty}>正在读取已登记的产物…</div>
+          ) : allSections.length === 0 ? (
+            <div className={styles.empty}>
+              还没有登记过产物。
+              <br />
+              这里只包含已登记的产物；未登记的文件请用「工作区文件」视图。
+            </div>
+          ) : (
+            <>
+              {allSections.map(({ section, items }) => (
+                <section className={styles.group} key={section.key}>
+                  <div className={styles.dayHeader}>{section.label}</div>
+                  {viewMode === 'grid' ? (
+                    <div className={styles.grid}>
+                      {items.map((item) => (
+                        <ArtifactCard
+                          key={item.path}
+                          artifact={asArtifact(item)}
+                          absolutePath={toAbsolutePath(item.path)}
+                          selected={false}
+                          onSelect={() => onOpenAll?.(item)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={styles.listRows}>
+                      {items.map((item) =>
+                        renderListRow(
+                          item.path,
+                          item.fileName,
+                          `${KIND_TEXT[item.kind]} · ${formatClock(item.createdAt)}`,
+                          false,
+                          () => onOpenAll?.(item),
+                          item.path,
+                        ),
+                      )}
+                    </div>
+                  )}
+                </section>
+              ))}
+              <p className={styles.foldNote}>
+                只包含已登记的产物（跨会话）；未登记的文件请用「工作区文件」视图。
+              </p>
+            </>
+          )
+        ) : nothingAtAll ? (
           <div className={styles.empty}>
             这个会话还没有产出。
             <br />
@@ -563,8 +761,14 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
               lastSeenAt !== undefined &&
               group.timestamp > lastSeenAt &&
               (groupIndex === 0 || filteredGroups[groupIndex - 1]!.group.timestamp <= lastSeenAt)
+            // 按天分节：节标题 sticky，跨天处插一行（「今天 / 昨天 / 2026-10-24」）
+            const daySection = sectionOf(group.timestamp)
+            const showDayHeader =
+              groupIndex === 0 ||
+              sectionOf(filteredGroups[groupIndex - 1]!.group.timestamp).key !== daySection.key
             return (
               <React.Fragment key={group.key || '(root)'}>
+              {showDayHeader && <div className={styles.dayHeader}>{daySection.label}</div>}
               {showSeenDivider && (
                 <div className={styles.seenDivider} role="separator">
                   上次查看之后
@@ -599,9 +803,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
 
                 {expanded && (
                   <div className={styles.groupBody}>
-                    {deliverables.length > 0 && (
-                      <div className={styles.grid}>{deliverables.map(renderCard)}</div>
-                    )}
+                    {deliverables.length > 0 && renderDeliverables(deliverables)}
                     {intermediates.length > 0 && (
                       <>
                         <ArtifactFoldRow

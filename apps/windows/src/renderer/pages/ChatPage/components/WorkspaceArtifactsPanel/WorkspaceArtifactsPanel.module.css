@@ -1178,3 +1178,99 @@
 .summaryFollow + .summaryCleanup {
   margin-left: 6px;
 }
+
+/* ── 作用域切换 / 视图切换 / 列表行 / 日分节 ── */
+.scope {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+  flex-shrink: 0;
+}
+
+.scopeTab {
+  padding: 3px 10px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.scopeTabActive {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  color: var(--mt-accent-500);
+}
+
+.viewToggle {
+  flex-shrink: 0;
+  align-self: flex-end;
+  padding: 2px 8px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.viewToggle:hover {
+  color: var(--mt-fg-1);
+}
+
+.dayHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 12px 4px;
+  background: color-mix(in srgb, var(--mt-surface-1) 92%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.listRows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.listRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.listRow:hover {
+  background: var(--mt-surface-2);
+}
+
+.listRowActive {
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+}
+
+.listName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1);
+  font-size: 11px;
+}
+
+.listMeta {
+  flex-shrink: 0;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+}
