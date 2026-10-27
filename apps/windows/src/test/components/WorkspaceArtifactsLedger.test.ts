@@ -352,6 +352,84 @@ describe('buildArtifactLedger · 分组与版本', () => {
   })
 })
 
+describe('buildArtifactLedger · 图片原始提示词（T5）', () => {
+  it('老声明缺 sourcePrompt 时从 image_generate 的入参补', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'image_generate',
+            args: { prompt: '一只在桌上的猫', modelId: 'nano-banana-2' },
+            result: {
+              details: {
+                artifacts: [
+                  {
+                    kind: 'image',
+                    path: 'outputs/x/cat.png',
+                    meta: { width: 1024, height: 1024, model: 'nano-banana-2', prompt: '猫（改写）' },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      }),
+    ])
+    expect(ledger.groups[0]?.deliverables[0]?.meta).toEqual({
+      width: 1024,
+      height: 1024,
+      model: 'nano-banana-2',
+      prompt: '猫（改写）',
+      sourcePrompt: '一只在桌上的猫',
+    })
+  })
+
+  it('声明里已有 sourcePrompt 时以声明为准', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'image_generate',
+            args: { prompt: '入参里的提示词' },
+            result: {
+              details: {
+                artifacts: [
+                  {
+                    kind: 'image',
+                    path: 'outputs/x/cat.png',
+                    meta: { sourcePrompt: '声明里的提示词' },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      }),
+    ])
+    expect(ledger.groups[0]?.deliverables[0]?.meta?.sourcePrompt).toBe('声明里的提示词')
+  })
+
+  it('其它工具/没有 args 时不补', () => {
+    const ledger = buildArtifactLedger([
+      message('t1', 100, [], {
+        parts: [
+          {
+            type: 'tool',
+            name: 'app_screenshot',
+            args: { prompt: '不该被当成生图提示词' },
+            result: {
+              details: { artifacts: [{ kind: 'image', path: 'outputs/x/shot.png' }] },
+            },
+          },
+        ],
+      }),
+    ])
+    expect(ledger.groups[0]?.deliverables[0]?.meta).toBeUndefined()
+  })
+})
+
 describe('path helpers', () => {
   it('识别媒体与图片扩展名', () => {
     expect(extOf('a/b/Clip.MP4')).toBe('mp4')

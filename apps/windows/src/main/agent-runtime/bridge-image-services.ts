@@ -28,6 +28,31 @@ export interface BridgeImageServicesDeps {
   getCwd: () => string
 }
 
+/**
+ * 生图落点（工作区相对 posix 路径）。
+ *
+ * 默认 `outputs/<YYYYMMDD>`；P2 图片变体传源文件所在目录。这里只做「必须在工作区内」，
+ * 空串/`.` 表示工作区根目录。**不暴露给 Agent 工具 schema**。
+ */
+function resolveImageOutputDir(root: string, raw: string | undefined, dateStr: string): string {
+  if (raw === undefined) return `outputs/${dateStr}`
+  const normalized = raw.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
+  if (normalized === '' || normalized === '.') return ''
+  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
+    throw Object.assign(new Error('输出目录必须在工作区内'), { code: 'OUTPUT_DIR_INVALID' })
+  }
+  const segments = normalized.split('/').filter((segment) => segment && segment !== '.')
+  if (segments.length === 0 || segments.some((segment) => segment === '..')) {
+    throw Object.assign(new Error('输出目录必须在工作区内'), { code: 'OUTPUT_DIR_INVALID' })
+  }
+  const abs = path.resolve(root, ...segments)
+  const rel = path.relative(root, abs)
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw Object.assign(new Error('输出目录必须在工作区内'), { code: 'OUTPUT_DIR_INVALID' })
+  }
+  return segments.join('/')
+}
+
 export class BridgeImageServices {
   constructor(private readonly deps: BridgeImageServicesDeps) {}
 
@@ -197,6 +222,8 @@ export class BridgeImageServices {
     filename?: string
     /** 参考图的 workspace 相对路径（仅 rightapi 支持） */
     referenceImagePaths?: string[]
+    /** 落点目录（工作区相对；缺省 outputs/<YYYYMMDD>）。内部能力，不暴露给 Agent 工具 */
+    outputDir?: string
     signal?: AbortSignal
   }): Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }> {
     applyImageSlotToDrawEnv()
@@ -265,8 +292,10 @@ export class BridgeImageServices {
     const ext = extMap[data.mimeType] ?? 'png'
     const rawName = params.filename?.trim().replace(/[^\w一-鿿\-]/g, '_').slice(0, 40)
     const baseName = rawName ? `${rawName}_${dateStr}_${uuid}` : `generated_${uuid}`
-    const relPath = `outputs/${dateStr}/${baseName}.${ext}`
-    const absPath = path.join(this.deps.getCwd(), relPath)
+    const cwd = this.deps.getCwd()
+    const outputDir = resolveImageOutputDir(cwd, params.outputDir, dateStr)
+    const relPath = outputDir ? `${outputDir}/${baseName}.${ext}` : `${baseName}.${ext}`
+    const absPath = path.join(cwd, ...relPath.split('/'))
     await fs.promises.mkdir(path.dirname(absPath), { recursive: true })
     await fs.promises.writeFile(absPath, Buffer.from(data.imageBase64, 'base64'))
 

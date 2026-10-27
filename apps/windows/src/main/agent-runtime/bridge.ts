@@ -3263,7 +3263,7 @@ export class AgentRuntimeBridge {
     return this.imageServices.recognizeImage(options)
   }
 
-  generateImage(params: { prompt: string; modelId?: string; width?: number; height?: number; filename?: string; referenceImagePaths?: string[]; signal?: AbortSignal }): Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }> {
+  generateImage(params: { prompt: string; modelId?: string; width?: number; height?: number; filename?: string; referenceImagePaths?: string[]; outputDir?: string; signal?: AbortSignal }): Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }> {
     return this.imageServices.generateImage(params)
   }
 

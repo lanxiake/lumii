@@ -39,6 +39,8 @@ export interface LedgerMessageLike {
   readonly parts?: readonly {
     readonly type: string
     readonly name?: string
+    /** T5：老声明没有 sourcePrompt 时，从 image_generate 的入参补 */
+    readonly args?: unknown
     readonly result?: unknown
   }[]
 }
@@ -180,6 +182,8 @@ export interface Artifact {
   declared?: boolean
   /** P2：最近一次写入来自工作台本地编辑（含手工保存）；本地新文件没有 turnId */
   origin?: 'local'
+  /** P2 T5：派生文件（图片变体）的来源路径 */
+  derivedFrom?: string
 }
 
 export interface ArtifactGroup {
@@ -259,6 +263,21 @@ export function labelFromText(text: string | undefined): string | undefined {
   return cleaned.length > 24 ? `${cleaned.slice(0, 24)}…` : cleaned
 }
 
+/**
+ * 老消息的声明里没有 `sourcePrompt`（P2 T5 前写入的）：从 `image_generate` 的入参
+ * `prompt` 补。声明里有就以声明为准——入参可能被模型改写或来自直连生图以外的路径。
+ */
+function sourcePromptFromArgs(part: { name?: string; args?: unknown }): string | undefined {
+  if (part.name !== 'image_generate') return undefined
+  const args = part.args
+  if (!args || typeof args !== 'object') return undefined
+  const prompt = (args as Record<string, unknown>).prompt
+  if (typeof prompt !== 'string') return undefined
+  const trimmed = prompt.trim()
+  if (!trimmed) return undefined
+  return trimmed.length > 4000 ? trimmed.slice(0, 4000) : trimmed
+}
+
 /** 汇总工具声明：同路径取最新一次声明 */
 function collectDeclaredArtifacts(
   messages: readonly LedgerMessageLike[],
@@ -268,14 +287,23 @@ function collectDeclaredArtifacts(
     if (message.role !== 'assistant' || !message.parts) continue
     for (const part of message.parts) {
       if (part.type !== 'tool') continue
+      const argsPrompt = sourcePromptFromArgs(part)
       for (const declaration of readDeclarations(part.result)) {
         if (!declaration.path) continue
         const role = classifyArtifact({ path: declaration.path })
         if (role === 'internal' || role === 'ephemeral') continue
         const existing = out.get(declaration.path)
         if (existing && existing.timestamp > message.timestamp) continue
+        const meta =
+          argsPrompt && !declaration.meta?.sourcePrompt
+            ? { ...declaration.meta, sourcePrompt: argsPrompt }
+            : declaration.meta
         out.set(declaration.path, {
-          declaration: { ...declaration, path: declaration.path },
+          declaration: {
+            ...declaration,
+            path: declaration.path,
+            ...(meta ? { meta } : {}),
+          },
           turnId: message.id,
           timestamp: message.timestamp,
           ...(part.name ? { sourceTool: part.name } : {}),
@@ -433,6 +461,7 @@ export function buildArtifactLedger(
       existing.role = role
       existing.declared = true
       if (declaration.meta) existing.meta = declaration.meta
+      if (declaration.meta?.derivedFrom) existing.derivedFrom = declaration.meta.derivedFrom
       if (declaration.title) existing.title = declaration.title
       if (info.sourceTool) existing.sourceTool = info.sourceTool
       continue
@@ -447,6 +476,7 @@ export function buildArtifactLedger(
       declared: true,
       ...(info.sourceTool ? { sourceTool: info.sourceTool } : {}),
       ...(declaration.meta ? { meta: declaration.meta } : {}),
+      ...(declaration.meta?.derivedFrom ? { derivedFrom: declaration.meta.derivedFrom } : {}),
       ...(declaration.title ? { title: declaration.title } : {}),
       ...(declaration.remoteUrl ? { remoteUrl: declaration.remoteUrl } : {}),
     })

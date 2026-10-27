@@ -437,6 +437,12 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
     ...(item.conversationId ? { conversationId: item.conversationId } : {}),
   })
 
+  /** 列表行副标题：变体优先说来源（T5），其余给类型与时间 */
+  const rowMeta = (item: Artifact): string =>
+    item.derivedFrom
+      ? `变体 · 来自 ${item.derivedFrom.split('/').pop() ?? item.derivedFrom}`
+      : `${KIND_TEXT[item.kind]} · ${formatClock(item.timestamp)}`
+
   /** 会话内成品：网格或列表（列表更省高度，适合几十份文档） */
   const renderDeliverables = (items: readonly Artifact[]): React.ReactNode =>
     viewMode === 'grid' ? (
@@ -447,7 +453,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
           renderListRow(
             item.path,
             item.path.split('/').pop() ?? item.path,
-            `${KIND_TEXT[item.kind]} · ${formatClock(item.timestamp)}`,
+            rowMeta(item),
             selectedPath === item.path || selection.has(item.path),
             () => handleCardSelect(item),
             item.path,

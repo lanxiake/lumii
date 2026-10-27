@@ -136,6 +136,26 @@ export async function buildMergedVersions(opts: {
 
   for (const edit of opts.localEdits) {
     if (edit.path !== opts.path) continue
+    // 变体是**新文件**：该版本的内容就是工作区里的那个文件，编辑存储里没有副本
+    if (edit.action === 'variant') {
+      let exists = false
+      try {
+        const stat = await fs.stat(path.join(opts.workspaceDir, ...edit.path.split('/')))
+        exists = stat.isFile()
+      } catch {
+        exists = false
+      }
+      versions.push({
+        versionId: localVersionId(edit.editId),
+        source: 'local',
+        timestamp: edit.at,
+        status: 'edited',
+        content: exists
+          ? { available: true, kind: 'store' }
+          : { available: false, reason: '变体文件已不在工作区' },
+      })
+      continue
+    }
     const store = await getLocalEditContent({
       workspaceDir: opts.workspaceDir,
       editId: edit.editId,

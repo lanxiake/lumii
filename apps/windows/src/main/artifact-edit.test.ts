@@ -25,6 +25,7 @@ import {
   pruneEditStore,
   pruneWorkspaceScratch,
   recordManualSave,
+  recordVariantEdit,
   undoEdit,
 } from './artifact-edit'
 
@@ -541,5 +542,64 @@ describe('pruneEditStore / pruneWorkspaceScratch', () => {
     const listed = await listEdits({ workspaceDir: root })
     expect(listed.ok).toBe(true)
     if (listed.ok) expect(listed.edits.length).toBe(1)
+  })
+})
+
+describe('recordVariantEdit（P2 T5）', () => {
+  it('只追加一条 variant 索引：rail/版本列表能读到来源，且不建候选目录', async () => {
+    await writeAt('outputs/demo/cover-variant-153012.png', 'VARIANT')
+    const recorded = await recordVariantEdit({
+      workspaceDir: root,
+      sessionKey: 'conv-1',
+      path: 'outputs/demo/cover-variant-153012.png',
+      derivedFrom: 'outputs/demo/cover.png',
+      bytes: 7,
+    })
+    expect(recorded?.editId).toMatch(/^edit-/)
+
+    const listed = await listEdits({ workspaceDir: root, sessionKey: 'conv-1' })
+    expect(listed.ok).toBe(true)
+    if (!listed.ok) return
+    expect(listed.edits).toEqual([
+      {
+        editId: recorded!.editId,
+        sessionKey: 'conv-1',
+        path: 'outputs/demo/cover-variant-153012.png',
+        action: 'variant',
+        scope: { type: 'image-variant' },
+        at: expect.any(Number),
+        bytes: 7,
+        derivedFrom: 'outputs/demo/cover.png',
+      },
+    ])
+    // 没有 before/candidate：变体的内容就是工作区里的那个文件
+    expect(await exists(`.lumii/edits/${recorded!.editId}`)).toBe(false)
+  })
+
+  it('路径非法 / 来源与目标相同 / internal 路径一律拒绝', async () => {
+    expect(
+      await recordVariantEdit({
+        workspaceDir: root,
+        path: '../a.png',
+        derivedFrom: 'outputs/demo/cover.png',
+        bytes: 1,
+      }),
+    ).toBeNull()
+    expect(
+      await recordVariantEdit({
+        workspaceDir: root,
+        path: 'outputs/demo/cover.png',
+        derivedFrom: 'outputs/demo/cover.png',
+        bytes: 1,
+      }),
+    ).toBeNull()
+    expect(
+      await recordVariantEdit({
+        workspaceDir: root,
+        path: '.lumii/edits/x.png',
+        derivedFrom: 'outputs/demo/cover.png',
+        bytes: 1,
+      }),
+    ).toBeNull()
   })
 })

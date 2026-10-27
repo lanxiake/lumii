@@ -635,6 +635,8 @@ export class BridgePromptDispatcher {
                     height: result.height,
                     model: result.model,
                     prompt: result.revisedPrompt,
+                    // 与 artifact-declaration 的读端上限一致，避免一条超长口令撑大 content_json
+                    sourcePrompt: message.slice(0, 4000),
                   },
                 },
               ],

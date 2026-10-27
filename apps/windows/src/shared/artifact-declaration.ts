@@ -52,6 +52,15 @@ function readText(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
+/** 提示词上限：超出只截断（不丢弃），免得一条超长 prompt 把台账撑大 */
+const MAX_SOURCE_PROMPT_CHARS = 4000
+
+function readCappedText(value: unknown, max: number): string | undefined {
+  const text = readText(value)?.trim()
+  if (!text) return undefined
+  return text.length > max ? text.slice(0, max) : text
+}
+
 export function sanitizeArtifactMeta(raw: unknown): ArtifactMeta | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const input = raw as Record<string, unknown>
@@ -64,6 +73,8 @@ export function sanitizeArtifactMeta(raw: unknown): ArtifactMeta | undefined {
   const bytes = positiveNumber(input.bytes)
   const model = readText(input.model)
   const prompt = readText(input.prompt)
+  const sourcePrompt = readCappedText(input.sourcePrompt, MAX_SOURCE_PROMPT_CHARS)
+  const derivedFrom = normalizeArtifactPath(input.derivedFrom) ?? undefined
   if (width !== undefined) meta.width = width
   if (height !== undefined) meta.height = height
   if (durationSec !== undefined) meta.durationSec = durationSec
@@ -72,6 +83,8 @@ export function sanitizeArtifactMeta(raw: unknown): ArtifactMeta | undefined {
   if (bytes !== undefined) meta.bytes = bytes
   if (model !== undefined) meta.model = model
   if (prompt !== undefined) meta.prompt = prompt
+  if (sourcePrompt !== undefined) meta.sourcePrompt = sourcePrompt
+  if (derivedFrom !== undefined) meta.derivedFrom = derivedFrom
   if (input.params && typeof input.params === 'object' && !Array.isArray(input.params)) {
     const params: Record<string, string | number | boolean> = {}
     for (const [key, value] of Object.entries(input.params as Record<string, unknown>)) {

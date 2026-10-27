@@ -103,6 +103,8 @@ export interface BridgeToolRegistrarDeps {
     height?: number
     filename?: string
     referenceImagePaths?: string[]
+    /** 内部落点（工作区相对；图片变体用），不出现在工具 schema */
+    outputDir?: string
     signal?: AbortSignal
   }) => Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }>
   /**

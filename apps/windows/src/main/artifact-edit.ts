@@ -751,6 +751,55 @@ export async function recordManualSave(opts: {
   }
 }
 
+/**
+ * 图片变体登记（P2 T5）
+ *
+ * 变体是**新文件**，不是同路径的新版本：只追加一条索引（rail / 版本列表读它），
+ * 不建 before/candidate 目录——变体的内容就是工作区里的那个文件。
+ */
+export async function recordVariantEdit(opts: {
+  workspaceDir: string
+  sessionKey?: string | null
+  path: string
+  derivedFrom: string
+  bytes: number
+  now?: number
+}): Promise<{ editId: string } | null> {
+  const rel = normalizeArtifactPath(opts.path)
+  const derivedFrom = normalizeArtifactPath(opts.derivedFrom)
+  if (!rel || !derivedFrom || rel === derivedFrom) return null
+  const role = classifyArtifact({ path: rel })
+  if (role === 'internal' || role === 'ephemeral') return null
+  let root: string
+  try {
+    root = await fs.realpath(path.resolve(opts.workspaceDir))
+  } catch {
+    return null
+  }
+  const editId = newEditId()
+  const at = opts.now ?? Date.now()
+  const entry = {
+    editId,
+    sessionKey: normalizeSessionKey(opts.sessionKey),
+    path: rel,
+    action: 'variant',
+    scope: { type: 'image-variant' },
+    at,
+    appliedAt: at,
+    bytes: Number.isFinite(opts.bytes) ? Math.max(0, Math.trunc(opts.bytes)) : 0,
+    derivedFrom,
+  }
+  const indexFile = indexPathFor(root)
+  try {
+    // 变体是第一条本地记录时，`.lumii/edits` 还不存在（stageEdit 才会建）
+    await fs.mkdir(path.dirname(indexFile), { recursive: true })
+    await fs.appendFile(indexFile, `${JSON.stringify(entry)}\n`, 'utf8')
+  } catch {
+    return null
+  }
+  return { editId }
+}
+
 export async function listEdits(opts: {
   workspaceDir: string
   sessionKey?: string | null

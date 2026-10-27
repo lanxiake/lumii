@@ -80,6 +80,38 @@ describe('readDeclarations', () => {
   })
 })
 
+describe('sanitizeArtifactMeta · 提示词与派生来源（T5）', () => {
+  it('保留 sourcePrompt / derivedFrom（derivedFrom 走路径归一）', () => {
+    expect(
+      sanitizeArtifactMeta({
+        model: 'nano-banana-2',
+        prompt: '改写后的提示',
+        sourcePrompt: '  原始提示  ',
+        derivedFrom: 'outputs\\demo\\cover.png',
+      }),
+    ).toEqual({
+      model: 'nano-banana-2',
+      prompt: '改写后的提示',
+      sourcePrompt: '原始提示',
+      derivedFrom: 'outputs/demo/cover.png',
+    })
+  })
+
+  it('sourcePrompt 超长截断到 4000 字；非字符串丢弃', () => {
+    const meta = sanitizeArtifactMeta({
+      sourcePrompt: 'a'.repeat(5000),
+      derivedFrom: 42,
+    })
+    expect(meta?.sourcePrompt).toHaveLength(4000)
+    expect(meta?.derivedFrom).toBeUndefined()
+  })
+
+  it('derivedFrom 越界路径丢弃，不把非法路径带进台账', () => {
+    expect(sanitizeArtifactMeta({ derivedFrom: '../secret.png' })).toBeUndefined()
+    expect(sanitizeArtifactMeta({ derivedFrom: 'C:\\x.png' })).toBeUndefined()
+  })
+})
+
 describe('sanitizeArtifactMeta', () => {
   it('只留已知数值/文本字段', () => {
     expect(

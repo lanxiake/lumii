@@ -9,6 +9,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { WorkspaceArtifactsPanel } from '../../renderer/pages/ChatPage/components/WorkspaceArtifactsPanel'
+import { mergeLocalEdits } from '../../renderer/pages/ChatPage/components/WorkspaceArtifactsPanel/local-edits'
 import {
   buildArtifactLedger,
   type LedgerMessageLike,
@@ -365,5 +366,61 @@ describe('WorkspaceArtifactsPanel 作用域 / 视图模式', () => {
     expect(localStorage.getItem('lumii.workbench.viewMode')).toBe('list')
     // 切到列表后按钮变成「网格」（点它可以切回来）
     expect(screen.getByRole('button', { name: '网格' })).toBeInTheDocument()
+  })
+})
+
+describe('WorkspaceArtifactsPanel · 变体标记（T5）', () => {
+  it('列表行与网格卡都标「变体 · 来自 源文件」', () => {
+    const base = buildArtifactLedger([
+      assistant('t1', new Date(2026, 9, 27, 17, 3).getTime(), [
+        { path: 'outputs/demo/cover.png', status: 'added', confidence: 'exact' },
+      ]),
+      {
+        id: 'e1',
+        role: 'assistant',
+        timestamp: new Date(2026, 9, 27, 17, 9).getTime(),
+        fileChanges: [
+          {
+            path: 'outputs/demo/cover-variant-170917.png',
+            status: 'added',
+            confidence: 'exact',
+          },
+        ],
+      },
+    ])
+    const withVariant = mergeLocalEdits(base, [
+      {
+        editId: 'edit-v',
+        sessionKey: 'conv-1',
+        path: 'outputs/demo/cover-variant-170917.png',
+        action: 'variant',
+        scope: { type: 'image-variant' },
+        at: new Date(2026, 9, 27, 17, 9).getTime(),
+        bytes: 100,
+        derivedFrom: 'outputs/demo/cover.png',
+      },
+    ])
+
+    localStorage.clear()
+    const { unmount } = render(
+      <WorkspaceArtifactsPanel
+        ledger={withVariant}
+        toAbsolutePath={toAbsolutePath}
+        onSelect={vi.fn()}
+      />,
+    )
+    expect(screen.getAllByText(/变体 · 来自 cover\.png/).length).toBeGreaterThan(0)
+    unmount()
+
+    localStorage.setItem('lumii.workbench.viewMode', 'grid')
+    render(
+      <WorkspaceArtifactsPanel
+        ledger={withVariant}
+        toAbsolutePath={toAbsolutePath}
+        onSelect={vi.fn()}
+      />,
+    )
+    expect(screen.getAllByText(/变体 · 来自 cover\.png/).length).toBeGreaterThan(0)
+    localStorage.clear()
   })
 })

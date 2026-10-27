@@ -41,6 +41,8 @@ function extLabel(filePath: string): string {
 /** 卡片副标题：优先给用户能判断「是不是要的那张」的规格 */
 function metaLabelOf(artifact: Artifact, thumbMeta?: { pages?: number }): string {
   const meta = artifact.meta
+  // 变体的来源比尺寸更能说明「这是哪张图的派生」
+  if (artifact.derivedFrom) return `变体 · 来自 ${fileNameOf(artifact.derivedFrom)}`
   const pages = meta?.pages ?? thumbMeta?.pages
   if (pages !== undefined) return `${pages} 页`
   if (meta?.width && meta?.height) return `${meta.width}×${meta.height}`

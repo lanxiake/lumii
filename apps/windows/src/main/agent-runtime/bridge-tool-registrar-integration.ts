@@ -1100,6 +1100,8 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
                   height: result.height,
                   model: result.model,
                   prompt: result.revisedPrompt,
+                  // 与 artifact-declaration 的读端上限一致
+                  sourcePrompt: params.prompt.slice(0, 4000),
                 },
               },
             ],

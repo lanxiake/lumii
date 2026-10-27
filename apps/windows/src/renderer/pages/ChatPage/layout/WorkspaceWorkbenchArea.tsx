@@ -14,6 +14,7 @@ import { ArtifactCompareView } from '../components/WorkspaceArtifactsPanel/Compa
 import { ArtifactActionBar } from '../components/WorkspaceArtifactsPanel/ArtifactActionBar'
 import { mapAllFiles, type AllArtifact } from '../components/WorkspaceArtifactsPanel/all-files'
 import type { ArtifactScope } from '../components/WorkspaceArtifactsPanel'
+import { variantSourceFor } from '../components/WorkspaceArtifactsPanel/artifact-actions'
 import type { ExportMenuKey, MoreMenuKey } from '../components/WorkspaceArtifactsPanel/artifact-actions'
 import { useOptionalToast } from '../../../components/ui/Toast/useOptionalToast'
 import { writeClipboardFiles } from '../../../services/clipboard-service'
@@ -189,6 +190,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
                 ...(part.type === 'tool'
                   ? {
                       name: part.name,
+                      ...(part.args ? { args: part.args } : {}),
                       ...(part.result !== undefined ? { result: part.result } : {}),
                     }
                   : {}),
@@ -433,6 +435,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const [editProposal, setEditProposal] = useState<ArtifactEditProposal | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [editBusy, setEditBusy] = useState(false)
+  /** T5：图片变体生成中（耗时可达数十秒，按钮转圈防重入） */
+  const [variantBusy, setVariantBusy] = useState(false)
   const [previewVersion, setPreviewVersion] = useState(0)
   const editTokenRef = useRef(0)
   const pendingEditIdRef = useRef<string | null>(null)
@@ -467,11 +471,19 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     return undefined
   }, [mergedLedger, selected])
 
-  /** 最近一次本地修改（listEdits 已按时间倒序）；有才显示「撤销」菜单项 */
+  /**
+   * 最近一次本地修改（listEdits 已按时间倒序）；有才显示「撤销」菜单项。
+   * 变体是**新文件**而不是同路径的新版本，没有「撤销」语义（撤销会试图把源图写进变体路径）。
+   */
   const undoableEdit = useMemo(() => {
     if (!selectedArtifact) return undefined
-    return localEdits.find((edit) => edit.path === selectedArtifact.path)
+    return localEdits.find(
+      (edit) => edit.path === selectedArtifact.path && edit.action !== 'variant',
+    )
   }, [localEdits, selectedArtifact])
+
+  /** T5：变体参数只来自**工具声明**（D9：没有声明就不显示变体） */
+  const variantSource = useMemo(() => variantSourceFor(selectedArtifact), [selectedArtifact])
 
   // 换产物时收起浮层：新产物默认不弹，宽档的并排栏会自己出现
   useEffect(() => {
@@ -587,6 +599,33 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       toast.error(err instanceof Error ? err.message : '删除失败')
     }
   }
+
+  /** T5：同源变体（同模型/原始提示词/尺寸，落源图同目录的新文件） */
+  const handleGenerateVariant = useCallback(async () => {
+    if (!selectedArtifact || !variantSource) return
+    setVariantBusy(true)
+    try {
+      const result = await artifactEditService.variant({
+        ...(sessionKey ? { sessionKey } : {}),
+        path: selectedArtifact.path,
+        model: variantSource.model,
+        sourcePrompt: variantSource.sourcePrompt,
+        ...(variantSource.width ? { width: variantSource.width } : {}),
+        ...(variantSource.height ? { height: variantSource.height } : {}),
+      })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      if (result.warning) toast.warning(result.warning)
+      else toast.success(`已生成变体：${result.path.split('/').pop() ?? result.path}`)
+      window.dispatchEvent(new CustomEvent(ARTIFACT_EDITS_CHANGED_EVENT))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '生成变体失败')
+    } finally {
+      setVariantBusy(false)
+    }
+  }, [selectedArtifact, sessionKey, toast, variantSource])
 
   const handleCompareCurrent = (): void => {
     if (!selectedArtifact) return
@@ -1064,6 +1103,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           }}
           onCompare={handleCompareCurrent}
           canUndoEdit={Boolean(undoableEdit)}
+          canVariant={Boolean(variantSource)}
+          variantBusy={variantBusy}
+          onVariant={() => void handleGenerateVariant()}
         />
       )}
     </div>

@@ -83,6 +83,7 @@ export function mergeLocalEdits(
         existing.origin = 'local'
         // 先被删后由本地编辑重建：状态回到 modified，避免卡片仍显示「已删除」
         if (existing.status === 'deleted') existing.status = 'modified'
+        if (edit.derivedFrom) existing.derivedFrom = edit.derivedFrom
       }
     } else {
       slot.items.set(edit.path, {
@@ -93,6 +94,7 @@ export function mergeLocalEdits(
         timestamp: edit.at,
         turnId: '',
         origin: 'local',
+        ...(edit.derivedFrom ? { derivedFrom: edit.derivedFrom } : {}),
       })
     }
     if (edit.at > slot.group.timestamp) slot.group.timestamp = edit.at

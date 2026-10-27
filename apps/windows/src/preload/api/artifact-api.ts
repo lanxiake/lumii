@@ -29,6 +29,10 @@ import type {
   SlideEditProposal,
   SlideOutlineResult,
 } from '../../shared/artifact-slide-types'
+import type {
+  ArtifactVariantResult,
+  CreateVariantInput,
+} from '../../shared/artifact-variant-types'
 
 export const artifactApi = {
   /** 批量读 `<path>.lumii-artifact.json`；缺失/坏 JSON 不返回该项 */
@@ -96,4 +100,10 @@ export const artifactApi = {
   /** 某一版的只读文本内容 */
   versionContent: (input: ArtifactVersionContentInput): Promise<ArtifactVersionContentResult> =>
     ipcRenderer.invoke('artifact:versionContent', input),
+
+  /** 图片同源变体：同 prompt/模型/尺寸再生成一张，落在源图同目录 */
+  variant: (
+    input: CreateVariantInput,
+  ): Promise<ArtifactVariantResult | ArtifactEditFailure> =>
+    ipcRenderer.invoke('artifact:variant', input),
 }

@@ -19,6 +19,14 @@ const ARTIFACT: Artifact = {
   sourceTool: 'image_generate',
 }
 
+/** 文本产物：逐行差异/预览只对文本开放（图片/PPT 的版本对照在 T6） */
+const DOC_ARTIFACT: Artifact = {
+  ...ARTIFACT,
+  path: 'outputs/pet/doc.md',
+  kind: 'doc',
+  meta: { words: 120 },
+}
+
 const LOADED_VERSIONS: ArtifactVersion[] = [
   { turnId: 'm1', timestamp: Date.parse('2026-01-01T10:00:00.000Z'), status: 'added' },
   { turnId: 'm2', timestamp: Date.parse('2026-01-01T10:30:00.000Z'), status: 'modified' },
@@ -126,7 +134,7 @@ describe('ArtifactInspector', () => {
     }))
     const onShowDiff = vi.fn()
     const onPreviewVersion = vi.fn()
-    renderInspector({ onShowDiff, onPreviewVersion })
+    renderInspector({ artifact: DOC_ARTIFACT, onShowDiff, onPreviewVersion })
 
     await waitFor(() => expect(screen.getByText('本地')).toBeInTheDocument())
     expect(screen.getByText('本地编辑')).toBeInTheDocument()
@@ -161,5 +169,105 @@ describe('ArtifactInspector', () => {
     await waitFor(() => expect(screen.getByText('内容未保留')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: '预览' })).toBeNull()
     expect(screen.queryByRole('button', { name: '差异' })).toBeNull()
+  })
+})
+
+describe('ArtifactInspector · 图片可复现参数（T5）', () => {
+  const PROMPT_ARTIFACT: Artifact = {
+    ...ARTIFACT,
+    meta: {
+      width: 1024,
+      height: 1024,
+      model: 'nano-banana-2',
+      prompt: '猫（模型改写）',
+      sourcePrompt: '一只趴在桌上的猫',
+      params: { steps: 20, ratio: '1:1', hd: false },
+    },
+    derivedFrom: 'outputs/pet/cover.png',
+  }
+
+  beforeEach(() => {
+    ;(window.electronAPI as any).agentRuntime = {}
+  })
+
+  it('原始提示词与改写后提示词分开标注；params 以 chip 展示', () => {
+    render(
+      <ArtifactInspector
+        artifact={PROMPT_ARTIFACT}
+        sessionKey="conv-1"
+        versions={[]}
+        onGoToTurn={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('原始提示词')).toBeInTheDocument()
+    expect(screen.getByText('一只趴在桌上的猫')).toBeInTheDocument()
+    expect(screen.getByText('改写后提示词（模型）')).toBeInTheDocument()
+    expect(screen.getByText('猫（模型改写）')).toBeInTheDocument()
+    expect(screen.getByText('steps: 20')).toBeInTheDocument()
+    expect(screen.getByText('ratio: 1:1')).toBeInTheDocument()
+    expect(screen.getByText('hd: false')).toBeInTheDocument()
+    expect(screen.getByText('变体 · 来自 cover.png')).toBeInTheDocument()
+    // 不提供本机没有的 seed 选项，只说明事实
+    expect(screen.getByText(/不支持 seed/)).toBeInTheDocument()
+    expect(screen.queryByText(/换 seed/)).toBeNull()
+  })
+
+  it('提示词可复制到剪贴板，并给出「已复制」反馈', async () => {
+    const writeText = vi.fn(async (_text: string) => undefined)
+    ;(window.electronAPI as any).clipboard = { writeText }
+    render(
+      <ArtifactInspector
+        artifact={PROMPT_ARTIFACT}
+        sessionKey="conv-1"
+        versions={[]}
+        onGoToTurn={vi.fn()}
+      />,
+    )
+    const copyButtons = screen.getAllByRole('button', { name: '复制' })
+    expect(copyButtons).toHaveLength(2)
+    fireEvent.click(copyButtons[0]!)
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('一只趴在桌上的猫'))
+    expect(screen.getByRole('button', { name: '已复制' })).toBeInTheDocument()
+
+    // 一键复制全部复现参数：尺寸/模型/两段提示词
+    fireEvent.click(screen.getByRole('button', { name: '复制全部参数' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+    const block = writeText.mock.calls[1]![0] as string
+    expect(block).toContain('尺寸：1024×1024')
+    expect(block).toContain('模型：nano-banana-2')
+    expect(block).toContain('原始提示词：一只趴在桌上的猫')
+    expect(block).toContain('改写后提示词（模型）：猫（模型改写）')
+    expect(screen.getByRole('button', { name: '已复制全部参数' })).toBeInTheDocument()
+  })
+
+  it('模型没有改写时两段提示词相同，只显示一段', () => {
+    render(
+      <ArtifactInspector
+        artifact={{
+          ...ARTIFACT,
+          meta: { model: 'm', sourcePrompt: '同一段', prompt: '同一段' },
+        }}
+        sessionKey="conv-1"
+        versions={[]}
+        onGoToTurn={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('原始提示词')).toBeInTheDocument()
+    expect(screen.queryByText('改写后提示词（模型）')).toBeNull()
+    expect(screen.getAllByText('同一段')).toHaveLength(1)
+  })
+
+  it('没有提示词/派生来源时不显示这些块', () => {
+    render(
+      <ArtifactInspector
+        artifact={ARTIFACT}
+        sessionKey="conv-1"
+        versions={[]}
+        onGoToTurn={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText('原始提示词')).toBeNull()
+    expect(screen.queryByText(/不支持 seed/)).toBeNull()
+    expect(screen.queryByText(/变体 · 来自/)).toBeNull()
   })
 })

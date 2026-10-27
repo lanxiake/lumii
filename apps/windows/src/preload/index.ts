@@ -814,6 +814,13 @@ export interface ElectronAPI {
     versionContent: (
       input: import('../shared/artifact-version-types').ArtifactVersionContentInput,
     ) => Promise<import('../shared/artifact-version-types').ArtifactVersionContentResult>
+    /** 图片同源变体（同 prompt/模型/尺寸，落源图同目录） */
+    variant: (
+      input: import('../shared/artifact-variant-types').CreateVariantInput,
+    ) => Promise<
+      | import('../shared/artifact-variant-types').ArtifactVariantResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
   }
 
   // 本地技能管�?

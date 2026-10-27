@@ -39,11 +39,16 @@ import type {
   ProposeSlideEditInput,
   SlideOutlineResult,
 } from '../../shared/artifact-slide-types'
+import type {
+  ArtifactVariantResult,
+  CreateVariantInput,
+} from '../../shared/artifact-variant-types'
 import { MAX_DIFF_BYTES, diffText } from '../../shared/text-diff'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { normalizeDocumentAction } from '../artifact-edit-prompts'
 import { proposeTextRangeEdit } from '../artifact-edit-llm'
 import { proposeSlideEdit, readSlideOutline } from '../artifact-slides'
+import { createImageVariant } from '../artifact-variant'
 import { buildMergedVersions, resolveVersionContent } from '../artifact-versions'
 import type { SingleTurnLlmService } from '../single-turn-llm'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
@@ -579,6 +584,71 @@ export function registerArtifactIpcHandlers(): void {
         })
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : '撤销失败' }
+      }
+    },
+  )
+
+  // ---- 图片同源变体（P2 T5）----
+  ipcMain.handle(
+    'artifact:variant',
+    async (
+      _event,
+      payload?: Partial<CreateVariantInput>,
+    ): Promise<ArtifactVariantResult | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      const bridge = deps!.getAgentRuntimeBridge?.()
+      if (!bridge) return { ok: false, error: 'Agent Runtime 未就绪', code: 'unavailable' }
+      if (
+        !payload ||
+        typeof payload.path !== 'string' ||
+        !payload.path ||
+        typeof payload.model !== 'string' ||
+        typeof payload.sourcePrompt !== 'string'
+      ) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      if (
+        payload.width !== undefined &&
+        (typeof payload.width !== 'number' || !Number.isFinite(payload.width))
+      ) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      if (
+        payload.height !== undefined &&
+        (typeof payload.height !== 'number' || !Number.isFinite(payload.height))
+      ) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      if (payload.instruction !== undefined && typeof payload.instruction !== 'string') {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      try {
+        return await createImageVariant({
+          workspaceDir: root,
+          input: {
+            path: payload.path,
+            model: payload.model,
+            sourcePrompt: payload.sourcePrompt,
+            ...(typeof payload.sessionKey === 'string' ? { sessionKey: payload.sessionKey } : {}),
+            ...(payload.width !== undefined ? { width: payload.width } : {}),
+            ...(payload.height !== undefined ? { height: payload.height } : {}),
+            ...(payload.instruction !== undefined ? { instruction: payload.instruction } : {}),
+          },
+          generateImage: (params) => bridge.generateImage(params),
+          registerFile: (info) =>
+            registerAppliedFile({
+              editId: info.editId,
+              sessionKey: info.sessionKey,
+              path: info.path,
+              absPath: info.absPath,
+              action: 'variant',
+              bytes: info.bytes,
+              derivedFrom: info.derivedFrom,
+            }),
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '生成变体失败' }
       }
     },
   )

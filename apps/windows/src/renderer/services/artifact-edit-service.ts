@@ -25,6 +25,10 @@ import type {
   SlideEditProposal,
   SlideOutlineResult,
 } from '../../shared/artifact-slide-types'
+import type {
+  ArtifactVariantResult,
+  CreateVariantInput,
+} from '../../shared/artifact-variant-types'
 
 function api() {
   return window.electronAPI?.artifact
@@ -116,5 +120,13 @@ export const artifactEditService = {
       return Promise.resolve({ ok: false, reason: '当前版本不支持版本预览' })
     }
     return target.versionContent(input)
+  },
+
+  variant: (input: CreateVariantInput): Promise<ArtifactVariantResult | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.variant) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持图片变体', code: 'unavailable' })
+    }
+    return target.variant(input)
   },
 }

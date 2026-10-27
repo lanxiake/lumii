@@ -12,6 +12,8 @@ import { CornerUpLeft, Loader2 } from 'lucide-react'
 import type { Artifact, ArtifactVersion } from './ledger'
 import { formatClock } from './ledger'
 import { formatBytes } from './ArtifactFoldRow'
+import { writeClipboardText } from '../../../../services/clipboard-service'
+import { isTextArtifactPath } from '../../../../../shared/artifact-rules'
 import styles from './WorkspaceArtifactsPanel.module.css'
 
 const KIND_LABEL: Record<Artifact['kind'], string> = {
@@ -68,9 +70,38 @@ function specRows(artifact: Artifact): Array<{ label: string; value: string }> {
   const bytes = formatBytes(meta.bytes)
   if (bytes) rows.push({ label: '大小', value: bytes })
   if (meta.model) rows.push({ label: '模型', value: meta.model })
+  if (artifact.derivedFrom) {
+    rows.push({ label: '来源', value: `变体 · 来自 ${fileNameOf(artifact.derivedFrom)}` })
+  }
   if (artifact.sourceTool) rows.push({ label: '来源工具', value: artifact.sourceTool })
   rows.push({ label: '最近写入', value: formatClock(artifact.timestamp) })
   return rows
+}
+
+function fileNameOf(filePath: string): string {
+  return filePath.split('/').pop() ?? filePath
+}
+
+/** 可直接复制的提示词行：原始 prompt 与模型改写后的 prompt 分开标 */
+function promptRows(artifact: Artifact): Array<{ label: string; value: string }> {
+  const meta = artifact.meta
+  if (!meta) return []
+  const rows: Array<{ label: string; value: string }> = []
+  const source = meta.sourcePrompt?.trim()
+  const revised = meta.prompt?.trim()
+  if (source) rows.push({ label: '原始提示词', value: source })
+  // 模型没改写时两段一模一样，只留一段，别糊两面重复的墙
+  if (revised && revised !== source) {
+    rows.push({ label: '改写后提示词（模型）', value: revised })
+  }
+  return rows
+}
+
+/** meta.params 里的标量以 chip 展示；没有就不显示 */
+function paramChips(artifact: Artifact): Array<{ key: string; value: string }> {
+  const params = artifact.meta?.params
+  if (!params) return []
+  return Object.entries(params).map(([key, value]) => ({ key, value: String(value) }))
 }
 
 export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
@@ -88,6 +119,8 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
     partial: true,
     loading: true,
   })
+  /** 复制反馈：记录刚复制的提示词标签，1.5s 后复位 */
+  const [copiedLabel, setCopiedLabel] = useState<string | null>(null)
   const targetSession = artifact.conversationId ?? sessionKey
 
   useEffect(() => {
@@ -132,7 +165,30 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
   }, [artifact.path, targetSession])
 
   const specs = specRows(artifact)
+  const prompts = promptRows(artifact)
+  const chips = paramChips(artifact)
   const shown = history.versions.length > 0 ? history.versions : fallback
+
+  /** 一次性复制「复现这张图」需要的全部参数（尺寸/模型/提示词） */
+  const paramBlock = (): string => {
+    const lines = specs
+      .filter((row) => row.label !== '最近写入' && row.label !== '来源工具' && row.label !== '来源')
+      .map((row) => `${row.label}：${row.value}`)
+    for (const row of prompts) lines.push(`${row.label}：${row.value}`)
+    for (const chip of chips) lines.push(`${chip.key}：${chip.value}`)
+    return lines.join('\n')
+  }
+
+  const copyPrompt = (label: string, value: string): void => {
+    void writeClipboardText(value)
+      .then(() => {
+        setCopiedLabel(label)
+        window.setTimeout(() => {
+          setCopiedLabel((current) => (current === label ? null : current))
+        }, 1500)
+      })
+      .catch(() => undefined)
+  }
 
   return (
     <aside className={styles.inspector} aria-label="产物信息">
@@ -164,6 +220,51 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
               </div>
             ))}
           </dl>
+          {chips.length > 0 && (
+            <div className={styles.paramChips}>
+              {chips.map((chip) => (
+                <span
+                  key={chip.key}
+                  className={styles.paramChip}
+                  title={`${chip.key} = ${chip.value}`}
+                >
+                  {chip.key}: {chip.value}
+                </span>
+              ))}
+            </div>
+          )}
+          {prompts.map((row) => (
+            <div key={row.label} className={styles.promptRow}>
+              <div className={styles.promptHead}>
+                <span className={styles.promptLabel}>{row.label}</span>
+                <button
+                  type="button"
+                  className={styles.promptCopy}
+                  onClick={() => copyPrompt(row.label, row.value)}
+                  title="复制到剪贴板"
+                >
+                  {copiedLabel === row.label ? '已复制' : '复制'}
+                </button>
+              </div>
+              <p className={styles.promptText} title={row.value}>
+                {row.value}
+              </p>
+            </div>
+          ))}
+          {prompts.length > 0 && (
+            <button
+              type="button"
+              className={styles.copyAllParams}
+              onClick={() => copyPrompt('__all__', paramBlock())}
+            >
+              {copiedLabel === '__all__' ? '已复制全部参数' : '复制全部参数'}
+            </button>
+          )}
+          {artifact.kind === 'image' && prompts.length > 0 && (
+            <div className={styles.inspectorNote}>
+              本机图片模型不支持 seed；每次生成会新增一份文件。
+            </div>
+          )}
           <div className={styles.specPath} title={artifact.path}>
             {artifact.path}
           </div>
@@ -195,8 +296,14 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
                 // 最新一版就是文件现在的内容（版本列表按时间正序）
                 const isCurrent = index === shown.length - 1 && version.status !== 'deleted'
                 const contentAvailable = version.content?.available === true
+                // 文本/代码才有「逐行差异」与内联预览；图片/PPT 的版本对照在 T6
+                const textArtifact = isTextArtifactPath(artifact.path)
                 const canDiff = Boolean(
-                  onShowDiff && previous && contentAvailable && previous.content?.available === true,
+                  textArtifact &&
+                    onShowDiff &&
+                    previous &&
+                    contentAvailable &&
+                    previous.content?.available === true,
                 )
                 const sourceLabel = version.source === 'local' ? '本地' : 'Agent'
                 return (
@@ -226,7 +333,7 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
                           差异
                         </button>
                       )}
-                      {onPreviewVersion && contentAvailable && (
+                      {onPreviewVersion && contentAvailable && textArtifact && (
                         <button
                           type="button"
                           className={styles.versionGo}

@@ -32,6 +32,11 @@ export interface ArtifactActionBarProps {
   onMore: (menu: MoreMenuKey) => void
   /** 当前产物有可撤销的本地修改时才显示「撤销」菜单项 */
   canUndoEdit?: boolean
+  /** 图片声明了模型与原始提示词时才显示「变体」（D9） */
+  canVariant?: boolean
+  /** 变体生成中（按钮 loading，防重复点击） */
+  variantBusy?: boolean
+  onVariant?: () => void
 }
 
 /** 危险动作的确认窗口：3s 内再点一次才执行 */
@@ -45,6 +50,9 @@ export const ArtifactActionBar: React.FC<ArtifactActionBarProps> = ({
   onExport,
   onMore,
   canUndoEdit = false,
+  canVariant = false,
+  variantBusy = false,
+  onVariant,
 }) => {
   const [openMenu, setOpenMenu] = useState<'export' | 'more' | null>(null)
   const [confirmTrash, setConfirmTrash] = useState(false)
@@ -84,7 +92,9 @@ export const ArtifactActionBar: React.FC<ArtifactActionBarProps> = ({
     return () => window.clearTimeout(timer)
   }, [confirmTrash])
 
-  const actions = primaryActionsFor(artifact.kind)
+  const actions = primaryActionsFor(artifact.kind, {
+    canVariant: Boolean(canVariant && onVariant),
+  })
 
   const handleMore = (key: MoreMenuKey): void => {
     if (key === 'trash' && !confirmTrash) {
@@ -165,6 +175,21 @@ export const ArtifactActionBar: React.FC<ArtifactActionBarProps> = ({
             </div>
           )}
         </div>
+      )
+    }
+
+    if (action === 'variant') {
+      return (
+        <button
+          key={action}
+          type="button"
+          className={styles.actionBtn}
+          onClick={onVariant}
+          disabled={variantBusy}
+          title="用同一模型与原始提示词再生成一张（本机不支持 seed）"
+        >
+          {variantBusy ? '生成中…' : ACTION_LABEL.variant}
+        </button>
       )
     }
 

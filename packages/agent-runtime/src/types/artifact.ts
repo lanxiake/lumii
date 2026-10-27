@@ -29,7 +29,12 @@ export interface ArtifactMeta {
   words?: number;
   bytes?: number;
   model?: string;
+  /** 模型改写后的提示词（revisedPrompt） */
   prompt?: string;
+  /** 用户/工具实际发出的原始提示词；同源变体据此复现（P2 T5） */
+  sourcePrompt?: string;
+  /** 派生文件（图片变体）的来源路径：工作区相对路径 */
+  derivedFrom?: string;
   params?: Record<string, string | number | boolean>;
 }
 

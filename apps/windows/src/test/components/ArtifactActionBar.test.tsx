@@ -7,7 +7,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ArtifactActionBar } from '../../renderer/pages/ChatPage/components/WorkspaceArtifactsPanel/ArtifactActionBar'
-import { primaryActionsFor } from '../../renderer/pages/ChatPage/components/WorkspaceArtifactsPanel/artifact-actions'
+import {
+  primaryActionsFor,
+  variantSourceFor,
+} from '../../renderer/pages/ChatPage/components/WorkspaceArtifactsPanel/artifact-actions'
 import type { Artifact } from '../../renderer/pages/ChatPage/components/WorkspaceArtifactsPanel/ledger'
 import type { ArtifactKind } from '../../shared/artifact-rules'
 
@@ -50,7 +53,62 @@ describe('primaryActionsFor 动作矩阵', () => {
 
   it('一级动作永远不超过 5 个', () => {
     const kinds: ArtifactKind[] = ['image', 'video', 'audio', 'doc', 'sheet', 'slides', 'code', 'other', 'site', 'archive', 'image-set']
-    for (const kind of kinds) expect(primaryActionsFor(kind).length).toBeLessThanOrEqual(5)
+    for (const kind of kinds) {
+      expect(primaryActionsFor(kind).length).toBeLessThanOrEqual(5)
+      expect(primaryActionsFor(kind, { canVariant: true }).length).toBeLessThanOrEqual(5)
+    }
+  })
+
+  it('只有图片带「变体」，且排在第一位', () => {
+    expect(primaryActionsFor('image', { canVariant: true })).toEqual([
+      'variant',
+      'exportMenu',
+      'locate',
+      'compare',
+      'more',
+    ])
+    expect(primaryActionsFor('video', { canVariant: true })).toEqual([
+      'exportMenu',
+      'locate',
+      'compare',
+      'more',
+    ])
+  })
+})
+
+describe('variantSourceFor（D9：只认声明）', () => {
+  const withMeta = (meta: Artifact['meta'], extra: Partial<Artifact> = {}): Artifact => ({
+    ...makeArtifact('image'),
+    meta,
+    ...extra,
+  })
+
+  it('原始提示词 + 模型 + 尺寸 → 可复现参数', () => {
+    expect(
+      variantSourceFor(
+        withMeta({ model: 'nano-banana-2', sourcePrompt: ' 一只猫 ', prompt: '猫', width: 1024 }),
+      ),
+    ).toEqual({ model: 'nano-banana-2', sourcePrompt: '一只猫', width: 1024 })
+  })
+
+  it('没有原始提示词时退回改写后的 prompt（老数据也能复现）', () => {
+    expect(variantSourceFor(withMeta({ model: 'm', prompt: '改写后' }))?.sourcePrompt).toBe(
+      '改写后',
+    )
+  })
+
+  it('缺模型 / 缺提示词 / 非图片 / 远端 / 无声明 → null', () => {
+    expect(variantSourceFor(undefined)).toBeNull()
+    expect(variantSourceFor(withMeta({ sourcePrompt: 'x' }))).toBeNull()
+    expect(variantSourceFor(withMeta({ model: 'm' }))).toBeNull()
+    expect(variantSourceFor(withMeta({ model: '  ', sourcePrompt: 'x' }))).toBeNull()
+    expect(variantSourceFor({ ...makeArtifact('video'), meta: { model: 'm', prompt: 'x' } })).toBeNull()
+    expect(
+      variantSourceFor(
+        withMeta({ model: 'm', sourcePrompt: 'x' }, { remoteUrl: 'https://x/a.png' }),
+      ),
+    ).toBeNull()
+    expect(variantSourceFor(makeArtifact('image'))).toBeNull()
   })
 })
 
@@ -59,6 +117,46 @@ describe('ArtifactActionBar', () => {
     renderBar('image')
     expect(screen.getByRole('button', { name: '对比' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
+  })
+
+  it('图片有模型+提示词时出现「变体」，点击回调；生成中禁用并显示进度', () => {
+    const onVariant = vi.fn()
+    const { rerender } = render(
+      <ArtifactActionBar
+        artifact={makeArtifact('image')}
+        onEdit={vi.fn()}
+        onLocate={vi.fn()}
+        onCompare={vi.fn()}
+        onExport={vi.fn()}
+        onMore={vi.fn()}
+        canVariant
+        onVariant={onVariant}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '变体' }))
+    expect(onVariant).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <ArtifactActionBar
+        artifact={makeArtifact('image')}
+        onEdit={vi.fn()}
+        onLocate={vi.fn()}
+        onCompare={vi.fn()}
+        onExport={vi.fn()}
+        onMore={vi.fn()}
+        canVariant
+        variantBusy
+        onVariant={onVariant}
+      />,
+    )
+    const busy = screen.getByRole('button', { name: '生成中…' })
+    expect(busy).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '变体' })).toBeNull()
+  })
+
+  it('没有变体条件时不出现「变体」按钮', () => {
+    renderBar('image')
+    expect(screen.queryByRole('button', { name: '变体' })).toBeNull()
   })
 
   it('文档：有「编辑」（PPT 也有，点了给 P2 提示）', () => {

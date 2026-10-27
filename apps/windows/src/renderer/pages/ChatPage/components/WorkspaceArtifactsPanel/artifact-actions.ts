@@ -7,6 +7,7 @@
  */
 
 import type { ArtifactKind } from '../../../../../shared/artifact-rules'
+import type { Artifact } from './ledger'
 
 export type ArtifactActionKey =
   /** 进入文档编辑（Markdown 写回；PPT 只读，给提示） */
@@ -17,6 +18,8 @@ export type ArtifactActionKey =
   | 'locate'
   /** 加入并排对比 */
   | 'compare'
+  /** 图片同源变体（只在声明了模型与提示词时出现） */
+  | 'variant'
   /** ⋯（复制路径 / 在系统中打开 / 移入回收站） */
   | 'more'
 
@@ -25,8 +28,20 @@ const DOC_KINDS: readonly ArtifactKind[] = ['doc', 'slides', 'sheet']
 /** 媒体类：对比有用（选封面 / 选变体），不做编辑 */
 const MEDIA_KINDS: readonly ArtifactKind[] = ['image', 'image-set', 'video', 'audio']
 
-export function primaryActionsFor(kind: ArtifactKind): readonly ArtifactActionKey[] {
+export interface PrimaryActionOptions {
+  /** 图片声明了模型与原始提示词（`变体` 只在此时出现，D9） */
+  canVariant?: boolean
+}
+
+export function primaryActionsFor(
+  kind: ArtifactKind,
+  options: PrimaryActionOptions = {},
+): readonly ArtifactActionKey[] {
   if (DOC_KINDS.includes(kind)) return ['edit', 'exportMenu', 'locate', 'more']
+  // 图片带「变体」时一级动作正好 5 个，仍满足上限
+  if (kind === 'image' && options.canVariant) {
+    return ['variant', 'exportMenu', 'locate', 'compare', 'more']
+  }
   if (MEDIA_KINDS.includes(kind)) return ['exportMenu', 'locate', 'compare', 'more']
   return ['exportMenu', 'locate', 'more']
 }
@@ -56,4 +71,28 @@ export const ACTION_LABEL: Record<Exclude<ArtifactActionKey, 'exportMenu' | 'mor
   edit: '编辑',
   locate: '定位',
   compare: '对比',
+  variant: '变体',
+}
+
+/** 同源变体要复现的参数（D9：只认工具声明，没有就不给入口） */
+export interface VariantSource {
+  model: string
+  sourcePrompt: string
+  width?: number
+  height?: number
+}
+
+export function variantSourceFor(artifact: Artifact | undefined): VariantSource | null {
+  if (!artifact || artifact.kind !== 'image' || artifact.remoteUrl) return null
+  const meta = artifact.meta
+  const model = meta?.model?.trim()
+  // 声明里有原始提示词就用它；只有改写后的 prompt 也能复现（老数据）
+  const sourcePrompt = (meta?.sourcePrompt ?? meta?.prompt)?.trim()
+  if (!model || !sourcePrompt) return null
+  return {
+    model,
+    sourcePrompt,
+    ...(meta?.width ? { width: meta.width } : {}),
+    ...(meta?.height ? { height: meta.height } : {}),
+  }
 }

@@ -117,6 +117,39 @@ describe('mergeLocalEdits', () => {
     )
   })
 
+  it('变体：新路径建卡并带上 derivedFrom 来源', () => {
+    const ledger = buildArtifactLedger([
+      assistant('m1', 1000, ['outputs/demo/cover.png']),
+    ])
+    const merged = mergeLocalEdits(ledger, [
+      edit({
+        editId: 'edit-v',
+        path: 'outputs/demo/cover-variant-153012.png',
+        action: 'variant',
+        scope: { type: 'image-variant' },
+        at: 3000,
+        derivedFrom: 'outputs/demo/cover.png',
+      }),
+    ])
+    const group = merged.groups[0]
+    expect(group?.deliverables.map((item) => item.path)).toEqual([
+      'outputs/demo/cover-variant-153012.png',
+      'outputs/demo/cover.png',
+    ])
+    const variant = group?.deliverables.find((item) => item.path.includes('-variant-'))
+    expect(variant).toMatchObject({
+      kind: 'image',
+      origin: 'local',
+      status: 'modified',
+      derivedFrom: 'outputs/demo/cover.png',
+      turnId: '',
+    })
+    // 变体是新文件：不给原路径伪造版本
+    expect(merged.versions.get('outputs/demo/cover.png')).toBe(
+      ledger.versions.get('outputs/demo/cover.png'),
+    )
+  })
+
   it('没有本地编辑时原样返回，避免无谓重建', () => {
     const ledger = buildArtifactLedger([assistant('m1', 1000, ['outputs/demo/doc.md'])])
     expect(mergeLocalEdits(ledger, [])).toBe(ledger)

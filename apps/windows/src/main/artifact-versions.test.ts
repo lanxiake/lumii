@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { setVcsAccessor } from './agent-runtime/vcs-accessor'
-import { listEdits, recordManualSave } from './artifact-edit'
+import { listEdits, recordManualSave, recordVariantEdit } from './artifact-edit'
 import {
   buildMergedVersions,
   localVersionId,
@@ -206,5 +206,59 @@ describe('resolveVersionContent', () => {
     })
     expect(result).toMatchObject({ ok: false })
     if (!result.ok) expect(result.reason).toContain('VCS')
+  })
+})
+
+describe('buildMergedVersions · 图片变体（T5）', () => {
+  const VARIANT = 'outputs/x/cover-variant-153012.png'
+
+  it('变体版本的内容就是工作区文件本身', async () => {
+    const abs = path.join(root, ...VARIANT.split('/'))
+    await writeFile(abs, 'PNG')
+    const recorded = await recordVariantEdit({
+      workspaceDir: root,
+      sessionKey: 'conv-1',
+      path: VARIANT,
+      derivedFrom: 'outputs/x/cover.png',
+      bytes: 3,
+      now: Date.parse('2026-10-27T10:00:10.000Z'),
+    })
+    expect(recorded).toBeTruthy()
+    const local = await listEdits({ workspaceDir: root, sessionKey: 'conv-1' })
+    if (!local.ok) throw new Error(local.error)
+
+    const versions = await buildMergedVersions({
+      workspaceDir: root,
+      path: VARIANT,
+      turns: [],
+      localEdits: local.edits,
+    })
+    expect(versions).toHaveLength(1)
+    expect(versions[0]?.content).toEqual({ available: true, kind: 'store' })
+  })
+
+  it('变体文件被删后如实标不可取', async () => {
+    const abs = path.join(root, ...VARIANT.split('/'))
+    await writeFile(abs, 'PNG')
+    await recordVariantEdit({
+      workspaceDir: root,
+      sessionKey: 'conv-1',
+      path: VARIANT,
+      derivedFrom: 'outputs/x/cover.png',
+      bytes: 3,
+    })
+    await rm(abs)
+    const local = await listEdits({ workspaceDir: root, sessionKey: 'conv-1' })
+    if (!local.ok) throw new Error(local.error)
+    const versions = await buildMergedVersions({
+      workspaceDir: root,
+      path: VARIANT,
+      turns: [],
+      localEdits: local.edits,
+    })
+    expect(versions[0]?.content).toMatchObject({
+      available: false,
+      reason: '变体文件已不在工作区',
+    })
   })
 })
