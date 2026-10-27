@@ -50,6 +50,26 @@ export interface CloudSyncConfigView {
 
 export type SyncState = 'idle' | 'syncing' | 'conflict' | 'error'
 
+/**
+ * 真 git fetch/push 的传输进度（设置页展示；同步结束即清空）。
+ *
+ * 字段均来自 `git --progress` stderr；git 不一定每次都给出体积/速度，缺省字段表示未知。
+ */
+export interface SyncTransferProgress {
+  /** 下载 = fetch；上传 = push */
+  direction: 'download' | 'upload'
+  /** 阶段名，如 Receiving objects / Writing objects */
+  phase: string
+  /** 0–100 */
+  percent?: number
+  transferredBytes?: number
+  /** 有总量时才有；否则只能显示已传与速度 */
+  totalBytes?: number
+  speedBytesPerSec?: number
+  /** 有 total + speed 时推算 */
+  etaSeconds?: number
+}
+
 export interface SyncStatus {
   state: SyncState
   lastSyncAt?: number
@@ -68,6 +88,8 @@ export interface SyncStatus {
    * 才成立的 —— 那时排队约等于整轮同步都在等，与现在只等导出那一步不同。
    */
   queuedBehind?: number
+  /** 网络传输进度；非传输阶段为 undefined */
+  transfer?: SyncTransferProgress
 }
 
 /** 冲突信息（filepaths 等来自 MergeConflictError.data；baseOid 来自 findMergeBase） */
@@ -99,4 +121,8 @@ export interface LargeQueueStats {
   pumping: boolean
   /** 统计时间戳；0 表示尚未扫描过 */
   at: number
+  /** 近几批推送折算的速度（字节/秒）；尚无样本时缺省 */
+  speedBytesPerSec?: number
+  /** 按 pendingBytes / speed 估算的剩余秒数 */
+  etaSeconds?: number
 }

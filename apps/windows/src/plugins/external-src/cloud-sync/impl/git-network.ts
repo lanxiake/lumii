@@ -30,6 +30,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { detectGit, runGit } from '../../../../main/git-cli'
+import { parseGitProgressChunk } from './git-progress'
+import type { SyncTransferProgress } from '../../../../shared/cloud-sync'
 
 const log = {
   info: (...args: unknown[]) => console.log('[cloud-sync/git-network]', ...args),
@@ -100,6 +102,8 @@ export async function nativeFetch(opts: {
   branch: string
   token: string
   timeoutMs?: number
+  /** 解析自 stderr 的传输进度（可能高频；调用方自行节流） */
+  onProgress?: (progress: SyncTransferProgress) => void
 }): Promise<SyncFetchResult> {
   if (!(await detectGit())) return { ok: false, error: '系统 git 不可用' }
 
@@ -114,6 +118,12 @@ export async function nativeFetch(opts: {
         config: ['-c', 'http.sslVerify=false'],
         timeoutMs: opts.timeoutMs ?? DEFAULT_NETWORK_TIMEOUT_MS,
         env: { ...env, GIT_ASKPASS_DISABLE: '' },
+        onStderrChunk: opts.onProgress
+          ? (chunk) => {
+              const p = parseGitProgressChunk(chunk, 'download')
+              if (p) opts.onProgress!(p)
+            }
+          : undefined,
       }),
     )
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
@@ -143,6 +153,8 @@ export async function nativePush(opts: {
   branch: string
   token: string
   timeoutMs?: number
+  /** 解析自 stderr 的传输进度（可能高频；调用方自行节流） */
+  onProgress?: (progress: SyncTransferProgress) => void
 }): Promise<{ ok: boolean; rejected: boolean; hookDeclined?: boolean; error?: string }> {
   if (!(await detectGit())) return { ok: false, rejected: false, error: '系统 git 不可用' }
 
@@ -156,6 +168,12 @@ export async function nativePush(opts: {
         config: ['-c', 'http.sslVerify=false'],
         timeoutMs: opts.timeoutMs ?? DEFAULT_NETWORK_TIMEOUT_MS,
         env,
+        onStderrChunk: opts.onProgress
+          ? (chunk) => {
+              const p = parseGitProgressChunk(chunk, 'upload')
+              if (p) opts.onProgress!(p)
+            }
+          : undefined,
       }),
     )
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1)

@@ -25,7 +25,15 @@ import { createLogger } from '../../../../main/logger'
 import { getProvider } from './git-provider'
 import { loadCloudSyncConfig, decryptToken } from './sync-config'
 import { appendSyncLog } from './sync-log'
-import type { SyncState, SyncStatus, ConflictInfo } from '../../../../shared/cloud-sync'
+import type {
+  SyncState,
+  SyncStatus,
+  ConflictInfo,
+  SyncTransferProgress,
+} from '../../../../shared/cloud-sync'
+
+/** 传输进度推到 UI 的最小间隔（避免 git `\r` 刷新刷爆 IPC） */
+const TRANSFER_PROGRESS_THROTTLE_MS = 500
 import { SyncExporter } from './sync-exporter'
 import { SyncImporter } from './sync-importer'
 import type { FileChangeSet } from './sync-importer'
@@ -318,6 +326,9 @@ export class CloudSyncManager extends EventEmitter {
   private resolveInFlight = false
   private resolveInFlightSince = 0
 
+  /** 上次向渲染层推送 transfer 的时间（节流用） */
+  private lastTransferEmitAt = 0
+
   /** 不缓存目录，每次惰性取（切工作空间无需重建实例） */
   private get workspaceDir(): string {
     return resolveActiveWorkspaceDir()
@@ -479,13 +490,15 @@ export class CloudSyncManager extends EventEmitter {
     // 状态迁移都意味着排队结束」），而这里恰恰要同时表达「正在等锁」与「前面还有 N 个」。
     // 清 queuedBehind 的动作交给真正的开始点 —— exportAndCommit 拿到锁时的
     // signalExportStarted()；不调 setState 的提前返回路径则由下面的 finally 兜底。
+    const { transfer: _staleTransfer, ...statusRest } = this.status
     this.status = {
-      ...this.status,
+      ...statusRest,
       state: 'syncing',
       message: queuedBehind > 0 ? `前面还有 ${queuedBehind} 个任务，尚未开始同步` : '开始同步',
       lastSyncAt: this.status.lastSyncAt,
       lastError: undefined,
     }
+    this.lastTransferEmitAt = 0
     this.emit('status', this.status)
     appendSyncLog('syncing', this.status.message ?? '')
     this.exportStarted = false
@@ -659,7 +672,9 @@ export class CloudSyncManager extends EventEmitter {
           branch,
           token,
           timeoutMs: FETCH_TIMEOUT_MS,
+          onProgress: (prog) => this.updateTransferProgress(prog),
         })
+        this.clearTransferProgress()
         if (native.ok) {
           logger.info(`[sync] fetch 完成（真 git），远端 tip=${native.remoteOid?.slice(0, 8) ?? '?'}`)
           // **立刻试探性 gc**：真 git 落下来的是 GB 级单包，而接下来的
@@ -901,18 +916,10 @@ export class CloudSyncManager extends EventEmitter {
       `[maybePruneObjectStore] packs=${packCount} loose=${looseCount}(${Math.round(looseSizeKib / 1024)}MB)，执行 git gc…`,
     )
 
-    // 清理残留的锁文件：gc 进程异常退出后不清理会导致后续 gc 永久失败
-    const gcPidFile = path.join(this.syncDir, '.git', 'gc.pid')
-    try {
-      if (fs.existsSync(gcPidFile)) {
-        fs.rmSync(gcPidFile, { force: true })
-        logger.info('[maybePruneObjectStore] 已清理残留的 gc.pid 锁文件')
-      }
-    } catch (err) {
-      logger.warn(
-        `[maybePruneObjectStore] 清理 gc.pid 失败: ${err instanceof Error ? err.message : String(err)}`,
-      )
-    }
+    // 只清「死掉的」gc.pid：活着的锁说明另有 gc 正在跑，硬删会并发打断重打包，
+    // 留下「64m 分包 + 原 GB 级大包并存」的半成品（2026-10-27 实测：3.6GB 大包残留，
+    // isomorphic-git 整包读入内存失败）。
+    if (!(await this.clearStaleGcLock())) return
 
     try {
       // packSizeLimit 是关键：不限制就会压出 GB 级单包，而 isomorphic-git 要整个读进内存。
@@ -930,22 +937,103 @@ export class CloudSyncManager extends EventEmitter {
       logger.info('[maybePruneObjectStore] git gc 完成')
 
       // 自检而不是只看退出码：`git gc` 对不认识的配置是**静默忽略**的，
-      // 退出码 0 完全不能证明分包生效（今天刚被「退出码 0 但什么都没做」坑过一次）。
-      // 超限只告警不抛：它不影响同步本身，但必须让人看见 —— 否则就是下一个 1.38GB。
-      const oversize = this.listPacks().filter((p) => p.bytes > PACK_SIZE_LIMIT_BYTES)
-      if (oversize.length) {
-        logger.warn(
-          `[maybePruneObjectStore] ⚠️ 有 ${oversize.length} 个 pack 超过 ${PACK_SIZE_LIMIT} 上限` +
-            `（最大 ${Math.round(Math.max(...oversize.map((p) => p.bytes)) / 1048576)}MB）——` +
-            `isomorphic-git 可能读不动它们：${oversize.slice(0, 3).map((p) => p.name).join(', ')}`,
-        )
-      }
+      // 退出码 0 完全不能证明分包生效；多包场景下它还可能因启发式**根本不重打包**，
+      // 真 git fetch 落下的 GB 级单包就会原样留下。
+      await this.ensurePacksWithinSizeLimit()
     } catch (err) {
       logger.warn(
         `[maybePruneObjectStore] git gc 失败（可忽略，不影响同步）: ${
           err instanceof Error ? err.message : String(err)
         }`,
       )
+      // gc 失败时仍尝试强制拆超限包：否则 isomorphic-git 后续读路径会直接废掉
+      try {
+        await this.ensurePacksWithinSizeLimit()
+      } catch (repackErr) {
+        logger.warn(
+          `[maybePruneObjectStore] 强制 repack 也失败: ${
+            repackErr instanceof Error ? repackErr.message : String(repackErr)
+          }`,
+        )
+      }
+    }
+  }
+
+  /**
+   * 清理残留 gc.pid；若锁内 PID 仍存活则放弃本轮 gc，避免并发打断。
+   * @returns true 表示可以继续执行 gc；false 表示应跳过
+   */
+  private async clearStaleGcLock(): Promise<boolean> {
+    const gcPidFile = path.join(this.syncDir, '.git', 'gc.pid')
+    try {
+      if (!fs.existsSync(gcPidFile)) return true
+      const raw = fs.readFileSync(gcPidFile, 'utf8').trim()
+      const pid = Number.parseInt(raw.split(/\s+/)[0] ?? '', 10)
+      if (Number.isFinite(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0)
+          logger.warn(
+            `[maybePruneObjectStore] gc.pid 指向存活进程 ${pid}，跳过本轮以免并发打断`,
+          )
+          return false
+        } catch {
+          // ESRCH / EPERM：进程不存在或无权探测 → 视为残留锁
+        }
+      }
+      fs.rmSync(gcPidFile, { force: true })
+      logger.info('[maybePruneObjectStore] 已清理残留的 gc.pid 锁文件')
+      return true
+    } catch (err) {
+      logger.warn(
+        `[maybePruneObjectStore] 清理 gc.pid 失败: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return true
+    }
+  }
+
+  /**
+   * 若仍有超过 PACK_SIZE_LIMIT 的 pack，强制 `repack -Ad --max-pack-size` 拆掉。
+   *
+   * `git gc` 在已有大量包时可能跳过重打包，真 git fetch 落下的 GB 级单包会残留；
+   * isomorphic-git 读 pack 是整包进内存，超限包会直接报 too large to read into memory。
+   */
+  private async ensurePacksWithinSizeLimit(): Promise<void> {
+    const oversize = this.listPacks().filter((p) => p.bytes > PACK_SIZE_LIMIT_BYTES)
+    if (!oversize.length) return
+
+    const maxMb = Math.round(Math.max(...oversize.map((p) => p.bytes)) / 1048576)
+    logger.warn(
+      `[maybePruneObjectStore] ⚠️ 有 ${oversize.length} 个 pack 超过 ${PACK_SIZE_LIMIT} 上限` +
+        `（最大 ${maxMb}MB），强制 repack 拆分：${oversize
+          .slice(0, 3)
+          .map((p) => p.name)
+          .join(', ')}`,
+    )
+
+    await execFileAsync(
+      'git',
+      [
+        '-c',
+        `pack.packSizeLimit=${PACK_SIZE_LIMIT}`,
+        '-c',
+        'pack.windowMemory=256m',
+        'repack',
+        '-Ad',
+        `--max-pack-size=${PACK_SIZE_LIMIT}`,
+      ],
+      { cwd: this.syncDir, timeout: GC_TIMEOUT_MS, windowsHide: true },
+    )
+
+    const stillOver = this.listPacks().filter((p) => p.bytes > PACK_SIZE_LIMIT_BYTES)
+    if (stillOver.length) {
+      // 单对象本身超过上限时 git 会产出超限单包，只能告警；其余情况应已拆干净
+      logger.warn(
+        `[maybePruneObjectStore] repack 后仍有 ${stillOver.length} 个超限 pack` +
+          `（最大 ${Math.round(Math.max(...stillOver.map((p) => p.bytes)) / 1048576)}MB）` +
+          `——可能存在单对象 > ${PACK_SIZE_LIMIT}`,
+      )
+    } else {
+      logger.info('[maybePruneObjectStore] 强制 repack 完成，超限 pack 已清除')
     }
   }
 
@@ -1004,7 +1092,9 @@ export class CloudSyncManager extends EventEmitter {
         branch,
         token: decryptToken(cfg.tokenEnc),
         timeoutMs,
+        onProgress: (prog) => this.updateTransferProgress(prog),
       })
+      this.clearTransferProgress()
       if (native.ok) return true
       if (native.rejected) {
         const err = new Error('远程有更新（non-fast-forward）')
@@ -2281,16 +2371,39 @@ export class CloudSyncManager extends EventEmitter {
     this.state = state
     // 任何真实状态迁移都意味着「排队等待」结束了 —— 统一在这里清掉 queuedBehind，
     // 免得每个 setState 调用点都要记得清（漏一处就会一直显示「排队中」）
-    const { queuedBehind: _cleared, ...rest } = this.status
+    const { queuedBehind: _cleared, transfer: _xfer, ...rest } = this.status
     this.status = {
       ...rest,
       state,
       message,
       lastSyncAt: state === 'idle' ? Date.now() : this.status.lastSyncAt,
       lastError: state === 'error' ? message : undefined,
+      // 离开传输阶段时清掉进度，避免 idle 后还挂着「下载中 99%」
     }
+    this.lastTransferEmitAt = 0
     this.emit('status', this.status)
     appendSyncLog(state, message)
     logger.info(`[状态变更] ${state}: ${message}`)
+  }
+
+  /**
+   * 更新网络传输进度并节流推送（不写同步日志）。
+   * git `\r` 刷新可达数十次/秒，500ms 合并一次足够设置页阅读。
+   */
+  private updateTransferProgress(transfer: SyncTransferProgress): void {
+    this.status = { ...this.status, transfer }
+    const now = Date.now()
+    if (now - this.lastTransferEmitAt < TRANSFER_PROGRESS_THROTTLE_MS) return
+    this.lastTransferEmitAt = now
+    this.emit('status', this.status)
+  }
+
+  /** 传输步骤结束：立刻清掉 transfer 并通知 UI */
+  private clearTransferProgress(): void {
+    if (!this.status.transfer) return
+    const { transfer: _drop, ...rest } = this.status
+    this.status = rest
+    this.lastTransferEmitAt = 0
+    this.emit('status', this.status)
   }
 }

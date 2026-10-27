@@ -4,7 +4,12 @@ import { Input } from '../../../../renderer/components/ui/Input/Input'
 import { Select } from '../../../../renderer/components/ui/Select/Select'
 import { Switch } from '../../../../renderer/components/ui/Switch/Switch'
 import { useToast } from '../../../../renderer/components/ui/Toast/useToast'
-import type { CloudSyncConfigView, SyncStatus } from '@shared/cloud-sync'
+import type {
+  CloudSyncConfigView,
+  LargeQueueStats,
+  SyncStatus,
+  SyncTransferProgress,
+} from '@shared/cloud-sync'
 import type { SyncLogEntry } from '@shared/cloud-sync'
 import {
   fetchCloudSyncConfig,
@@ -30,6 +35,46 @@ const STATE_LABEL: Record<string, string> = {
   error: '错误',
 }
 
+/** 把字节格式成可读体积（设置页进度行） */
+function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '—'
+  if (n < 1024) return `${Math.round(n)} B`
+  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`
+  return `${(n / 1073741824).toFixed(2)} GB`
+}
+
+/** 秒数 →「约 N 秒/分钟/小时」 */
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '—'
+  if (seconds < 60) return `约 ${Math.max(1, Math.ceil(seconds))} 秒`
+  if (seconds < 3600) return `约 ${Math.ceil(seconds / 60)} 分钟`
+  const h = Math.floor(seconds / 3600)
+  const m = Math.ceil((seconds % 3600) / 60)
+  return m > 0 ? `约 ${h} 小时 ${m} 分钟` : `约 ${h} 小时`
+}
+
+/** 真 git 传输进度 → 单行文案 */
+function formatTransferLine(t: SyncTransferProgress): string {
+  const dir = t.direction === 'download' ? '下载中' : '上传中'
+  const parts = [dir, t.phase]
+  if (t.percent != null) parts.push(`${t.percent}%`)
+  if (t.transferredBytes != null) {
+    parts.push(
+      t.totalBytes != null
+        ? `已传 ${formatBytes(t.transferredBytes)} / ${formatBytes(t.totalBytes)}`
+        : `已传 ${formatBytes(t.transferredBytes)}`,
+    )
+  }
+  if (t.speedBytesPerSec != null && t.speedBytesPerSec > 0) {
+    parts.push(`${formatBytes(t.speedBytesPerSec)}/s`)
+  }
+  if (t.etaSeconds != null && t.etaSeconds > 0) {
+    parts.push(`预计剩余 ${formatEta(t.etaSeconds)}`)
+  }
+  return parts.join(' · ')
+}
+
 export function CloudSyncSection() {
   const toast = useToast()
   const [form, setForm] = useState<CloudSyncConfigView | null>(null)
@@ -47,11 +92,7 @@ export function CloudSyncSection() {
     createdAt: number
   } | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [largeStats, setLargeStats] = useState<{
-    pendingFiles: number
-    pendingBytes: number
-    pumping: boolean
-  } | null>(null)
+  const [largeStats, setLargeStats] = useState<LargeQueueStats | null>(null)
 
   const load = useCallback(async () => {
     const cfg = await fetchCloudSyncConfig()
@@ -75,10 +116,33 @@ export function CloudSyncSection() {
 
   useEffect(() => {
     load()
-    return subscribeCloudSyncStatus(() => {
-      void refreshStatusAndLogs()
+    // 主进程会节流推送 transfer；事件里的 status 直接上屏，避免再 round-trip 丢帧
+    return subscribeCloudSyncStatus((st) => {
+      setStatus(st)
+      void fetchLargeQueueStats().then((s) => {
+        if (s) setLargeStats(s)
+      })
+      void fetchCloudSyncLogs().then((lg) => {
+        if (lg) setLogs(lg)
+      })
+      void fetchPendingMassDelete().then(setPendingDelete)
     })
-  }, [load, refreshStatusAndLogs])
+  }, [load])
+
+  // 阶段二 pump 时 state 常为 idle，不会持续发 status；有活跃传输时每秒补拉队列统计
+  useEffect(() => {
+    const active = status?.state === 'syncing' || !!status?.transfer || !!largeStats?.pumping
+    if (!active) return
+    const id = window.setInterval(() => {
+      void fetchCloudSyncStatus().then((st) => {
+        if (st) setStatus(st)
+      })
+      void fetchLargeQueueStats().then((s) => {
+        if (s) setLargeStats(s)
+      })
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [status?.state, status?.transfer, largeStats?.pumping])
 
   const save = async () => {
     if (!form) return
@@ -316,6 +380,9 @@ export function CloudSyncSection() {
             )}
             {status.lastSyncAt ? ` · 最近同步：${new Date(status.lastSyncAt).toLocaleString()}` : ''}
           </div>
+          {status.transfer && (
+            <div className={styles['setting-hint']}>{formatTransferLine(status.transfer)}</div>
+          )}
           {status.state === 'error' && status.lastError && (
             <div className={styles['setting-hint']}>错误：{status.lastError}</div>
           )}
@@ -326,9 +393,14 @@ export function CloudSyncSection() {
           )}
           {largeStats && largeStats.pendingFiles > 0 && (
             <div className={styles['setting-hint']}>
-              大文件待传：{largeStats.pendingFiles} 个 ·{' '}
-              {(largeStats.pendingBytes / 1048576).toFixed(1)} MB
-              {largeStats.pumping ? ' · 传输中…' : ' · 等待下一轮同步'}
+              大文件待传：{largeStats.pendingFiles} 个 · {formatBytes(largeStats.pendingBytes)}
+              {largeStats.pumping ? ' · 传输中' : ' · 等待下一轮同步'}
+              {largeStats.speedBytesPerSec
+                ? ` · ${formatBytes(largeStats.speedBytesPerSec)}/s`
+                : ''}
+              {largeStats.etaSeconds != null && largeStats.etaSeconds > 0
+                ? ` · 预计剩余 ${formatEta(largeStats.etaSeconds)}`
+                : ''}
             </div>
           )}
           {status.state === 'conflict' && (

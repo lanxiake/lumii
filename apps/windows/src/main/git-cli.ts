@@ -186,6 +186,11 @@ export function runGit(opts: {
    * （本模块第一版把 message 走 `-F -` 却没接 stdin，整个测试套直接跑不完）。
    */
   stdin?: string
+  /**
+   * stderr 增量回调（云同步用来解析 `git --progress`）。
+   * 仍会把完整 stderr 拼进返回值；回调异常不影响命令结果。
+   */
+  onStderrChunk?: (chunk: string) => void
 }): Promise<GitRunResult> {
   const argv = gitArgv(opts)
   return new Promise((resolve, reject) => {
@@ -214,7 +219,19 @@ export function runGit(opts: {
       if (opts.raw) outChunks.push(d)
       else stdout += String(d)
     })
-    child.stderr.on('data', (d) => { stderr += String(d) })
+    child.stderr.on('data', (d) => {
+      const chunk = String(d)
+      stderr += chunk
+      if (opts.onStderrChunk) {
+        try {
+          opts.onStderrChunk(chunk)
+        } catch (err) {
+          log.warn(
+            `onStderrChunk 抛错（已忽略）: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+      }
+    })
     child.on('error', (err) => {
       if (settled) return
       settled = true
