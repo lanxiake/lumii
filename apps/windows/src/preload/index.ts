@@ -865,6 +865,37 @@ export interface ElectronAPI {
       | import('../shared/artifact-checkpoint-types').CheckpointUndoResult
       | import('../shared/artifact-edit-types').ArtifactEditFailure
     >
+    /** 工作台评论：列表 / 新增 / 删除 / 标记已发送 / 拼预填文本 */
+    commentsList: (input: {
+      sessionKey: string
+      path?: string
+    }) => Promise<
+      | import('../shared/workbench-comment-types').CommentListResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    commentsSave: (
+      input: import('../shared/workbench-comment-types').SaveCommentInput,
+    ) => Promise<
+      | { ok: true; comment: import('../shared/workbench-comment-types').ArtifactComment }
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    commentsDelete: (input: {
+      sessionKey: string
+      id: string
+    }) => Promise<{ ok: true } | import('../shared/artifact-edit-types').ArtifactEditFailure>
+    commentsMarkSent: (input: {
+      sessionKey: string
+      ids: readonly string[]
+      messageId?: string
+    }) => Promise<
+      { ok: true; marked: number } | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    commentsCompose: (
+      input: import('../shared/workbench-comment-types').CommentComposeInput,
+    ) => Promise<
+      | import('../shared/workbench-comment-types').CommentComposeResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
   }
 
   // 本地技能管�?

@@ -78,6 +78,18 @@ import {
 } from '../artifact-checkpoint'
 import { readLocalEditBytes } from '../artifact-edit'
 import { readTurnTextVersion } from '../turn-version-store'
+import {
+  composeComments,
+  deleteComment,
+  listComments,
+  markCommentsSent,
+  saveComment,
+} from '../workbench-comments'
+import type {
+  ArtifactComment,
+  CommentComposeResult,
+  CommentListResult,
+} from '../../shared/workbench-comment-types'
 import { getVcsService } from '../agent-runtime/vcs-accessor'
 import { handleConversationFork } from './agent-runtime/conversation-commands'
 import type {
@@ -1154,6 +1166,101 @@ export function registerArtifactIpcHandlers(): void {
             : null,
           restoreTrash: (batchId) => restoreTrash({ dir: root, id: batchId }),
         },
+      })
+    },
+  )
+
+  // ---- 工作台评论（P2 T8）----
+  ipcMain.handle(
+    'workbench:comments:list',
+    async (
+      _event,
+      payload?: { sessionKey?: unknown; path?: unknown },
+    ): Promise<CommentListResult | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      return listComments({
+        workspaceDir: root,
+        sessionKey: payload?.sessionKey,
+        ...(payload?.path !== undefined ? { path: payload.path } : {}),
+      })
+    },
+  )
+
+  ipcMain.handle(
+    'workbench:comments:save',
+    async (
+      _event,
+      payload?: Record<string, unknown>,
+    ): Promise<{ ok: true; comment: ArtifactComment } | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      return saveComment({
+        workspaceDir: root,
+        input: {
+          sessionKey: String(payload.sessionKey ?? ''),
+          path: String(payload.path ?? ''),
+          text: typeof payload.text === 'string' ? payload.text : '',
+          ...(typeof payload.versionId === 'string' ? { versionId: payload.versionId } : {}),
+          ...(payload.anchor && typeof payload.anchor === 'object'
+            ? { anchor: payload.anchor as ArtifactComment['anchor'] }
+            : {}),
+        },
+      })
+    },
+  )
+
+  ipcMain.handle(
+    'workbench:comments:delete',
+    async (
+      _event,
+      payload?: { sessionKey?: unknown; id?: unknown },
+    ): Promise<{ ok: true } | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      return deleteComment({ workspaceDir: root, sessionKey: payload?.sessionKey, id: payload?.id })
+    },
+  )
+
+  ipcMain.handle(
+    'workbench:comments:markSent',
+    async (
+      _event,
+      payload?: { sessionKey?: unknown; ids?: unknown; messageId?: unknown },
+    ): Promise<{ ok: true; marked: number } | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      return markCommentsSent({
+        workspaceDir: root,
+        sessionKey: payload?.sessionKey,
+        ids: payload?.ids,
+        ...(payload?.messageId !== undefined ? { messageId: payload.messageId } : {}),
+      })
+    },
+  )
+
+  ipcMain.handle(
+    'workbench:comments:compose',
+    async (
+      _event,
+      payload?: {
+        sessionKey?: unknown
+        path?: unknown
+        ids?: unknown
+        versionLabel?: unknown
+      },
+    ): Promise<CommentComposeResult | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      return composeComments({
+        workspaceDir: root,
+        sessionKey: payload?.sessionKey,
+        path: payload?.path,
+        ...(payload?.ids !== undefined ? { ids: payload.ids } : {}),
+        ...(payload?.versionLabel !== undefined ? { versionLabel: payload.versionLabel } : {}),
       })
     },
   )

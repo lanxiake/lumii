@@ -38,6 +38,10 @@ import type {
 import { mergeLocalEdits } from '../components/WorkspaceArtifactsPanel/local-edits'
 import { EditProposalPanel } from '../components/WorkspaceArtifactsPanel/EditProposalPanel'
 import { CheckpointDialog } from '../components/WorkspaceArtifactsPanel/CheckpointDialog'
+import {
+  CommentsPanel,
+  type CommentDraft,
+} from '../components/WorkspaceArtifactsPanel/CommentsPanel'
 import type { CheckpointApplyResult } from '../../../../shared/artifact-checkpoint-types'
 import { ARTIFACT_EDITS_CHANGED_EVENT, useArtifactEdits } from '../hooks/useArtifactEdits'
 import { artifactEditService } from '../../../services/artifact-edit-service'
@@ -103,6 +107,8 @@ export interface WorkspaceWorkbenchAreaProps {
   onOpenArtifact?: (item: AllArtifact) => void
   /** T7：恢复到这一轮后切到分支会话 */
   onSwitchSession?: (sessionKey: string) => void
+  /** T8：「带着评论继续」只预填输入框（不发送） */
+  onPrefillComments?: (text: string, commentIds: string[]) => void
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -128,6 +134,8 @@ const SELECTION_ACTIONS = [
   { id: 'shorten', label: '精简' },
   { id: 'tone:formal', label: '更正式' },
   { id: 'tone:casual', label: '更口语' },
+  // T8：把选中的片段记成一条评论（草稿，不直接改文件）
+  { id: 'comment', label: '评论' },
 ] as const
 
 function newEditId(): string {
@@ -166,6 +174,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   workspaceDir,
   onOpenArtifact,
   onSwitchSession,
+  onPrefillComments,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const toast = useOptionalToast()
@@ -450,6 +459,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const [historyToken, setHistoryToken] = useState(0)
   /** T7：恢复到这一轮（打开对话框的锚点 turnId） */
   const [checkpointTurn, setCheckpointTurn] = useState<string | null>(null)
+  /** T8：评论草稿（选区 / PPT 当前页） */
+  const [commentDraft, setCommentDraft] = useState<CommentDraft | null>(null)
   const [previewVersion, setPreviewVersion] = useState(0)
   const editTokenRef = useRef(0)
   const pendingEditIdRef = useRef<string | null>(null)
@@ -517,7 +528,16 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   // 换产物时收起浮层：新产物默认不弹，宽档的并排栏会自己出现
   useEffect(() => {
     setInspectorOpen(false)
+    setCommentDraft(null)
   }, [selectedArtifact?.path])
+
+  /** T8：文本类才挂评论面板（图片没有可靠区域锚点，P3 再设计） */
+  const commentSession = selectedArtifact
+    ? (selectedArtifact.conversationId ?? sessionKey)
+    : undefined
+  const commentable =
+    Boolean(selectedArtifact && commentSession) &&
+    ['doc', 'slides', 'code'].includes(selectedArtifact!.kind)
 
   const inspectorNode =
     selectedArtifact && onGoToMessage ? (
@@ -537,6 +557,24 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         onCheckpointVersion={(version) => {
           if (version.turnId) setCheckpointTurn(version.turnId)
         }}
+        {...(commentable && selectedArtifact && commentSession
+          ? {
+              footerSlot: (
+                <CommentsPanel
+                  sessionKey={commentSession}
+                  artifactPath={selectedArtifact.path}
+                  draft={commentDraft}
+                  onDraftConsumed={() => setCommentDraft(null)}
+                  onPrefill={(text, ids) => onPrefillComments?.(text, ids)}
+                  onToast={(message, kind) => {
+                    if (kind === 'error') toast.error(message)
+                    else if (kind === 'success') toast.success(message)
+                    else toast.info(message)
+                  }}
+                />
+              ),
+            }
+          : {})}
         onClose={() => setInspectorOpen(false)}
       />
     ) : undefined
@@ -806,6 +844,18 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const handleSelectionAction = useCallback(
     async (actionId: string, selection: PreviewSelectionPayload) => {
       if (!selected) return
+      if (actionId === 'comment') {
+        // 记录锚点即可；具体文字在评论面板里写，不改文件
+        setCommentDraft({
+          anchor: {
+            type: 'text-range',
+            start: selection.start,
+            end: selection.end,
+            quote: selection.text.slice(0, 200),
+          },
+        })
+        return
+      }
       const [kind, toneValue] = actionId.split(':')
       let action: DocumentEditAction
       let tone: EditTone | undefined
@@ -1205,6 +1255,22 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
                 onClick={() => void handleSlidePropose('slide-bullets')}
               >
                 重写要点
+              </button>
+              <button
+                type="button"
+                className={styles.slideBtn}
+                onClick={() =>
+                  setCommentDraft({
+                    anchor: {
+                      type: 'slide',
+                      index: pptPage,
+                      quote: slidesOutline?.[pptPage]?.title ?? '',
+                    },
+                  })
+                }
+                title="给当前页写一条评论（草稿，不直接改文件）"
+              >
+                评论本页
               </button>
               {!slideDeps?.ok && (
                 <span className={styles.slideBarHint} title={slideDeps?.reason}>

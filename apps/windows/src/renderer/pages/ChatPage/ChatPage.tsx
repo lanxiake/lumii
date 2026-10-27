@@ -494,6 +494,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     addFileReference: handleFileReferenceAdd,
     removeFileReference: handleFileReferenceRemove,
   } = useSessionDrafts(runtimeCurrentSessionKey)
+
+  /**
+   * T8：「带着评论继续」预填的那批评论。
+   * 只有**原样发出**那段预填文本时才标记已发送（用户改过内容就说明换了话题）。
+   */
+  const pendingCommentsRef = useRef<{
+    sessionKey: string
+    ids: string[]
+    text: string
+  } | null>(null)
+
   /**
    * 把草稿写入指定会话（切会话时对准旧 key，避免写到新会话）。
    */
@@ -1281,6 +1292,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         } else {
           throw err
         }
+      }
+      // T8：这条消息就是「带着评论继续」那段预填文本 → 标记这批评论已发送
+      const pendingComments = pendingCommentsRef.current
+      if (
+        pendingComments &&
+        pendingComments.sessionKey === sendingSessionId &&
+        pendingComments.text.trim() === finalContent.trim()
+      ) {
+        pendingCommentsRef.current = null
+        void window.electronAPI?.artifact?.commentsMarkSent?.({
+          sessionKey: sendingSessionId,
+          ids: pendingComments.ids,
+        })
       }
       clearCurrentInputState(sendingSessionId)
       setPendingAttachments([])
@@ -2199,6 +2223,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         {...(workspaceDir ? { workspaceDir } : {})}
         onOpenArtifact={handleOpenAllArtifact}
         onSwitchSession={(sk) => void runtimeActions.switchSession(sk)}
+        onPrefillComments={(text, ids) => {
+          setInputValue(text)
+          pendingCommentsRef.current = {
+            sessionKey: runtimeCurrentSessionKey ?? '',
+            ids,
+            text,
+          }
+        }}
         follow={workbench.follow}
         onFollowChange={setFollow}
         streaming={runtimeIsStreaming}

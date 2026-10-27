@@ -46,6 +46,13 @@ import type {
   CheckpointPlanResult,
   CheckpointUndoResult,
 } from '../../shared/artifact-checkpoint-types'
+import type {
+  ArtifactComment,
+  CommentComposeInput,
+  CommentComposeResult,
+  CommentListResult,
+  SaveCommentInput,
+} from '../../shared/workbench-comment-types'
 
 export const artifactApi = {
   /** 批量读 `<path>.lumii-artifact.json`；缺失/坏 JSON 不返回该项 */
@@ -162,4 +169,39 @@ export const artifactApi = {
     checkpointId: string,
   ): Promise<CheckpointUndoResult | ArtifactEditFailure> =>
     ipcRenderer.invoke('artifact:checkpoint:undo', { checkpointId }),
+
+  // ---- 工作台评论（T8）----
+
+  /** 某会话（可再按路径过滤）的评论 */
+  commentsList: (input: {
+    sessionKey: string
+    path?: string
+  }): Promise<CommentListResult | ArtifactEditFailure> =>
+    ipcRenderer.invoke('workbench:comments:list', input),
+
+  /** 新增一条评论（≤500 字；可带文本区间/PPT 页锚点） */
+  commentsSave: (
+    input: SaveCommentInput,
+  ): Promise<{ ok: true; comment: ArtifactComment } | ArtifactEditFailure> =>
+    ipcRenderer.invoke('workbench:comments:save', input),
+
+  commentsDelete: (input: {
+    sessionKey: string
+    id: string
+  }): Promise<{ ok: true } | ArtifactEditFailure> =>
+    ipcRenderer.invoke('workbench:comments:delete', input),
+
+  /** 真实发送后标记已发送 */
+  commentsMarkSent: (input: {
+    sessionKey: string
+    ids: readonly string[]
+    messageId?: string
+  }): Promise<{ ok: true; marked: number } | ArtifactEditFailure> =>
+    ipcRenderer.invoke('workbench:comments:markSent', input),
+
+  /** 拼「带着评论继续」的预填文本（不发送） */
+  commentsCompose: (
+    input: CommentComposeInput,
+  ): Promise<CommentComposeResult | ArtifactEditFailure> =>
+    ipcRenderer.invoke('workbench:comments:compose', input),
 }

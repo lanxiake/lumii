@@ -57,6 +57,8 @@ export interface ArtifactInspectorProps {
   pinBusy?: boolean
   /** T7：把工作区恢复到产生这一版的那一轮 */
   onCheckpointVersion?: (version: ArtifactVersion) => void
+  /** T8：检查器底部插槽（评论面板） */
+  footerSlot?: React.ReactNode
   onClose?: () => void
 }
 
@@ -125,6 +127,7 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
   refreshToken = 0,
   pinBusy = false,
   onCheckpointVersion,
+  footerSlot,
   onClose,
 }) => {
   const fallback = versions ?? []
@@ -442,6 +445,8 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
             </ol>
           )}
         </section>
+
+        {footerSlot}
 
         <div className={styles.inspectorFootnote}>
           「回到消息」只定位聊天记录，不会修改文件。

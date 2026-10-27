@@ -41,6 +41,13 @@ import type {
   CheckpointPlanResult,
   CheckpointUndoResult,
 } from '../../shared/artifact-checkpoint-types'
+import type {
+  ArtifactComment,
+  CommentComposeInput,
+  CommentComposeResult,
+  CommentListResult,
+  SaveCommentInput,
+} from '../../shared/workbench-comment-types'
 
 function api() {
   return window.electronAPI?.artifact
@@ -205,5 +212,61 @@ export const artifactEditService = {
       return Promise.resolve({ ok: false, error: '当前版本不支持恢复到这一轮', code: 'unavailable' })
     }
     return target.checkpointUndo(checkpointId)
+  },
+
+  // ---- 工作台评论（T8）----
+
+  commentsList: (input: {
+    sessionKey: string
+    path?: string
+  }): Promise<CommentListResult | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.commentsList) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持工作台评论', code: 'unavailable' })
+    }
+    return target.commentsList(input)
+  },
+
+  commentsSave: (
+    input: SaveCommentInput,
+  ): Promise<{ ok: true; comment: ArtifactComment } | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.commentsSave) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持工作台评论', code: 'unavailable' })
+    }
+    return target.commentsSave(input)
+  },
+
+  commentsDelete: (input: {
+    sessionKey: string
+    id: string
+  }): Promise<{ ok: true } | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.commentsDelete) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持工作台评论', code: 'unavailable' })
+    }
+    return target.commentsDelete(input)
+  },
+
+  commentsMarkSent: (input: {
+    sessionKey: string
+    ids: readonly string[]
+    messageId?: string
+  }): Promise<{ ok: true; marked: number } | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.commentsMarkSent) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持工作台评论', code: 'unavailable' })
+    }
+    return target.commentsMarkSent(input)
+  },
+
+  commentsCompose: (
+    input: CommentComposeInput,
+  ): Promise<CommentComposeResult | ArtifactEditFailure> => {
+    const target = api()
+    if (!target?.commentsCompose) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持工作台评论', code: 'unavailable' })
+    }
+    return target.commentsCompose(input)
   },
 }

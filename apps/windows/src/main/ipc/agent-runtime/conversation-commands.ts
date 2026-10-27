@@ -21,6 +21,7 @@ import type { ArtifactVersionInfo } from '../../../shared/artifact-version-types
 import { listEdits } from '../../artifact-edit'
 import { attachPins, buildMergedVersions } from '../../artifact-versions'
 import { listPins } from '../../artifact-pins'
+import { clearCommentsForConversation } from '../../workbench-comments'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -403,6 +404,16 @@ export function handleConversationDelete(
   // 不捕获异常 —— 让错误向上传播至 handleCommand / IPC handler，
   // 使渲染层能感知删除失败，避免假性成功导致重启后数据复现。
   bridge.conversationRepo.deleteConversation(sessionKey)
+
+  // 工作台评论是本会话的草稿：尽力清掉（失败不影响删除）
+  try {
+    const workspaceDir = bridge.getCwd()
+    void clearCommentsForConversation({ workspaceDir, sessionKey }).catch((err: unknown) => {
+      log.warn('[conversation:delete] 清理工作台评论失败:', err)
+    })
+  } catch {
+    /* 工作区不可用时忽略 */
+  }
 
   log.info(`[conversation:delete] sessionKey=${sessionKey}`)
 }
