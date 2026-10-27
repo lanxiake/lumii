@@ -16,6 +16,7 @@ interface PptxPreviewer {
   destroy?: () => void
   renderNextSlide?: () => void
   renderPreSlide?: () => void
+  renderSingleSlide?: (index: number) => void
   slideCount?: number
   currentIndex?: number
 }
@@ -28,6 +29,10 @@ export interface PptxPreviewProps {
   onOpenExternal?: () => void
   /** 内容缩放（CSS zoom，仅作用于幻灯片层） */
   zoom?: number
+  /** 外部请求跳转到某页（0-based）；用于工作台页列表 */
+  currentPage?: number
+  /** 当前页/总页数变化（点击/键盘/外部跳页都会回调） */
+  onPageChange?: (index: number, count: number) => void
 }
 
 /**
@@ -47,12 +52,40 @@ function friendlyPptxError(err: unknown): string {
 /**
  * PPTX 幻灯片预览（可点击翻页）
  */
-export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpenExternal, zoom }) => {
+export const PptxPreview: React.FC<PptxPreviewProps> = ({
+  bytes,
+  fileName,
+  onOpenExternal,
+  zoom,
+  currentPage,
+  onPageChange,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const previewerRef = useRef<PptxPreviewer | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hint, setHint] = useState('点击画面右侧下一页，左侧上一页；也可用两侧按钮')
+
+  const onPageChangeRef = useRef(onPageChange)
+  useEffect(() => {
+    onPageChangeRef.current = onPageChange
+  }, [onPageChange])
+
+  const currentPageRef = useRef(currentPage)
+  useEffect(() => {
+    currentPageRef.current = currentPage
+  }, [currentPage])
+
+  const notifyPage = useCallback(() => {
+    const previewer = previewerRef.current
+    if (!previewer) return
+    onPageChangeRef.current?.(previewer.currentIndex ?? 0, previewer.slideCount ?? 0)
+  }, [])
+
+  /** 库的 currentIndex 更新可能在同一 tick 末尾，让出一拍再回报 */
+  const scheduleNotify = useCallback(() => {
+    window.setTimeout(notifyPage, 0)
+  }, [notifyPage])
 
   useEffect(() => {
     const el = containerRef.current
@@ -81,6 +114,17 @@ export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpe
 
         await previewer.preview(sanitized)
         if (cancelled) return
+        // 外部请求的页码（工作台页列表/候选预览）要在首次渲染后应用，
+        // 否则 notifyPage 会先把父层页码改回 0
+        const targetPage = currentPageRef.current
+        if (targetPage !== undefined && previewer.currentIndex !== targetPage) {
+          try {
+            previewer.renderSingleSlide?.(targetPage)
+          } catch {
+            // 库不支持时保持首页
+          }
+        }
+        notifyPage()
         setHint('点击画面右侧下一页，左侧上一页；也可用两侧按钮')
       } catch (e) {
         console.error('[PptxPreview] 渲染失败:', e)
@@ -129,7 +173,8 @@ export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpe
         console.warn('[PptxPreview] 下一页失败:', err)
       }
     }
-  }, [loading, error])
+    scheduleNotify()
+  }, [loading, error, scheduleNotify])
 
   /**
    * 键盘左右方向键翻页
@@ -145,6 +190,7 @@ export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpe
         } catch {
           // ignore
         }
+        scheduleNotify()
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         e.preventDefault()
         try {
@@ -152,11 +198,25 @@ export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpe
         } catch {
           // ignore
         }
+        scheduleNotify()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [loading, error])
+  }, [loading, error, scheduleNotify])
+
+  // 外部页列表跳页：库的 renderSingleSlide 只重绘目标页（不重新解析整包）
+  useEffect(() => {
+    const previewer = previewerRef.current
+    if (!previewer || loading || error || currentPage === undefined) return
+    if (previewer.currentIndex === currentPage) return
+    try {
+      previewer.renderSingleSlide?.(currentPage)
+    } catch (err) {
+      console.warn('[PptxPreview] 跳页失败:', err)
+    }
+    scheduleNotify()
+  }, [currentPage, loading, error, scheduleNotify])
 
   return (
     <div className={styles.wrap}>

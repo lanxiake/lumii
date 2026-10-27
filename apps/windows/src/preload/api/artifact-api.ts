@@ -24,6 +24,11 @@ import type {
   ArtifactVersionDiffInput,
   ArtifactVersionDiffResult,
 } from '../../shared/artifact-version-types'
+import type {
+  ProposeSlideEditInput,
+  SlideEditProposal,
+  SlideOutlineResult,
+} from '../../shared/artifact-slide-types'
 
 export const artifactApi = {
   /** 批量读 `<path>.lumii-artifact.json`；缺失/坏 JSON 不返回该项 */
@@ -51,11 +56,15 @@ export const artifactApi = {
   ): Promise<ArtifactEditProposal | ArtifactEditFailure> =>
     ipcRenderer.invoke('artifact:edit:proposeText', input),
 
-  /** 文档选区改写（单轮 LLM）：先生成候选稿；editId 同时用于取消 */
+  /** 文档选区 / PPT 单页改写（单轮 LLM）：先生成候选稿；editId 同时用于取消 */
   proposeEdit: (
-    input: ProposeTextRangeInput,
-  ): Promise<ArtifactEditProposal | ArtifactEditFailure> =>
+    input: ProposeTextRangeInput | ProposeSlideEditInput,
+  ): Promise<ArtifactEditProposal | SlideEditProposal | ArtifactEditFailure> =>
     ipcRenderer.invoke('artifact:edit:propose', input),
+
+  /** PPT 页列表 + Python 依赖状态（jszip 提取，不依赖 Python） */
+  slidesOutline: (input: { path: string }): Promise<SlideOutlineResult> =>
+    ipcRenderer.invoke('artifact:slidesOutline', input),
 
   /** 取消在飞的改写请求 */
   abortEdit: (editId: string): Promise<{ ok: true; aborted: boolean }> =>

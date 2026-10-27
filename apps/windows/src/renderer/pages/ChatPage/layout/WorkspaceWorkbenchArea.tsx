@@ -29,6 +29,11 @@ import {
   VersionTextView,
 } from '../components/WorkspaceArtifactsPanel/VersionViews'
 import type { ArtifactVersionDiffResult } from '../../../../shared/artifact-version-types'
+import type {
+  SlideDepsInfo,
+  SlideEditProposal,
+  SlideOutlineItem,
+} from '../../../../shared/artifact-slide-types'
 import { mergeLocalEdits } from '../components/WorkspaceArtifactsPanel/local-edits'
 import { EditProposalPanel } from '../components/WorkspaceArtifactsPanel/EditProposalPanel'
 import { ARTIFACT_EDITS_CHANGED_EVENT, useArtifactEdits } from '../hooks/useArtifactEdits'
@@ -442,6 +447,15 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       }
     | { kind: 'text'; label: string; text: string; approximate?: boolean }
   const [versionView, setVersionView] = useState<VersionViewState | null>(null)
+  /** T4：PPT 页列表 / 当前页 / 候选预览 */
+  const [slidesOutline, setSlidesOutline] = useState<readonly SlideOutlineItem[] | null>(null)
+  const [slideDeps, setSlideDeps] = useState<SlideDepsInfo | null>(null)
+  const [pptPage, setPptPage] = useState(0)
+  const [slideCandidate, setSlideCandidate] = useState<{
+    path: string
+    slides: readonly SlideOutlineItem[]
+  } | null>(null)
+  const [slideCandidatePage, setSlideCandidatePage] = useState(0)
   const selectedArtifact = useMemo(() => {
     if (!selected) return undefined
     for (const group of mergedLedger.groups) {
@@ -548,6 +562,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       window.dispatchEvent(new CustomEvent(ARTIFACT_EDITS_CHANGED_EVENT))
       setPreviewVersion((value) => value + 1)
       setVersionView(null)
+      if (selected && selectedArtifact?.kind === 'slides') {
+        void loadSlidesOutline(selected, false)
+      }
       toast.success('已撤销最近一次本地修改')
       return
     }
@@ -601,6 +618,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     setEditProposal(null)
     setEditError(null)
     setEditBusy(false)
+    setSlideCandidate(null)
+    setSlideCandidatePage(0)
   }, [])
 
   const handleSelectionAction = useCallback(
@@ -658,6 +677,88 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     [clearEditProposal, selected, sessionKey],
   )
 
+  /** T4：PPT 单页重写（标题/要点）；候选稿在主区预览 */
+  const handleSlidePropose = useCallback(
+    async (action: 'slide-title' | 'slide-bullets') => {
+      if (
+        !selected ||
+        selectedArtifact?.kind !== 'slides' ||
+        !slidesOutline ||
+        slidesOutline.length === 0
+      ) {
+        return
+      }
+      const editId = newEditId()
+      const token = ++editTokenRef.current
+      pendingEditIdRef.current = editId
+      setEditStatus('loading')
+      setEditProposal(null)
+      setEditError(null)
+      setEditBusy(false)
+      setSlideCandidate(null)
+      try {
+        const result = await artifactEditService.proposeEdit({
+          editId,
+          ...(sessionKey ? { sessionKey } : {}),
+          path: selected,
+          index: pptPage,
+          action,
+        })
+        if (editTokenRef.current !== token) return
+        if (!result.ok) {
+          if (result.code === 'cancelled') clearEditProposal(false)
+          else {
+            setEditStatus('error')
+            setEditError(result.error)
+          }
+          return
+        }
+        const slideResult = result as SlideEditProposal
+        setEditProposal(result)
+        setEditStatus('ready')
+        setSlideCandidate({ path: result.candidatePath, slides: slideResult.slides ?? [] })
+        setSlideCandidatePage(
+          Math.min(pptPage, Math.max(0, (slideResult.slides?.length ?? 1) - 1)),
+        )
+      } catch (err) {
+        if (editTokenRef.current !== token) return
+        setEditStatus('error')
+        setEditError(err instanceof Error ? err.message : '生成 PPT 改写建议失败')
+      } finally {
+        if (editTokenRef.current === token) pendingEditIdRef.current = null
+      }
+    },
+    [clearEditProposal, pptPage, selected, selectedArtifact, sessionKey, slidesOutline],
+  )
+
+  const slideLoadTokenRef = useRef(0)
+  const loadSlidesOutline = useCallback(async (target: string, reset: boolean) => {
+    const token = ++slideLoadTokenRef.current
+    if (reset) {
+      setPptPage(0)
+      setSlideCandidate(null)
+      setSlideCandidatePage(0)
+    }
+    try {
+      const result = await artifactEditService.slidesOutline({ path: target })
+      if (slideLoadTokenRef.current !== token) return
+      if (result.ok) {
+        setSlidesOutline(result.slides)
+        setSlideDeps(result.deps)
+      } else {
+        setSlidesOutline(null)
+        setSlideDeps({ ok: false, reason: result.error })
+      }
+    } catch (err) {
+      if (slideLoadTokenRef.current !== token) return
+      setSlidesOutline(null)
+      setSlideDeps({
+        ok: false,
+        reason: err instanceof Error ? err.message : '读取 PPT 页列表失败',
+      })
+    }
+  }, [])
+
   const handleApplyProposal = useCallback(async () => {
     if (!editProposal) return
     setEditBusy(true)
@@ -674,11 +775,14 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       setPreviewVersion((value) => value + 1)
       setVersionView(null)
       clearEditProposal(false)
+      if (selected && selectedArtifact?.kind === 'slides') {
+        void loadSlidesOutline(selected, false)
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '应用失败')
       setEditBusy(false)
     }
-  }, [clearEditProposal, editProposal, toast])
+  }, [clearEditProposal, editProposal, loadSlidesOutline, selected, selectedArtifact, toast])
 
   const handleDiscardProposal = useCallback(() => {
     const proposal = editProposal
@@ -769,6 +873,24 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     setVersionView(null)
   }, [selected, sessionKey])
 
+  // PPT：选中 slides 时读页列表（jszip，不依赖 Python）；换产物即清空
+  useEffect(() => {
+    setSlidesOutline(null)
+    setSlideDeps(null)
+    setPptPage(0)
+    setSlideCandidate(null)
+    setSlideCandidatePage(0)
+    if (!selected || selectedArtifact?.kind !== 'slides') {
+      slideLoadTokenRef.current += 1
+      return
+    }
+    void loadSlidesOutline(selected, true)
+  }, [selected, selectedArtifact?.kind, loadSlidesOutline])
+
+  const handlePptxPageChange = useCallback((index: number, count: number) => {
+    if (count > 0 && index >= 0) setPptPage(index)
+  }, [])
+
   const renderMainContent = (width: number): React.ReactNode => {
     if (versionView?.kind === 'diff') {
       return (
@@ -789,6 +911,19 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           text={versionView.text}
           {...(versionView.approximate ? { approximate: true } : {})}
           onClose={() => setVersionView(null)}
+        />
+      )
+    }
+    if (slideCandidate) {
+      return (
+        <FilePreviewModal
+          key={`slide-candidate-${slideCandidate.path}`}
+          variant="embedded"
+          filePath={toAbsolutePath(slideCandidate.path)}
+          fileName={`候选 · ${selectedName ?? 'PPT'}`}
+          pptxPage={slideCandidatePage}
+          onPptxPageChange={(index) => setSlideCandidatePage(index)}
+          onClose={handleDiscardProposal}
         />
       )
     }
@@ -815,6 +950,10 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           void handleSelectionAction(actionId, selection)
         }}
         selectionBusy={editStatus === 'loading'}
+        {...(selectedArtifact?.kind === 'slides' ? { pptxPage: pptPage } : {})}
+        {...(selectedArtifact?.kind === 'slides'
+          ? { onPptxPageChange: handlePptxPageChange }
+          : {})}
         onClose={() => onSelect(undefined)}
       />
     ) : (
@@ -834,15 +973,80 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     )
   }
 
+  const activeSlideList = slideCandidate?.slides.length ? slideCandidate.slides : slidesOutline
+  const activeSlidePage = slideCandidate ? slideCandidatePage : pptPage
+
   const main = ({ width }: { width: number }) => (
     <div className={styles.mainColumn}>
       <div className={styles.mainContent}>{renderMainContent(width)}</div>
+      {!comparing && selectedArtifact?.kind === 'slides' && (slidesOutline || slideDeps) && (
+        <div className={styles.slideBar} data-testid="slide-page-bar">
+          {activeSlideList && activeSlideList.length > 0 ? (
+            <>
+              <span className={styles.slidePageInfo}>
+                {slideCandidate ? '候选稿 · ' : ''}第 {activeSlidePage + 1} 页 / 共{' '}
+                {activeSlideList.length} 页
+              </span>
+              <select
+                className={styles.slideSelect}
+                aria-label="选择页"
+                value={activeSlidePage}
+                onChange={(event) => {
+                  const index = Number(event.target.value)
+                  if (slideCandidate) setSlideCandidatePage(index)
+                  else setPptPage(index)
+                }}
+              >
+                {activeSlideList.map((slide) => (
+                  <option key={slide.index} value={slide.index}>
+                    {slide.index + 1}. {slide.title || '（无标题）'}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.slideSpacer} />
+              <button
+                type="button"
+                className={styles.slideBtn}
+                disabled={!slideDeps?.ok || editStatus === 'loading' || Boolean(slideCandidate)}
+                title={slideDeps?.reason ?? '只重写当前页标题'}
+                onClick={() => void handleSlidePropose('slide-title')}
+              >
+                重写标题
+              </button>
+              <button
+                type="button"
+                className={styles.slideBtn}
+                disabled={!slideDeps?.ok || editStatus === 'loading' || Boolean(slideCandidate)}
+                title={slideDeps?.reason ?? '只重写当前页要点'}
+                onClick={() => void handleSlidePropose('slide-bullets')}
+              >
+                重写要点
+              </button>
+              {!slideDeps?.ok && (
+                <span className={styles.slideBarHint} title={slideDeps?.reason}>
+                  {slideDeps?.reason ?? 'PPT 编辑不可用'}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className={styles.slideBarHint}>
+              {slideDeps?.reason ?? '正在读取页列表…'}
+            </span>
+          )}
+        </div>
+      )}
       {!comparing && editStatus !== 'idle' && (
         <EditProposalPanel
           status={editStatus}
           proposal={editProposal}
           error={editError}
           busy={editBusy}
+          {...(selectedArtifact?.kind === 'slides'
+            ? {
+                hint: '候选稿已在主区预览；应用前不会写盘。',
+                scopeHint: '只改当前页；应用前不会写盘',
+              }
+            : {})}
           onApply={() => void handleApplyProposal()}
           onDiscard={handleDiscardProposal}
           onCancel={() => clearEditProposal(true, false)}

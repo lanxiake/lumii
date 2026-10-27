@@ -457,6 +457,9 @@ export interface FilePreviewModalProps {
   onSelectionAction?: (actionId: string, selection: PreviewSelectionPayload) => void
   /** 父层正在生成改写建议：动作条显示进度并禁用 */
   selectionBusy?: boolean
+  /** PPT：父层页列表请求的当前页（0-based）与页码变化回调 */
+  pptxPage?: number
+  onPptxPageChange?: (index: number, count: number) => void
   onClose: () => void
   /**
    * 呈现形态：modal=应用内弹窗；window=独立窗；embedded=填满父级
@@ -508,6 +511,8 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   selectionActions,
   onSelectionAction,
   selectionBusy = false,
+  pptxPage,
+  onPptxPageChange,
   onClose,
   variant: variantProp,
   embedded = false,
@@ -1377,7 +1382,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
           {!loading && !error && result && !result.truncated && route === 'pptx' && officeBytes && (
             <React.Suspense fallback={<div className={styles.center}>正在加载 PPT 预览…</div>}>
-              <PptxPreview bytes={officeBytes} fileName={fileName} onOpenExternal={handleOpen} zoom={zoom} />
+              <PptxPreview
+                bytes={officeBytes}
+                fileName={fileName}
+                onOpenExternal={handleOpen}
+                zoom={zoom}
+                {...(pptxPage !== undefined ? { currentPage: pptxPage } : {})}
+                {...(onPptxPageChange ? { onPageChange: onPptxPageChange } : {})}
+              />
             </React.Suspense>
           )}
 

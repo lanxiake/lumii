@@ -764,13 +764,20 @@ export interface ElectronAPI {
       | import('../shared/artifact-edit-types').ArtifactEditProposal
       | import('../shared/artifact-edit-types').ArtifactEditFailure
     >
-    /** 文档选区改写（单轮 LLM）：editId 同时用于取消 */
+    /** 文档选区 / PPT 单页改写（单轮 LLM）：editId 同时用于取消 */
     proposeEdit: (
-      input: import('../shared/artifact-edit-types').ProposeTextRangeInput,
+      input:
+        | import('../shared/artifact-edit-types').ProposeTextRangeInput
+        | import('../shared/artifact-slide-types').ProposeSlideEditInput,
     ) => Promise<
       | import('../shared/artifact-edit-types').ArtifactEditProposal
+      | import('../shared/artifact-slide-types').SlideEditProposal
       | import('../shared/artifact-edit-types').ArtifactEditFailure
     >
+    /** PPT 页列表 + Python 依赖状态 */
+    slidesOutline: (input: {
+      path: string
+    }) => Promise<import('../shared/artifact-slide-types').SlideOutlineResult>
     /** 取消在飞的改写 */
     abortEdit: (editId: string) => Promise<{ ok: true; aborted: boolean }>
     /** 应用候选稿（baseHash 冲突拒绝） */

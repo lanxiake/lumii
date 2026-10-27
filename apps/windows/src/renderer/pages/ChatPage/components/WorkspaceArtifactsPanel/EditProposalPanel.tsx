@@ -13,6 +13,10 @@ export interface EditProposalPanelProps {
   proposal?: ArtifactEditProposal | null
   error?: string | null
   busy?: boolean
+  /** 无 diff 时的说明（PPT 候选预览） */
+  hint?: string
+  /** 头部作用域说明；默认「只替换选中区间」 */
+  scopeHint?: string
   onApply: () => void
   onDiscard: () => void
   onCancel: () => void
@@ -23,6 +27,8 @@ export const EditProposalPanel: React.FC<EditProposalPanelProps> = ({
   proposal,
   error,
   busy = false,
+  hint,
+  scopeHint,
   onApply,
   onDiscard,
   onCancel,
@@ -59,7 +65,9 @@ export const EditProposalPanel: React.FC<EditProposalPanelProps> = ({
     <div className={styles.panel} data-testid="edit-proposal-ready">
       <div className={styles.header}>
         <span className={styles.title}>改写建议</span>
-        <span className={styles.hint}>只替换选中区间；应用前不会写盘</span>
+        <span className={styles.hint}>
+          {scopeHint ?? '只替换选中区间；应用前不会写盘'}
+        </span>
         {diff && (
           <span className={styles.stats}>
             <span className={styles.plus}>+{diff.insertions}</span>
@@ -78,7 +86,7 @@ export const EditProposalPanel: React.FC<EditProposalPanelProps> = ({
       {diff && diff.hunks.length > 0 ? (
         <DiffHunks hunks={diff.hunks} />
       ) : (
-        <p className={styles.empty}>候选稿已生成，暂无逐行差异。</p>
+        <p className={styles.empty}>{hint ?? '候选稿已生成，暂无逐行差异。'}</p>
       )}
     </div>
   )

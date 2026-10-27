@@ -35,10 +35,15 @@ import type {
   ArtifactVersionDiffResult,
   ArtifactVersionInfo,
 } from '../../shared/artifact-version-types'
+import type {
+  ProposeSlideEditInput,
+  SlideOutlineResult,
+} from '../../shared/artifact-slide-types'
 import { MAX_DIFF_BYTES, diffText } from '../../shared/text-diff'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { normalizeDocumentAction } from '../artifact-edit-prompts'
 import { proposeTextRangeEdit } from '../artifact-edit-llm'
+import { proposeSlideEdit, readSlideOutline } from '../artifact-slides'
 import { buildMergedVersions, resolveVersionContent } from '../artifact-versions'
 import type { SingleTurnLlmService } from '../single-turn-llm'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
@@ -48,6 +53,7 @@ import {
   discardEdit,
   listEdits,
   proposeTextEdit,
+  resolveEditTarget,
   undoEdit,
   type AppliedEditInfo,
 } from '../artifact-edit'
@@ -439,6 +445,37 @@ export function registerArtifactIpcHandlers(): void {
       if (!payload || typeof payload !== 'object') {
         return { ok: false, error: '参数非法', code: 'invalid-scope' }
       }
+
+      // PPT 单页：动作不同，走 python-pptx 候选
+      if (payload.action === 'slide-title' || payload.action === 'slide-bullets') {
+        const { editId, path: relPath, index } = payload
+        if (
+          typeof editId !== 'string' ||
+          typeof relPath !== 'string' ||
+          typeof index !== 'number' ||
+          !Number.isInteger(index) ||
+          index < 0
+        ) {
+          return { ok: false, error: '参数非法', code: 'invalid-scope' }
+        }
+        const input: ProposeSlideEditInput = {
+          editId,
+          path: relPath,
+          index,
+          action: payload.action,
+          ...(typeof payload.sessionKey === 'string' ? { sessionKey: payload.sessionKey } : {}),
+          ...(typeof payload.instruction === 'string' ? { instruction: payload.instruction } : {}),
+        }
+        try {
+          return await proposeSlideEdit({ workspaceDir: root, input, run: singleTurn })
+        } catch (err) {
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : '生成 PPT 改写建议失败',
+          }
+        }
+      }
+
       const action = normalizeDocumentAction(payload.action)
       if (!action) return { ok: false, error: '不支持的动作', code: 'invalid-scope' }
       const { editId, path: relPath, start, end } = payload
@@ -542,6 +579,25 @@ export function registerArtifactIpcHandlers(): void {
         })
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : '撤销失败' }
+      }
+    },
+  )
+
+  // ---- PPT 页列表（P2 T4）----
+  ipcMain.handle(
+    'artifact:slidesOutline',
+    async (_event, payload?: { path?: unknown }): Promise<SlideOutlineResult> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用' }
+      if (!payload || typeof payload.path !== 'string' || !payload.path) {
+        return { ok: false, error: '参数非法' }
+      }
+      const target = await resolveEditTarget(root, payload.path)
+      if (!target) return { ok: false, error: '目标文件不存在或不在工作区内' }
+      try {
+        return await readSlideOutline(target.abs)
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '读取 PPT 页列表失败' }
       }
     },
   )

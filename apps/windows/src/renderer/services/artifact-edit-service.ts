@@ -20,6 +20,11 @@ import type {
   ArtifactVersionDiffInput,
   ArtifactVersionDiffResult,
 } from '../../shared/artifact-version-types'
+import type {
+  ProposeSlideEditInput,
+  SlideEditProposal,
+  SlideOutlineResult,
+} from '../../shared/artifact-slide-types'
 
 function api() {
   return window.electronAPI?.artifact
@@ -37,13 +42,21 @@ export const artifactEditService = {
   },
 
   proposeEdit: (
-    input: ProposeTextRangeInput,
-  ): Promise<ArtifactEditProposal | ArtifactEditFailure> => {
+    input: ProposeTextRangeInput | ProposeSlideEditInput,
+  ): Promise<ArtifactEditProposal | SlideEditProposal | ArtifactEditFailure> => {
     const target = api()
     if (!target?.proposeEdit) {
       return Promise.resolve({ ok: false, error: '当前版本不支持 AI 改写', code: 'unavailable' })
     }
     return target.proposeEdit(input)
+  },
+
+  slidesOutline: (input: { path: string }): Promise<SlideOutlineResult> => {
+    const target = api()
+    if (!target?.slidesOutline) {
+      return Promise.resolve({ ok: false, error: '当前版本不支持 PPT 页列表' })
+    }
+    return target.slidesOutline(input)
   },
 
   abortEdit: (editId: string): Promise<{ ok: true; aborted: boolean }> => {
