@@ -30,7 +30,7 @@
  * 「这个版本我验证过」这一条信息（面板上作为推荐值展示）。用户自己装、自己在
  * 「设置 › MCP 服务」里配；实际在跑的版本以**握手自报**的 `serverVersion` 为准。
  */
-export const WECHAT_MCP_VERSION = '0.10.0'
+export const WECHAT_MCP_VERSION = '0.11.0'
 
 /**
  * MCP 在客户端配置里的 Server 名（= 产品自己的 `SERVER_NAME`）。
