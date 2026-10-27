@@ -10,6 +10,7 @@ import type { DirectoryManager } from '../directory-manager'
 import { securityUtils } from '../security-utils'
 import { ensureWorkspaceTempLayout } from '../workspace-paths'
 import { listTrash, restoreTrash, runCleanup, scanWorkspace } from '../workspace-cleanup'
+import { applyDedupe, planDedupe } from '../workspace-dedupe'
 import { getStorageCleanupPrefs } from '../storage-cleanup-prefs'
 import { normalizeStorageCleanupPrefs, runScheduledCleanup } from '../workspace-cleanup-runner'
 import { readCleanupHistory } from '../workspace-cleanup-history'
@@ -19,6 +20,11 @@ import type {
   CleanupScanResponse,
   CleanupTrashEntry,
 } from '../../shared/workspace-cleanup-types'
+import type {
+  DedupeApplyResult,
+  DedupeFailure,
+  DedupePlanResult,
+} from '../../shared/workspace-dedupe-types'
 
 interface WorkspaceIpcDeps {
   getMainWindow: () => BrowserWindow | null
@@ -212,6 +218,35 @@ export function registerWorkspaceIpcHandlers(): void {
     const count = typeof limit === 'number' && limit > 0 ? Math.min(500, Math.floor(limit)) : 50
     return readCleanupHistory(resolveLogsDir(), count)
   })
+
+  // ── 中间产物内容去重（P2 T9；只手动触发）──
+  ipcMain.handle(
+    'workspace:cleanup:dedupePlan',
+    async (_event, opts?: { budgetMs?: number }): Promise<DedupePlanResult | DedupeFailure> => {
+      try {
+        return await planDedupe({
+          dir: resolveActiveWorkspaceDir(),
+          ...(typeof opts?.budgetMs === 'number' ? { budgetMs: opts.budgetMs } : {}),
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '扫描重复内容失败' }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'workspace:cleanup:dedupeApply',
+    async (): Promise<DedupeApplyResult | DedupeFailure> => {
+      try {
+        return await applyDedupe({
+          dir: resolveActiveWorkspaceDir(),
+          logDir: resolveLogsDir(),
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '去重失败' }
+      }
+    },
+  )
 
   ipcMain.handle(
     'workspace:cleanup:restore',

@@ -12,6 +12,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { purgeTrash, runCleanup, scanWorkspace } from './workspace-cleanup'
 import { pruneEditStore, pruneWorkspaceScratch } from './artifact-edit'
+import { recoverDedupeTemps } from './workspace-dedupe'
 import { pruneTurnVersions } from './turn-version-store'
 import { getLocalDateString } from './local-time'
 
@@ -95,6 +96,12 @@ export async function runScheduledCleanup(opts: {
   if (opts.idleSeconds < 300) return { ...result, reason: 'not-idle' }
 
   result.ran = true
+  // 0) 去重崩溃残留：把 `.lumii/tmp/dedupe/` 里的临时副本放回原位
+  try {
+    await recoverDedupeTemps({ dir: opts.dir })
+  } catch (err) {
+    result.errors.push(err instanceof Error ? err.message : String(err))
+  }
   const base = { dir: opts.dir, dryRun: false, trigger: 'ttl' as const, ...(opts.logDir ? { logDir: opts.logDir } : {}) }
 
   // 1) TTL：中间产物与临时文件阈值不同，分两轮

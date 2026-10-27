@@ -8,6 +8,11 @@ import type {
   CleanupScanResponse,
   CleanupTrashEntry,
 } from '../../shared/workspace-cleanup-types'
+import type {
+  DedupeApplyResult,
+  DedupeFailure,
+  DedupePlanResult,
+} from '../../shared/workspace-dedupe-types'
 
 export const workspaceApi = {
   getDir: () => ipcRenderer.invoke('workspace:getDir'),
@@ -40,6 +45,12 @@ export const workspaceApi = {
   /** 立即清理（不等空闲） */
   cleanupRunNow: (): Promise<import('../../main/workspace-cleanup-runner').ScheduledCleanupResult> =>
     ipcRenderer.invoke('workspace:cleanup:runNow'),
+  /** 扫描可去重的中间产物（只读，手动触发） */
+  dedupePlan: (opts?: { budgetMs?: number }): Promise<DedupePlanResult | DedupeFailure> =>
+    ipcRenderer.invoke('workspace:cleanup:dedupePlan', opts),
+  /** 执行去重（硬链接；服务端重新算一次计划） */
+  dedupeApply: (): Promise<DedupeApplyResult | DedupeFailure> =>
+    ipcRenderer.invoke('workspace:cleanup:dedupeApply'),
   /** 最近清理记录 */
   cleanupHistory: (
     limit?: number,

@@ -732,6 +732,16 @@ export interface ElectronAPI {
     cleanupRunNow: () => Promise<
       import('../main/workspace-cleanup-runner').ScheduledCleanupResult
     >
+    /** 扫描可去重的中间产物（只读，手动触发） */
+    dedupePlan: (opts?: { budgetMs?: number }) => Promise<
+      | import('../shared/workspace-dedupe-types').DedupePlanResult
+      | import('../shared/workspace-dedupe-types').DedupeFailure
+    >
+    /** 执行去重（硬链接；服务端重新算一次计划） */
+    dedupeApply: () => Promise<
+      | import('../shared/workspace-dedupe-types').DedupeApplyResult
+      | import('../shared/workspace-dedupe-types').DedupeFailure
+    >
     /** 最近清理记录 */
     cleanupHistory: (
       limit?: number,

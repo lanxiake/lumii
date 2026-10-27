@@ -43,7 +43,7 @@ const TEXT_REFERENCE_EXTENSIONS = new Set(['html', 'htm', 'svg', 'json', 'md', '
 const TRASH_DIR_NAME = path.join('.lumii', 'trash')
 const INTERNAL_WALK_SEGMENTS = new Set(['.git', 'node_modules', '.cache', '.lumii'])
 
-interface WalkedFile {
+export interface WalkedFile {
   rel: string
   abs: string
   bytes: number
@@ -134,6 +134,18 @@ async function walkDir(
  * 其余顶层位置只统计「自己 + 下一层文件」，不递归——工作区里
  * `node_modules`、同步目录之类的大树不该为了一次清理被走一遍。
  */
+/**
+ * 工作区文件清单（outputs/temp 深扫 + 顶层浅扫）。
+ *
+ * 去重与清理共用同一份遍历口径；想改「扫哪里」只改这里。
+ */
+export async function listWorkspaceFiles(opts: {
+  dir: string
+  budgetMs?: number
+}): Promise<{ files: WalkedFile[]; truncated: boolean }> {
+  return collectWorkspaceFiles(path.resolve(opts.dir), opts.budgetMs ?? DEFAULT_SCAN_BUDGET_MS)
+}
+
 async function collectWorkspaceFiles(root: string, budgetMs: number): Promise<WalkResult> {
   const files: WalkedFile[] = []
   const deadline = Date.now() + budgetMs
@@ -208,6 +220,14 @@ async function collectWorkspaceFiles(root: string, budgetMs: number): Promise<Wa
   }
 
   return { files, truncated }
+}
+
+/** 成品里被引用的文件名集合（去重也用它：被成品引用的文件不进候选） */
+export async function collectWorkspaceReferenceNames(
+  files: readonly WalkedFile[],
+  budgetMs: number,
+): Promise<{ names: Set<string>; truncated: boolean }> {
+  return collectReferencedNames(files, Date.now() + budgetMs)
 }
 
 /** 成品里被引用的文件名集合（html 里的 `<img src>`、md 里的相对链接等） */
@@ -301,6 +321,14 @@ let running: Promise<CleanupRunResult> | null = null
 function pickRoles(target: 'intermediate' | 'ephemeral' | 'both'): Set<CleanupRole> {
   if (target === 'both') return new Set<CleanupRole>(['intermediate', 'ephemeral'])
   return new Set<CleanupRole>([target])
+}
+
+/** 清理/去重共用同一份审计日志（`cleanup-YYYYMMDD.jsonl`） */
+export async function appendCleanupAudit(
+  logDir: string,
+  lines: Array<Record<string, unknown>>,
+): Promise<void> {
+  return appendAuditLog(logDir, lines)
 }
 
 async function appendAuditLog(

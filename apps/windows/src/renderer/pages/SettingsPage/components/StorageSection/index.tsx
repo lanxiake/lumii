@@ -19,6 +19,7 @@ import type {
   CleanupScan,
   CleanupTrashEntry,
 } from '../../../../../shared/workspace-cleanup-types'
+import type { DedupePlan } from '../../../../../shared/workspace-dedupe-types'
 import styles from '../../SettingsPage.module.css'
 
 const ROLE_LABEL: Record<'deliverable' | 'intermediate' | 'ephemeral' | 'internal', string> = {
@@ -46,6 +47,9 @@ export function StorageSection() {
   const [busy, setBusy] = useState(false)
   /** 「以此为准」固化副本占用（P2 T6；不自动删，只能在这里清） */
   const [pinUsage, setPinUsage] = useState<{ count: number; bytes: number } | null>(null)
+  /** 重复内容去重（P2 T9）：手动扫描 → 手动执行，默认不做 */
+  const [dedupePlan, setDedupePlan] = useState<DedupePlan | null>(null)
+  const [dedupeBusy, setDedupeBusy] = useState(false)
 
   const refresh = useCallback(async () => {
     if (!api) return
@@ -106,6 +110,60 @@ export function StorageSection() {
       toast.error(err instanceof Error ? err.message : '清理失败')
     } finally {
       setBusy(false)
+    }
+  }
+
+  /** 扫描重复内容（只读；哈希可能要几秒到十几秒） */
+  const scanDedupe = async (): Promise<void> => {
+    if (!api?.dedupePlan) return
+    setDedupeBusy(true)
+    try {
+      const result = await api.dedupePlan({ budgetMs: 30000 })
+      if (!result.ok) {
+        toast.error(result.error ?? '扫描失败')
+        return
+      }
+      setDedupePlan(result.plan)
+      if (result.plan.totalFiles === 0) toast.info('没有可去重的中间产物')
+      else if (result.plan.truncated) toast.warning('工作区较大，本次扫描不完整，暂不能执行')
+      else
+        toast.success(
+          `找到 ${result.plan.groups.length} 组重复内容，可回收 ${formatBytes(result.plan.reclaimableBytes)}`,
+        )
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '扫描失败')
+    } finally {
+      setDedupeBusy(false)
+    }
+  }
+
+  /** 执行去重（硬链接；服务端会重新算一次计划） */
+  const runDedupe = async (): Promise<void> => {
+    if (!api?.dedupeApply || !dedupePlan) return
+    const ok = window.confirm(
+      `把 ${dedupePlan.totalFiles} 个重复的中间产物改成硬链接？\n` +
+        '路径和内容都不变，仍可正常打开；被成品引用的文件已排除。',
+    )
+    if (!ok) return
+    setDedupeBusy(true)
+    try {
+      const result = await api.dedupeApply()
+      if (!result.ok) {
+        toast.error(result.error ?? '去重失败')
+        return
+      }
+      const summary = `已去重 ${result.linked} 个文件，回收 ${formatBytes(result.freedBytes)}`
+      if (result.failed.length > 0) {
+        toast.warning(`${summary}；${result.failed.length} 个失败（${result.failed[0]!.reason}）`)
+      } else {
+        toast.success(summary)
+      }
+      setDedupePlan(null)
+      await refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '去重失败')
+    } finally {
+      setDedupeBusy(false)
     }
   }
 
@@ -191,6 +249,49 @@ export function StorageSection() {
               )}
             </div>
           )}
+        </div>
+
+        <div className={styles['setting-item']}>
+          <label className={styles['setting-label']} data-app-ui-label>
+            重复内容去重
+          </label>
+          <div className={styles['setting-hint']}>
+            只处理中间产物，手动触发；用硬链接（同卷），路径与内容都不变。被成品引用的文件跳过。
+          </div>
+          {dedupePlan && (
+            <div className={styles['storage-row']} data-testid="dedupe-plan">
+              <span>{dedupePlan.totalFiles} 个文件可去重</span>
+              <span>{formatBytes(dedupePlan.reclaimableBytes)}</span>
+            </div>
+          )}
+          {dedupePlan && dedupePlan.groups.length > 0 && (
+            <div className={styles['setting-hint']}>
+              {dedupePlan.groups
+                .slice(0, 3)
+                .map((group) => `${group.keep.split('/').pop()} 等 ${group.links} 个路径共享`)
+                .join('；')}
+            </div>
+          )}
+          {dedupePlan?.truncated && (
+            <div className={styles['setting-hint']}>扫描不完整（工作区较大或引用校验超时），暂不能执行。</div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <Button variant="secondary" onClick={() => void scanDedupe()} loading={dedupeBusy}>
+              扫描重复内容
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => void runDedupe()}
+              disabled={
+                dedupeBusy ||
+                !dedupePlan ||
+                dedupePlan.truncated ||
+                dedupePlan.totalFiles === 0
+              }
+            >
+              去重…
+            </Button>
+          </div>
         </div>
 
         <div className={styles['setting-item']}>

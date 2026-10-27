@@ -41,6 +41,8 @@ interface MockApi {
   cleanupRestore: ReturnType<typeof vi.fn>
   cleanupHistory: ReturnType<typeof vi.fn>
   cleanupRunNow: ReturnType<typeof vi.fn>
+  dedupePlan: ReturnType<typeof vi.fn>
+  dedupeApply: ReturnType<typeof vi.fn>
 }
 
 function installApi(overrides: Partial<MockApi> = {}): MockApi {
@@ -60,6 +62,17 @@ function installApi(overrides: Partial<MockApi> = {}): MockApi {
         trigger: 'ttl',
       },
     ]),
+    dedupePlan: vi.fn(async () => ({
+      ok: true,
+      plan: {
+        groups: [{ hash: 'h', size: 1024, keep: 'outputs/x/parts/a.bin', duplicates: ['outputs/x/parts/b.bin'], links: 2 }],
+        totalFiles: 1,
+        reclaimableBytes: 1024,
+        skipped: [],
+        truncated: false,
+      },
+    })),
+    dedupeApply: vi.fn(async () => ({ ok: true, linked: 1, freedBytes: 1024, failed: [] })),
     cleanupRunNow: vi.fn(async () => ({
       ran: true,
       ttlRemoved: 3,
@@ -164,5 +177,39 @@ describe('StorageSection · 已固化版本（T6）', () => {
     renderSection()
     await waitFor(() => expect(screen.getByTestId('pin-usage')).toHaveTextContent('0 个'))
     expect(screen.getByRole('button', { name: '清理固化副本' })).toBeDisabled()
+  })
+})
+
+describe('StorageSection · 重复内容去重（T9）', () => {
+  it('扫描 → 显示可去重数量/占用 → 确认后执行并刷新', async () => {
+    const api = installApi()
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderSection()
+    await waitFor(() => expect(screen.getByRole('button', { name: '扫描重复内容' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描重复内容' }))
+    await waitFor(() => expect(screen.getByTestId('dedupe-plan')).toHaveTextContent('1 个文件可去重'))
+    expect(screen.getByTestId('dedupe-plan')).toHaveTextContent('1.0 KB')
+
+    fireEvent.click(screen.getByRole('button', { name: '去重…' }))
+    await waitFor(() => expect(api.dedupeApply).toHaveBeenCalledTimes(1))
+    expect(confirmSpy).toHaveBeenCalled()
+    // 执行后重新扫描占用（cleanupScan 第二次）
+    await waitFor(() => expect(api.cleanupScan).toHaveBeenCalledTimes(2))
+    confirmSpy.mockRestore()
+  })
+
+  it('扫描不完整时「去重…」不可用', async () => {
+    installApi({
+      dedupePlan: vi.fn(async () => ({
+        ok: true,
+        plan: { groups: [], totalFiles: 0, reclaimableBytes: 0, skipped: [], truncated: true },
+      })),
+    })
+    renderSection()
+    await waitFor(() => expect(screen.getByRole('button', { name: '扫描重复内容' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '扫描重复内容' }))
+    await waitFor(() => expect(screen.getByText(/扫描不完整/)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '去重…' })).toBeDisabled()
   })
 })
