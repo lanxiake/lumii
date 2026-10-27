@@ -6,6 +6,13 @@ function errorMsg(text: string): AgentMessage {
   return { role: "assistant", stopReason: "error", errorMessage: text } as unknown as AgentMessage;
 }
 
+/** 刷掉 continueRetry 的 setTimeout(0) 调度 */
+async function flushDeferredContinue(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(0);
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 function makeDeps(
   messages: AgentMessage[],
   overrides: Partial<SelfHealDeps> = {},
@@ -35,6 +42,7 @@ function makeDeps(
     appendMessage,
     continueAgent,
     isDestroyed: () => false,
+    isAborted: () => false,
     isEndingPause: () => false,
     onError,
     onSettled,
@@ -71,6 +79,7 @@ describe("SelfHealController", () => {
   });
 
   it("prompt_too_long：截断消息并 continue 重试", async () => {
+    vi.useFakeTimers();
     const messages: AgentMessage[] = [
       ...Array.from({ length: 9 }, (_, i) => ({ role: "user", content: `m${i}` }) as unknown as AgentMessage),
       errorMsg("prompt is too long"),
@@ -79,21 +88,28 @@ describe("SelfHealController", () => {
     const c = new SelfHealController(deps);
     expect(c.attemptSelfHeal()).toBe(true);
     expect(replaceMessages).toHaveBeenCalled();
-    expect(continueAgent).toHaveBeenCalledTimes(1);
+    expect(continueAgent).not.toHaveBeenCalled();
     expect(c.isHealing).toBe(true);
+    await flushDeferredContinue();
+    expect(continueAgent).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
-  it("tool_pairing：修复消息序列并 continue 重试", () => {
+  it("tool_pairing：修复消息序列并 continue 重试", async () => {
+    vi.useFakeTimers();
     const { deps, replaceMessages, continueAgent } = makeDeps([
       errorMsg("tool_use ids were not found"),
     ]);
     const c = new SelfHealController(deps);
     expect(c.attemptSelfHeal()).toBe(true);
     expect(replaceMessages).toHaveBeenCalled();
+    await flushDeferredContinue();
     expect(continueAgent).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
-  it("output_truncated：丢尾部错误 assistant 并 continue 重试（不丢历史）", () => {
+  it("output_truncated：丢尾部错误 assistant 并 continue 重试（不丢历史）", async () => {
+    vi.useFakeTimers();
     const messages: AgentMessage[] = [
       { role: "user", content: "写一份长文档" } as unknown as AgentMessage,
       errorMsg("Unterminated string in JSON at position 9723"),
@@ -101,17 +117,22 @@ describe("SelfHealController", () => {
     const { deps, replaceMessages, continueAgent, state } = makeDeps(messages);
     const c = new SelfHealController(deps);
     expect(c.attemptSelfHeal()).toBe(true);
+    await flushDeferredContinue();
     expect(continueAgent).toHaveBeenCalledTimes(1);
     // 丢掉了错误 assistant，但保留了 user 历史（区别于 prompt_too_long 截断）
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]!.role).toBe("user");
+    vi.useRealTimers();
   });
 
-  it("output_truncated：unexpected end of json 同样可自愈", () => {
+  it("output_truncated：unexpected end of json 同样可自愈", async () => {
+    vi.useFakeTimers();
     const { deps, continueAgent } = makeDeps([errorMsg("Unexpected end of JSON input")]);
     const c = new SelfHealController(deps);
     expect(c.attemptSelfHeal()).toBe(true);
+    await flushDeferredContinue();
     expect(continueAgent).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   it("output_truncated：首次注入分段写入提示，不注入通用英文兜底句", () => {
@@ -157,12 +178,14 @@ describe("SelfHealController", () => {
     const c = new SelfHealController(deps);
     expect(c.attemptSelfHeal()).toBe(true);
     expect(continueAgent).not.toHaveBeenCalled(); // 延迟中
-    await vi.advanceTimersByTimeAsync(20);
+    await vi.advanceTimersByTimeAsync(20); // cooldown
+    await flushDeferredContinue(); // continueRetry 的 setTimeout(0)
     expect(continueAgent).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
   it("continue 失败：onError + onSettled 被调用", async () => {
+    vi.useFakeTimers();
     const continueAgent = vi.fn(async () => {
       throw new Error("retry boom");
     });
@@ -171,11 +194,52 @@ describe("SelfHealController", () => {
     });
     const c = new SelfHealController(deps);
     c.attemptSelfHeal();
-    // 等待 continue promise 链 settle
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushDeferredContinue();
     expect(onError).toHaveBeenCalledOnce();
     expect(onSettled).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
+  it("abort 后 deferred continue 不再调用 continueAgent", async () => {
+    vi.useFakeTimers();
+    const aborted = { value: false };
+    const { deps, continueAgent, onSettled } = makeDeps([errorMsg("tool_use ids were not found")], {
+      isAborted: () => aborted.value,
+    });
+    const c = new SelfHealController(deps);
+    expect(c.attemptSelfHeal()).toBe(true);
+    expect(c.isHealing).toBe(true);
+    aborted.value = true;
+    c.dispose();
+    expect(c.isHealing).toBe(false);
+    expect(onSettled).toHaveBeenCalledOnce();
+    await flushDeferredContinue();
+    expect(continueAgent).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("continue 撞 already processing 时再试一次后成功", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const continueAgent = vi.fn(async () => {
+      calls++;
+      if (calls === 1) {
+        throw new Error("Agent is already processing. Wait for completion before continuing.");
+      }
+    });
+    const { deps, onError } = makeDeps([errorMsg("tool_use ids were not found")], {
+      continueAgent,
+    });
+    const c = new SelfHealController(deps);
+    expect(c.attemptSelfHeal()).toBe(true);
+    await flushDeferredContinue();
+    expect(continueAgent).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(50);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(continueAgent).toHaveBeenCalledTimes(2);
+    expect(onError).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it("reset() 重置重试计数", () => {

@@ -465,6 +465,7 @@ export class AgentInstance {
       },
       continueAgent: () => this.agent.continue(),
       isDestroyed: () => this._state === "destroyed",
+      isAborted: () => this._aborted,
       isEndingPause: () => this.endingPause,
       onError: (error) => {
         this.setState("error");
@@ -739,6 +740,8 @@ export class AgentInstance {
   abort(): void {
     this.endingPause = false;
     this._aborted = true;
+    // 取消挂起的自愈 continue，避免 abort 后僵尸回合与新 prompt 竞态
+    this.selfHeal.dispose();
     this.agent.abort();
     this.setState("aborted");
     // 立刻结束 prompt() 等待，避免 SessionManager 会话锁卡住后续 user:send

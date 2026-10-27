@@ -48,6 +48,7 @@ import {
 import type { StreamFn } from '@earendil-works/pi-agent-core'
 
 import { createRunContext } from './event-converter'
+import { resolvePinnedStreamModelRef } from './pinned-stream-model'
 import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-wrap'
 import { forwardPermissionResolved } from './bridge-permission-ipc-forward'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
@@ -334,7 +335,7 @@ export class BridgeInstanceFactory {
       log: (msg) => log.info(msg),
     })
 
-    // wrapStreamFn：每轮 live direct + 按会话覆盖模型；压缩/摘要复用同一 live 流。
+    // wrapStreamFn：每轮 live direct + 按会话覆盖模型；同 run 锁定开轮模型防 prime 中途错切。
     let capturedInnerStream: StreamFn | null = null
     const wrapStreamFn = (_inner: StreamFn, resolved: ResolvedModel): StreamFn => {
       const liveDirect = buildLiveDirectStream()
@@ -342,15 +343,21 @@ export class BridgeInstanceFactory {
       return (model, context, options) => {
         const pref = this.deps.sessionModelCatalog.getPreferredModelRawForStream(rootSessionKey, effectiveSessionKey)
         const thinking = this.deps.sessionThinkingPrefs.getThinkingPrefs(rootSessionKey)
+        const { targetRef, nextPinnedRef } = resolvePinnedStreamModelRef(
+          ctx.pinnedStreamModelRef,
+          pref,
+          resolved.model.id,
+        )
+        const wasPinned = Boolean(ctx.pinnedStreamModelRef?.trim())
+        ctx.pinnedStreamModelRef = nextPinnedRef
         log.info(
-          `[streamFn] rootKey=${rootSessionKey} effKey=${effectiveSessionKey} pref=${pref ?? '(none)'} defaultModel=${model.id} thinking=${thinking.thinkingEnabled} effort=${thinking.reasoningEffort}`,
+          `[streamFn] rootKey=${rootSessionKey} effKey=${effectiveSessionKey} pref=${pref ?? '(none)'} pinned=${nextPinnedRef}${wasPinned ? ' (locked)' : ''} defaultModel=${model.id} thinking=${thinking.thinkingEnabled} effort=${thinking.reasoningEffort}`,
         )
         // 思考开关必须传到 direct 请求上。pi-ai 的 streamSimple 把 options.reasoning 映射成
         // reasoningEffort，再据此决定是否发 reasoning_effort（OpenAI 系）或 thinking:disabled
         // （z.ai 系）；模型是否支持思考由 resolveModelThinking 注入（见 model-thinking.ts）。
         // 注意不要顺手把 model.reasoning 改成 false：z.ai 的「显式关闭」分支依赖它为真，
         // 置 false 会导致该分支被跳过，反而回到服务端默认开启思考。
-        const targetRef = pref ?? resolved.model.id
         const liveCfg = readLiveProviderCfg()
         const apiOverride = apiForProviderType(liveCfg?.type)
         const targetModel = this.deps.modelRouter.resolveExplicitModelId(targetRef, apiOverride)
@@ -367,11 +374,11 @@ export class BridgeInstanceFactory {
             }
           : { ...options, reasoning: undefined, reasoningEffort: undefined }
 
-        if (pref) {
-          const explicit = this.deps.modelRouter.resolveExplicitModelId(pref, apiOverride)
-          ctx.resolvedModelId = explicit.id
-          log.info(`[streamFn] 使用用户选择模型(direct): ${explicit.id} (api=${explicit.api})`)
-          return liveDirect(explicit, context, streamOptions)
+        ctx.resolvedModelId = targetModel.id
+        // 有会话偏好或已锁定时走显式模型；仅「开轮无偏好、未锁定」才用工厂传入的 model 对象
+        if (pref || wasPinned || targetRef !== resolved.model.id) {
+          log.info(`[streamFn] 使用用户选择模型(direct): ${targetModel.id} (api=${targetModel.api})`)
+          return liveDirect(targetModel, context, streamOptions)
         }
         log.info(`[streamFn] 无用户选择，回退默认模型(direct): ${resolved.model.id}`)
         return liveDirect(model, context, streamOptions)

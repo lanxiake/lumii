@@ -280,10 +280,12 @@ export class BridgePromptDispatcher {
     const state = this.deps.instanceStates.get(instanceId)
     if (state) {
       state.lastActivityAt = Date.now()
+      // 新 prompt 开轮：清除上一轮锁定，允许本轮按最新会话偏好重新钉死
+      if (state.ctx) state.ctx.pinnedStreamModelRef = undefined
     }
 
-    // 上一轮 abort 后 pi 循环可能尚未退出；短等空闲，避免 "already processing"
-    if (instance.state === 'running' || instance.state === 'aborted') {
+    // 上一轮 abort/error 后 pi 循环可能尚未退出；短等空闲，避免 "already processing"
+    if (instance.state === 'running' || instance.state === 'aborted' || instance.state === 'error') {
       try {
         await Promise.race([
           instance.waitForIdle(),

@@ -595,6 +595,8 @@ export function createAgentInstanceRuntimeEventHandler(
         }
         if (event.type === 'agent:end') {
           m.completedTurns++
+          // 不在此清 pinnedStreamModelRef：自愈 continue 仍属同一逻辑轮，需保住开轮模型；
+          // 新 prompt 入口会清（见 bridge-prompt-dispatcher）。
         }
         if (event.type === 'message:end' && event.usage) {
           m.inputTokens += event.usage.inputTokens ?? 0

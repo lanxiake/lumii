@@ -1,0 +1,50 @@
+{
+  "style": "product-demo",
+  "intro": {
+    "title": "wechat-mcp",
+    "subtitle": "零注入 · 本地化 · MCP 标准",
+    "seconds": 3
+  },
+  "sections": [
+    {
+      "title": "AI 无法访问你的微信数据？",
+      "subtitle": "隐私担忧 · 技术门槛 · 功能受限",
+      "seconds": 3,
+      "items": []
+    },
+    {
+      "title": "产品演示",
+      "subtitle": "截图演示段（截图路径见 SKILL.md）",
+      "seconds": 2,
+      "items": []
+    },
+    {
+      "title": "数据全景",
+      "subtitle": "用数字说话",
+      "seconds": 2,
+      "items": [
+        {
+          "seconds": 6,
+          "chart": {
+            "type": "indicator",
+            "metrics": [
+              { "label": "MCP 工具", "value": 30, "suffix": "+" },
+              { "label": "子产品线", "value": 4 },
+              { "label": "数据外传", "value": 0 },
+              { "label": "本地处理", "value": 100, "suffix": "%" }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "outro": {
+    "title": "立即开始使用",
+    "subtitle": "MIT 开源 · 让 AI 看见你的微信世界",
+    "seconds": 4
+  },
+  "output": {
+    "dir": "./out",
+    "filename": "product-promo.mp4"
+  }
+}
