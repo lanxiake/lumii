@@ -430,6 +430,11 @@ export interface FilePreviewModalProps {
    * filePath 模式下默认用 filePath，无需额外提供。
    */
   editablePath?: string
+  /**
+   * 可选：打开后直接进入 Markdown 编辑态（工作台动作条「编辑」用）。
+   * 只有真正可编辑时生效；不可编辑（PPT/图片等）保持普通预览。
+   */
+  initialEdit?: boolean
   onClose: () => void
   /**
    * 呈现形态：modal=应用内弹窗；window=独立窗；embedded=填满父级
@@ -477,6 +482,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   endLine,
   mdBasePath,
   editablePath,
+  initialEdit = false,
   onClose,
   variant: variantProp,
   embedded = false,
@@ -718,11 +724,13 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   }, [route, zoom, imageDataUrl, refreshImageCanPan])
 
   /** 切换文件时重置 Markdown 视图为预览、退出全屏并复位缩放 */
+  const initialEditAppliedRef = useRef(false)
   useEffect(() => {
     setMdViewMode('preview')
     setIsEditingMarkdown(false)
     setIsFullscreen(false)
     setZoom(1)
+    initialEditAppliedRef.current = false
   }, [fileId, filePath, fileName])
 
   const handleEnterEdit = useCallback(() => {
@@ -731,6 +739,14 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     setZoom(1)
     setIsEditingMarkdown(true)
   }, [result])
+
+  // 工作台动作条「编辑」：内容加载完成且可编辑时自动进入编辑态（每次打开只触发一次）
+  useEffect(() => {
+    if (!initialEdit || initialEditAppliedRef.current) return
+    if (!isMarkdownEditable || !result) return
+    initialEditAppliedRef.current = true
+    handleEnterEdit()
+  }, [initialEdit, isMarkdownEditable, result, handleEnterEdit])
 
   const handleCancelEdit = useCallback(() => {
     setIsEditingMarkdown(false)

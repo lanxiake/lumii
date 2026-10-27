@@ -52,14 +52,15 @@ describe('WorkspaceArtifactsPanel 多选', () => {
     ;(window.electronAPI as unknown as { artifact?: unknown }).artifact = undefined
   })
 
-  it('Ctrl 点击加选，底部出现已选计数；再点一次减选', () => {
+  it('只选 1 项时不出多选条；选到 2 项才出现，减到 1 项又收起', () => {
     renderPanel()
     fireEvent.click(card('a'), { ctrlKey: true })
-    expect(screen.getByText('已选 1 项')).toBeInTheDocument()
+    // 单项由 main 底部的结果动作条负责，rail 不重复出一条工具栏
+    expect(screen.queryByText(/已选/)).toBeNull()
     fireEvent.click(card('b'), { ctrlKey: true })
     expect(screen.getByText('已选 2 项')).toBeInTheDocument()
     fireEvent.click(card('b'), { ctrlKey: true })
-    expect(screen.getByText('已选 1 项')).toBeInTheDocument()
+    expect(screen.queryByText(/已选/)).toBeNull()
   })
 
   it('Shift 区间只在可见项之间生效；普通点击回到单选', () => {
@@ -69,7 +70,7 @@ describe('WorkspaceArtifactsPanel 多选', () => {
     expect(screen.getByText('已选 3 项')).toBeInTheDocument()
 
     fireEvent.click(card('d'))
-    expect(screen.getByText('已选 1 项')).toBeInTheDocument()
+    expect(screen.queryByText(/已选/)).toBeNull()
   })
 
   it('「×」清空选择；多选（Ctrl/Shift）不改变当前预览', () => {
@@ -87,10 +88,10 @@ describe('WorkspaceArtifactsPanel 多选', () => {
     const onCompare = vi.fn()
     renderPanel({ onCompare })
     fireEvent.click(card('a'), { ctrlKey: true })
-    const compareBtn = screen.getByRole('button', { name: '对比' })
-    expect(compareBtn).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '对比' })).toBeNull()
 
     fireEvent.click(card('b'), { ctrlKey: true })
+    const compareBtn = screen.getByRole('button', { name: '对比' })
     expect(compareBtn).not.toBeDisabled()
     fireEvent.click(compareBtn)
     expect(onCompare).toHaveBeenCalledWith([
@@ -127,9 +128,10 @@ describe('WorkspaceArtifactsPanel 多选', () => {
     const { rerender } = renderPanel({ onTrashed })
 
     fireEvent.click(card('a'), { ctrlKey: true })
+    fireEvent.click(card('b'), { ctrlKey: true })
     fireEvent.click(screen.getByRole('button', { name: '移入回收站' }))
 
-    await waitFor(() => expect(onTrashed).toHaveBeenCalledWith(['outputs/covers/a.png']))
+    await waitFor(() => expect(onTrashed).toHaveBeenCalledWith(['outputs/covers/a.png','outputs/covers/b.png']))
     expect(screen.queryByText(/已选/)).toBeNull()
 
     // 父层把路径塞进 trashedPaths 后，历史 fileChanges 仍会派生它，但界面不该再显示
@@ -158,9 +160,10 @@ describe('WorkspaceArtifactsPanel 多选', () => {
     renderPanel()
 
     fireEvent.click(card('a'), { ctrlKey: true })
+    fireEvent.click(card('b'), { ctrlKey: true })
     fireEvent.click(screen.getByRole('button', { name: '移入回收站' }))
 
     await waitFor(() => expect(trash).toHaveBeenCalled())
-    expect(screen.getByText('已选 1 项')).toBeInTheDocument()
+    expect(screen.getByText('已选 2 项')).toBeInTheDocument()
   })
 })

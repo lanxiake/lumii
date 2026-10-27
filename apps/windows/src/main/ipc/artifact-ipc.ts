@@ -165,7 +165,7 @@ export function registerArtifactIpcHandlers(): void {
       payload?: { paths?: unknown; mode?: unknown },
     ): Promise<ArtifactExportResult> => {
       const mode = payload?.mode
-      if (mode !== 'zip' && mode !== 'copy') {
+      if (mode !== 'zip' && mode !== 'copy' && mode !== 'save') {
         return { ok: false, exported: 0, bytes: 0, error: '导出方式非法' }
       }
       const paths = Array.isArray(payload?.paths) ? (payload.paths as unknown[]) : []
@@ -184,7 +184,22 @@ export function registerArtifactIpcHandlers(): void {
 
       const mainWindow = deps!.getMainWindow?.() ?? null
       let destPath: string | undefined
-      if (mode === 'zip') {
+      if (mode === 'save') {
+        if (resolved.files.length !== 1) {
+          return { ok: false, exported: 0, bytes: 0, error: '另存为只支持单个文件' }
+        }
+        const options: Electron.SaveDialogOptions = {
+          title: '另存为',
+          defaultPath: path.basename(resolved.files[0]!.rel),
+        }
+        const result = mainWindow
+          ? await dialog.showSaveDialog(mainWindow, options)
+          : await dialog.showSaveDialog(options)
+        if (result.canceled || !result.filePath) {
+          return { ok: false, exported: 0, bytes: 0, error: '已取消' }
+        }
+        destPath = result.filePath
+      } else if (mode === 'zip') {
         const options: Electron.SaveDialogOptions = {
           title: `导出 ${resolved.files.length} 个产物`,
           defaultPath: 'artifacts.zip',

@@ -144,8 +144,8 @@ async function writeZip(files: readonly ResolvedExportFile[], destPath: string):
 export async function exportArtifacts(opts: {
   workspaceDir: string
   relPaths: readonly unknown[]
-  mode: 'zip' | 'copy'
-  /** 用户选定的目标路径（zip 是文件路径，copy 是目录） */
+  mode: 'zip' | 'copy' | 'save'
+  /** 用户选定的目标路径（zip/save 是文件路径，copy 是目录） */
   destPath: string
 }): Promise<ArtifactExportResult> {
   const resolved = await resolveExportFiles(opts.workspaceDir, opts.relPaths)
@@ -158,6 +158,14 @@ export async function exportArtifacts(opts: {
       await fs.mkdir(path.dirname(opts.destPath), { recursive: true })
       await writeZip(files, opts.destPath)
       return { ok: true, exported: files.length, bytes, destPath: opts.destPath }
+    }
+
+    // 另存为：单文件直拷到用户选的路径（动作条「导出 ▾ → 另存为」）
+    if (opts.mode === 'save') {
+      if (files.length !== 1) return { ok: false, exported: 0, bytes: 0, error: '另存为只支持单个文件' }
+      await fs.mkdir(path.dirname(opts.destPath), { recursive: true })
+      await fs.copyFile(files[0]!.abs, opts.destPath)
+      return { ok: true, exported: 1, bytes, destPath: opts.destPath }
     }
 
     await fs.mkdir(opts.destPath, { recursive: true })

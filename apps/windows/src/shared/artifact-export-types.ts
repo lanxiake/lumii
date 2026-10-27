@@ -2,7 +2,7 @@
  * 产物导出 / 批量删除的跨进程契约（main / preload / renderer 共用）
  */
 
-export type ArtifactExportMode = 'zip' | 'copy'
+export type ArtifactExportMode = 'zip' | 'copy' | 'save'
 
 export interface ArtifactExportResult {
   ok: boolean

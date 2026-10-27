@@ -11,6 +11,10 @@ import { usePluginEnabled } from '../../../../plugins/renderer/state'
 import { WorkspaceArtifactsPanel } from '../components/WorkspaceArtifactsPanel'
 import { ArtifactInspector } from '../components/WorkspaceArtifactsPanel/ArtifactInspector'
 import { ArtifactCompareView } from '../components/WorkspaceArtifactsPanel/CompareView'
+import { ArtifactActionBar } from '../components/WorkspaceArtifactsPanel/ArtifactActionBar'
+import type { ExportMenuKey, MoreMenuKey } from '../components/WorkspaceArtifactsPanel/artifact-actions'
+import { useOptionalToast } from '../../../components/ui/Toast/useOptionalToast'
+import { writeClipboardFiles } from '../../../services/clipboard-service'
 import {
   applySidecarMeta,
   buildArtifactLedger,
@@ -99,6 +103,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   sessionKey,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
+  const toast = useOptionalToast()
   const fileRefreshRef = useRef<(() => void) | null>(null)
   const vcsRefreshRef = useRef<(() => Promise<void>) | null>(null)
   const [cleanupOpen, setCleanupOpen] = useState(false)
@@ -302,42 +307,6 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   }, [])
 
   // main 用渲染函数：对比视图要知道当前工作台宽度（<860 只并排 2 项）
-  const main = ({ width }: { width: number }) =>
-    comparing ? (
-      <ArtifactCompareView
-        items={compareArtifacts}
-        toAbsolutePath={toAbsolutePath}
-        width={width}
-        onPick={(relativePath) => {
-          exitCompare()
-          onSelect(relativePath)
-        }}
-        onExit={exitCompare}
-      />
-    ) : absoluteSelected ? (
-      <FilePreviewModal
-        key={absoluteSelected}
-        variant="embedded"
-        filePath={absoluteSelected}
-        fileName={selectedName ?? absoluteSelected}
-        onClose={() => onSelect(undefined)}
-      />
-    ) : (
-      <div className={styles.empty}>
-        <p className={styles.emptyTitle}>还没有打开产物</p>
-        <p className={styles.emptyHint}>
-          在左侧点任一产物在这里预览；双击可以开独立窗口。
-        </p>
-        <button
-          type="button"
-          className={styles.emptyAction}
-          onClick={() => onOnlyArtifactsChange(false)}
-        >
-          浏览工作区文件
-        </button>
-      </div>
-    )
-
   // inspector 只对「选中且来自台账」的产物出现：文件面板里的普通文件没有版本历史
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const selectedArtifact = useMemo(() => {
@@ -368,6 +337,144 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         onClose={() => setInspectorOpen(false)}
       />
     ) : undefined
+
+  // ── 结果动作条（main 底部）──
+  /** rail 里的多选（动作条的「对比」要与它合并） */
+  const [railSelection, setRailSelection] = useState<readonly string[]>([])
+  /** 点过「编辑」的产物：把预览直接推进 Markdown 编辑态 */
+  const [editTarget, setEditTarget] = useState<string | null>(null)
+  useEffect(() => {
+    setEditTarget(null)
+  }, [selectedArtifact?.path])
+
+  const handleEditArtifact = (): void => {
+    if (!selectedArtifact) return
+    if (selectedArtifact.kind === 'slides') {
+      // PPT 单页编辑在 P2；先如实告诉用户，而不是给一个点不动的按钮
+      toast.info('PPT 单页编辑在 P2；这里先看预览')
+      return
+    }
+    setEditTarget(selectedArtifact.path)
+  }
+
+  const copyArtifactPath = async (): Promise<void> => {
+    if (!selectedArtifact) return
+    try {
+      await writeClipboardFiles([toAbsolutePath(selectedArtifact.path)])
+      toast.success('已复制文件到剪贴板')
+    } catch {
+      toast.error('复制失败')
+    }
+  }
+
+  const handleExportMenu = async (menu: ExportMenuKey): Promise<void> => {
+    if (!selectedArtifact) return
+    if (menu === 'copyPath') {
+      await copyArtifactPath()
+      return
+    }
+    const api = window.electronAPI?.artifact
+    if (!api?.exportFiles) return
+    try {
+      const result = await api.exportFiles(
+        [selectedArtifact.path],
+        menu === 'saveAs' ? 'save' : 'copy',
+      )
+      if (result.ok) toast.success(`已导出到 ${result.destPath ?? '目标位置'}`)
+      else if (result.error !== '已取消') toast.error(result.error ?? '导出失败')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '导出失败')
+    }
+  }
+
+  const handleMoreMenu = async (menu: MoreMenuKey): Promise<void> => {
+    if (!selectedArtifact) return
+    if (menu === 'copyPath') {
+      await copyArtifactPath()
+      return
+    }
+    if (menu === 'reveal') {
+      void window.electronAPI?.app?.showItemInFolder?.(toAbsolutePath(selectedArtifact.path))
+      return
+    }
+    const api = window.electronAPI?.artifact
+    if (!api?.trash) return
+    try {
+      const result = await api.trash([selectedArtifact.path])
+      if (!result.ok) {
+        toast.error(result.error ?? '删除失败')
+        return
+      }
+      handleTrashed([selectedArtifact.path])
+      toast.success('已移入回收站（可在「清理…」里恢复）')
+      onSelect(undefined)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
+  const handleCompareCurrent = (): void => {
+    if (!selectedArtifact) return
+    const merged = [...new Set([selectedArtifact.path, ...railSelection])]
+    if (merged.length < 2) {
+      toast.info('在左侧按住 Ctrl 再选一项，就能并排对比')
+      return
+    }
+    setComparePaths(merged)
+  }
+
+  const renderMainContent = (width: number): React.ReactNode =>
+    comparing ? (
+      <ArtifactCompareView
+        items={compareArtifacts}
+        toAbsolutePath={toAbsolutePath}
+        width={width}
+        onPick={(relativePath) => {
+          exitCompare()
+          onSelect(relativePath)
+        }}
+        onExit={exitCompare}
+      />
+    ) : absoluteSelected ? (
+      <FilePreviewModal
+        key={absoluteSelected}
+        variant="embedded"
+        filePath={absoluteSelected}
+        fileName={selectedName ?? absoluteSelected}
+        {...(editTarget && editTarget === selected ? { initialEdit: true } : {})}
+        onClose={() => onSelect(undefined)}
+      />
+    ) : (
+      <div className={styles.empty}>
+        <p className={styles.emptyTitle}>还没有打开产物</p>
+        <p className={styles.emptyHint}>
+          在左侧点任一产物在这里预览；双击可以开独立窗口。
+        </p>
+        <button
+          type="button"
+          className={styles.emptyAction}
+          onClick={() => onOnlyArtifactsChange(false)}
+        >
+          浏览工作区文件
+        </button>
+      </div>
+    )
+
+  const main = ({ width }: { width: number }) => (
+    <div className={styles.mainColumn}>
+      <div className={styles.mainContent}>{renderMainContent(width)}</div>
+      {!comparing && selectedArtifact && (
+        <ArtifactActionBar
+          artifact={selectedArtifact}
+          onEdit={handleEditArtifact}
+          onExport={(menu) => void handleExportMenu(menu)}
+          onMore={(menu) => void handleMoreMenu(menu)}
+          onLocate={() => onGoToMessage?.(selectedArtifact.turnId)}
+          onCompare={handleCompareCurrent}
+        />
+      )}
+    </div>
+  )
 
   return (
     <>
@@ -400,6 +507,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
               onSelect={onSelect}
               onOpenWindow={openWindow}
               onCompare={handleCompareSelect}
+              onSelectionChange={setRailSelection}
               trashedPaths={trashedPaths}
               onTrashed={handleTrashed}
               {...(progress ? { progress } : {})}

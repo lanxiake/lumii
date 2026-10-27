@@ -101,6 +101,8 @@ export interface WorkspaceArtifactsPanelProps {
   trashedPaths?: ReadonlySet<string>
   /** 删除成功后上抛，父层负责隐藏卡片并提供刷新入口 */
   onTrashed?: (relativePaths: readonly string[]) => void
+  /** 选中集变化（动作条「对比」要合并 rail 里的多选） */
+  onSelectionChange?: (paths: readonly string[]) => void
   /** 当前回合有工具在跑时的进度（阶段 + 已完成/总数 + 起始时间） */
   progress?: ArtifactProgress | null
   /** 中断当前回合（复用 ChatInput 的同一条中止通道） */
@@ -593,7 +595,8 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
       </div>
 
       {/* 多选条：固定在 rail 底部（不随列表滚走），未选中时不占位 */}
-      {selection.size > 0 && (
+      {/* 只选 1 项时交给 main 底部的结果动作条，别让两条操作栏同时出现 */}
+      {selection.size >= 2 && (
         <div className={styles.selectionBar} role="toolbar" aria-label="已选产物操作">
           <span className={styles.selectionCount}>已选 {selection.size} 项</span>
           <button
