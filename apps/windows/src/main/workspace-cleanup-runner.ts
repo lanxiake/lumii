@@ -11,6 +11,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { purgeTrash, runCleanup, scanWorkspace } from './workspace-cleanup'
+import { pruneEditStore, pruneWorkspaceScratch } from './artifact-edit'
 import { getLocalDateString } from './local-time'
 
 export interface StorageCleanupPrefs {
@@ -62,6 +63,8 @@ export interface ScheduledCleanupResult {
   quotaRemoved: number
   quotaBytes: number
   trashRemoved: number
+  /** 已应用编辑里被清理掉内容副本的数量（meta 保留） */
+  editsPruned: number
   errors: string[]
 }
 
@@ -84,6 +87,7 @@ export async function runScheduledCleanup(opts: {
     quotaRemoved: 0,
     quotaBytes: 0,
     trashRemoved: 0,
+    editsPruned: 0,
     errors: [],
   }
   if (!opts.prefs.enabled) return { ...result, reason: 'disabled' }
@@ -147,6 +151,19 @@ export async function runScheduledCleanup(opts: {
   try {
     const purged = await purgeTrash({ dir: opts.dir, olderThanMs: opts.prefs.trashDays * DAY_MS })
     result.trashRemoved = purged.removed
+  } catch (err) {
+    result.errors.push(err instanceof Error ? err.message : String(err))
+  }
+
+  // 4) 编辑候选 / 导出临时文件：未应用 24h、已应用内容 30 天或 1GB 上限
+  try {
+    const pruned = await pruneEditStore({ workspaceDir: opts.dir })
+    result.editsPruned = pruned.prunedContents
+  } catch (err) {
+    result.errors.push(err instanceof Error ? err.message : String(err))
+  }
+  try {
+    await pruneWorkspaceScratch({ workspaceDir: opts.dir })
   } catch (err) {
     result.errors.push(err instanceof Error ? err.message : String(err))
   }

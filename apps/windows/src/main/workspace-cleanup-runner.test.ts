@@ -159,6 +159,46 @@ describe('runScheduledCleanup', () => {
     expect(await exists('.lumii/trash/' + path.basename(oldBatch))).toBe(false)
     expect(await exists('.lumii/trash/' + path.basename(freshBatch))).toBe(true)
   })
+
+  it('编辑候选与临时导出：旧的未应用提案和过期 tmp 目录在每日清理里清掉', async () => {
+    const editDir = path.join(root, '.lumii', 'edits', 'edit-old')
+    await mkdir(editDir, { recursive: true })
+    await writeFile(
+      path.join(editDir, 'meta.json'),
+      JSON.stringify({
+        editId: 'edit-old',
+        sessionKey: null,
+        path: 'outputs/x/a.md',
+        action: 'manual',
+        scope: { type: 'text-range', start: 0, end: 1 },
+        at: Date.now() - 25 * 60 * 60 * 1000,
+        status: 'proposed',
+        baseHash: 'x',
+        beforeFile: 'before.md',
+        candidateFile: 'candidate.md',
+        originalBytes: 1,
+      }),
+    )
+    await writeFile(path.join(editDir, 'before.md'), 'a')
+    await writeFile(path.join(editDir, 'candidate.md'), 'b')
+
+    await writeAt('.lumii/tmp/old/x.bin', 2)
+    const oldDir = path.join(root, '.lumii', 'tmp', 'old')
+    const oldTime = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    await utimes(oldDir, oldTime, oldTime)
+    await mkdir(path.join(root, '.lumii', 'tmp', 'fresh'), { recursive: true })
+
+    const result = await runScheduledCleanup({
+      dir: root,
+      prefs: DEFAULT_STORAGE_CLEANUP_PREFS,
+      idleSeconds: 9999,
+      logDir,
+    })
+    expect(result.ran).toBe(true)
+    expect(await exists('.lumii/edits/edit-old')).toBe(false)
+    expect(await exists('.lumii/tmp/old')).toBe(false)
+    expect(await exists('.lumii/tmp/fresh')).toBe(true)
+  })
 })
 
 describe('hasRunCleanupToday', () => {

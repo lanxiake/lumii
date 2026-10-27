@@ -757,6 +757,39 @@ export interface ElectronAPI {
     trash: (paths: readonly string[]) => Promise<
       import('../shared/artifact-export-types').ArtifactTrashResult
     >
+    /** 文本区间替换：只生成候选稿 */
+    proposeTextEdit: (
+      input: import('../shared/artifact-edit-types').ProposeTextEditInput,
+    ) => Promise<
+      | import('../shared/artifact-edit-types').ArtifactEditProposal
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    /** 应用候选稿（baseHash 冲突拒绝） */
+    applyEdit: (
+      editId: string,
+    ) => Promise<
+      | import('../shared/artifact-edit-types').ArtifactEditApplyResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    /** 放弃候选稿 */
+    discardEdit: (
+      editId: string,
+    ) => Promise<{ ok: true } | import('../shared/artifact-edit-types').ArtifactEditFailure>
+    /** 撤销一次已应用的编辑 */
+    undoEdit: (
+      editId: string,
+    ) => Promise<
+      | import('../shared/artifact-edit-types').ArtifactEditUndoResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
+    /** 已应用的本地编辑 */
+    listEdits: (
+      sessionKey?: string,
+      limit?: number,
+    ) => Promise<
+      | import('../shared/artifact-edit-types').ArtifactEditListResult
+      | import('../shared/artifact-edit-types').ArtifactEditFailure
+    >
   }
 
   // 本地技能管�?

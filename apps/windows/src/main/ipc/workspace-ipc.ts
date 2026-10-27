@@ -75,12 +75,12 @@ export function registerWorkspaceIpcHandlers(): void {
     const mtbotDataDir = resolveClientStateDir()
     const defaultWorkspace = join(mtbotDataDir, 'workspace')
     const resolved = dirPath !== '' ? dirPath : defaultWorkspace
-    // 与 notifyChanged 对齐：校验通过后立即写入主进程权威配置
+    // 与 notifyChanged 对齐：校验通过后立即写入主进程权威配置。
+    // 注意必须写**默认路径本身**，不能写 undefined：ConfigManager.mergeSection
+    // 会过滤 undefined，写回默认时会保留上一次的自定义路径（getDir 仍指向旧目录）。
     const configManager = deps!.getConfigManager()
     if (configManager) {
-      await configManager.updateAppConfig({
-        workspaceDirectory: resolved !== defaultWorkspace ? resolved : undefined,
-      })
+      await configManager.updateAppConfig({ workspaceDirectory: resolved })
     }
     deps!.reapplyCodingDevAcpEnv()
     ensureWorkspaceTempLayout(resolved)
@@ -100,10 +100,11 @@ export function registerWorkspaceIpcHandlers(): void {
         ? newDirPath
         : defaultWorkspace
 
-    // 同步保存到 ConfigManager（主进程权威来源）
+    // 同步保存到 ConfigManager（主进程权威来源）；默认路径也要显式写，
+    // 否则 mergeSection 过滤 undefined 会保留旧的自定义路径（见 setDir）。
     const configManager = deps!.getConfigManager()
     if (configManager) {
-      await configManager.updateAppConfig({ workspaceDirectory: resolved !== defaultWorkspace ? resolved : undefined })
+      await configManager.updateAppConfig({ workspaceDirectory: resolved })
     }
     deps!.reapplyCodingDevAcpEnv()
     ensureWorkspaceTempLayout(resolved)

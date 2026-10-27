@@ -178,6 +178,8 @@ export interface Artifact {
   conversationId?: string
   /** 来自工具显式声明：kind/role/meta 以声明为准，侧车不得覆盖 */
   declared?: boolean
+  /** P2：最近一次写入来自工作台本地编辑（含手工保存）；本地新文件没有 turnId */
+  origin?: 'local'
 }
 
 export interface ArtifactGroup {

@@ -20,17 +20,53 @@ import type {
   ArtifactExportResult,
   ArtifactTrashResult,
 } from '../../shared/artifact-export-types'
+import type {
+  ArtifactEditAction,
+  ArtifactEditApplyResult,
+  ArtifactEditFailure,
+  ArtifactEditListResult,
+  ArtifactEditProposal,
+  ArtifactEditUndoResult,
+  ProposeTextEditInput,
+} from '../../shared/artifact-edit-types'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
 import { exportArtifacts, resolveExportFiles } from '../artifact-export'
+import {
+  applyEdit,
+  discardEdit,
+  listEdits,
+  proposeTextEdit,
+  undoEdit,
+  type AppliedEditInfo,
+} from '../artifact-edit'
 import { trashPaths } from '../workspace-cleanup'
 
 const MAX_PATHS = 200
 const MAX_SIDECAR_BYTES = 64 * 1024
 const CACHE_TTL_MS = 30_000
 
+interface ClientFileRegistrar {
+  registerOrUpdate(params: {
+    userId: string
+    agentId?: string | null
+    conversationId?: string | null
+    messageId?: string | null
+    channel?: string
+    sourceType: 'agent_output' | 'channel_upload' | 'user_upload'
+    fileName: string
+    fileSize?: number | null
+    mimeType?: string | null
+    localPath: string
+    category?: 'upload' | 'output'
+    metadata?: Record<string, unknown> | null
+  }): string
+}
+
 interface ArtifactIpcDeps {
   getWorkspaceDir: () => string
   getMainWindow?: () => BrowserWindow | null
+  /** 本地编辑应用后登记到 client_files（「全部」作用域可见）；未接时不登记 */
+  getAgentRuntimeBridge?: () => { fileRepo: ClientFileRegistrar } | null
   log?: { warn: (...args: unknown[]) => void }
 }
 
@@ -100,6 +136,45 @@ export interface ArtifactMetaResponse {
   ok: boolean
   metas: Record<string, ArtifactSidecar>
   error?: string
+}
+
+const LOCAL_USER_ID = 'local-user'
+
+function workspaceRoot(): string | null {
+  try {
+    return deps!.getWorkspaceDir()
+  } catch {
+    return null
+  }
+}
+
+/** 应用成功后的登记失败只影响「全部」作用域，不影响本次写入 */
+function registerAppliedFile(info: AppliedEditInfo): void {
+  const bridge = deps!.getAgentRuntimeBridge?.()
+  if (!bridge) return
+  // client_files 的唯一键是 (conversation_id, local_path)，NULL 不参与唯一性约束；
+  // 工作区级（没有会话）的编辑不登记，避免每次应用都插一条重复行。
+  if (!info.sessionKey) return
+  try {
+    bridge.fileRepo.registerOrUpdate({
+      userId: LOCAL_USER_ID,
+      conversationId: info.sessionKey,
+      messageId: null,
+      channel: 'windows',
+      sourceType: 'agent_output',
+      fileName: path.basename(info.path),
+      fileSize: info.bytes,
+      localPath: info.path,
+      category: 'output',
+      metadata: {
+        source: 'workbench-edit',
+        editId: info.editId,
+        action: info.action,
+      },
+    })
+  } catch (err) {
+    deps!.log?.warn('[artifact-edit] client_files 登记失败:', err)
+  }
 }
 
 export function registerArtifactIpcHandlers(): void {
@@ -251,6 +326,149 @@ export function registerArtifactIpcHandlers(): void {
         }
       }
       return trashPaths({ dir: root, paths: paths.slice(0, MAX_PATHS) })
+    },
+  )
+
+  // ---- 就地修改（P2 编辑底座）----
+  // 提议只写候选稿；应用前会校验 baseHash，文件被改过就拒绝。
+  const EDIT_ACTIONS = new Set<ArtifactEditAction>([
+    'manual',
+    'rewrite',
+    'expand',
+    'shorten',
+    'tone',
+    'slide-title',
+    'slide-bullets',
+    'variant',
+    'undo',
+  ])
+
+  ipcMain.handle(
+    'artifact:edit:proposeText',
+    async (
+      _event,
+      payload?: Record<string, unknown>,
+    ): Promise<ArtifactEditProposal | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      if (!payload || typeof payload !== 'object') {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const relPath = payload.path
+      const { start, end, replacement } = payload
+      if (
+        typeof relPath !== 'string' ||
+        typeof replacement !== 'string' ||
+        typeof start !== 'number' ||
+        typeof end !== 'number'
+      ) {
+        return { ok: false, error: '参数非法', code: 'invalid-scope' }
+      }
+      const action =
+        typeof payload.action === 'string' && EDIT_ACTIONS.has(payload.action as ArtifactEditAction)
+          ? (payload.action as ArtifactEditAction)
+          : undefined
+      const input: ProposeTextEditInput = {
+        path: relPath,
+        start,
+        end,
+        replacement,
+        ...(typeof payload.sessionKey === 'string' ? { sessionKey: payload.sessionKey } : {}),
+        ...(action ? { action } : {}),
+        ...(typeof payload.instruction === 'string' ? { instruction: payload.instruction } : {}),
+        ...(typeof payload.baseHash === 'string' ? { baseHash: payload.baseHash } : {}),
+        ...(typeof payload.editId === 'string' ? { editId: payload.editId } : {}),
+      }
+      try {
+        return await proposeTextEdit({ workspaceDir: root, input })
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : '生成候选稿失败',
+        }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:edit:apply',
+    async (
+      _event,
+      payload?: { editId?: unknown },
+    ): Promise<ArtifactEditApplyResult | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      try {
+        return await applyEdit({
+          workspaceDir: root,
+          editId: payload?.editId,
+          registerFile: registerAppliedFile,
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '应用失败' }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:edit:discard',
+    async (
+      _event,
+      payload?: { editId?: unknown },
+    ): Promise<{ ok: true } | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      try {
+        return await discardEdit({ workspaceDir: root, editId: payload?.editId })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '取消失败' }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:edit:undo',
+    async (
+      _event,
+      payload?: { editId?: unknown },
+    ): Promise<ArtifactEditUndoResult | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      try {
+        return await undoEdit({
+          workspaceDir: root,
+          editId: payload?.editId,
+          registerFile: registerAppliedFile,
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '撤销失败' }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:edits:list',
+    async (
+      _event,
+      payload?: { sessionKey?: unknown; limit?: unknown },
+    ): Promise<ArtifactEditListResult | ArtifactEditFailure> => {
+      const root = workspaceRoot()
+      if (!root) return { ok: false, error: '工作区不可用', code: 'unavailable' }
+      if (payload?.sessionKey !== undefined && typeof payload.sessionKey !== 'string') {
+        return { ok: false, error: 'sessionKey 非法', code: 'invalid-scope' }
+      }
+      if (payload?.limit !== undefined && typeof payload.limit !== 'number') {
+        return { ok: false, error: 'limit 非法', code: 'invalid-scope' }
+      }
+      try {
+        return await listEdits({
+          workspaceDir: root,
+          ...(payload?.sessionKey !== undefined ? { sessionKey: payload.sessionKey as string } : {}),
+          ...(payload?.limit !== undefined ? { limit: payload.limit as number } : {}),
+        })
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '读取本地修改失败' }
+      }
     },
   )
 }

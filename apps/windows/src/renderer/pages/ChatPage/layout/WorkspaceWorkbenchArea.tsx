@@ -22,6 +22,8 @@ import {
   buildArtifactLedger,
   type Artifact,
 } from '../components/WorkspaceArtifactsPanel/ledger'
+import { mergeLocalEdits } from '../components/WorkspaceArtifactsPanel/local-edits'
+import { useArtifactEdits } from '../hooks/useArtifactEdits'
 import { buildTurnProgress } from '../components/WorkspaceArtifactsPanel/progress'
 import { WorkspaceCleanupDialog } from '../components/WorkspaceCleanupDialog'
 import { FilePreviewModal } from '../../../components/FilePreviewModal'
@@ -207,18 +209,24 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     () => applySidecarMeta(ledger, sidecarMetas),
     [ledger, sidecarMetas],
   )
+  // 本地编辑（工作台改写 / 手工保存）不在消息里：合并成卡片，但不伪造 turn
+  const { edits: localEdits } = useArtifactEdits(sessionKey, workbench.open)
+  const mergedLedger = useMemo(
+    () => mergeLocalEdits(enrichedLedger, localEdits),
+    [enrichedLedger, localEdits],
+  )
   /** 清理时保护「声明/派生为成品」的路径；即使路径长得像过程文件也不删 */
   const protectedPaths = useMemo(
     () =>
       [
         ...new Set(
-          enrichedLedger.groups.flatMap((group) => group.deliverables.map((item) => item.path)),
+          mergedLedger.groups.flatMap((group) => group.deliverables.map((item) => item.path)),
         ),
       ].sort(),
-    [enrichedLedger],
+    [mergedLedger],
   )
 
-  const hasIntermediates = ledger.counts.intermediates > 0
+  const hasIntermediates = mergedLedger.counts.intermediates > 0
   const refreshBytes = useCallback(async () => {
     const api = window.electronAPI?.workspace
     if (!api?.cleanupScan) return
@@ -276,7 +284,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const compareArtifacts = useMemo(() => {
     if (!comparing) return []
     const byPath = new Map<string, Artifact>()
-    for (const group of enrichedLedger.groups) {
+    for (const group of mergedLedger.groups) {
       for (const item of group.deliverables) byPath.set(item.path, item)
       for (const item of group.intermediates) byPath.set(item.path, item)
     }
@@ -286,7 +294,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       if (hit) out.push(hit)
     }
     return out
-  }, [comparing, comparePaths, enrichedLedger])
+  }, [comparing, comparePaths, mergedLedger])
 
   // 对比期间 Esc 退出（预览本身也吃 Esc，所以只在对比时挂）。
   // 用捕获阶段 + stopPropagation：工作台的 Esc 会关掉整个工作台，对比应先吃掉这一下。
@@ -356,7 +364,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
    */
   const latestDeliverable = useMemo(() => {
     let best: { path: string; timestamp: number } | undefined
-    for (const group of enrichedLedger.groups) {
+    for (const group of mergedLedger.groups) {
       for (const item of group.deliverables) {
         if (!best || item.timestamp > best.timestamp) {
           best = { path: item.path, timestamp: item.timestamp }
@@ -364,7 +372,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       }
     }
     return best?.path
-  }, [enrichedLedger])
+  }, [mergedLedger])
 
   useEffect(() => {
     if (!follow || !streaming || !workbench.open || !latestDeliverable) return
@@ -385,14 +393,14 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const selectedArtifact = useMemo(() => {
     if (!selected) return undefined
-    for (const group of enrichedLedger.groups) {
+    for (const group of mergedLedger.groups) {
       const hit =
         group.deliverables.find((item) => item.path === selected) ??
         group.intermediates.find((item) => item.path === selected)
       if (hit) return hit
     }
     return undefined
-  }, [enrichedLedger, selected])
+  }, [mergedLedger, selected])
 
   // 换产物时收起浮层：新产物默认不弹，宽档的并排栏会自己出现
   useEffect(() => {
@@ -404,8 +412,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       <ArtifactInspector
         artifact={selectedArtifact}
         {...(sessionKey ? { sessionKey } : {})}
-        {...(enrichedLedger.versions.get(selectedArtifact.path)
-          ? { versions: enrichedLedger.versions.get(selectedArtifact.path)! }
+        {...(mergedLedger.versions.get(selectedArtifact.path)
+          ? { versions: mergedLedger.versions.get(selectedArtifact.path)! }
           : {})}
         onGoToTurn={onGoToMessage}
         onClose={() => setInspectorOpen(false)}
@@ -543,7 +551,10 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           onEdit={handleEditArtifact}
           onExport={(menu) => void handleExportMenu(menu)}
           onMore={(menu) => void handleMoreMenu(menu)}
-          onLocate={() => onGoToMessage?.(selectedArtifact.turnId)}
+          onLocate={() => {
+            if (selectedArtifact.turnId) onGoToMessage?.(selectedArtifact.turnId)
+            else toast.info('这是本地修改，没有对应的对话消息')
+          }}
           onCompare={handleCompareCurrent}
         />
       )}
@@ -575,7 +586,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         rail={
           workbench.onlyArtifacts ? (
             <WorkspaceArtifactsPanel
-              ledger={enrichedLedger}
+              ledger={mergedLedger}
               toAbsolutePath={toAbsolutePath}
               {...(selected ? { selectedPath: selected } : {})}
               onSelect={onSelect}
