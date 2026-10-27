@@ -105,6 +105,7 @@ export type AppUiSettingsCategory =
   | 'general'
   | 'appearance'
   | 'workspace'
+  | 'storage'
   | 'modelConfig'
   | 'voice'
   | 'channels'

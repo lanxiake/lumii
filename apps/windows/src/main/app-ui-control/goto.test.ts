@@ -38,6 +38,7 @@ describe('parseGotoInput', () => {
     const categories = [
       'general',
       'workspace',
+      'storage',
       'modelConfig',
       'voice',
       'channels',

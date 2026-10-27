@@ -10,6 +10,10 @@ import type { DirectoryManager } from '../directory-manager'
 import { securityUtils } from '../security-utils'
 import { ensureWorkspaceTempLayout } from '../workspace-paths'
 import { listTrash, restoreTrash, runCleanup, scanWorkspace } from '../workspace-cleanup'
+import { getStorageCleanupPrefs } from '../storage-cleanup-prefs'
+import { normalizeStorageCleanupPrefs, runScheduledCleanup } from '../workspace-cleanup-runner'
+import { readCleanupHistory } from '../workspace-cleanup-history'
+import { resolveLogsDir } from '../paths'
 import type {
   CleanupRunResult,
   CleanupScanResponse,
@@ -178,6 +182,34 @@ export function registerWorkspaceIpcHandlers(): void {
 
   ipcMain.handle('workspace:cleanup:listTrash', async (): Promise<CleanupTrashEntry[]> => {
     return listTrash({ dir: resolveActiveWorkspaceDir() })
+  })
+
+  // ── 存储与自动清理（设置页「存储」）──
+  /** 当前策略（缺省=默认值） */
+  ipcMain.handle('workspace:cleanup:getPrefs', async () => getStorageCleanupPrefs())
+
+  /** 保存策略：只落归一化后的合法字段 */
+  ipcMain.handle('workspace:cleanup:setPrefs', async (_event, raw?: unknown) => {
+    const prefs = normalizeStorageCleanupPrefs(raw)
+    const configManager = deps!.getConfigManager()
+    if (configManager) await configManager.updateAppConfig({ storageCleanup: prefs })
+    return { ok: true, prefs }
+  })
+
+  /** 立即清理：用户显式点了，不等系统空闲；其余安全闸不变 */
+  ipcMain.handle('workspace:cleanup:runNow', async () => {
+    return runScheduledCleanup({
+      dir: resolveActiveWorkspaceDir(),
+      prefs: { ...getStorageCleanupPrefs(), enabled: true },
+      idleSeconds: Number.MAX_SAFE_INTEGER,
+      logDir: resolveLogsDir(),
+    })
+  })
+
+  /** 最近清理记录（审计 jsonl 尾部） */
+  ipcMain.handle('workspace:cleanup:history', async (_event, limit?: unknown) => {
+    const count = typeof limit === 'number' && limit > 0 ? Math.min(500, Math.floor(limit)) : 50
+    return readCleanupHistory(resolveLogsDir(), count)
   })
 
   ipcMain.handle(

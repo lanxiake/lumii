@@ -720,6 +720,22 @@ export interface ElectronAPI {
     cleanupRestore: (
       id: string,
     ) => Promise<import('../shared/workspace-cleanup-types').CleanupRestoreResult>
+    /** 自动清理策略 */
+    cleanupGetPrefs: () => Promise<
+      import('../main/workspace-cleanup-runner').StorageCleanupPrefs
+    >
+    cleanupSetPrefs: (prefs: unknown) => Promise<{
+      ok: boolean
+      prefs: import('../main/workspace-cleanup-runner').StorageCleanupPrefs
+    }>
+    /** 立即清理（不等空闲） */
+    cleanupRunNow: () => Promise<
+      import('../main/workspace-cleanup-runner').ScheduledCleanupResult
+    >
+    /** 最近清理记录 */
+    cleanupHistory: (
+      limit?: number,
+    ) => Promise<import('../main/workspace-cleanup-history').CleanupHistoryEntry[]>
   }
 
   /** 产物元数据（侧车） */

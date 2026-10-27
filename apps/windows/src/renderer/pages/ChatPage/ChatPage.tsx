@@ -1428,19 +1428,45 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     setIsDeleteSessionModalOpen(true)
   }, [])
 
+  /** 「同时把本会话产物移入回收站」：只对当前会话有效（其它会话的消息没加载） */
+  const [deleteArtifactsToo, setDeleteArtifactsToo] = useState(false)
+
   const handleConfirmDeleteSession = useCallback(async () => {
     if (!sessionToDelete) return
+    // 产物移入回收站与删会话是两件事：分开报结果，别用一个「成功」盖住另一个失败
+    let trashed = 0
+    let trashError: string | undefined
+    if (deleteArtifactsToo && sessionToDelete === runtimeCurrentSessionKey) {
+      const paths = new Set<string>()
+      for (const message of runtimeMessages) {
+        for (const change of message.fileChanges ?? []) {
+          if (change.status !== 'deleted') paths.add(change.path)
+        }
+      }
+      if (paths.size > 0) {
+        try {
+          const result = await window.electronAPI?.artifact?.trash?.([...paths])
+          if (result?.ok) trashed = result.removed
+          else trashError = result?.error ?? '产物移入回收站失败'
+        } catch (err) {
+          trashError = err instanceof Error ? err.message : '产物移入回收站失败'
+        }
+      }
+    }
     try {
       await runtimeActions.deleteSession(sessionToDelete)
       await refreshLocalSessions()
-      toast.info('会话已删除')
+      if (trashError) toast.warning(`会话已删除；${trashError}`)
+      else if (trashed > 0) toast.info(`会话已删除，${trashed} 个产物已移入回收站`)
+      else toast.info('会话已删除')
     } catch (err) {
       logger.error('[handleConfirmDeleteSession] 删除会话失败:', err)
       toast.error('删除会话失败')
     }
+    setDeleteArtifactsToo(false)
     setIsDeleteSessionModalOpen(false)
     setSessionToDelete(null)
-  }, [sessionToDelete, runtimeActions, refreshLocalSessions, toast])
+  }, [sessionToDelete, deleteArtifactsToo, runtimeCurrentSessionKey, runtimeMessages, runtimeActions, refreshLocalSessions, toast])
 
   const handleCancelDeleteSession = useCallback(() => {
     setIsDeleteSessionModalOpen(false)
@@ -2090,6 +2116,20 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         confirmVariant="danger"
         onConfirm={handleConfirmDeleteSession}
         onCancel={handleCancelDeleteSession}
+        {...(sessionToDelete === runtimeCurrentSessionKey
+          ? {
+              extra: (
+                <label className={styles['delete-with-artifacts']}>
+                  <input
+                    type="checkbox"
+                    checked={deleteArtifactsToo}
+                    onChange={(event) => setDeleteArtifactsToo(event.target.checked)}
+                  />
+                  同时把本会话产物移入回收站（可在「设置 · 存储」里恢复）
+                </label>
+              ),
+            }
+          : {})}
       />
 
       {/* 分组清空历史确认 Modal */}

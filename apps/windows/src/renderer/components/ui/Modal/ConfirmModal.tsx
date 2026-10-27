@@ -9,6 +9,8 @@ export interface ConfirmModalProps {
   confirmText?: string;
   cancelText?: string;
   confirmVariant?: 'primary' | 'danger';
+  /** 正文下方的附加内容（如「同时删除产物」勾选框） */
+  extra?: React.ReactNode;
   /** 从设置中心等高 z-index 浮层内唤起时传 elevated */
   layer?: ModalProps['layer'];
   onConfirm: () => void;
@@ -27,6 +29,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmText = '确认',
   cancelText = '取消',
   confirmVariant = 'primary',
+  extra,
   layer,
   onConfirm,
   onCancel,
@@ -52,6 +55,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   return (
     <Modal open={open} title={title} footer={footer} onClose={onCancel} maskClosable={false} layer={layer}>
       <div className={styles['modal-confirm-content']}>{content}</div>
+      {extra}
     </Modal>
   );
 };

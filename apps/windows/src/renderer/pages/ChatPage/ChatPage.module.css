@@ -347,3 +347,15 @@
   text-align: center;
   pointer-events: none;
 }
+
+/* 删除会话时「同时移入回收站」勾选框 */
+.delete-with-artifacts {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--mt-fg-2);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}

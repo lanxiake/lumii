@@ -30,4 +30,19 @@ export const workspaceApi = {
     ipcRenderer.invoke('workspace:cleanup:listTrash'),
   cleanupRestore: (id: string): Promise<CleanupRestoreResult> =>
     ipcRenderer.invoke('workspace:cleanup:restore', id),
+  /** 自动清理策略 */
+  cleanupGetPrefs: (): Promise<import('../../main/workspace-cleanup-runner').StorageCleanupPrefs> =>
+    ipcRenderer.invoke('workspace:cleanup:getPrefs'),
+  cleanupSetPrefs: (prefs: unknown): Promise<{
+    ok: boolean
+    prefs: import('../../main/workspace-cleanup-runner').StorageCleanupPrefs
+  }> => ipcRenderer.invoke('workspace:cleanup:setPrefs', prefs),
+  /** 立即清理（不等空闲） */
+  cleanupRunNow: (): Promise<import('../../main/workspace-cleanup-runner').ScheduledCleanupResult> =>
+    ipcRenderer.invoke('workspace:cleanup:runNow'),
+  /** 最近清理记录 */
+  cleanupHistory: (
+    limit?: number,
+  ): Promise<import('../../main/workspace-cleanup-history').CleanupHistoryEntry[]> =>
+    ipcRenderer.invoke('workspace:cleanup:history', limit),
 }

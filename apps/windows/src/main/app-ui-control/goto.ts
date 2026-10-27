@@ -20,6 +20,7 @@ const VALID_CATEGORIES: ReadonlySet<string> = new Set<AppUiSettingsCategory>([
   'general',
   'appearance',
   'workspace',
+  'storage',
   'modelConfig',
   'voice',
   'channels',

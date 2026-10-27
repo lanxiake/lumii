@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import {
   User,
   FolderOpen,
+  HardDrive,
   Radio,
   Shield,
   Smartphone,
@@ -45,6 +46,7 @@ import type {
 import type { ScreenRecordConfig } from '../../hooks/business/useSettings'
 import styles from './SettingsPage.module.css'
 import { StorageInfo } from './components/StorageInfo'
+import { StorageSection } from './components/StorageSection'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
 
 /**
@@ -59,6 +61,7 @@ const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: React
   { id: 'general', label: '通用', icon: <User size={SETTINGS_ICON_SIZE} /> },
   { id: 'appearance', label: '外观', icon: <Palette size={SETTINGS_ICON_SIZE} /> },
   { id: 'workspace', label: '工作空间', icon: <FolderOpen size={SETTINGS_ICON_SIZE} /> },
+  { id: 'storage', label: '存储', icon: <HardDrive size={SETTINGS_ICON_SIZE} /> },
   { id: 'modelConfig', label: '模型配置', icon: <Cpu size={SETTINGS_ICON_SIZE} /> },
   { id: 'voice', label: '语音设置', icon: <Mic size={SETTINGS_ICON_SIZE} /> },
   { id: 'channels', label: '渠道设置', icon: <Radio size={SETTINGS_ICON_SIZE} /> },
@@ -731,6 +734,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           </>
         )
+      case 'storage':
+        return <StorageSection />
       case 'workspace':
         return (
           <WorkspaceSection

@@ -12,6 +12,7 @@ import { Modal } from '../ui/Modal/Modal'
 import {
   User,
   FolderOpen,
+  HardDrive,
   Radio,
   Shield,
   Smartphone,
@@ -53,6 +54,7 @@ const ICON_SIZE = 16
 const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: 'general', label: '通用', icon: <User size={ICON_SIZE} /> },
   { id: 'workspace', label: '工作空间', icon: <FolderOpen size={ICON_SIZE} /> },
+  { id: 'storage', label: '存储', icon: <HardDrive size={ICON_SIZE} /> },
   { id: 'modelConfig', label: '模型配置', icon: <Cpu size={ICON_SIZE} /> },
   { id: 'voice', label: '语音设置', icon: <Mic size={ICON_SIZE} /> },
   { id: 'channels', label: '渠道设置', icon: <Radio size={ICON_SIZE} /> },

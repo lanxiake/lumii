@@ -32,6 +32,12 @@ import type { ArtifactTrashResult as CleanupTrashResult } from '../shared/artifa
 
 const DEFAULT_SCAN_BUDGET_MS = 1500
 const MIN_AGE_MS = 60 * 60 * 1000
+/**
+ * 「被成品引用」校验的扫描预算。
+ * 本机实测：3000 个成品 + 1 万个临时文件时 3s 不够，校验会被判「未完成」→ 整体拒绝清理；
+ * 10s 能覆盖中等规模工作区，自动清理在空闲时跑，不需要那么抠。
+ */
+const REFERENCE_BUDGET_MS = 10_000
 const MAX_TEXT_REFERENCE_BYTES = 2 * 1024 * 1024
 const TEXT_REFERENCE_EXTENSIONS = new Set(['html', 'htm', 'svg', 'json', 'md', 'js', 'css', 'txt'])
 const TRASH_DIR_NAME = path.join('.lumii', 'trash')
@@ -357,7 +363,10 @@ export async function runCleanup(opts: {
     const deliverables = files.filter(
       (file) => !file.symlink && classifyArtifact({ path: file.rel }) === 'deliverable',
     )
-    const referenceScan = await collectReferencedNames(deliverables, Date.now() + 3000)
+    const referenceScan = await collectReferencedNames(
+      deliverables,
+      Date.now() + REFERENCE_BUDGET_MS,
+    )
     if (referenceScan.truncated) {
       return {
         ok: false,
@@ -676,7 +685,10 @@ export async function trashPaths(opts: {
   const deliverables = files.filter(
     (file) => !file.symlink && classifyArtifact({ path: file.rel }) === 'deliverable',
   )
-  const referenceScan = await collectReferencedNames(deliverables, Date.now() + 3000)
+  const referenceScan = await collectReferencedNames(
+    deliverables,
+    Date.now() + REFERENCE_BUDGET_MS,
+  )
   if (referenceScan.truncated) {
     return { ok: false, removed: 0, bytes: 0, skipped, error: '引用校验未完成；未删除任何文件' }
   }

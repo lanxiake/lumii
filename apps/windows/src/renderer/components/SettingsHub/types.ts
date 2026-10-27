@@ -23,6 +23,7 @@ export type MergedSettingsCategory =
   | 'general'
   | 'appearance'
   | 'workspace'
+  | 'storage'
   | 'modelConfig'
   | 'voice'
   | 'channels'

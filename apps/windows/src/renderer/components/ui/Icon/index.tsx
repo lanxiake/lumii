@@ -16,6 +16,9 @@ export {
 // 主题图标
 export { Monitor } from 'lucide-react'
 
+// 存储图标
+export { HardDrive } from 'lucide-react'
+
 // 同步图标
 export { Cloud } from 'lucide-react'
 

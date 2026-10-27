@@ -1039,3 +1039,28 @@
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
 }
+
+/* 存储页：占用/回收站/清理记录的行 */
+.storage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--mt-border-hairline);
+  color: var(--mt-fg-2);
+  font-size: 12px;
+}
+
+.storage-row:last-child {
+  border-bottom: none;
+}
+
+.storage-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mt-fg-2);
+  font-size: 12px;
+  cursor: pointer;
+}
