@@ -726,6 +726,15 @@ export interface ElectronAPI {
     thumb: (relPath: string) => Promise<
       import('../shared/artifact-thumbs-types').ArtifactThumbResult
     >
+    /** 多选导出（主进程弹框选目标） */
+    exportFiles: (
+      paths: readonly string[],
+      mode: import('../shared/artifact-export-types').ArtifactExportMode,
+    ) => Promise<import('../shared/artifact-export-types').ArtifactExportResult>
+    /** 多选移入回收站 */
+    trash: (paths: readonly string[]) => Promise<
+      import('../shared/artifact-export-types').ArtifactTrashResult
+    >
   }
 
   // 本地技能管�?

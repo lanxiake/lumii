@@ -65,7 +65,8 @@ export interface ArtifactCardProps {
   artifact: Artifact
   absolutePath: string
   selected?: boolean
-  onSelect: (relativePath: string) => void
+  /** 多选态（Ctrl/Shift）：由 rail 决定怎么合并，卡片只负责把修饰键翻成意图 */
+  onSelect: (relativePath: string, mode?: 'add' | 'range') => void
   /** 双击：开独立预览窗 */
   onOpenWindow?: (absolutePath: string, fileName: string) => void
 }
@@ -112,7 +113,12 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
     <button
       type="button"
       className={clsx(styles.card, selected && styles.cardSelected)}
-      onClick={() => onSelect(artifact.path)}
+      onClick={(event) => {
+        // 修饰键只在这里翻译成意图；多选的合并规则在 rail（selection.ts）
+        if (event.shiftKey) onSelect(artifact.path, 'range')
+        else if (event.ctrlKey || event.metaKey) onSelect(artifact.path, 'add')
+        else onSelect(artifact.path)
+      }}
       onDoubleClick={() => onOpenWindow?.(absolutePath, name)}
       title={artifact.path}
       aria-pressed={selected}

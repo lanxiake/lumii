@@ -6,7 +6,7 @@
  * 路径安全、大小上限与 30s 缓存。
  */
 
-import { ipcMain } from 'electron'
+import { dialog, ipcMain, type BrowserWindow } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import {
@@ -16,7 +16,13 @@ import {
   type ArtifactSidecar,
 } from '../../shared/artifact-declaration'
 import type { ArtifactThumbResult } from '../../shared/artifact-thumbs-types'
+import type {
+  ArtifactExportResult,
+  ArtifactTrashResult,
+} from '../../shared/artifact-export-types'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
+import { exportArtifacts, resolveExportFiles } from '../artifact-export'
+import { trashPaths } from '../workspace-cleanup'
 
 const MAX_PATHS = 200
 const MAX_SIDECAR_BYTES = 64 * 1024
@@ -24,6 +30,7 @@ const CACHE_TTL_MS = 30_000
 
 interface ArtifactIpcDeps {
   getWorkspaceDir: () => string
+  getMainWindow?: () => BrowserWindow | null
   log?: { warn: (...args: unknown[]) => void }
 }
 
@@ -148,4 +155,87 @@ export function registerArtifactIpcHandlers(): void {
     }
     return { ok: true, metas }
   })
+
+  // ---- 导出（多选）----
+  // 主进程弹保存框、写 zip / 拷文件：大文件不进 renderer，UI 线程不参与压缩。
+  ipcMain.handle(
+    'artifact:export',
+    async (
+      _event,
+      payload?: { paths?: unknown; mode?: unknown },
+    ): Promise<ArtifactExportResult> => {
+      const mode = payload?.mode
+      if (mode !== 'zip' && mode !== 'copy') {
+        return { ok: false, exported: 0, bytes: 0, error: '导出方式非法' }
+      }
+      const paths = Array.isArray(payload?.paths) ? (payload.paths as unknown[]) : []
+      if (paths.length === 0) return { ok: false, exported: 0, bytes: 0, error: '没有要导出的文件' }
+
+      let root: string
+      try {
+        root = deps!.getWorkspaceDir()
+      } catch (err) {
+        return { ok: false, exported: 0, bytes: 0, error: err instanceof Error ? err.message : '工作区不可用' }
+      }
+
+      // 先解析（同时做安全闸与体积校验），再弹框——用户选完目标却导不出来最恼人
+      const resolved = await resolveExportFiles(root, paths)
+      if (!resolved.ok) return { ok: false, exported: 0, bytes: 0, error: resolved.error }
+
+      const mainWindow = deps!.getMainWindow?.() ?? null
+      let destPath: string | undefined
+      if (mode === 'zip') {
+        const options: Electron.SaveDialogOptions = {
+          title: `导出 ${resolved.files.length} 个产物`,
+          defaultPath: 'artifacts.zip',
+          filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
+        }
+        const result = mainWindow
+          ? await dialog.showSaveDialog(mainWindow, options)
+          : await dialog.showSaveDialog(options)
+        if (result.canceled || !result.filePath) {
+          return { ok: false, exported: 0, bytes: 0, error: '已取消' }
+        }
+        destPath = result.filePath
+      } else {
+        const options: Electron.OpenDialogOptions = {
+          title: `复制 ${resolved.files.length} 个产物到…`,
+          properties: ['openDirectory', 'createDirectory'],
+          buttonLabel: '复制到此文件夹',
+        }
+        const result = mainWindow
+          ? await dialog.showOpenDialog(mainWindow, options)
+          : await dialog.showOpenDialog(options)
+        if (result.canceled || result.filePaths.length === 0) {
+          return { ok: false, exported: 0, bytes: 0, error: '已取消' }
+        }
+        destPath = result.filePaths[0]
+      }
+
+      return exportArtifacts({ workspaceDir: root, relPaths: paths, mode, destPath: destPath! })
+    },
+  )
+
+  // ---- 批量移入回收站（显式删除）----
+  ipcMain.handle(
+    'artifact:trash',
+    async (_event, paths?: unknown): Promise<ArtifactTrashResult> => {
+      if (!Array.isArray(paths) || paths.length === 0) {
+        return { ok: false, removed: 0, bytes: 0, skipped: 0, error: '没有要删除的文件' }
+      }
+      let root: string
+      try {
+        root = deps!.getWorkspaceDir()
+      } catch (err) {
+        return {
+          ok: false,
+          removed: 0,
+          bytes: 0,
+          skipped: 0,
+          error: err instanceof Error ? err.message : '工作区不可用',
+        }
+      }
+      return trashPaths({ dir: root, paths: paths.slice(0, MAX_PATHS) })
+    },
+  )
 }

@@ -10,7 +10,12 @@ import { SlotHost } from '../../../components/slots/SlotHost'
 import { usePluginEnabled } from '../../../../plugins/renderer/state'
 import { WorkspaceArtifactsPanel } from '../components/WorkspaceArtifactsPanel'
 import { ArtifactInspector } from '../components/WorkspaceArtifactsPanel/ArtifactInspector'
-import { applySidecarMeta, buildArtifactLedger } from '../components/WorkspaceArtifactsPanel/ledger'
+import { ArtifactCompareView } from '../components/WorkspaceArtifactsPanel/CompareView'
+import {
+  applySidecarMeta,
+  buildArtifactLedger,
+  type Artifact,
+} from '../components/WorkspaceArtifactsPanel/ledger'
 import { buildTurnProgress } from '../components/WorkspaceArtifactsPanel/progress'
 import { WorkspaceCleanupDialog } from '../components/WorkspaceCleanupDialog'
 import { FilePreviewModal } from '../../../components/FilePreviewModal'
@@ -236,29 +241,102 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     : undefined
   const selectedName = absoluteSelected?.split(/[\\/]/).pop() ?? absoluteSelected
 
-  const main = absoluteSelected ? (
-    <FilePreviewModal
-      key={absoluteSelected}
-      variant="embedded"
-      filePath={absoluteSelected}
-      fileName={selectedName ?? absoluteSelected}
-      onClose={() => onSelect(undefined)}
-    />
-  ) : (
-    <div className={styles.empty}>
-      <p className={styles.emptyTitle}>还没有打开产物</p>
-      <p className={styles.emptyHint}>
-        在左侧点任一产物在这里预览；双击可以开独立窗口。
-      </p>
-      <button
-        type="button"
-        className={styles.emptyAction}
-        onClick={() => onOnlyArtifactsChange(false)}
-      >
-        浏览工作区文件
-      </button>
-    </div>
+  // 对比模式：main 换成并排视图；退出（Esc / 点某一格 / 关闭工作台）回普通预览
+  const [comparePaths, setComparePaths] = useState<readonly string[]>([])
+  /** 本次会话里已经删掉的路径：历史 fileChanges 仍会派生卡片，这里统一隐藏 */
+  const [trashedPaths, setTrashedPaths] = useState<ReadonlySet<string>>(new Set())
+  const comparing = comparePaths.length > 0
+
+  const exitCompare = useCallback(() => setComparePaths([]), [])
+
+  const compareArtifacts = useMemo(() => {
+    if (!comparing) return []
+    const byPath = new Map<string, Artifact>()
+    for (const group of enrichedLedger.groups) {
+      for (const item of group.deliverables) byPath.set(item.path, item)
+      for (const item of group.intermediates) byPath.set(item.path, item)
+    }
+    const out: Artifact[] = []
+    for (const path of comparePaths) {
+      const hit = byPath.get(path)
+      if (hit) out.push(hit)
+    }
+    return out
+  }, [comparing, comparePaths, enrichedLedger])
+
+  // 对比期间 Esc 退出（预览本身也吃 Esc，所以只在对比时挂）。
+  // 用捕获阶段 + stopPropagation：工作台的 Esc 会关掉整个工作台，对比应先吃掉这一下。
+  useEffect(() => {
+    if (!comparing) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      exitCompare()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [comparing, exitCompare])
+
+  // 对比的项被删/被恢复后可能一个都不剩：别留一个空对比面板
+  useEffect(() => {
+    if (comparing && compareArtifacts.length === 0) exitCompare()
+  }, [comparing, compareArtifacts.length, exitCompare])
+
+  // 工作台关掉时一并退出对比，避免下次打开直接落在对比视图里
+  useEffect(() => {
+    if (!workbench.open) setComparePaths([])
+  }, [workbench.open])
+
+  const handleCompareSelect = useCallback(
+    (paths: readonly string[]) => setComparePaths(paths),
+    [],
   )
+
+  const handleTrashed = useCallback((paths: readonly string[]) => {
+    setTrashedPaths((previous) => {
+      const next = new Set(previous)
+      for (const path of paths) next.add(path)
+      return next
+    })
+  }, [])
+
+  // main 用渲染函数：对比视图要知道当前工作台宽度（<860 只并排 2 项）
+  const main = ({ width }: { width: number }) =>
+    comparing ? (
+      <ArtifactCompareView
+        items={compareArtifacts}
+        toAbsolutePath={toAbsolutePath}
+        width={width}
+        onPick={(relativePath) => {
+          exitCompare()
+          onSelect(relativePath)
+        }}
+        onExit={exitCompare}
+      />
+    ) : absoluteSelected ? (
+      <FilePreviewModal
+        key={absoluteSelected}
+        variant="embedded"
+        filePath={absoluteSelected}
+        fileName={selectedName ?? absoluteSelected}
+        onClose={() => onSelect(undefined)}
+      />
+    ) : (
+      <div className={styles.empty}>
+        <p className={styles.emptyTitle}>还没有打开产物</p>
+        <p className={styles.emptyHint}>
+          在左侧点任一产物在这里预览；双击可以开独立窗口。
+        </p>
+        <button
+          type="button"
+          className={styles.emptyAction}
+          onClick={() => onOnlyArtifactsChange(false)}
+        >
+          浏览工作区文件
+        </button>
+      </div>
+    )
 
   // inspector 只对「选中且来自台账」的产物出现：文件面板里的普通文件没有版本历史
   const [inspectorOpen, setInspectorOpen] = useState(false)
@@ -321,6 +399,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
               {...(selected ? { selectedPath: selected } : {})}
               onSelect={onSelect}
               onOpenWindow={openWindow}
+              onCompare={handleCompareSelect}
+              trashedPaths={trashedPaths}
+              onTrashed={handleTrashed}
               {...(progress ? { progress } : {})}
               onAbort={onAbort}
               cards={cards}

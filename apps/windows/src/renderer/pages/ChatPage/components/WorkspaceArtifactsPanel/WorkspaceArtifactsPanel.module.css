@@ -814,3 +814,182 @@
   font-size: 10px;
   line-height: 1.5;
 }
+
+/* ── 多选条（rail 底部） ── */
+.selectionBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--mt-border-hairline);
+  background: var(--mt-surface-2);
+}
+
+.selectionCount {
+  flex-shrink: 0;
+  color: var(--mt-fg-1);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.selectionAction {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.selectionAction:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  color: var(--mt-accent-500);
+}
+
+.selectionAction:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.selectionDanger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--mt-error) 45%, transparent);
+  color: var(--mt-error);
+}
+
+.selectionClose {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.selectionClose:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
+/* ── 对比视图（main 区） ── */
+.compare {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.compareHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+}
+
+.compareTitle {
+  color: var(--mt-fg-1);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.compareNote {
+  color: var(--mt-fg-3);
+  font-size: 10px;
+}
+
+.compareExit {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.compareExit:hover {
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
+}
+
+.compareGrid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  overflow: auto;
+  align-content: start;
+}
+
+.compareCell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 8px;
+  background: var(--mt-surface-1);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.compareCell:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+}
+
+.compareMedia {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: var(--mt-surface-2);
+}
+
+.compareMedia img,
+.compareMedia video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.compareCaption {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 6px 6px;
+}
+
+.compareName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1);
+  font-size: 10px;
+}
+
+.compareSpec {
+  flex-shrink: 0;
+  color: var(--mt-fg-3);
+  font-size: 9px;
+}

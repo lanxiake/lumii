@@ -12,6 +12,9 @@ import { stageOfTool, type ArtifactKind } from '../../../../../shared/artifact-r
 import { actionsForCard, type ArtifactCardState } from '../../../../../shared/card-state'
 import { ArtifactCard } from './ArtifactCard'
 import { ArtifactFoldRow } from './ArtifactFoldRow'
+import { applySelect, type ToggleMode } from './selection'
+import { useOptionalToast } from '../../../../components/ui/Toast/useOptionalToast'
+import { writeClipboardFiles } from '../../../../services/clipboard-service'
 import {
   formatClock,
   type Artifact,
@@ -92,6 +95,12 @@ export interface WorkspaceArtifactsPanelProps {
   onSelect: (relativePath: string) => void
   /** 双击开独立预览窗 */
   onOpenWindow?: (absolutePath: string, fileName: string) => void
+  /** 多选对比（2–4 项）：由工作台把 main 切到对比视图 */
+  onCompare?: (relativePaths: readonly string[]) => void
+  /** 已在本次会话里被删掉的路径：历史 fileChanges 仍会派生卡片，这里统一隐藏 */
+  trashedPaths?: ReadonlySet<string>
+  /** 删除成功后上抛，父层负责隐藏卡片并提供刷新入口 */
+  onTrashed?: (relativePaths: readonly string[]) => void
   /** 当前回合有工具在跑时的进度（阶段 + 已完成/总数 + 起始时间） */
   progress?: ArtifactProgress | null
   /** 中断当前回合（复用 ChatInput 的同一条中止通道） */
@@ -123,6 +132,9 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   selectedPath,
   onSelect,
   onOpenWindow,
+  onCompare,
+  trashedPaths,
+  onTrashed,
   progress,
   onAbort,
   onCleanup,
@@ -133,6 +145,10 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
 }) => {
   const [filter, setFilter] = useState<KindFilter>('all')
   const [query, setQuery] = useState('')
+  /** 多选：Ctrl/Cmd 加选、Shift 区间（区间只在可见顺序里算） */
+  const [selection, setSelection] = useState<ReadonlySet<string>>(new Set())
+  const [anchor, setAnchor] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   /**
    * 默认只展开最新一组（「本次任务」），更早的折叠——
    * 一个会话可能有几十组、三百多张卡，全展开既费 DOM 也不是用户当下要看的。
@@ -162,7 +178,9 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   const needle = query.trim().toLowerCase()
   const filteredGroups = useMemo(() => {
     const pass = (item: Artifact): boolean =>
-      matchesKind(item.kind, filter) && matchesQuery(item, needle)
+      matchesKind(item.kind, filter) &&
+      matchesQuery(item, needle) &&
+      !trashedPaths?.has(item.path)
     const out: Array<{
       group: ArtifactGroup
       deliverables: Artifact[]
@@ -175,7 +193,137 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
       out.push({ group, deliverables, intermediates })
     }
     return out
-  }, [ledger.groups, filter, needle])
+  }, [ledger.groups, filter, needle, trashedPaths])
+
+  /**
+   * 可见条目顺序（Shift 区间用）：按渲染顺序把「展开组的成品 + 展开折叠行的过程文件」
+   * 拼起来。收起的内容不参与——用户看不见的东西不该被一键圈走。
+   * 过程文件最多铺 FOLD_RENDER_CAP 张，顺序也照实际渲染的来。
+   */
+  const visibleOrder = useMemo(() => {
+    const out: string[] = []
+    for (const { group, deliverables, intermediates } of filteredGroups) {
+      if (!isGroupOpen(group.key, group.timestamp)) continue
+      for (const item of deliverables) out.push(item.path)
+      if (!expandedFolds.has(group.key)) continue
+      const shown = showAllFolds.has(group.key)
+        ? intermediates
+        : intermediates.slice(0, FOLD_RENDER_CAP)
+      for (const item of shown) out.push(item.path)
+    }
+    return out
+    // isGroupOpen 读 groupOverrides / filterActive，两者都在依赖里
+  }, [filteredGroups, groupOverrides, expandedFolds, showAllFolds, filterActive]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 选择集随可见性收敛：切筛选/收组后，已经看不到的项别继续挂着（底部条会显示它）
+  useEffect(() => {
+    setSelection((previous) => {
+      if (previous.size === 0) return previous
+      const visible = new Set(visibleOrder)
+      let changed = false
+      const next = new Set<string>()
+      for (const path of previous) {
+        if (visible.has(path)) next.add(path)
+        else changed = true
+      }
+      return changed ? next : previous
+    })
+  }, [visibleOrder])
+
+  const toast = useOptionalToast()
+
+  const handleCardSelect = (artifact: Artifact, mode?: 'add' | 'range'): void => {
+    const result = applySelect({
+      selected: selection,
+      order: visibleOrder,
+      path: artifact.path,
+      mode: (mode ?? 'toggle') as ToggleMode,
+      anchor,
+    })
+    setSelection(result.selected)
+    setAnchor(result.anchor)
+    // 普通点击就是「看这个」；多选时只改选中集，不打断当前预览
+    if (!mode) onSelect(artifact.path)
+  }
+
+  const selectedArtifacts = useMemo(() => {
+    if (selection.size === 0) return []
+    const byPath = new Map<string, Artifact>()
+    for (const group of ledger.groups) {
+      for (const item of group.deliverables) byPath.set(item.path, item)
+      for (const item of group.intermediates) byPath.set(item.path, item)
+    }
+    const out: Artifact[] = []
+    for (const path of selection) {
+      const hit = byPath.get(path)
+      if (hit) out.push(hit)
+    }
+    return out
+  }, [ledger.groups, selection])
+
+  const clearSelection = (): void => {
+    setSelection(new Set())
+    setAnchor(null)
+  }
+
+  const handleExport = async (mode: 'zip' | 'copy'): Promise<void> => {
+    const api = window.electronAPI?.artifact
+    const paths = selectedArtifacts.map((item) => item.path)
+    if (!api?.exportFiles || paths.length === 0) return
+    setBusy(true)
+    try {
+      const result = await api.exportFiles(paths, mode)
+      if (result.ok) {
+        toast.success(
+          `已${mode === 'zip' ? '打包' : '复制'} ${result.exported} 个文件到 ${result.destPath ?? '目标位置'}`,
+        )
+      } else if (result.error !== '已取消') {
+        toast.error(result.error ?? '导出失败')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '导出失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleTrash = async (): Promise<void> => {
+    const api = window.electronAPI?.artifact
+    const paths = selectedArtifacts.map((item) => item.path)
+    if (!api?.trash || paths.length === 0) return
+    setBusy(true)
+    try {
+      const result = await api.trash(paths)
+      if (!result.ok) {
+        toast.error(result.error ?? '删除失败')
+        return
+      }
+      const removed = new Set(paths)
+      onTrashed?.([...removed])
+      toast.success(
+        result.skipped > 0
+          ? `已移入回收站 ${result.removed} 个（${result.skipped} 个被引用/不可删，已保留）`
+          : `已移入回收站 ${result.removed} 个（可在「清理…」里恢复）`,
+      )
+      clearSelection()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleCopyPaths = (): void => {
+    const absolute = selectedArtifacts.map((item) => toAbsolutePath(item.path))
+    void writeClipboardFiles(absolute)
+      .then(() => toast.success(`已复制 ${absolute.length} 个文件到剪贴板`))
+      .catch(() => toast.error('复制失败'))
+  }
+
+  const handleCompare = (): void => {
+    if (!onCompare || selectedArtifacts.length < 2) return
+    onCompare(selectedArtifacts.map((item) => item.path))
+  }
 
   const toggle = (
     setter: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>,
@@ -194,8 +342,8 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
       key={artifact.path}
       artifact={artifact}
       absolutePath={toAbsolutePath(artifact.path)}
-      selected={selectedPath === artifact.path}
-      onSelect={onSelect}
+      selected={selectedPath === artifact.path || selection.has(artifact.path)}
+      onSelect={(path, mode) => handleCardSelect(artifact, mode)}
       {...(onOpenWindow ? { onOpenWindow } : {})}
     />
   )
@@ -443,6 +591,68 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
           })
         )}
       </div>
+
+      {/* 多选条：固定在 rail 底部（不随列表滚走），未选中时不占位 */}
+      {selection.size > 0 && (
+        <div className={styles.selectionBar} role="toolbar" aria-label="已选产物操作">
+          <span className={styles.selectionCount}>已选 {selection.size} 项</span>
+          <button
+            type="button"
+            className={styles.selectionAction}
+            disabled={busy}
+            onClick={() => void handleExport('zip')}
+            title="打包成一个 zip（保留目录结构）"
+          >
+            导出 zip
+          </button>
+          <button
+            type="button"
+            className={styles.selectionAction}
+            disabled={busy}
+            onClick={() => void handleExport('copy')}
+            title="复制到指定文件夹（重名自动改名）"
+          >
+            复制到…
+          </button>
+          <button
+            type="button"
+            className={styles.selectionAction}
+            onClick={handleCopyPaths}
+            title="把文件复制到剪贴板，可直接粘贴"
+          >
+            复制路径
+          </button>
+          {onCompare && (
+            <button
+              type="button"
+              className={styles.selectionAction}
+              disabled={selection.size < 2}
+              onClick={handleCompare}
+              title={selection.size < 2 ? '至少选 2 项才能对比' : '在右侧并排对比'}
+            >
+              对比
+            </button>
+          )}
+          <button
+            type="button"
+            className={clsx(styles.selectionAction, styles.selectionDanger)}
+            disabled={busy}
+            onClick={() => void handleTrash()}
+            title="移入回收站（可在「清理…」里恢复）"
+          >
+            移入回收站
+          </button>
+          <button
+            type="button"
+            className={styles.selectionClose}
+            onClick={clearSelection}
+            title="取消选择（Esc）"
+            aria-label="取消选择"
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -141,6 +141,7 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
 
   setArtifactIpcDeps({
     getWorkspaceDir: deps.getWorkspaceDir,
+    getMainWindow: deps.getMainWindow,
     log: deps.log,
   })
 

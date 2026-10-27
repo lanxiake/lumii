@@ -15,6 +15,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { resolveClientStateDir } from './paths'
 import { classifyArtifact, extOf } from '../shared/artifact-rules'
+import { normalizeArtifactPath } from '../shared/artifact-declaration'
 
 import type {
   CleanupCandidate,
@@ -26,6 +27,7 @@ import type {
   CleanupTrashEntry,
   CleanupRestoreResult,
 } from '../shared/workspace-cleanup-types'
+import type { ArtifactTrashResult as CleanupTrashResult } from '../shared/artifact-export-types'
 
 const DEFAULT_SCAN_BUDGET_MS = 1500
 const MIN_AGE_MS = 60 * 60 * 1000
@@ -561,8 +563,7 @@ export async function restoreTrash(opts: { dir: string; id: string }): Promise<C
 }
 
 /** 递归删除空目录；返回该目录是否已被删除 */
-async function pruneEmptyDirs(dir: string): Promise<boolean> {
-  let entries
+async function pruneEmptyDirs(dir: string): Promise<boolean> {  let entries
   try {
     entries = await fs.readdir(dir, { withFileTypes: true })
   } catch {
@@ -581,4 +582,120 @@ async function pruneEmptyDirs(dir: string): Promise<boolean> {
     // ignore
   }
   return false
+}
+
+/**
+ * 把指定路径移入回收站（用户显式删除 / 会话删除联动）。
+ *
+ * 与 `runCleanup` 的三点不同：
+ * - 不看 mtime（用户刚生成的东西也可能想删，1 小时门槛在这里只会挡人）；
+ * - 不看角色（成品也能删——用户点了就是点了）；
+ * - 只处理「点名的那几个文件」，不做目录遍历。
+ *
+ * 仍然保留的安全闸：路径归一（拒绝绝对路径/`..`）、`lstat` 拒符号链接、
+ * 越界拒绝、被其它成品按文件名引用时跳过（删了会让 html/md 里出现死链）。
+ */
+export async function trashPaths(opts: {
+  dir: string
+  paths: readonly unknown[]
+  logDir?: string
+  /** 引用校验的扫描预算；超预算就拒绝（宁可不动，也不留死链） */
+  budgetMs?: number
+}): Promise<CleanupTrashResult> {
+  const root = path.resolve(opts.dir)
+  if (!Array.isArray(opts.paths) || opts.paths.length === 0) {
+    return { ok: false, removed: 0, bytes: 0, skipped: 0, error: '没有要删除的文件' }
+  }
+
+  const targets: WalkedFile[] = []
+  let skipped = 0
+  const seen = new Set<string>()
+
+  for (const raw of opts.paths) {
+    const rel = normalizeArtifactPath(raw)
+    if (!rel) {
+      skipped += 1
+      continue
+    }
+    if (seen.has(rel)) continue
+    seen.add(rel)
+    const abs = path.join(root, ...rel.split('/'))
+    if (!insideWorkspace(root, abs)) {
+      skipped += 1
+      continue
+    }
+    let stat
+    try {
+      stat = await fs.lstat(abs)
+    } catch {
+      skipped += 1
+      continue
+    }
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      skipped += 1
+      continue
+    }
+    targets.push({ rel, abs, bytes: stat.size, mtimeMs: stat.mtimeMs, symlink: false })
+  }
+
+  if (targets.length === 0) {
+    return { ok: false, removed: 0, bytes: 0, skipped, error: '没有可删除的文件' }
+  }
+
+  // 引用校验：只扫 outputs/temp 里的成品
+  const { files, truncated } = await collectWorkspaceFiles(root, opts.budgetMs ?? 3000)
+  if (truncated) {
+    return { ok: false, removed: 0, bytes: 0, skipped, error: '工作区文件太多，未能校验引用关系；未删除任何文件' }
+  }
+  const deliverables = files.filter(
+    (file) => !file.symlink && classifyArtifact({ path: file.rel }) === 'deliverable',
+  )
+  const referenceScan = await collectReferencedNames(deliverables, Date.now() + 3000)
+  if (referenceScan.truncated) {
+    return { ok: false, removed: 0, bytes: 0, skipped, error: '引用校验未完成；未删除任何文件' }
+  }
+  const referenced = referenceScan.names
+
+  const now = Date.now()
+  const trashId = `${now}-${Math.random().toString(36).slice(2, 8)}`
+  const trashRoot = path.join(root, TRASH_DIR_NAME, trashId)
+  let removed = 0
+  let bytes = 0
+  const audit: Array<Record<string, unknown>> = []
+
+  for (const target of targets) {
+    if (referenced.has(path.posix.basename(target.rel))) {
+      skipped += 1
+      audit.push({ at: new Date().toISOString(), action: 'skip', path: target.rel, reason: 'referenced' })
+      continue
+    }
+    const dest = path.join(trashRoot, ...target.rel.split('/'))
+    try {
+      await fs.mkdir(path.dirname(dest), { recursive: true })
+      await fs.rename(target.abs, dest)
+      removed += 1
+      bytes += target.bytes
+      audit.push({
+        at: new Date().toISOString(),
+        action: 'trash',
+        trashId,
+        path: target.rel,
+        role: classifyArtifact({ path: target.rel }),
+        bytes: target.bytes,
+        trigger: 'manual',
+      })
+    } catch (err) {
+      skipped += 1
+      audit.push({
+        at: new Date().toISOString(),
+        action: 'skip',
+        path: target.rel,
+        reason: (err as NodeJS.ErrnoException).code ?? 'error',
+      })
+    }
+  }
+
+  await appendAuditLog(opts.logDir ?? path.join(resolveClientStateDir(), 'logs'), audit)
+
+  return { ok: true, removed, bytes, skipped, ...(removed > 0 ? { trashId } : {}) }
 }

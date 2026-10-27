@@ -31,6 +31,13 @@ export type {
   WorkbenchView,
 } from './layout'
 
+/** 传给 main 渲染函数的宽度信息（对比视图据此决定并排上限） */
+export interface WorkbenchMetrics {
+  /** 工作台当前像素宽度（拖拽中为临时值） */
+  width: number
+  compact: boolean
+}
+
 export interface WorkspaceWorkbenchProps {
   open: boolean
   view: WorkbenchView
@@ -53,8 +60,8 @@ export interface WorkspaceWorkbenchProps {
   vcsEnabled?: boolean
   /** rail：产物台账 / 工作区文件（由调用方按 onlyArtifacts 决定） */
   rail: ReactNode
-  /** main：内嵌预览或空态 */
-  main: ReactNode
+  /** main：内嵌预览或空态；传函数时可拿到当前工作台宽度（对比视图按宽度限项数） */
+  main: ReactNode | ((metrics: WorkbenchMetrics) => ReactNode)
   /** inspector：选中产物的规格 + 版本历史；宽度 ≥900 时并排，否则浮在 main 右侧 */
   inspector?: ReactNode
   /** inspector 是否展开（宽度不足时由 header 的「信息」按钮开关） */
@@ -126,6 +133,8 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   const displayWidth = dragWidth ?? resolved
   const compact = isCompactWidth(displayWidth)
   const inlineInspector = isInspectorInline(displayWidth)
+  const resolvedMain =
+    typeof main === 'function' ? main({ width: displayWidth, compact }) : main
 
   useEffect(() => {
     if (displayWidth > 0) setLastWidth(displayWidth)
@@ -402,7 +411,7 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
                   )}
                 </div>
               )}
-              {main}
+              {resolvedMain}
               {/* 窄档放不下第三栏：「信息」按钮把它叫成浮层，盖在预览上 */}
               {inspector && !inlineInspector && inspectorOpen && (
                 <div className={styles.inspectorFloat}>{inspector}</div>

@@ -17,7 +17,7 @@ import {
   utimes,
   writeFile,
 } from 'node:fs/promises'
-import { listTrash, restoreTrash, runCleanup, scanWorkspace } from './workspace-cleanup'
+import { listTrash, restoreTrash, runCleanup, scanWorkspace, trashPaths } from './workspace-cleanup'
 
 let base = ''
 let root = ''
@@ -203,5 +203,69 @@ describe('runCleanup', () => {
     const scan = await scanWorkspace({ dir: root })
     expect(scan.candidates.some((item) => item.path === 'outputs/x/link.png')).toBe(false)
     expect(scan.skipped.some((item) => item.reason === 'symlink')).toBe(true)
+  })
+})
+
+describe('trashPaths（显式删除）', () => {
+  it('成品也能删；回收站可恢复；审计 trigger=manual', async () => {
+    await writeFileAt('outputs/x/final.png', 'final')
+    const result = await trashPaths({ dir: root, paths: ['outputs/x/final.png'], logDir })
+    expect(result).toMatchObject({ ok: true, removed: 1, skipped: 0 })
+    expect(result.bytes).toBe(5)
+    expect(result.trashId).toBeTruthy()
+    expect(await exists('outputs/x/final.png')).toBe(false)
+
+    const trash = await listTrash({ dir: root })
+    expect(trash[0]?.files).toBe(1)
+    const restored = await restoreTrash({ dir: root, id: result.trashId! })
+    expect(restored).toMatchObject({ ok: true, restored: 1 })
+    expect(await readFile(path.join(root, 'outputs/x/final.png'), 'utf8')).toBe('final')
+
+    const audit = await readFile(
+      path.join(logDir, `cleanup-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.jsonl`),
+      'utf8',
+    )
+    const line = audit.trim().split('\n')[0]!
+    expect(JSON.parse(line)).toMatchObject({ action: 'trash', path: 'outputs/x/final.png', trigger: 'manual' })
+  })
+
+  it('刚写入的成品也删（不看 1 小时门槛），但被成品引用的跳过', async () => {
+    await writeFileAt('outputs/x/index.html', '<img src="cover.png">', false)
+    await writeFileAt('outputs/x/cover.png', 'c', false)
+    await writeFileAt('outputs/x/fresh.png', 'f', false)
+
+    const result = await trashPaths({
+      dir: root,
+      paths: ['outputs/x/cover.png', 'outputs/x/fresh.png'],
+      logDir,
+    })
+    expect(result).toMatchObject({ ok: true, removed: 1, skipped: 1 })
+    expect(await exists('outputs/x/cover.png')).toBe(true)
+    expect(await exists('outputs/x/fresh.png')).toBe(false)
+  })
+
+  it('非法路径（绝对/..）与符号链接被跳过；全部被跳过时报错而不是回 ok', async () => {
+    const result = await trashPaths({
+      dir: root,
+      paths: ['/etc/passwd', '../outside.png', ''],
+      logDir,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.removed).toBe(0)
+    expect(result.skipped).toBe(3)
+  })
+
+  it('扫描被预算截断时一个都不删（不留死链）', async () => {
+    await writeFileAt('outputs/x/index.html', '<img src="cover.png">')
+    await writeFileAt('outputs/x/cover.png')
+
+    const result = await trashPaths({
+      dir: root,
+      paths: ['outputs/x/cover.png'],
+      logDir,
+      budgetMs: 0,
+    })
+    expect(result.ok).toBe(false)
+    expect(await exists('outputs/x/cover.png')).toBe(true)
   })
 })
