@@ -100,9 +100,13 @@ export async function readSlideOutline(absPath: string): Promise<SlideOutlineRes
     outlineCache.set(absPath, { mtimeMs: stat.mtimeMs, size: stat.size, slides })
     return { ok: true, slides, deps: await depsForOutline() }
   } catch (err) {
+    // JSZip 对非 zip 文件抛的是英文底层错误（"Can't find end of central directory…"），
+    // 直接冒到 UI 没人看得懂。损坏/非 PPTX 统一给人话，其余错误保留原文便于排查。
+    const message = err instanceof Error ? err.message : ''
+    const notZip = /zip|central directory|end of central/i.test(message)
     return {
       ok: false,
-      error: err instanceof Error ? err.message : '解析 PPTX 失败',
+      error: notZip ? '不是有效的 PPTX 文件' : message || '解析 PPTX 失败',
     }
   }
 }

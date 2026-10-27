@@ -235,4 +235,32 @@ describe("vcs-snapshot 队列", () => {
     expect(p2).not.toBe(p1);
     await Promise.all([p1, p2]);
   });
+
+  it("执行中到达的快照不会留下死槽：后续快照仍然真的提交", async () => {
+    // 复现 2026-10-27 真机 E2E 抓到的问题：任务执行期间到达的请求会走 enqueue 的
+    // 可重入分支（同步执行任务体）。登记若在 enqueue 之后，就把刚摘掉的槽位又塞回去，
+    // 之后所有快照都合并进这个永远不执行的死槽，turn-index 从此只剩一行。
+    await getWorkspaceVcs(dir).hasUncommittedChanges();
+    fs.writeFileSync(path.join(dir, "a.txt"), "v1");
+
+    const p1 = maybeSnapshot({ workspaceDir: dir, runId: "r1", messageId: "m1" });
+    await new Promise((r) => setTimeout(r, 0)); // 任务已在执行
+    const p2 = maybeSnapshot({ workspaceDir: dir, runId: "r2", messageId: "m2" });
+    await Promise.all([p1, p2]);
+
+    // 执行中那一轮之后再写一次，第三次快照必须产生新提交（而不是被死槽吞掉）
+    fs.writeFileSync(path.join(dir, "a.txt"), "v2");
+    const p3 = maybeSnapshot({ workspaceDir: dir, runId: "r3", messageId: "m3" });
+    expect(p3).not.toBe(p2);
+    const commit = await p3;
+    expect(commit?.oid).toBeTruthy();
+
+    const entries = fs
+      .readFileSync(path.join(dir, ".mtbot-vcs", "turn-index.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { messageId: string; oid: string | null });
+    expect(entries.filter((entry) => entry.messageId === "m3")).toHaveLength(1);
+    expect(entries.find((entry) => entry.messageId === "m3")?.oid).toBeTruthy();
+  });
 });

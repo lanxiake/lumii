@@ -68,4 +68,12 @@ export interface VcsCommitOptions {
   readonly author: 'agent' | 'user'
   readonly conversationId?: string
   readonly runId?: string
+  /**
+   * 无变更时也产出一个提交（树与 HEAD 相同）。
+   *
+   * checkpoint 的「恢复前自动备份」要用：恢复可能来自本回合的精确副本而不是 git，
+   * 若此前刚有自动快照、工作区没有未提交变更，普通提交会返回 null → 没有备份点 →
+   * 撤销时无从回退（2026-10-27 真机 E2E 抓到）。
+   */
+  readonly allowEmpty?: boolean
 }

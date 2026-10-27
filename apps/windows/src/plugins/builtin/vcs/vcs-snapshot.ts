@@ -133,6 +133,11 @@ export function maybeSnapshot(params: {
     promise: undefined as unknown as Promise<VcsCommit | null>,
   }
 
+  // 先登记、再入队：`enqueue` 在「本工作区正有任务执行」时会**同步**执行任务体
+  // （可重入分支）。任务体开头就摘牌；若把登记放在 enqueue 之后，就会把刚摘掉的
+  // 槽位又塞回 map —— 之后所有快照请求都合并进这个永远不执行的死槽并静默丢失
+  // （2026-10-27 真机 E2E 抓到：临时工作区首个回合后 turn-index 只剩一行）。
+  pendingSnapshots.set(workspaceDir, slot)
   slot.promise = enqueue(
     workspaceDir,
     async () => {
@@ -171,7 +176,6 @@ export function maybeSnapshot(params: {
     },
     'vcs:snapshot',
   )
-  pendingSnapshots.set(workspaceDir, slot)
   return slot.promise
 }
 

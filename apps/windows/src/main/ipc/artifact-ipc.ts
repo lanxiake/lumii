@@ -1105,7 +1105,8 @@ export function registerArtifactIpcHandlers(): void {
         deps: {
           vcs: vcs
             ? {
-                commit: (message, author) => vcs.commit(workspaceDir, message, author),
+                commit: (message, author, options) =>
+                  vcs.commit(workspaceDir, message, author, options),
                 revertFile: (oid, filePath) => vcs.revertFile(workspaceDir, oid, filePath),
               }
             : null,

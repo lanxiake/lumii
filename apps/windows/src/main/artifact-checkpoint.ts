@@ -395,7 +395,11 @@ export async function planCheckpoint(opts: {
 
 export interface CheckpointApplyDeps {
   vcs: {
-    commit(message: string, author?: 'user' | 'agent'): Promise<{ oid: string } | null>
+    commit(
+      message: string,
+      author?: 'user' | 'agent',
+      options?: { allowEmpty?: boolean },
+    ): Promise<{ oid: string } | null>
     revertFile(oid: string, filepath: string): Promise<{ reverted: boolean }>
   } | null
   /** 读本地编辑 before 字节 */
@@ -511,11 +515,12 @@ export async function applyCheckpoint(opts: {
   const trashBatchIds: string[] = []
 
   try {
-    // 1. 备份：只要会覆盖文件就提交一次（store 恢复也是覆盖，撤销要靠它）；
-    //    无变更时 commit 返回 null
+    // 1. 备份：只要会覆盖文件就提交一次（store 恢复也是覆盖，撤销要靠它）。
+    //    必须允许空提交：自动快照刚提交过时工作区「无变更」，普通提交返回 null，
+    //    撤销就没有可回退的点（真机 E2E 复现过）。
     if (deps.vcs && plan.files.some((file) => file.action === 'restore')) {
       try {
-        const backup = await deps.vcs.commit('恢复前自动备份', 'user')
+        const backup = await deps.vcs.commit('恢复前自动备份', 'user', { allowEmpty: true })
         audit.backupOid = backup?.oid ?? null
       } catch (err) {
         warnings.push(`备份提交失败：${err instanceof Error ? err.message : String(err)}`)

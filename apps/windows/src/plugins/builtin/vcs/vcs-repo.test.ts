@@ -59,6 +59,11 @@ describe('WorkspaceVcs', () => {
     // 无新变更
     const c2 = await vcs.commit({ author: 'agent', message: '空提交尝试' })
     expect(c2).toBeNull()
+
+    // allowEmpty：恢复前备份必须有可回退的点（无变更也产出提交）
+    const c3 = await vcs.commit({ author: 'user', message: '恢复前自动备份', allowEmpty: true })
+    expect(c3?.oid).toBeTruthy()
+    expect(c3?.oid).not.toBe(c1?.oid)
   })
 
   it('statusDiff: 二进制产出不进版本库（按扩展名硬剪枝）', async () => {

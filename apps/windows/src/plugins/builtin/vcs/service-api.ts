@@ -22,11 +22,15 @@ export interface VcsService {
 
   // ── checkpoint（T7）用的写/查能力 ──
 
-  /** 提交当前工作区（无变更返回 null）；用于恢复前备份与恢复后收尾 */
+  /**
+   * 提交当前工作区（无变更返回 null）；用于恢复前备份与恢复后收尾。
+   * `allowEmpty`：无变更也产出一个提交（恢复前备份必须有可回退的点）。
+   */
   commit(
     workspaceDir: string,
     message: string,
     author?: 'user' | 'agent',
+    options?: { allowEmpty?: boolean },
   ): Promise<{ oid: string } | null>
 
   /** 把单个文件回退到某提交（目标版无该文件则删除）；不改其它文件 */

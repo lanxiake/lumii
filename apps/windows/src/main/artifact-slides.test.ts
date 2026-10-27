@@ -74,6 +74,8 @@ describe('readSlideOutline', () => {
     await fs.writeFile(file, 'not a zip')
     const result = await readSlideOutline(file)
     expect(result.ok).toBe(false)
+    // 底层 JSZip 错误不能直接冒给用户
+    if (!result.ok) expect(result.error).toBe('不是有效的 PPTX 文件')
   })
 })
 

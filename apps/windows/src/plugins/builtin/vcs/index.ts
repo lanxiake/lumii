@@ -76,8 +76,12 @@ export const vcsExtension = {
         maybeSnapshot,
         readFileAt: (workspaceDir, oid, filepath) =>
           getWorkspaceVcs(workspaceDir).readFileAt(oid, filepath),
-        commit: async (workspaceDir, message, author = 'user') => {
-          const result = await getWorkspaceVcs(workspaceDir).commit({ message, author })
+        commit: async (workspaceDir, message, author = 'user', options) => {
+          const result = await getWorkspaceVcs(workspaceDir).commit({
+            message,
+            author,
+            ...(options?.allowEmpty ? { allowEmpty: true } : {}),
+          })
           return result ? { oid: result.oid } : null
         },
         revertFile: (workspaceDir, oid, filepath) =>

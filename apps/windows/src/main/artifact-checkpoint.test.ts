@@ -491,6 +491,13 @@ describe('applyCheckpoint · 文本用 agent:end 精确副本恢复', () => {
     expect(planned.ok).toBe(true)
     if (!planned.ok) return
     const readTurnStoreBytes = vi.fn(async () => Buffer.from('STORE-BYTES'))
+    const commitVcs = vi.fn(
+      async (
+        _message: string,
+        _author?: 'user' | 'agent',
+        _options?: { allowEmpty?: boolean },
+      ) => ({ oid: 'backup-store' }),
+    )
     const result = await applyCheckpoint({
       workspaceDir: root,
       sessionKey: 'conv-1',
@@ -499,7 +506,7 @@ describe('applyCheckpoint · 文本用 agent:end 精确副本恢复', () => {
       restoreConversation: false,
       deps: {
         vcs: {
-          commit: vi.fn(async () => ({ oid: 'backup-store' })),
+          commit: commitVcs,
           revertFile: vi.fn(async () => ({ reverted: true })),
         },
         readEditBytes: vi.fn(async () => null),
@@ -520,5 +527,8 @@ describe('applyCheckpoint · 文本用 agent:end 精确副本恢复', () => {
     expect(await readFile(abs, 'utf8')).toBe('STORE-BYTES')
     // store 恢复也覆盖文件：必须先有备份点，撤销才有依据
     expect(result.backupOid).toBe('backup-store')
+    // 备份必须允许空提交 —— 自动快照刚提交过时工作区「无变更」，
+    // 普通提交会返回 null，撤销就没有可回退的点
+    expect(commitVcs.mock.calls[0]?.[2]).toEqual({ allowEmpty: true })
   })
 })

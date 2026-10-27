@@ -240,7 +240,7 @@ export class WorkspaceVcs {
    * 自愈后重跑即可。提交刻意留在外面 —— 它不读 index 的 stat 缓存，
    * 而重跑提交会产生重复提交。
    */
-  private async stageAndCommit(message: string): Promise<string | null> {
+  private async stageAndCommit(message: string, allowEmpty = false): Promise<string | null> {
     const t0 = Date.now()
     const hasChanges = await this.withIndexRepair(
       'stageAndCommit',
@@ -252,7 +252,7 @@ export class WorkspaceVcs {
       // 但统一走一条自愈路径比「每个调用点各自论证为什么可以不重建」更不容易错。
       () => this.rebuildIndexFromHead(),
     )
-    if (!hasChanges) return null
+    if (!hasChanges && !allowEmpty) return null
 
     const oid = await commitCli(this.workspaceDir, this.gitdir, message, GIT_AUTHOR)
     const ms = Date.now() - t0
@@ -271,7 +271,7 @@ export class WorkspaceVcs {
     if (!this.isInitialized()) return null
 
     const message = this.buildMessage(opts.message, opts.author, opts.conversationId, opts.runId)
-    const oid = await this.stageAndCommit(message)
+    const oid = await this.stageAndCommit(message, opts.allowEmpty === true)
     if (!oid) {
       log.info('[commit] 工作区无变更，跳过提交')
       return null
