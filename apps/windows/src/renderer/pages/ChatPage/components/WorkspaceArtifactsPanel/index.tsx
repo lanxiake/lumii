@@ -13,6 +13,7 @@ import { actionsForCard, type ArtifactCardState } from '../../../../../shared/ca
 import { ArtifactCard } from './ArtifactCard'
 import { ArtifactFoldRow } from './ArtifactFoldRow'
 import { applySelect, type ToggleMode } from './selection'
+import { groupStatusOf, GROUP_STATUS_LABEL } from './status'
 import { useOptionalToast } from '../../../../components/ui/Toast/useOptionalToast'
 import { writeClipboardFiles } from '../../../../services/clipboard-service'
 import {
@@ -103,6 +104,11 @@ export interface WorkspaceArtifactsPanelProps {
   onTrashed?: (relativePaths: readonly string[]) => void
   /** 选中集变化（动作条「对比」要合并 rail 里的多选） */
   onSelectionChange?: (paths: readonly string[]) => void
+  /** 「上次查看工作台」的时间：组列表里插一条分隔行 */
+  lastSeenAt?: number
+  /** 跟随本轮最新成品；用户任何手动操作都会把它关掉 */
+  follow?: boolean
+  onFollowChange?: (follow: boolean) => void
   /** 当前回合有工具在跑时的进度（阶段 + 已完成/总数 + 起始时间） */
   progress?: ArtifactProgress | null
   /** 中断当前回合（复用 ChatInput 的同一条中止通道） */
@@ -137,6 +143,10 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   onCompare,
   trashedPaths,
   onTrashed,
+  onSelectionChange,
+  lastSeenAt,
+  follow = false,
+  onFollowChange,
   progress,
   onAbort,
   onCleanup,
@@ -235,6 +245,8 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   const toast = useOptionalToast()
 
   const handleCardSelect = (artifact: Artifact, mode?: 'add' | 'range'): void => {
+    // 用户自己点卡片 = 交出控制权：跟随模式停在这里
+    onFollowChange?.(false)
     const result = applySelect({
       selected: selection,
       order: visibleOrder,
@@ -472,6 +484,17 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
             </>
           )}
         </span>
+        {onFollowChange && (
+          <button
+            type="button"
+            className={clsx(styles.summaryFollow, follow && styles.summaryFollowOn)}
+            onClick={() => onFollowChange(!follow)}
+            aria-pressed={follow}
+            title="跟随本轮最新成品（点卡片或搜索会自动退出）"
+          >
+            跟随
+          </button>
+        )}
         {onCleanup && (
           <button
             type="button"
@@ -490,7 +513,10 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              onFollowChange?.(false)
+              setQuery(event.target.value)
+            }}
             placeholder="搜索产物路径…"
             aria-label="搜索产物路径"
           />
@@ -503,7 +529,10 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
                 key={item.key}
                 type="button"
                 className={clsx(styles.filter, filter === item.key && styles.filterActive)}
-                onClick={() => setFilter(item.key)}
+                onClick={() => {
+                  onFollowChange?.(false)
+                  setFilter(item.key)
+                }}
                 aria-pressed={filter === item.key}
               >
                 {item.label}
@@ -524,17 +553,38 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
         ) : filteredGroups.length === 0 ? (
           cards.length > 0 ? null : <div className={styles.empty}>没有匹配的产物。</div>
         ) : (
-          filteredGroups.map(({ group, deliverables, intermediates }) => {
+          filteredGroups.map(({ group, deliverables, intermediates }, groupIndex) => {
             const expanded = isGroupOpen(group.key, group.timestamp)
             const foldOpen = expandedFolds.has(group.key)
+            // 最新一组才有「进行中」之类的实时状态；历史组一律已完成
+            const liveStatus = groupIndex === 0 ? groupStatusOf(cards) : 'done'
+            // 「上次查看之后」分隔行：插在第一条比 lastSeenAt 新的组前面
+            const showSeenDivider =
+              lastSeenAt !== undefined &&
+              group.timestamp > lastSeenAt &&
+              (groupIndex === 0 || filteredGroups[groupIndex - 1]!.group.timestamp <= lastSeenAt)
             return (
-              <section className={styles.group} key={group.key || '(root)'}>
+              <React.Fragment key={group.key || '(root)'}>
+              {showSeenDivider && (
+                <div className={styles.seenDivider} role="separator">
+                  上次查看之后
+                </div>
+              )}
+              <section className={styles.group}>
                 <button
                   type="button"
                   className={styles.groupHeader}
-                  onClick={() => toggleGroup(group.key, group.timestamp)}
+                  onClick={() => {
+                    onFollowChange?.(false)
+                    toggleGroup(group.key, group.timestamp)
+                  }}
                   aria-expanded={expanded}
                 >
+                  <span
+                    className={clsx(styles.groupStatus, styles[`groupStatus--${liveStatus}`])}
+                    aria-label={GROUP_STATUS_LABEL[liveStatus]}
+                    title={GROUP_STATUS_LABEL[liveStatus]}
+                  />
                   <span className={styles.groupTime}>{formatClock(group.timestamp)}</span>
                   <span className={styles.groupLabel} title={group.label}>
                     {group.label}
@@ -589,6 +639,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
                   </div>
                 )}
               </section>
+              </React.Fragment>
             )
           })
         )}

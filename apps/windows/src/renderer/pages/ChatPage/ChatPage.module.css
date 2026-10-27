@@ -325,3 +325,25 @@
   }
 }
 
+
+/* 工作台图标的「未查看产出」角标 */
+.icon-btn--badged {
+  position: relative;
+}
+
+.icon-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--mt-accent-500);
+  color: var(--mt-fg-on-accent);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}

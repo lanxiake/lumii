@@ -5,6 +5,7 @@ import type { Agent } from '../../services/agent-service'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
 import { notifyDesktop } from '../../services/app-service'
+import { countDeliverablesSince } from '../../../shared/artifact-count'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import { useToast } from '../../components/ui/Toast/useToast'
 import { useAgents } from '../../hooks/business/useAgents'
@@ -854,7 +855,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     locateAbsoluteFile,
     openDoc,
     toAbsolutePath,
-  } = useWorkspacePanels(activeView)
+    lastSeenAt,
+    seenDividerSince,
+    setFollow,
+  } = useWorkspacePanels(activeView, runtimeCurrentSessionKey)
+  /** 工具栏角标：上次打开工作台之后新增的成品数（打开工作台即清零） */
+  const unseenArtifactCount = useMemo(
+    () => countDeliverablesSince(runtimeMessages, lastSeenAt),
+    [runtimeMessages, lastSeenAt],
+  )
   const [autoApprove, setAutoApprove] = useState<boolean>(() => readAutoApproveEnabled())
   /** 审批在当前会话走时间线卡；仅其它会话才底部弹完整审批卡 */
   const permissionOnOtherSession = Boolean(
@@ -924,8 +933,25 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     const body = summary || (sessionTitle.length > 120 ? `${sessionTitle.slice(0, 117)}…` : sessionTitle)
     // `convId` 必须带（D1）：不带的话用户点了通知只会把主窗拉到前台，**不会切到那个会话**——
     // 而"点通知回到出事的地方"正是这条通知的全部价值。
-    notifyDesktop('MtBot · 任务已完成', body, runtimeCurrentSessionKey ?? undefined)
+    notifyDesktop('MtBot · 任务已完成', body, runtimeCurrentSessionKey ?? undefined, 'completed')
   }, [runtimeLastTaskCompletion, localRuntimeSession?.title, runtimeCurrentSessionKey])
+
+  /**
+   * 「等你拍板」系统通知：审批在等、窗口又不在前台时提醒（可打断，不受免打扰压制）。
+   * 同一 requestId 只弹一次——主进程侧还有一层去重，这里先挡掉明显的重复渲染。
+   */
+  const notifiedApprovalRef = useRef<string | null>(null)
+  useEffect(() => {
+    // 自动审批开着时请求会被立刻放行（毫秒级），弹通知只会闪一下——这条通知只服务「人在等」
+    if (!runtimePendingPermission || autoApprove) return
+    const requestId = runtimePendingPermission.requestId
+    if (notifiedApprovalRef.current === requestId) return
+    notifiedApprovalRef.current = requestId
+    const title = `Lumii · 等你拍板：${runtimePendingPermission.toolName}`
+    const raw = runtimePendingPermission.description || runtimePendingPermission.toolName
+    const body = raw.length > 120 ? `${raw.slice(0, 117)}…` : raw
+    notifyDesktop(title, body, permissionSessionKey ?? runtimeCurrentSessionKey ?? undefined, 'approval', `approval:${requestId}`)
+  }, [runtimePendingPermission, autoApprove, permissionSessionKey, runtimeCurrentSessionKey])
 
   // 本地 Runtime 自动审批：检测到待审批权限请求且 autoApprove 开启时自动放行
   useEffect(() => {
@@ -1944,6 +1970,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             readAloudActive={readAloudActive}
             readAloudSpeaking={voiceCallState.readAloudSpeaking}
             workbenchOpen={workbench.open}
+            workbenchBadge={workbench.open ? 0 : unseenArtifactCount}
             devContextChip={
               devContext ? (
                 <button
@@ -2111,6 +2138,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         onRespondPermission={(action) => runtimeActions.respondPermission(action)}
         onRetryPrompt={setInputValue}
         onGoToMessage={(messageId) => handleGoToMessage(messageId)}
+        lastSeenAt={seenDividerSince}
+        follow={workbench.follow}
+        onFollowChange={setFollow}
+        streaming={runtimeIsStreaming}
         {...(runtimeCurrentSessionKey ? { sessionKey: runtimeCurrentSessionKey } : {})}
       />
     </div>

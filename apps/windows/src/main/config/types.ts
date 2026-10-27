@@ -67,6 +67,16 @@ export interface AppConfig {
   autonomousAgents?: string[]
   /** 开发类 Agent 的本机绑定列表（Agent → CLI 后端 + 工作目录） */
   codingDevAgentBindings?: AgentDevBinding[]
+  /** 桌面通知策略（缺省 = 仅提醒「等你拍板」，免打扰 22–08） */
+  notifications?: {
+    /** 「等你拍板」是否弹系统通知 */
+    approval?: boolean
+    /** 「已完成」是否弹系统通知 */
+    completed?: boolean
+    /** 免打扰起止（本地时区小时，跨午夜用 start > end） */
+    quietStart?: number
+    quietEnd?: number
+  }
 }
 
 /**

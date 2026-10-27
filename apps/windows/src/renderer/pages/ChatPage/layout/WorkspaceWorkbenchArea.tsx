@@ -62,6 +62,13 @@ export interface WorkspaceWorkbenchAreaProps {
   onGoToMessage?: (messageId: string) => void
   /** 当前会话 key（inspector 查全会话版本历史用） */
   sessionKey?: string
+  /** 「上次查看工作台」的时间（rail 分隔行） */
+  lastSeenAt?: number
+  /** 跟随本轮最新成品 */
+  follow?: boolean
+  onFollowChange?: (follow: boolean) => void
+  /** 当前回合是否在流式运行（跟随只在运行时跟） */
+  streaming?: boolean
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -101,6 +108,10 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   onRetryPrompt,
   onGoToMessage,
   sessionKey,
+  lastSeenAt,
+  follow = false,
+  onFollowChange,
+  streaming = false,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
   const toast = useOptionalToast()
@@ -297,6 +308,28 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     (paths: readonly string[]) => setComparePaths(paths),
     [],
   )
+
+  /**
+   * 跟随模式：运行中，最新成品一变就把 main 切过去。
+   * 用户点卡/搜索/折叠会通过 `onFollowChange(false)` 主动交出控制权（设计 §7.5）。
+   */
+  const latestDeliverable = useMemo(() => {
+    let best: { path: string; timestamp: number } | undefined
+    for (const group of enrichedLedger.groups) {
+      for (const item of group.deliverables) {
+        if (!best || item.timestamp > best.timestamp) {
+          best = { path: item.path, timestamp: item.timestamp }
+        }
+      }
+    }
+    return best?.path
+  }, [enrichedLedger])
+
+  useEffect(() => {
+    if (!follow || !streaming || !workbench.open || !latestDeliverable) return
+    if (workbench.selectedPath === latestDeliverable) return
+    onSelect(latestDeliverable)
+  }, [follow, streaming, workbench.open, latestDeliverable, workbench.selectedPath, onSelect])
 
   const handleTrashed = useCallback((paths: readonly string[]) => {
     setTrashedPaths((previous) => {
@@ -508,6 +541,9 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
               onOpenWindow={openWindow}
               onCompare={handleCompareSelect}
               onSelectionChange={setRailSelection}
+              {...(lastSeenAt !== undefined ? { lastSeenAt } : {})}
+              follow={follow}
+              {...(onFollowChange ? { onFollowChange } : {})}
               trashedPaths={trashedPaths}
               onTrashed={handleTrashed}
               {...(progress ? { progress } : {})}

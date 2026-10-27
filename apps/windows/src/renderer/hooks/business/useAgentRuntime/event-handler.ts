@@ -1707,7 +1707,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           ? `${preview.slice(0, 120)}…`
           : preview
         : '结果已汇入会话，点击查看'
-      notifyDesktop(`Lumii · ${event.name} ${statusText}`, body, sessionKey)
+      notifyDesktop(`Lumii · ${event.name} ${statusText}`, body, sessionKey, 'completed')
       break
     }
 

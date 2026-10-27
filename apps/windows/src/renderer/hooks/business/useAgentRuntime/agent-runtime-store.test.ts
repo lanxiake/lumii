@@ -742,6 +742,8 @@ describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {
       'Lumii · 灵栖情报 已完成',
       expect.stringContaining('调研完成'),
       'conv-parent',
+      'completed',
+      undefined,
     )
   })
 
@@ -766,6 +768,8 @@ describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {
       'Lumii · 灵栖情报 执行失败',
       expect.stringContaining('权限不足'),
       'conv-parent',
+      'completed',
+      undefined,
     )
   })
 
@@ -782,6 +786,8 @@ describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {
       'Lumii · 灵栖情报 已完成',
       '结果已汇入会话，点击查看',
       'conv-parent',
+      'completed',
+      undefined,
     )
   })
 
@@ -792,6 +798,8 @@ describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {
       'Lumii · 灵栖情报 已完成',
       '结果已汇入会话，点击查看',
       'conv-parent',
+      'completed',
+      undefined,
     )
   })
 })

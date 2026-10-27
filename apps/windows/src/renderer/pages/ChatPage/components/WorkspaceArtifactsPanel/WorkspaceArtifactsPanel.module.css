@@ -1109,3 +1109,72 @@
   display: flex;
   overflow: hidden;
 }
+
+/* ── 任务组状态点 / 「上次查看之后」分隔行 / 跟随开关 ── */
+.groupStatus {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mt-fg-3);
+}
+
+.groupStatus--waiting_input {
+  background: #f5a524;
+}
+
+.groupStatus--running {
+  background: var(--mt-accent-500);
+}
+
+.groupStatus--failed {
+  background: var(--mt-error);
+}
+
+.groupStatus--done {
+  background: #3fbf7f;
+}
+
+.seenDivider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 2px;
+  color: var(--mt-accent-500);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.seenDivider::before,
+.seenDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--mt-accent-500) 35%, transparent);
+}
+
+.summaryFollow {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.summaryFollow:hover {
+  color: var(--mt-fg-1);
+}
+
+.summaryFollowOn {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  color: var(--mt-accent-500);
+}
+
+/* 同时有跟随与清理时，清理靠右对齐 */
+.summaryFollow + .summaryCleanup {
+  margin-left: 6px;
+}

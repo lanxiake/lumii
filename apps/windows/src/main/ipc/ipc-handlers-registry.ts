@@ -27,8 +27,10 @@ import {
 } from './artifact-ipc'
 import {
   setWindowIpcDeps,
-  registerWindowIpcHandlers
+  registerWindowIpcHandlers,
+  showDesktopTaskNotification
 } from './window-ipc'
+import { setNotificationDispatchDeps } from '../notification-dispatch'
 import {
   setChannelIpcDeps,
   registerChannelIpcHandlers
@@ -142,6 +144,14 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   setArtifactIpcDeps({
     getWorkspaceDir: deps.getWorkspaceDir,
     getMainWindow: deps.getMainWindow,
+    log: deps.log,
+  })
+
+  // 通知唯一出口：策略/免打扰/去重都在 dispatch 里判
+  setNotificationDispatchDeps({
+    getPrefs: () => deps.getConfigManager()?.getAppConfig().notifications,
+    isWindowFocused: () => deps.getMainWindow()?.isFocused() ?? false,
+    notify: showDesktopTaskNotification,
     log: deps.log,
   })
 

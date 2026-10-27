@@ -4,6 +4,7 @@
 import { ipcMain, screen, BrowserWindow } from 'electron'
 import type { TrayManager } from '../tray-manager'
 import { showDesktopTaskNotification as showDesktopNotify } from '../desktop-notify'
+import { dispatchNotification } from '../notification-dispatch'
 
 interface WindowIpcDeps {
   getMainWindow: () => BrowserWindow | null
@@ -28,7 +29,7 @@ export function setWindowIpcDeps(d: WindowIpcDeps): void {
  * @param body - 正文（宜简短）
  * @param convId - 可选；点击通知时跳转到该会话
  */
-function showDesktopTaskNotification(title: string, body: string, convId?: string): void {
+export function showDesktopTaskNotification(title: string, body: string, convId?: string): void {
   if (!deps) return
 
   const trayManager = deps.getTrayManager()
@@ -85,11 +86,31 @@ export function registerWindowIpcHandlers(): void {
     }
   })
 
-  /** 渲染进程请求桌面通知（如 Agent 回合结束、异步子 Agent 完成且用户不在该会话） */
-  ipcMain.handle('notify:desktop', async (_event, payload: { title?: string; body?: string; convId?: string }) => {
-    const title = typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : 'Lumii'
-    const body = typeof payload?.body === 'string' ? payload.body : ''
-    const convId = typeof payload?.convId === 'string' && payload.convId.trim() ? payload.convId.trim() : undefined
-    showDesktopTaskNotification(title, body, convId)
-  })
+  /** 渲染进程请求桌面通知（如 Agent 回合结束、异步子 Agent 完成、等你拍板） */
+  ipcMain.handle(
+    'notify:desktop',
+    async (
+      _event,
+      payload?: { title?: string; body?: string; convId?: string; type?: unknown; dedupeKey?: unknown },
+    ) => {
+      const title =
+        typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : 'Lumii'
+      const body = typeof payload?.body === 'string' ? payload.body : ''
+      const convId =
+        typeof payload?.convId === 'string' && payload.convId.trim() ? payload.convId.trim() : undefined
+      // 老调用不带 type：按「已完成」处理（策略/免打扰在 dispatch 里统一判）
+      const type = payload?.type === 'approval' ? 'approval' : 'completed'
+      const dedupeKey =
+        typeof payload?.dedupeKey === 'string' && payload.dedupeKey.trim()
+          ? payload.dedupeKey.trim()
+          : undefined
+      return dispatchNotification({
+        type,
+        title,
+        body,
+        ...(convId ? { convId } : {}),
+        ...(dedupeKey ? { dedupeKey } : {}),
+      })
+    },
+  )
 }

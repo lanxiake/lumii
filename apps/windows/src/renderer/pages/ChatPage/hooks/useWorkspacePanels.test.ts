@@ -113,3 +113,49 @@ describe('useWorkspacePanels · 工作台状态', () => {
     expect(result.current.locateFileTarget?.preview).toBe(true)
   })
 })
+
+describe('useWorkspacePanels · 未查看产出（lastSeenAt）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('第一次进入某会话：lastSeenAt 初始化为当前时间（历史产出不会变成巨大角标）', () => {
+    const before = Date.now()
+    const { result } = renderHook(() => useWorkspacePanels('chat', 'sess-1'))
+    expect(result.current.lastSeenAt).toBeGreaterThanOrEqual(before)
+    // 已落盘，后续进入不会重新初始化
+    expect(Number(localStorage.getItem('lumii.workbench.seen.sess-1'))).toBeGreaterThan(0)
+  })
+
+  it('打开工作台会刷新 lastSeenAt 并落盘', async () => {
+    const { result } = renderHook(() => useWorkspacePanels('chat', 'sess-2'))
+    const first = result.current.lastSeenAt
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+    act(() => result.current.toggleWorkbench())
+    expect(result.current.lastSeenAt).toBeGreaterThanOrEqual(first)
+    expect(Number(localStorage.getItem('lumii.workbench.seen.sess-2'))).toBe(
+      result.current.lastSeenAt,
+    )
+  })
+
+  it('切会话读回各自的记录，不串档', () => {
+    localStorage.setItem('lumii.workbench.seen.sess-a', '111')
+    localStorage.setItem('lumii.workbench.seen.sess-b', '222')
+    const { result, rerender } = renderHook(
+      ({ session }: { session: string }) => useWorkspacePanels('chat', session),
+      { initialProps: { session: 'sess-a' } },
+    )
+    expect(result.current.lastSeenAt).toBe(111)
+    rerender({ session: 'sess-b' })
+    expect(result.current.lastSeenAt).toBe(222)
+  })
+
+  it('follow 默认关，setFollow 改内存态', () => {
+    const { result } = renderHook(() => useWorkspacePanels('chat', 'sess-3'))
+    expect(result.current.workbench.follow).toBe(false)
+    act(() => result.current.setFollow(true))
+    expect(result.current.workbench.follow).toBe(true)
+  })
+})

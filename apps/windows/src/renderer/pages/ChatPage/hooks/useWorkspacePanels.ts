@@ -23,11 +23,18 @@ export interface WorkbenchState {
   customWidth?: number
   /** main 当前打开的产物（工作区相对路径；工作区外的文件存绝对路径） */
   selectedPath?: string
+  /** 跟随本轮最新成品（默认关；用户点卡/搜索即退出） */
+  follow: boolean
 }
 
 const STORAGE_PREFIX = 'lumii.workbench.v2.'
+/** 每个会话「上次看工作台」的时间：工具栏角标与「上次查看之后」分隔行共用 */
+const SEEN_PREFIX = 'lumii.workbench.seen.'
 
-type PersistedWorkbench = Pick<WorkbenchState, 'view' | 'onlyArtifacts' | 'preset' | 'customWidth'>
+type PersistedWorkbench = Pick<
+  WorkbenchState,
+  'view' | 'onlyArtifacts' | 'preset' | 'customWidth' | 'follow'
+>
 
 export { hashWorkspaceDir }
 
@@ -49,6 +56,7 @@ function loadPersisted(workspaceDir: string): PersistedWorkbench | null {
           ? parsed.preset
           : 'half',
       ...(typeof parsed.customWidth === 'number' ? { customWidth: parsed.customWidth } : {}),
+      follow: parsed.follow === true,
     }
   } catch {
     return null
@@ -62,6 +70,7 @@ function savePersisted(workspaceDir: string, state: WorkbenchState): void {
       onlyArtifacts: state.onlyArtifacts,
       preset: state.preset,
       ...(state.customWidth !== undefined ? { customWidth: state.customWidth } : {}),
+      follow: state.follow,
     }
     localStorage.setItem(storageKey(workspaceDir), JSON.stringify(persisted))
   } catch {
@@ -74,11 +83,47 @@ const INITIAL: WorkbenchState = {
   view: 'workspace',
   onlyArtifacts: true,
   preset: 'half',
+  follow: false,
+}
+
+function seenKey(sessionKey: string): string {
+  return `${SEEN_PREFIX}${sessionKey}`
+}
+
+/**
+ * 读「上次看工作台」的时间。
+ * 第一次进入某个会话**必须**初始化为当前时间——否则会话里历史几百个成品
+ * 会在工具栏上变成一个巨大的角标（用户从没「错过」过他还没打开过的东西）。
+ */
+function loadSeen(sessionKey: string | null | undefined): number {
+  if (!sessionKey) return Date.now()
+  try {
+    const raw = localStorage.getItem(seenKey(sessionKey))
+    const parsed = raw ? Number(raw) : NaN
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+    const now = Date.now()
+    localStorage.setItem(seenKey(sessionKey), String(now))
+    return now
+  } catch {
+    return Date.now()
+  }
 }
 
 /** Owns workbench visibility, view state, width preset, and file reveal state. */
-export function useWorkspacePanels(activeView: ViewType | undefined) {
+export function useWorkspacePanels(
+  activeView: ViewType | undefined,
+  sessionKey?: string | null,
+) {
   const [workbench, setWorkbench] = useState<WorkbenchState>(INITIAL)
+  /** 「上次看工作台」的时间；切会话时重读，打开工作台即刷新（角标用） */
+  const [lastSeenAt, setLastSeenAt] = useState<number>(() => loadSeen(sessionKey))
+  /**
+   * 「上次查看之后」分隔行的基准：打开工作台时**冻结上一次的值**。
+   * 若与角标共用实时值，打开瞬间就被刷新，分隔行永远看不见——
+   * 用户要的是「这次打开之后新增的」，不是「打开这一毫秒之后新增的」。
+   */
+  const [seenDividerSince, setSeenDividerSince] = useState<number>(() => loadSeen(sessionKey))
+  const lastSeenRef = useRef(lastSeenAt)
   const [locateFileTarget, setLocateFileTarget] = useState<LocateFileTarget | null>(null)
   const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
   const { workspaceDir, toAbsolutePath, toRelativePath } = useWorkspace()
@@ -97,6 +142,42 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
     if (!workspaceDir || !hydratedRef.current) return
     savePersisted(workspaceDir, workbench)
   }, [workspaceDir, workbench])
+
+  // 切会话：重读该会话的「上次查看」（没有记录就初始化为当前时间并落盘）
+  useEffect(() => {
+    const seen = loadSeen(sessionKey)
+    // 同步更新 ref：同一提交里 markSeen 可能紧跟着跑（切会话时工作台还开着），
+    // 若等下一个 effect 再同步，它会拿到上一个会话的时间，分隔行就消失
+    lastSeenRef.current = seen
+    setLastSeenAt(seen)
+    setSeenDividerSince(seen)
+  }, [sessionKey])
+
+  useEffect(() => {
+    lastSeenRef.current = lastSeenAt
+  }, [lastSeenAt])
+
+  const markSeen = useCallback(() => {
+    const now = Date.now()
+    // 先冻结「打开之前」的值给分隔行，再刷新角标的实时值
+    setSeenDividerSince(lastSeenRef.current)
+    setLastSeenAt(now)
+    if (!sessionKey) return
+    try {
+      localStorage.setItem(seenKey(sessionKey), String(now))
+    } catch {
+      // localStorage 不可用就只在内存里生效
+    }
+  }, [sessionKey])
+
+  // 打开工作台即清零角标（用户已经看到了）
+  useEffect(() => {
+    if (workbench.open) markSeen()
+  }, [workbench.open, markSeen])
+
+  const setFollow = useCallback((follow: boolean) => {
+    setWorkbench((previous) => ({ ...previous, follow }))
+  }, [])
 
   const closeWorkbench = useCallback(() => {
     setWorkbench((previous) => ({ ...previous, open: false }))
@@ -202,6 +283,10 @@ export function useWorkspacePanels(activeView: ViewType | undefined) {
 
   return {
     workbench,
+    lastSeenAt,
+    seenDividerSince,
+    markSeen,
+    setFollow,
     locateFileTarget,
     uncommittedDiff,
     refreshVcs,

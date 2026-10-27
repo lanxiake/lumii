@@ -245,3 +245,76 @@ describe('WorkspaceArtifactsPanel', () => {
     expect(onAbort).toHaveBeenCalled()
   })
 })
+
+describe('WorkspaceArtifactsPanel 状态点 / 上次查看 / 跟随', () => {
+  it('最新组显示状态点（等你拍板优先），历史组显示已完成', () => {
+    const ledger = buildArtifactLedger([
+      { id: 'u1', role: 'user', timestamp: 10, text: '写报告' },
+      assistant('t1', 20, [{ path: 'outputs/a/old.md', status: 'added', confidence: 'exact' }]),
+      { id: 'u2', role: 'user', timestamp: 30, text: '再写一份' },
+      assistant('t2', 40, [{ path: 'outputs/b/new.md', status: 'added', confidence: 'exact' }]),
+    ])
+    renderPanel({
+      ledger,
+      cards: [
+        {
+          id: 'c1',
+          turnId: 't2',
+          timestamp: 40,
+          kind: 'doc',
+          lifecycle: 'waiting_input',
+        },
+      ],
+    })
+    const dots = screen.getAllByLabelText(/等你拍板|已完成/)
+    expect(dots.some((dot) => dot.getAttribute('aria-label') === '等你拍板')).toBe(true)
+    expect(dots.some((dot) => dot.getAttribute('aria-label') === '已完成')).toBe(true)
+  })
+
+  it('有比 lastSeenAt 更新的组时插一条「上次查看之后」分隔行', () => {
+    const ledger = buildArtifactLedger([
+      { id: 'u1', role: 'user', timestamp: 10, text: '旧任务' },
+      assistant('t1', 100, [{ path: 'outputs/a/old.md', status: 'added', confidence: 'exact' }]),
+      { id: 'u2', role: 'user', timestamp: 200, text: '新任务' },
+      assistant('t2', 300, [{ path: 'outputs/b/new.md', status: 'added', confidence: 'exact' }]),
+    ])
+    const { rerender } = renderPanel({ ledger, lastSeenAt: 150 })
+    expect(screen.getByText('上次查看之后')).toBeInTheDocument()
+
+    // 全部都在上次查看之前 → 不渲染分隔行
+    rerender(
+      <WorkspaceArtifactsPanel
+        ledger={ledger}
+        toAbsolutePath={toAbsolutePath}
+        onSelect={vi.fn()}
+        lastSeenAt={999}
+      />,
+    )
+    expect(screen.queryByText('上次查看之后')).toBeNull()
+  })
+
+  it('跟随开关可切；点卡片会自动退出跟随', () => {
+    const ledger = buildArtifactLedger([
+      { id: 'u1', role: 'user', timestamp: 10, text: '做封面' },
+      assistant('t1', 20, [{ path: 'outputs/covers/a.png', status: 'added', confidence: 'exact' }]),
+    ])
+    const onFollowChange = vi.fn()
+    const { rerender } = renderPanel({ ledger, follow: false, onFollowChange })
+    fireEvent.click(screen.getByRole('button', { name: '跟随' }))
+    expect(onFollowChange).toHaveBeenCalledWith(true)
+
+    rerender(
+      <WorkspaceArtifactsPanel
+        ledger={ledger}
+        toAbsolutePath={toAbsolutePath}
+        onSelect={vi.fn()}
+        follow
+        onFollowChange={onFollowChange}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '跟随' })).toHaveAttribute('aria-pressed', 'true')
+    onFollowChange.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /a\.png/ }))
+    expect(onFollowChange).toHaveBeenCalledWith(false)
+  })
+})
