@@ -28,7 +28,7 @@ import type {
   LocalArtifactEdit,
   ProposeTextEditInput,
 } from '../shared/artifact-edit-types'
-import { classifyArtifact } from '../shared/artifact-rules'
+import { classifyArtifact, isTextArtifactPath } from '../shared/artifact-rules'
 
 const EDIT_DIR = '.lumii/edits'
 const INDEX_FILE = 'index.jsonl'
@@ -36,6 +36,8 @@ const STALE_PROPOSAL_MS = 24 * 60 * 60 * 1000
 const MAX_TEXT_EDIT_BYTES = 10 * 1024 * 1024
 const MAX_REPLACEMENT_CHARS = 2_000_000
 const EDIT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{5,79}$/
+/** 手工保存的连续写入合并窗口 */
+const MANUAL_MERGE_MS = 60_000
 
 export interface EditTarget {
   root: string
@@ -562,6 +564,193 @@ interface IndexEntry {
   derivedFrom?: string
 }
 
+/** 读索引并按 editId 取最后一条（同一编辑的合并保存会追加多行） */
+async function readIndexEntries(root: string): Promise<Map<string, IndexEntry>> {
+  let text: string
+  try {
+    text = await fs.readFile(indexPathFor(root), 'utf8')
+  } catch {
+    return new Map()
+  }
+  const byId = new Map<string, IndexEntry>()
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    try {
+      const entry = JSON.parse(trimmed) as IndexEntry
+      if (!entry || typeof entry.editId !== 'string' || typeof entry.path !== 'string') continue
+      byId.set(entry.editId, entry)
+    } catch {
+      // 坏行跳过
+    }
+  }
+  return byId
+}
+
+export interface LocalEditContent {
+  editId: string
+  relPath: string
+  absPath: string
+  bytes: number
+  /** null = 二进制/非文本（版本 diff 不处理） */
+  text: string | null
+}
+
+/** 读某次本地编辑的候选/改前内容（版本对照用） */
+export async function getLocalEditContent(opts: {
+  workspaceDir: string
+  editId: unknown
+  which?: 'candidate' | 'before'
+}): Promise<LocalEditContent | null> {
+  const editId = normalizeEditId(opts.editId)
+  if (!editId) return null
+  let root: string
+  try {
+    root = await fs.realpath(path.resolve(opts.workspaceDir))
+  } catch {
+    return null
+  }
+  const dir = editDirFor(root, editId)
+  const meta = await readMeta(dir)
+  if (!meta) return null
+  const file = opts.which === 'before' ? meta.beforeFile : meta.candidateFile
+  const abs = path.join(dir, file)
+  try {
+    const stat = await fs.lstat(abs)
+    if (!stat.isFile()) return null
+    const bytes = await fs.readFile(abs)
+    const text =
+      isTextArtifactPath(meta.path) && !bytes.includes(0) ? bytes.toString('utf8') : null
+    return { editId, relPath: meta.path, absPath: abs, bytes: stat.size, text }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 手工保存（`file:write` 完成后）记录一条 local 版本。
+ * 同一文件 60s 内的连续保存合并为同一条：candidate 更新，before 保留最早。
+ */
+export async function recordManualSave(opts: {
+  workspaceDir: string
+  path: unknown
+  beforeContent: string
+  afterContent: string
+  sessionKey?: string | null
+  now?: number
+}): Promise<{ editId: string; merged: boolean; path: string; bytes: number } | null> {
+  const { beforeContent, afterContent } = opts
+  if (typeof opts.path !== 'string' || !opts.path) return null
+  if (beforeContent === afterContent) return null
+  if (beforeContent.includes('\0') || afterContent.includes('\0')) return null
+  if (
+    Buffer.byteLength(beforeContent, 'utf8') > MAX_TEXT_EDIT_BYTES ||
+    Buffer.byteLength(afterContent, 'utf8') > MAX_TEXT_EDIT_BYTES
+  ) {
+    return null
+  }
+
+  let root: string
+  try {
+    root = await fs.realpath(path.resolve(opts.workspaceDir))
+  } catch {
+    return null
+  }
+
+  const raw = opts.path
+  let rel: string
+  let abs: string
+  if (path.isAbsolute(raw)) {
+    abs = path.resolve(raw)
+    if (!inside(root, abs)) return null
+    rel = toRelPosix(root, abs)
+  } else {
+    const normalized = normalizeArtifactPath(raw)
+    if (!normalized) return null
+    rel = normalized
+    abs = path.join(root, ...rel.split('/'))
+  }
+  const role = classifyArtifact({ path: rel })
+  if (role === 'internal' || role === 'ephemeral' || !isTextArtifactPath(rel)) return null
+  try {
+    const real = await fs.realpath(abs)
+    if (!inside(root, real)) return null
+  } catch {
+    return null
+  }
+
+  const sessionKey = normalizeSessionKey(opts.sessionKey)
+  const now = opts.now ?? Date.now()
+  const entries = await readIndexEntries(root)
+  const latest = [...entries.values()]
+    .filter((entry) => entry.path === rel && (entry.sessionKey ?? null) === sessionKey)
+    .sort((a, b) => (b.appliedAt ?? b.at) - (a.appliedAt ?? a.at))[0]
+
+  if (
+    latest &&
+    latest.action === 'manual' &&
+    now - (latest.appliedAt ?? latest.at) <= MANUAL_MERGE_MS
+  ) {
+    const dir = editDirFor(root, latest.editId)
+    const meta = await readMeta(dir)
+    if (meta && meta.status === 'applied') {
+      const candidateBytes = Buffer.from(afterContent, 'utf8')
+      try {
+        await fs.writeFile(path.join(dir, meta.candidateFile), candidateBytes)
+        const updated: EditMeta = {
+          ...meta,
+          candidateHash: sha256Bytes(candidateBytes),
+          appliedAt: now,
+        }
+        await writeMeta(dir, updated)
+        await appendIndex(root, updated)
+        return {
+          editId: latest.editId,
+          merged: true,
+          path: rel,
+          bytes: candidateBytes.byteLength,
+        }
+      } catch {
+        // 合并失败就落一条新的，不能让保存没有版本
+      }
+    }
+  }
+
+  const editId = newEditId()
+  const dir = editDirFor(root, editId)
+  const ext = path.extname(rel) || '.txt'
+  const beforeFile = `before${ext}`
+  const candidateFile = `candidate${ext}`
+  const beforeBytes = Buffer.from(beforeContent, 'utf8')
+  const candidateBytes = Buffer.from(afterContent, 'utf8')
+  const meta: EditMeta = {
+    editId,
+    sessionKey,
+    path: rel,
+    action: 'manual',
+    scope: { type: 'file' },
+    at: now,
+    status: 'applied',
+    baseHash: sha256Bytes(beforeBytes),
+    candidateHash: sha256Bytes(candidateBytes),
+    beforeFile,
+    candidateFile,
+    originalBytes: beforeBytes.byteLength,
+    appliedAt: now,
+  }
+  try {
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(path.join(dir, beforeFile), beforeBytes)
+    await fs.writeFile(path.join(dir, candidateFile), candidateBytes)
+    await writeMeta(dir, meta)
+    await appendIndex(root, meta)
+    return { editId, merged: false, path: rel, bytes: candidateBytes.byteLength }
+  } catch {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    return null
+  }
+}
+
 export async function listEdits(opts: {
   workspaceDir: string
   sessionKey?: string | null
@@ -581,26 +770,7 @@ export async function listEdits(opts: {
     return fail('sessionKey 非法', 'invalid-scope')
   }
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500)
-
-  let text: string
-  try {
-    text = await fs.readFile(indexPathFor(root), 'utf8')
-  } catch {
-    return { ok: true, edits: [] }
-  }
-
-  const byId = new Map<string, IndexEntry>()
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      const entry = JSON.parse(trimmed) as IndexEntry
-      if (!entry || typeof entry.editId !== 'string' || typeof entry.path !== 'string') continue
-      byId.set(entry.editId, entry)
-    } catch {
-      // 坏行跳过
-    }
-  }
+  const byId = await readIndexEntries(root)
 
   const edits: LocalArtifactEdit[] = []
   for (const entry of byId.values()) {

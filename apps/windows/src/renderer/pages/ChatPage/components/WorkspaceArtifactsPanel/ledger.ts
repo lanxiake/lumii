@@ -197,9 +197,20 @@ export interface ArtifactGroup {
 }
 
 export interface ArtifactVersion {
-  turnId: string
+  /** P2：`turn:<messageId>` / `local:<editId>`；台账回退版本可能没有 */
+  versionId?: string
+  source?: 'turn' | 'local'
+  turnId?: string
   timestamp: number
-  status: FileChangeEntry['status']
+  status: FileChangeEntry['status'] | 'edited'
+  /** P2：内容是否可取（列表阶段只推断，不读 blob） */
+  content?: {
+    available: boolean
+    kind?: 'git' | 'store'
+    approximate?: boolean
+    reason?: string
+  }
+  pinned?: { pinId: string; at: number }
 }
 
 export interface ArtifactLedger {
@@ -390,7 +401,7 @@ export function buildArtifactLedger(
   }
 
   // 工具声明：覆盖 kind/role/meta；fileChanges 没记到的路径也补卡（如直连生图/后台产物）
-  const latestStatus = new Map<string, FileChangeEntry['status']>()
+  const latestStatus = new Map<string, ArtifactVersion['status']>()
   for (const [path, list] of versions) {
     const last = list[list.length - 1]
     if (last) latestStatus.set(path, last.status)

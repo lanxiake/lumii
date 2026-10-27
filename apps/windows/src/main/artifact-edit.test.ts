@@ -18,11 +18,13 @@ import {
 import {
   applyEdit,
   discardEdit,
+  getLocalEditContent,
   listEdits,
   proposeFileEdit,
   proposeTextEdit,
   pruneEditStore,
   pruneWorkspaceScratch,
+  recordManualSave,
   undoEdit,
 } from './artifact-edit'
 
@@ -328,6 +330,143 @@ describe('proposeFileEdit', () => {
     })
     expect(failed.ok).toBe(false)
     expect(await readAt('outputs/demo/deck2.pptx')).toBe('old2')
+  })
+})
+
+describe('recordManualSave / getLocalEditContent', () => {
+  it('手工保存落一条 local 版本，候选/改前内容可读', async () => {
+    const result = await recordManualSave({
+      workspaceDir: root,
+      path: 'outputs/demo/doc.md',
+      beforeContent: ORIGINAL,
+      afterContent: '# Changed\n',
+      sessionKey: 'conv-1',
+    })
+    expect(result).toMatchObject({ merged: false, path: 'outputs/demo/doc.md' })
+    if (!result) return
+
+    expect((await getLocalEditContent({ workspaceDir: root, editId: result.editId }))?.text).toBe(
+      '# Changed\n',
+    )
+    expect(
+      (await getLocalEditContent({ workspaceDir: root, editId: result.editId, which: 'before' }))
+        ?.text,
+    ).toBe(ORIGINAL)
+
+    const listed = await listEdits({ workspaceDir: root, sessionKey: 'conv-1' })
+    expect(listed.ok).toBe(true)
+    if (listed.ok) {
+      expect(listed.edits).toHaveLength(1)
+      expect(listed.edits[0]).toMatchObject({ action: 'manual', path: 'outputs/demo/doc.md' })
+    }
+  })
+
+  it('60s 内连续保存合并为同一条：before 保留最早，candidate 取最新', async () => {
+    const t0 = Date.now()
+    const first = await recordManualSave({
+      workspaceDir: root,
+      path: 'outputs/demo/doc.md',
+      beforeContent: 'A',
+      afterContent: 'B',
+      sessionKey: 'conv-1',
+      now: t0,
+    })
+    expect(first?.merged).toBe(false)
+    if (!first) return
+
+    const second = await recordManualSave({
+      workspaceDir: root,
+      path: 'outputs/demo/doc.md',
+      beforeContent: 'B',
+      afterContent: 'C',
+      sessionKey: 'conv-1',
+      now: t0 + 10_000,
+    })
+    expect(second).toMatchObject({ editId: first.editId, merged: true })
+    if (!second) return
+
+    expect((await getLocalEditContent({ workspaceDir: root, editId: first.editId }))?.text).toBe('C')
+    expect(
+      (await getLocalEditContent({ workspaceDir: root, editId: first.editId, which: 'before' }))
+        ?.text,
+    ).toBe('A')
+    const listed = await listEdits({ workspaceDir: root, sessionKey: 'conv-1' })
+    if (listed.ok) expect(listed.edits).toHaveLength(1)
+  })
+
+  it('超过 60s 另起一条；二进制/内部目录/无变化/工作区外都不记录', async () => {
+    const t0 = Date.now()
+    const first = await recordManualSave({
+      workspaceDir: root,
+      path: 'outputs/demo/doc.md',
+      beforeContent: 'A',
+      afterContent: 'B',
+      sessionKey: 'conv-1',
+      now: t0,
+    })
+    expect(first?.merged).toBe(false)
+    const second = await recordManualSave({
+      workspaceDir: root,
+      path: 'outputs/demo/doc.md',
+      beforeContent: 'B',
+      afterContent: 'C',
+      sessionKey: 'conv-1',
+      now: t0 + 120_000,
+    })
+    expect(second?.merged).toBe(false)
+    expect(second?.editId).not.toBe(first?.editId)
+
+    await writeAt('outputs/demo/pic.png', 'not really png')
+    expect(
+      await recordManualSave({
+        workspaceDir: root,
+        path: 'outputs/demo/pic.png',
+        beforeContent: 'a',
+        afterContent: 'b',
+      }),
+    ).toBeNull()
+    expect(
+      await recordManualSave({
+        workspaceDir: root,
+        path: '.lumii/cache/x.md',
+        beforeContent: 'a',
+        afterContent: 'b',
+      }),
+    ).toBeNull()
+    expect(
+      await recordManualSave({
+        workspaceDir: root,
+        path: 'outputs/demo/doc.md',
+        beforeContent: 'same',
+        afterContent: 'same',
+      }),
+    ).toBeNull()
+    expect(
+      await recordManualSave({
+        workspaceDir: root,
+        path: path.join(base, 'outside.md'),
+        beforeContent: 'a',
+        afterContent: 'b',
+      }),
+    ).toBeNull()
+  })
+
+  it('二进制候选没有文本内容（PPT 等版本走文件预览，不做文本 diff）', async () => {
+    await writeAt('outputs/demo/deck.pptx', Buffer.from('old'))
+    const proposal = await proposeFileEdit({
+      workspaceDir: root,
+      input: {
+        path: 'outputs/demo/deck.pptx',
+        action: 'slide-bullets',
+        scope: { type: 'slide', index: 0 },
+      },
+      writeCandidate: async (candidateAbs) => {
+        await writeFile(candidateAbs, Buffer.from('new'))
+      },
+    })
+    expect(proposal.ok).toBe(true)
+    if (!proposal.ok) return
+    expect((await getLocalEditContent({ workspaceDir: root, editId: proposal.editId }))?.text).toBeNull()
   })
 })
 

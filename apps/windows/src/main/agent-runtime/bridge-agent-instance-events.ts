@@ -36,6 +36,7 @@ import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { getVcsService } from './vcs-accessor'
+import { captureTurnTextVersions } from '../turn-version-store'
 import {
   collectResultTouchedPaths,
   collectToolEvidence,
@@ -269,7 +270,12 @@ export interface BridgeAgentInstanceEventDeps {
   /** 获取当前工作区目录，用于回合结束快照。 */
   getCwd: () => string
   /** 每条 assistant 消息持久化完成后回调（用于自动快照等工作） */
-  onAssistantMessagePersisted?: (params: { conversationId: string; runId: string }) => void
+  onAssistantMessagePersisted?: (params: {
+    conversationId: string
+    runId: string
+    /** 落库后的 assistant 消息 id；用于 VCS 回合→commit 索引 */
+    messageId?: string
+  }) => void
   /** 技能进化：轮次结束后回调（fire-and-forget） */
   onTurnComplete?: (instanceId: string, messages: import('../../plugins/builtin/skill-evolution/types').ConversationMessage[]) => void
   /** 插件事件总线（用于发射生命周期事件给插件） */
@@ -925,10 +931,19 @@ export function createAgentInstanceRuntimeEventHandler(
             log.error(`[event] message:end 丢失消息上下文: msgId=${msgId}, convId=${convId}, contentLength=${JSON.stringify(contentJson).length}`)
           }
         }
-        // 持久化完成 → 触发快照等后处理（fire-and-forget）
+        // 持久化完成 → 触发快照等后处理（fire-and-forget）。
+        // 占位降级时 row.id 已写回 state，必须取最终 id（msgId 变量可能还是占位）。
         if (onAssistantMessagePersisted && ctx) {
           try {
-            onAssistantMessagePersisted({ conversationId: convId, runId: ctx.runId })
+            const persistedMessageId = state?.streamingAssistantMsgId
+            onAssistantMessagePersisted({
+              conversationId: convId,
+              runId: ctx.runId,
+              ...(persistedMessageId &&
+              persistedMessageId !== '__PLACEHOLDER_FAILED__'
+                ? { messageId: persistedMessageId }
+                : {}),
+            })
           } catch {
             /* 静默吞掉，不阻断事件循环 */
           }
@@ -1192,6 +1207,36 @@ export function createAgentInstanceRuntimeEventHandler(
           instanceId: ctx.instanceId,
           rootSessionKey: ctx.rootSessionKey,
         })
+      }
+
+      // 回合结束后的**最终**快照：message:end 在工具循环里会多次触发，可能早于
+      // 本轮的 file_write；只有 agent:end 之后的提交才必然包含本轮产物。
+      // turn-index 里同一 messageId 以最后一条为准，所以中间快照不会赢。
+      if (persistSuccess && convId && persistedMessageId) {
+        try {
+          const cwd = getCwd()
+          const vcs = getVcsService()
+          if (cwd && vcs) {
+            void vcs.maybeSnapshot({
+              workspaceDir: cwd,
+              conversationId: convId,
+              runId: ctx.runId,
+              messageId: persistedMessageId,
+            })
+          }
+          // 精确文本副本：不依赖 VCS 快照队列/时序；失败静默
+          if (cwd && fileChanges?.length) {
+            void captureTurnTextVersions({
+              workspaceDir: cwd,
+              messageId: persistedMessageId,
+              changes: fileChanges,
+            }).catch(() => undefined)
+          }
+        } catch (err) {
+          log.warn(
+            `[event] 回合结束快照失败（已忽略）: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
       }
 
       pluginEventBus?.emit('agent:turn-end', {

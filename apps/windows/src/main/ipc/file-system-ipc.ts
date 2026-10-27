@@ -3,13 +3,36 @@
  */
 import { ipcMain, app, shell } from 'electron'
 import { existsSync } from 'fs'
+import path from 'node:path'
+import { isTextArtifactPath } from '../../shared/artifact-rules'
 import type { SystemService } from '../system-service'
 import { validateUrl } from '../security-utils'
 import { fileLogger } from '../file-logger'
 import { openExternalWithFallback } from '../window/in-app-browser'
+import { recordManualSave } from '../artifact-edit'
+
+interface ManualSaveFileRegistrar {
+  registerOrUpdate(params: {
+    userId: string
+    conversationId?: string | null
+    messageId?: string | null
+    channel?: string
+    sourceType: 'agent_output' | 'channel_upload' | 'user_upload'
+    fileName: string
+    fileSize?: number | null
+    mimeType?: string | null
+    localPath: string
+    category?: 'upload' | 'output'
+    metadata?: Record<string, unknown> | null
+  }): string
+}
 
 interface FileSystemIpcDeps {
   getSystemService: () => SystemService | null
+  /** 手工保存记录 local 版本用；缺省时只写盘不记版本 */
+  getWorkspaceDir?: () => string
+  getActiveConversationId?: () => string | null
+  getFileRegistrar?: () => ManualSaveFileRegistrar | null
   log: {
     info: (...args: unknown[]) => void
     warn: (...args: unknown[]) => void
@@ -52,7 +75,61 @@ export function registerFileSystemIpcHandlers(): void {
     if (content.length > 10 * 1024 * 1024) {
       throw new Error('写入内容超出大小限制 (10MB)')
     }
-    return deps!.getSystemService()?.writeFile(filePath, content)
+    const service = deps!.getSystemService()
+    if (!service) return
+
+    // 手工保存也进版本历史：写盘前读旧内容，写成功后记一条 local 版本。
+    // 二进制/工作区外不读也不记（recordManualSave 会再校验一次）。
+    const trackVersion = isTextArtifactPath(filePath)
+    let before = ''
+    if (trackVersion) {
+      try {
+        before = await service.readFile(filePath)
+      } catch {
+        before = '' // 新文件
+      }
+    }
+
+    const result = await service.writeFile(filePath, content)
+
+    if (trackVersion) {
+      try {
+        const workspaceDir = deps!.getWorkspaceDir?.()
+        if (workspaceDir) {
+          const sessionKey = deps!.getActiveConversationId?.() ?? null
+          const record = await recordManualSave({
+            workspaceDir,
+            path: filePath,
+            beforeContent: before,
+            afterContent: content,
+            sessionKey,
+          })
+          if (record && sessionKey && deps!.getFileRegistrar) {
+            try {
+              deps!.getFileRegistrar()?.registerOrUpdate({
+                userId: 'local-user',
+                conversationId: sessionKey,
+                messageId: null,
+                channel: 'windows',
+                sourceType: 'agent_output',
+                fileName: path.basename(record.path),
+                fileSize: record.bytes,
+                localPath: record.path,
+                category: 'output',
+                metadata: { source: 'manual-save', editId: record.editId },
+              })
+            } catch (err) {
+              deps!.log.warn('[file:write] 手工保存登记 client_files 失败:', err)
+            }
+          }
+        }
+      } catch (err) {
+        // 版本记录失败不影响写盘结果
+        deps!.log.warn('[file:write] 记录本地版本失败:', err)
+      }
+    }
+
+    return result
   })
 
   ipcMain.handle('file:move', async (_event, sourcePath: string, destPath: string) => {

@@ -14,6 +14,12 @@ import type {
   ProposeTextEditInput,
   ProposeTextRangeInput,
 } from '../../shared/artifact-edit-types'
+import type {
+  ArtifactVersionContentInput,
+  ArtifactVersionContentResult,
+  ArtifactVersionDiffInput,
+  ArtifactVersionDiffResult,
+} from '../../shared/artifact-version-types'
 
 function api() {
   return window.electronAPI?.artifact
@@ -79,5 +85,23 @@ export const artifactEditService = {
       return Promise.resolve({ ok: false, error: '当前版本不支持就地修改', code: 'unavailable' })
     }
     return target.listEdits(sessionKey, limit)
+  },
+
+  versionDiff: (input: ArtifactVersionDiffInput): Promise<ArtifactVersionDiffResult> => {
+    const target = api()
+    if (!target?.versionDiff) {
+      return Promise.resolve({ ok: false, reason: '当前版本不支持版本对照' })
+    }
+    return target.versionDiff(input)
+  },
+
+  versionContent: (
+    input: ArtifactVersionContentInput,
+  ): Promise<ArtifactVersionContentResult> => {
+    const target = api()
+    if (!target?.versionContent) {
+      return Promise.resolve({ ok: false, reason: '当前版本不支持版本预览' })
+    }
+    return target.versionContent(input)
   },
 }

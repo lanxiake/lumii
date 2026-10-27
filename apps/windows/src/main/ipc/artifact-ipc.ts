@@ -30,8 +30,16 @@ import type {
   EditTone,
   ProposeTextEditInput,
 } from '../../shared/artifact-edit-types'
+import type {
+  ArtifactVersionContentResult,
+  ArtifactVersionDiffResult,
+  ArtifactVersionInfo,
+} from '../../shared/artifact-version-types'
+import { MAX_DIFF_BYTES, diffText } from '../../shared/text-diff'
+import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { normalizeDocumentAction } from '../artifact-edit-prompts'
 import { proposeTextRangeEdit } from '../artifact-edit-llm'
+import { buildMergedVersions, resolveVersionContent } from '../artifact-versions'
 import type { SingleTurnLlmService } from '../single-turn-llm'
 import { getArtifactThumb, pruneThumbCache } from '../artifact-thumbnails'
 import { exportArtifacts, resolveExportFiles } from '../artifact-export'
@@ -49,28 +57,11 @@ const MAX_PATHS = 200
 const MAX_SIDECAR_BYTES = 64 * 1024
 const CACHE_TTL_MS = 30_000
 
-interface ClientFileRegistrar {
-  registerOrUpdate(params: {
-    userId: string
-    agentId?: string | null
-    conversationId?: string | null
-    messageId?: string | null
-    channel?: string
-    sourceType: 'agent_output' | 'channel_upload' | 'user_upload'
-    fileName: string
-    fileSize?: number | null
-    mimeType?: string | null
-    localPath: string
-    category?: 'upload' | 'output'
-    metadata?: Record<string, unknown> | null
-  }): string
-}
-
 interface ArtifactIpcDeps {
   getWorkspaceDir: () => string
   getMainWindow?: () => BrowserWindow | null
-  /** 本地编辑应用后登记到 client_files（「全部」作用域可见）；未接时不登记 */
-  getAgentRuntimeBridge?: () => { fileRepo: ClientFileRegistrar } | null
+  /** 本地编辑登记 / 版本历史查询；未接时对应能力降级 */
+  getAgentRuntimeBridge?: () => AgentRuntimeBridge | null
   /** 文档选区改写用的单轮 LLM（主进程单例，带取消） */
   singleTurn?: SingleTurnLlmService
   log?: { warn: (...args: unknown[]) => void }
@@ -180,6 +171,43 @@ function registerAppliedFile(info: AppliedEditInfo): void {
     })
   } catch (err) {
     deps!.log?.warn('[artifact-edit] client_files 登记失败:', err)
+  }
+}
+
+interface LoadedVersions {
+  workspaceDir: string
+  versions: readonly ArtifactVersionInfo[]
+}
+
+/** 版本列表（turn + local）；raw IPC 与命令 handler 共用同一套构建 */
+async function loadArtifactVersions(
+  bridge: AgentRuntimeBridge,
+  sessionKey: string,
+  path: string,
+): Promise<{ ok: true; data: LoadedVersions } | { ok: false; reason: string }> {
+  if (!bridge.conversationRepo.getConversation(sessionKey)) {
+    return { ok: false, reason: '会话不存在' }
+  }
+  let workspaceDir: string
+  try {
+    workspaceDir = bridge.getCwd()
+  } catch {
+    return { ok: false, reason: '工作区不可用' }
+  }
+  const turns = bridge.conversationRepo.listFileChangeTurns(sessionKey)
+  const local = workspaceDir
+    ? await listEdits({ workspaceDir, sessionKey, limit: 500 })
+    : { ok: true as const, edits: [] }
+  try {
+    const versions = await buildMergedVersions({
+      workspaceDir,
+      path,
+      turns,
+      localEdits: local.ok ? local.edits : [],
+    })
+    return { ok: true, data: { workspaceDir, versions } }
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : '读取版本失败' }
   }
 }
 
@@ -514,6 +542,108 @@ export function registerArtifactIpcHandlers(): void {
         })
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : '撤销失败' }
+      }
+    },
+  )
+
+  // ---- 版本对照 / 单版内容（P2 T3）----
+  ipcMain.handle(
+    'artifact:versionDiff',
+    async (
+      _event,
+      payload?: {
+        sessionKey?: unknown
+        path?: unknown
+        fromVersionId?: unknown
+        toVersionId?: unknown
+      },
+    ): Promise<ArtifactVersionDiffResult> => {
+      const sessionKey = payload?.sessionKey
+      const relPath = payload?.path
+      const fromId = payload?.fromVersionId
+      const toId = payload?.toVersionId
+      if (
+        typeof sessionKey !== 'string' ||
+        !sessionKey ||
+        typeof relPath !== 'string' ||
+        !relPath ||
+        typeof fromId !== 'string' ||
+        !fromId ||
+        typeof toId !== 'string' ||
+        !toId
+      ) {
+        return { ok: false, reason: '参数非法' }
+      }
+      const bridge = deps!.getAgentRuntimeBridge?.()
+      if (!bridge) return { ok: false, reason: 'Agent Runtime 未就绪' }
+      const loaded = await loadArtifactVersions(bridge, sessionKey, relPath)
+      if (!loaded.ok) return { ok: false, reason: loaded.reason }
+      const from = loaded.data.versions.find((version) => version.versionId === fromId)
+      const to = loaded.data.versions.find((version) => version.versionId === toId)
+      if (!from || !to) return { ok: false, reason: '找不到指定的版本' }
+
+      const fromContent = await resolveVersionContent({
+        workspaceDir: loaded.data.workspaceDir,
+        path: relPath,
+        version: from,
+        allVersions: loaded.data.versions,
+      })
+      if (!fromContent.ok) return { ok: false, reason: `起始版：${fromContent.reason}` }
+      const toContent = await resolveVersionContent({
+        workspaceDir: loaded.data.workspaceDir,
+        path: relPath,
+        version: to,
+        allVersions: loaded.data.versions,
+      })
+      if (!toContent.ok) return { ok: false, reason: `目标版：${toContent.reason}` }
+
+      if (
+        Buffer.byteLength(fromContent.content.text, 'utf8') > MAX_DIFF_BYTES ||
+        Buffer.byteLength(toContent.content.text, 'utf8') > MAX_DIFF_BYTES
+      ) {
+        return { ok: false, reason: '文件过大（超过 512KB），暂不显示逐行差异' }
+      }
+      const diff = diffText(fromContent.content.text, toContent.content.text, relPath)
+      return { ok: true, ...diff }
+    },
+  )
+
+  ipcMain.handle(
+    'artifact:versionContent',
+    async (
+      _event,
+      payload?: { sessionKey?: unknown; path?: unknown; versionId?: unknown },
+    ): Promise<ArtifactVersionContentResult> => {
+      const sessionKey = payload?.sessionKey
+      const relPath = payload?.path
+      const versionId = payload?.versionId
+      if (
+        typeof sessionKey !== 'string' ||
+        !sessionKey ||
+        typeof relPath !== 'string' ||
+        !relPath ||
+        typeof versionId !== 'string' ||
+        !versionId
+      ) {
+        return { ok: false, reason: '参数非法' }
+      }
+      const bridge = deps!.getAgentRuntimeBridge?.()
+      if (!bridge) return { ok: false, reason: 'Agent Runtime 未就绪' }
+      const loaded = await loadArtifactVersions(bridge, sessionKey, relPath)
+      if (!loaded.ok) return { ok: false, reason: loaded.reason }
+      const version = loaded.data.versions.find((item) => item.versionId === versionId)
+      if (!version) return { ok: false, reason: '找不到指定的版本' }
+      const resolved = await resolveVersionContent({
+        workspaceDir: loaded.data.workspaceDir,
+        path: relPath,
+        version,
+        allVersions: loaded.data.versions,
+      })
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return {
+        ok: true,
+        text: resolved.content.text,
+        ...(resolved.content.approximate ? { approximate: true } : {}),
       }
     },
   )

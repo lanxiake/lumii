@@ -12,6 +12,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { purgeTrash, runCleanup, scanWorkspace } from './workspace-cleanup'
 import { pruneEditStore, pruneWorkspaceScratch } from './artifact-edit'
+import { pruneTurnVersions } from './turn-version-store'
 import { getLocalDateString } from './local-time'
 
 export interface StorageCleanupPrefs {
@@ -164,6 +165,11 @@ export async function runScheduledCleanup(opts: {
   }
   try {
     await pruneWorkspaceScratch({ workspaceDir: opts.dir })
+  } catch (err) {
+    result.errors.push(err instanceof Error ? err.message : String(err))
+  }
+  try {
+    await pruneTurnVersions({ workspaceDir: opts.dir })
   } catch (err) {
     result.errors.push(err instanceof Error ? err.message : String(err))
   }

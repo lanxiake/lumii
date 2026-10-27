@@ -20,8 +20,15 @@ import { writeClipboardFiles } from '../../../services/clipboard-service'
 import {
   applySidecarMeta,
   buildArtifactLedger,
+  formatClock,
   type Artifact,
+  type ArtifactVersion,
 } from '../components/WorkspaceArtifactsPanel/ledger'
+import {
+  VersionDiffView,
+  VersionTextView,
+} from '../components/WorkspaceArtifactsPanel/VersionViews'
+import type { ArtifactVersionDiffResult } from '../../../../shared/artifact-version-types'
 import { mergeLocalEdits } from '../components/WorkspaceArtifactsPanel/local-edits'
 import { EditProposalPanel } from '../components/WorkspaceArtifactsPanel/EditProposalPanel'
 import { ARTIFACT_EDITS_CHANGED_EVENT, useArtifactEdits } from '../hooks/useArtifactEdits'
@@ -114,6 +121,10 @@ const SELECTION_ACTIONS = [
 
 function newEditId(): string {
   return `edit-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`
+}
+
+function versionLabelOf(version: ArtifactVersion): string {
+  return `${version.source === 'local' ? '本地' : 'Agent'} ${formatClock(version.timestamp)}`
 }
 
 
@@ -421,6 +432,16 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   const editTokenRef = useRef(0)
   const pendingEditIdRef = useRef<string | null>(null)
   const editProposalRef = useRef<ArtifactEditProposal | null>(null)
+  /** T3：版本对照 / 只读预览（main 区替代预览） */
+  type VersionViewState =
+    | {
+        kind: 'diff'
+        fromLabel: string
+        toLabel: string
+        result: ArtifactVersionDiffResult
+      }
+    | { kind: 'text'; label: string; text: string; approximate?: boolean }
+  const [versionView, setVersionView] = useState<VersionViewState | null>(null)
   const selectedArtifact = useMemo(() => {
     if (!selected) return undefined
     for (const group of mergedLedger.groups) {
@@ -452,6 +473,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           ? { versions: mergedLedger.versions.get(selectedArtifact.path)! }
           : {})}
         onGoToTurn={onGoToMessage}
+        onShowDiff={(version, previous) => void handleShowVersionDiff(version, previous)}
+        onPreviewVersion={(version) => void handlePreviewVersion(version)}
         onClose={() => setInspectorOpen(false)}
       />
     ) : undefined
@@ -524,6 +547,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       }
       window.dispatchEvent(new CustomEvent(ARTIFACT_EDITS_CHANGED_EVENT))
       setPreviewVersion((value) => value + 1)
+      setVersionView(null)
       toast.success('已撤销最近一次本地修改')
       return
     }
@@ -648,6 +672,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       else toast.success('已应用；可在 ⋯ 里撤销最近一次本地修改')
       window.dispatchEvent(new CustomEvent(ARTIFACT_EDITS_CHANGED_EVENT))
       setPreviewVersion((value) => value + 1)
+      setVersionView(null)
       clearEditProposal(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '应用失败')
@@ -661,17 +686,113 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     if (proposal) void artifactEditService.discardEdit(proposal.editId)
   }, [clearEditProposal, editProposal])
 
+  /** T3：与上一版做文本 diff；内容不可取时面板里给原因 */
+  const handleShowVersionDiff = useCallback(
+    async (version: ArtifactVersion, previous: ArtifactVersion) => {
+      if (!selectedArtifact) return
+      if (!version.versionId || !previous.versionId) {
+        toast.info('版本信息尚未加载完成')
+        return
+      }
+      const targetSession = selectedArtifact.conversationId ?? sessionKey
+      if (!targetSession) {
+        toast.error('缺少会话信息，无法读取版本')
+        return
+      }
+      clearEditProposal(true, true)
+      try {
+        const result = await artifactEditService.versionDiff({
+          sessionKey: targetSession,
+          path: selectedArtifact.path,
+          fromVersionId: previous.versionId,
+          toVersionId: version.versionId,
+        })
+        setVersionView({
+          kind: 'diff',
+          fromLabel: versionLabelOf(previous),
+          toLabel: versionLabelOf(version),
+          result,
+        })
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : '读取版本差异失败')
+      }
+    },
+    [clearEditProposal, selectedArtifact, sessionKey, toast],
+  )
+
+  const handlePreviewVersion = useCallback(
+    async (version: ArtifactVersion) => {
+      if (!selectedArtifact || !version.versionId) return
+      const targetSession = selectedArtifact.conversationId ?? sessionKey
+      if (!targetSession) {
+        toast.error('缺少会话信息，无法读取版本')
+        return
+      }
+      clearEditProposal(true, true)
+      try {
+        const result = await artifactEditService.versionContent({
+          sessionKey: targetSession,
+          path: selectedArtifact.path,
+          versionId: version.versionId,
+        })
+        if (!result.ok) {
+          toast.error(result.reason)
+          return
+        }
+        setVersionView({
+          kind: 'text',
+          label: versionLabelOf(version),
+          text: result.text,
+          ...(result.approximate ? { approximate: true } : {}),
+        })
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : '读取版本内容失败')
+      }
+    },
+    [clearEditProposal, selectedArtifact, sessionKey, toast],
+  )
+
   // 换产物 / 换会话 / 进对比：取消在飞请求、丢弃候选并清空提案
   useEffect(() => {
     clearEditProposal(true, true)
   }, [selected, sessionKey, clearEditProposal])
 
   useEffect(() => {
-    if (comparing) clearEditProposal(true, true)
+    if (comparing) {
+      clearEditProposal(true, true)
+      setVersionView(null)
+    }
   }, [comparing, clearEditProposal])
 
-  const renderMainContent = (width: number): React.ReactNode =>
-    comparing ? (
+  // 换产物/换会话：版本对照/预览回到普通预览
+  useEffect(() => {
+    setVersionView(null)
+  }, [selected, sessionKey])
+
+  const renderMainContent = (width: number): React.ReactNode => {
+    if (versionView?.kind === 'diff') {
+      return (
+        <VersionDiffView
+          path={selectedArtifact?.path ?? ''}
+          fromLabel={versionView.fromLabel}
+          toLabel={versionView.toLabel}
+          result={versionView.result}
+          onClose={() => setVersionView(null)}
+        />
+      )
+    }
+    if (versionView?.kind === 'text') {
+      return (
+        <VersionTextView
+          path={selectedArtifact?.path ?? ''}
+          label={versionView.label}
+          text={versionView.text}
+          {...(versionView.approximate ? { approximate: true } : {})}
+          onClose={() => setVersionView(null)}
+        />
+      )
+    }
+    return comparing ? (
       <ArtifactCompareView
         items={compareArtifacts}
         toAbsolutePath={toAbsolutePath}
@@ -711,6 +832,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         </button>
       </div>
     )
+  }
 
   const main = ({ width }: { width: number }) => (
     <div className={styles.mainColumn}>

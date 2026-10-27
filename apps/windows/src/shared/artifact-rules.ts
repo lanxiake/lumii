@@ -142,6 +142,67 @@ const EXT_KIND: Record<string, ArtifactKind> = {
   '7z': 'archive',
 }
 
+/**
+ * 是否是 VCS 会按文本保存的路径（P2 T3 版本内容可用性 / 手工保存版本用）。
+ *
+ * 刻意与 `vcs-ignore.ts` 的二进制扩展名保持保守一致：认不出的一律不当作文本，
+ * 避免把二进制当 utf8 读进 diff。
+ */
+const TEXT_EXTENSIONS = new Set([
+  'md',
+  'markdown',
+  'mdx',
+  'txt',
+  'json',
+  'jsonl',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'ts',
+  'tsx',
+  'css',
+  'scss',
+  'less',
+  'html',
+  'htm',
+  'xml',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'cfg',
+  'conf',
+  'py',
+  'sh',
+  'bash',
+  'ps1',
+  'bat',
+  'cmd',
+  'c',
+  'h',
+  'cpp',
+  'hpp',
+  'cc',
+  'cs',
+  'java',
+  'go',
+  'rs',
+  'rb',
+  'php',
+  'lua',
+  'sql',
+  'csv',
+  'tsv',
+  'tex',
+  'vue',
+  'svelte',
+])
+
+export function isTextArtifactPath(filePath: string): boolean {
+  return TEXT_EXTENSIONS.has(extOf(filePath))
+}
+
 export function kindOf(filePath: string): ArtifactKind {
   const base = filePath.replace(/\\/g, '/').split('/').pop() ?? ''
   const dot = base.lastIndexOf('.')

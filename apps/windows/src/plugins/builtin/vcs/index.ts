@@ -4,7 +4,7 @@ import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
 import { registerVcsIpcHandlers, setVcsIpcDeps } from './ipc'
 import { captureWorkspaceTurnSnapshot } from './workspace-turn-snapshot'
-import { maybeSnapshot } from './vcs-snapshot'
+import { getWorkspaceVcs, maybeSnapshot } from './vcs-snapshot'
 import type { VcsService } from './service-api'
 
 /**
@@ -74,6 +74,8 @@ export const vcsExtension = {
       ctx.provide(S.vcs, {
         captureTurnSnapshot: captureWorkspaceTurnSnapshot,
         maybeSnapshot,
+        readFileAt: (workspaceDir, oid, filepath) =>
+          getWorkspaceVcs(workspaceDir).readFileAt(oid, filepath),
       } satisfies VcsService)
 
       // 接线就在 apply 里：`ctx.registerIpc` 把通道挂在插件作用域上，

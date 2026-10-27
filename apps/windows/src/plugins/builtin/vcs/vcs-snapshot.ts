@@ -8,6 +8,8 @@
  *  - 任何失败仅记录日志，绝不抛出阻断对话主流程
  */
 
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import { WorkspaceVcs } from './vcs-repo'
 import type { VcsCommit } from './types'
 // 队列状态与其他拷贝（云同步官方扩展）共享，见 workspace-queue.ts
@@ -53,9 +55,45 @@ function getRepo(workspaceDir: string): WorkspaceVcs {
 interface PendingSnapshot {
   conversationId?: string
   runId?: string
+  /** 被合并进来的请求（每个 messageId 都要写一条 turn-index） */
+  messageIds: string[]
   /** 被合并进来的请求数（只为日志，便于观察实际收益） */
   coalesced: number
   promise: Promise<VcsCommit | null>
+}
+
+/** 回合→commit 索引；读端见 `shared/turn-index.ts` */
+async function appendTurnIndex(
+  workspaceDir: string,
+  slot: PendingSnapshot,
+  commit: VcsCommit | null,
+): Promise<void> {
+  const messageIds = [...new Set(slot.messageIds)]
+  if (messageIds.length === 0) return
+  const at = Date.now()
+  const lines =
+    messageIds
+      .map((messageId) =>
+        JSON.stringify({
+          messageId,
+          ...(slot.conversationId ? { conversationId: slot.conversationId } : {}),
+          ...(slot.runId ? { runId: slot.runId } : {}),
+          oid: commit?.oid ?? null,
+          at,
+          coalesced: slot.coalesced,
+        }),
+      )
+      .join('\n') + '\n'
+  const file = path.join(workspaceDir, '.mtbot-vcs', 'turn-index.jsonl')
+  try {
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.appendFile(file, lines, 'utf8')
+  } catch (err) {
+    // 索引只影响版本内容可取性，不影响快照本身
+    log.warn(
+      `[maybeSnapshot] 写入 turn-index 失败（已忽略）: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
 }
 
 const pendingSnapshots = new Map<string, PendingSnapshot>()
@@ -71,14 +109,16 @@ export function maybeSnapshot(params: {
   readonly workspaceDir: string
   readonly conversationId?: string
   readonly runId?: string
+  readonly messageId?: string
 }): Promise<VcsCommit | null> {
-  const { workspaceDir, conversationId, runId } = params
+  const { workspaceDir, conversationId, runId, messageId } = params
   if (!workspaceDir) return Promise.resolve(null)
 
   const pending = pendingSnapshots.get(workspaceDir)
   if (pending) {
     pending.conversationId = conversationId
     pending.runId = runId
+    if (messageId) pending.messageIds.push(messageId)
     pending.coalesced += 1
     return pending.promise
   }
@@ -86,6 +126,7 @@ export function maybeSnapshot(params: {
   const slot: PendingSnapshot = {
     conversationId,
     runId,
+    messageIds: messageId ? [messageId] : [],
     coalesced: 0,
     // 占位，紧接在 enqueue 之后赋值；enqueue 的任务体最早也在微任务里跑，
     // 同步代码先执行完，任务体读到的必然是已赋值的 promise
@@ -114,6 +155,9 @@ export function maybeSnapshot(params: {
         if (commit) {
           log.info(`[maybeSnapshot] 已快照 oid=${commit.oid.slice(0, 8)} runId=${slot.runId ?? '无'}`)
         }
+        // 无变更（commit=null）也记一条，表示「该回合没有产生新快照」；
+        // 读端会回退到之前最近的 oid。
+        await appendTurnIndex(workspaceDir, slot, commit)
         // 对象库维护与快照同队列：本仓库 gc.auto=0，不在这里做就永远没人做。
         // 内部有 6h 间隔 + 松对象阈值，常态是一次 Map 查询即返回。
         await repo.maybeMaintain()

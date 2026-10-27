@@ -5,6 +5,7 @@
  */
 
 import type { ArtifactEditProposal } from '../../../../../shared/artifact-edit-types'
+import { DiffHunks } from './DiffHunks'
 import styles from './EditProposalPanel.module.css'
 
 export interface EditProposalPanelProps {
@@ -75,25 +76,7 @@ export const EditProposalPanel: React.FC<EditProposalPanelProps> = ({
       </div>
 
       {diff && diff.hunks.length > 0 ? (
-        <div className={styles.diff}>
-          {diff.hunks.map((hunk, index) => (
-            <div key={`${hunk.oldStart}-${hunk.newStart}-${index}`} className={styles.hunk}>
-              <div className={styles.hunkHead}>
-                @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
-              </div>
-              {hunk.lines.map((line, lineIndex) => {
-                const kind = line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : 'ctx'
-                // CRLF 文件的 diff 行尾会带 \r；只影响展示，不回写文件
-                const display = line.endsWith('\r') ? line.slice(0, -1) : line
-                return (
-                  <div key={lineIndex} className={styles[kind]}>
-                    {display || ' '}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
-        </div>
+        <DiffHunks hunks={diff.hunks} />
       ) : (
         <p className={styles.empty}>候选稿已生成，暂无逐行差异。</p>
       )}

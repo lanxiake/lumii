@@ -185,6 +185,45 @@ describe("vcs-snapshot 队列", () => {
     }
   });
 
+  it("快照后写 turn-index：合并请求各一条、无变更记 oid:null", async () => {
+    // 先初始化，避免首个提交吃掉后续文件
+    await getWorkspaceVcs(dir).hasUncommittedChanges();
+    fs.writeFileSync(path.join(dir, "a.txt"), "v1");
+
+    const p1 = maybeSnapshot({
+      workspaceDir: dir,
+      runId: "r1",
+      conversationId: "c1",
+      messageId: "m1",
+    });
+    const p2 = maybeSnapshot({
+      workspaceDir: dir,
+      runId: "r2",
+      conversationId: "c2",
+      messageId: "m2",
+    });
+    await Promise.all([p1, p2]);
+
+    const indexFile = path.join(dir, ".mtbot-vcs", "turn-index.jsonl");
+    const read = () =>
+      fs
+        .readFileSync(indexFile, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    const entries = read();
+    expect(entries.map((entry) => entry.messageId)).toEqual(["m1", "m2"]);
+    expect(entries[0]?.oid).toBeTruthy();
+    expect(entries[1]?.oid).toBe(entries[0]?.oid);
+    expect(entries[0]?.coalesced).toBe(1);
+
+    // 无变更的回合也记一条 null，读端会回退到之前最近的 oid
+    await maybeSnapshot({ workspaceDir: dir, messageId: "m3" });
+    const after = read();
+    expect(after[after.length - 1]).toMatchObject({ messageId: "m3", oid: null });
+  });
+
   it("已在执行的快照不吸收新请求（新请求要能捕获其后的变更）", async () => {
     fs.writeFileSync(path.join(dir, "a.txt"), "v1");
 

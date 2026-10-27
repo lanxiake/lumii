@@ -32,6 +32,7 @@ const STATUS_LABEL: Record<ArtifactVersion['status'], string> = {
   added: '新增',
   modified: '修改',
   deleted: '删除',
+  edited: '本地编辑',
 }
 
 export interface ArtifactInspectorProps {
@@ -41,6 +42,10 @@ export interface ArtifactInspectorProps {
   /** 台账里已加载的版本（时间正序），用作全量结果返回前的占位 */
   versions?: readonly ArtifactVersion[]
   onGoToTurn: (turnId: string) => void
+  /** 与该版的前一版做文本 diff（两版内容都可取时才显示入口） */
+  onShowDiff?: (version: ArtifactVersion, previous: ArtifactVersion) => void
+  /** 只读预览某一版内容 */
+  onPreviewVersion?: (version: ArtifactVersion) => void
   onClose?: () => void
 }
 
@@ -73,6 +78,8 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
   sessionKey,
   versions,
   onGoToTurn,
+  onShowDiff,
+  onPreviewVersion,
   onClose,
 }) => {
   const fallback = versions ?? []
@@ -184,11 +191,17 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
             <ol className={styles.versionList}>
               {shown.map((version, index) => {
                 const number = index + 1
+                const previous = index > 0 ? shown[index - 1] : undefined
                 // 最新一版就是文件现在的内容（版本列表按时间正序）
                 const isCurrent = index === shown.length - 1 && version.status !== 'deleted'
+                const contentAvailable = version.content?.available === true
+                const canDiff = Boolean(
+                  onShowDiff && previous && contentAvailable && previous.content?.available === true,
+                )
+                const sourceLabel = version.source === 'local' ? '本地' : 'Agent'
                 return (
                   <li
-                    key={`${version.turnId}-${version.timestamp}`}
+                    key={version.versionId ?? `${version.turnId ?? 'v'}-${version.timestamp}`}
                     className={clsx(styles.versionRow, isCurrent && styles.versionRowCurrent)}
                   >
                     <span className={styles.versionBadge}>{number}</span>
@@ -201,15 +214,45 @@ export const ArtifactInspector: React.FC<ArtifactInspectorProps> = ({
                     >
                       {STATUS_LABEL[version.status]}
                     </span>
-                    <button
-                      type="button"
-                      className={styles.versionGo}
-                      onClick={() => onGoToTurn(version.turnId)}
-                      title="回到产生这一版的那条消息"
-                    >
-                      <CornerUpLeft size={11} strokeWidth={2} />
-                      回到消息
-                    </button>
+                    <span className={styles.versionSource}>{sourceLabel}</span>
+                    <span className={styles.versionActions}>
+                      {canDiff && previous && (
+                        <button
+                          type="button"
+                          className={styles.versionGo}
+                          onClick={() => onShowDiff?.(version, previous)}
+                          title="与上一版逐行对比"
+                        >
+                          差异
+                        </button>
+                      )}
+                      {onPreviewVersion && contentAvailable && (
+                        <button
+                          type="button"
+                          className={styles.versionGo}
+                          onClick={() => onPreviewVersion(version)}
+                          title="只读预览这一版"
+                        >
+                          预览
+                        </button>
+                      )}
+                      {version.turnId && (
+                        <button
+                          type="button"
+                          className={styles.versionGo}
+                          onClick={() => onGoToTurn(version.turnId!)}
+                          title="回到产生这一版的那条消息"
+                        >
+                          <CornerUpLeft size={11} strokeWidth={2} />
+                          回到消息
+                        </button>
+                      )}
+                      {!contentAvailable && version.content?.reason && (
+                        <span className={styles.versionUnavailable} title={version.content.reason}>
+                          内容未保留
+                        </span>
+                      )}
+                    </span>
                   </li>
                 )
               })}

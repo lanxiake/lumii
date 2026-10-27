@@ -18,6 +18,12 @@ import type {
   ProposeTextEditInput,
   ProposeTextRangeInput,
 } from '../../shared/artifact-edit-types'
+import type {
+  ArtifactVersionContentInput,
+  ArtifactVersionContentResult,
+  ArtifactVersionDiffInput,
+  ArtifactVersionDiffResult,
+} from '../../shared/artifact-version-types'
 
 export const artifactApi = {
   /** 批量读 `<path>.lumii-artifact.json`；缺失/坏 JSON 不返回该项 */
@@ -73,4 +79,12 @@ export const artifactApi = {
       ...(sessionKey !== undefined ? { sessionKey } : {}),
       ...(limit !== undefined ? { limit } : {}),
     }),
+
+  /** 两版文本 diff（内容不可取时返回原因） */
+  versionDiff: (input: ArtifactVersionDiffInput): Promise<ArtifactVersionDiffResult> =>
+    ipcRenderer.invoke('artifact:versionDiff', input),
+
+  /** 某一版的只读文本内容 */
+  versionContent: (input: ArtifactVersionContentInput): Promise<ArtifactVersionContentResult> =>
+    ipcRenderer.invoke('artifact:versionContent', input),
 }

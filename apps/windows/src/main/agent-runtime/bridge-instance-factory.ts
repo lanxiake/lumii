@@ -645,10 +645,15 @@ export class BridgeInstanceFactory {
       },
       getCwd: this.deps.config.getCwd,
       onConversationEnd: this.deps.config.onConversationEnd,
-      onAssistantMessagePersisted: ({ conversationId, runId }) => {
+      onAssistantMessagePersisted: ({ conversationId, runId, messageId }) => {
         const cwd = this.deps.config.getCwd()
         if (cwd) {
-          void getVcsService()?.maybeSnapshot({ workspaceDir: cwd, conversationId, runId })
+          void getVcsService()?.maybeSnapshot({
+            workspaceDir: cwd,
+            conversationId,
+            runId,
+            ...(messageId ? { messageId } : {}),
+          })
           notifyCloudSyncWorkspaceChanged()
         }
       },

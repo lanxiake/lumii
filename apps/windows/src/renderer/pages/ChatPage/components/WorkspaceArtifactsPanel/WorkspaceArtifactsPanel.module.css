@@ -787,8 +787,26 @@
   color: var(--mt-error);
 }
 
-.versionGo {
+.versionSource {
+  flex-shrink: 0;
+  color: var(--mt-fg-3);
+  font-size: 9px;
+}
+
+.versionActions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.versionUnavailable {
+  color: var(--mt-fg-4);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.versionGo {
   display: inline-flex;
   align-items: center;
   gap: 3px;

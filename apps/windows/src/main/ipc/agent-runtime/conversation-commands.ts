@@ -16,6 +16,10 @@ import { resolveChannelIdentity } from '../../channel/channel-identity'
 import { acpSessionStateKey } from '../../coding-dev-acp-run.js'
 import { normalizeAgentIdForBinding } from '../../coding-dev-env.js'
 import { deriveConversationTitleFromUserText } from '../../../shared/conversation-title'
+import type { LocalArtifactEdit } from '../../../shared/artifact-edit-types'
+import type { ArtifactVersionInfo } from '../../../shared/artifact-version-types'
+import { listEdits } from '../../artifact-edit'
+import { buildMergedVersions } from '../../artifact-versions'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -880,12 +884,7 @@ export function handleConversationContextUsage(
 // 产物版本历史（工作台 inspector）
 // ============================================================
 
-export interface ArtifactHistoryVersion {
-  readonly turnId: string
-  /** epoch ms（渲染层直接用，不在 UI 里再做 ISO 解析） */
-  readonly timestamp: number
-  readonly status: 'added' | 'modified' | 'deleted'
-}
+export type ArtifactHistoryVersion = ArtifactVersionInfo
 
 export interface ArtifactHistoryResult {
   /** 时间正序（旧 → 新）；① = 最早一版 */
@@ -894,28 +893,29 @@ export interface ArtifactHistoryResult {
   readonly total: number
 }
 
-export function handleArtifactHistory(
+export async function handleArtifactHistory(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'artifact:history' }>,
-): ArtifactHistoryResult {
+): Promise<ArtifactHistoryResult> {
   const { sessionKey } = command
   const path = command.path.trim()
   if (!path) throw new Error('bad_request: path 不能为空')
   assertConversationExists(bridge, sessionKey)
 
   // 不缓存：一次回合就能给同一文件添一版，缓存住反而让面板少一版；扫库只在点开时发生。
-  const versions: ArtifactHistoryVersion[] = []
-  for (const turn of bridge.conversationRepo.listFileChangeTurns(sessionKey)) {
-    for (const change of turn.changes) {
-      if (change.path !== path) continue
-      versions.push({
-        turnId: turn.messageId,
-        timestamp: Date.parse(turn.timestamp),
-        status: change.status,
-      })
-    }
+  const turns = bridge.conversationRepo.listFileChangeTurns(sessionKey)
+  const workspaceDir = typeof bridge.getCwd === 'function' ? bridge.getCwd() : ''
+  let localEdits: readonly LocalArtifactEdit[] = []
+  if (workspaceDir) {
+    const local = await listEdits({ workspaceDir, sessionKey, limit: 500 })
+    if (local.ok) localEdits = local.edits
   }
-
+  const versions = await buildMergedVersions({
+    workspaceDir,
+    path,
+    turns,
+    localEdits,
+  })
   return { versions, total: versions.length }
 }
 

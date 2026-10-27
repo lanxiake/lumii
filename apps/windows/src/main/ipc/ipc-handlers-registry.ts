@@ -119,6 +119,11 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
 
   setFileSystemIpcDeps({
     getSystemService: deps.getSystemService,
+    getWorkspaceDir: deps.getWorkspaceDir,
+    getActiveConversationId: () =>
+      deps.getAgentRuntimeBridge()?.getLastActiveConversationId() ?? null,
+    // 文件已登记过就更新；未初始化时 getter 会 throw，由调用点 catch 后跳过
+    getFileRegistrar: () => deps.getAgentRuntimeBridge()?.fileRepo ?? null,
     log: deps.log,
   })
 

@@ -1911,13 +1911,7 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'conversation:context-usage' ? SessionContextUsageResult
   : T extends 'artifact:history' ? {
       /** 时间正序（旧 → 新）；① = 最早一版 */
-      versions: readonly {
-        /** 产生这一版的那条 assistant 消息 id（「回到消息」用） */
-        turnId: string
-        /** epoch ms */
-        timestamp: number
-        status: 'added' | 'modified' | 'deleted'
-      }[]
+      versions: readonly import('./artifact-version-types').ArtifactVersionInfo[]
       total: number
     }
   : T extends 'conversation:delete' ? void

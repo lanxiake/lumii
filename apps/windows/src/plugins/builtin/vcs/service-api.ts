@@ -13,5 +13,10 @@ export interface VcsService {
     workspaceDir: string
     conversationId?: string
     runId?: string
+    /** P2：写入回合→commit 索引；快照排队合并时多个 id 指向同一 oid */
+    messageId?: string
   }): Promise<unknown>
+
+  /** 读某个历史版本的文本内容；插件停用/文件不在该提交时为 null */
+  readFileAt(workspaceDir: string, oid: string, filepath: string): Promise<string | null>
 }

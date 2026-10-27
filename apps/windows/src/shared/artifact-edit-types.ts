@@ -16,6 +16,8 @@ export type ArtifactEditScope =
   | { type: 'slide'; index: number }
   /** 图片同源变体（不经过候选稿） */
   | { type: 'image-variant' }
+  /** 整文件保存（手工 file:write 记录的 local 版本） */
+  | { type: 'file' }
 
 export type ArtifactEditAction =
   | 'manual'

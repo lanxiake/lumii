@@ -799,6 +799,14 @@ export interface ElectronAPI {
       | import('../shared/artifact-edit-types').ArtifactEditListResult
       | import('../shared/artifact-edit-types').ArtifactEditFailure
     >
+    /** 两版文本 diff */
+    versionDiff: (
+      input: import('../shared/artifact-version-types').ArtifactVersionDiffInput,
+    ) => Promise<import('../shared/artifact-version-types').ArtifactVersionDiffResult>
+    /** 某一版的只读文本内容 */
+    versionContent: (
+      input: import('../shared/artifact-version-types').ArtifactVersionContentInput,
+    ) => Promise<import('../shared/artifact-version-types').ArtifactVersionContentResult>
   }
 
   // 本地技能管�?

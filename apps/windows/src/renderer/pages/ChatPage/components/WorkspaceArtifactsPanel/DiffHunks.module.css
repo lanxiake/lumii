@@ -1,0 +1,38 @@
+.diff {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 10px;
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.hunk + .hunk {
+  margin-top: 6px;
+}
+
+.hunkHead {
+  color: var(--mt-fg-3);
+  user-select: none;
+}
+
+.add {
+  color: var(--mt-success);
+  background: color-mix(in srgb, var(--mt-success) 10%, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.del {
+  color: var(--mt-error);
+  background: color-mix(in srgb, var(--mt-error) 10%, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ctx {
+  color: var(--mt-fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
