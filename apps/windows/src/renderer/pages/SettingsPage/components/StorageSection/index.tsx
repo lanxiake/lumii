@@ -51,7 +51,8 @@ export function StorageSection() {
     try {
       const [prefsRes, scanRes, trashRes, historyRes] = await Promise.all([
         api.cleanupGetPrefs?.(),
-        api.cleanupScan?.({ budgetMs: 3000 }),
+        // 1.1 万个临时文件的大工作区，3s 会截断；8s 在本机能跑完（实测约 6s）
+        api.cleanupScan?.({ budgetMs: 8000 }),
         api.cleanupListTrash?.(),
         api.cleanupHistory?.(50),
       ])

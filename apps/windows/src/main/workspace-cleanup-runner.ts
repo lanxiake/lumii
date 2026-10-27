@@ -120,7 +120,8 @@ export async function runScheduledCleanup(opts: {
 
   // 2) 配额：只统计可清理的两类，超阈值就清到目标比例
   try {
-    const scan = await scanWorkspace({ dir: opts.dir })
+    // 大工作区（本机 1.4 万个文件）用默认 1.5s 会被截断 → 配额永不触发；给足 8s
+    const scan = await scanWorkspace({ dir: opts.dir, budgetMs: 8000 })
     const usage = scan.classes.intermediate.bytes + scan.classes.ephemeral.bytes
     const quota = opts.prefs.quotaGb * 1024 * 1024 * 1024
     if (usage > quota) {

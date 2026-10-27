@@ -1,6 +1,6 @@
 # 产物约定（技能 / 工具 / 工作台共用）
 
-> 创建：2026-10-27 · 状态：P1 骨架（随 P1 实施补齐）
+> 创建：2026-10-27 · 状态：**P1 已实施**（与 `shared/artifact-rules.ts` 及工作台 P1 同步）
 > 相关：[工作台 v2 P1 实施计划](../plans/客户端UI/2026-10-26-工作台v2-P1实施计划.md) · 规则实现：[`apps/windows/src/shared/artifact-rules.ts`](../../apps/windows/src/shared/artifact-rules.ts)
 
 ## 1. 为什么需要约定
@@ -98,3 +98,14 @@ PPT 目前是「技能 + bash」，没有工具 `details` 可写。技能在**�
 - 成品（deliverable）**永不**进入清理候选。
 - 被成品文本引用（html/svg/json/md/js ≤2MB）的中间文件跳过。
 - 删除 = 移入 `<ws>/.lumii/trash/`，可恢复；trash 到期才真删。
+
+## 8. 三条产出链的最小要求
+
+| 链 | 最少要做到 | 可以不做 |
+|---|---|---|
+| 生图（image_generate） | 工具结果 `details.artifacts` 带 `path` / `kind:"image"` / `meta{width,height,model}`；首发与直连生图**两条分支都要写** | 不需要侧车；缩略图由主进程生成 |
+| PPT（技能 + bash） | 成品写到 `outputs/<任务>/`；在成品旁写侧车（`kind:"slides"` + `meta.pages` + 可选 `title`） | 不需要首页缩略图（P2）；不需要每页声明 |
+| 视频（enqueue_workflow 等） | 真实产出写到 `outputs/<任务>/`（不要只写 `temp/`）；文件名能看出是什么 | 不需要工具层声明（后台任务产物由 `fileChanges` 派生）；首帧由主进程 ffmpeg 抽 |
+
+**允许但需声明**：技能把成品写到别的目录时，请给工具结果加 `details.artifacts` 或写侧车；
+不声明就只能按路径派生，rail 可能把它当成过程文件折叠起来（不是错误，但用户看不到）。

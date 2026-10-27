@@ -12,6 +12,7 @@
 | 页面模板 | [`page-template.md`](page-template.md) | 新增页面和页面状态 |
 | UI 设计 | [`ui-design-standards.md`](ui-design-standards.md) | 布局、交互、可访问性和视觉令牌 |
 | 功能开发 | [`feature-development-standards.md`](feature-development-standards.md) | 跨层功能、IPC 和交付流程 |
+| 产物约定 | [`artifact-conventions.md`](artifact-conventions.md) | 工具/技能声明产物、写侧车、工作台 rail 与自动清理的边界 |
 | 宠物开发 | [`pet-development-standards.md`](pet-development-standards.md) | 做一只新宠物、补动作组、加事件/特效、查宠物包命名契约 |
 | 插件开发 | [`plugin-development-standards.md`](plugin-development-standards.md) | 写渲染层插件（`~/.lumii/plugins/`）或主进程扩展；槽位、边界、热更新、调试与验收清单 |
 | 双连接架构 | [`dual-connection-architecture.md`](dual-connection-architecture.md) | Gateway、客户端连接和认证 |
