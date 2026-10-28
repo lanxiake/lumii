@@ -13,7 +13,9 @@ import type { ChannelPolicy } from '../../shared/channel-policy'
 import { loadWechatContacts, type WechatContactsResult } from '../channel/wechat-contacts'
 import { repairWechatEnv, runWechatSelfcheck } from '../channel/wechat-selfcheck'
 import { evaluateWechatMcp, type WechatMcpVerdict } from '../../shared/wechat-mcp-status'
-import { PCWECHAT_CHANNEL, WECHAT_WATCH_MCP_SERVER } from '../agent-runtime/wechat-watch-tick'
+import { PCWECHAT_CHANNEL } from '../agent-runtime/wechat-watch-tick'
+import { getWechatSidecar } from '../agent-runtime/wechat-sidecar-client'
+import { isExtensionActive } from '../../plugins/active'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 
 interface ChannelIpcDeps {
@@ -147,11 +149,10 @@ export function registerChannelIpcHandlers(): void {
     (_event, account?: unknown): Promise<WechatContactsResult> =>
       loadWechatContacts(
         {
-          mcpServer: WECHAT_WATCH_MCP_SERVER,
-          callMcpTool: (server, tool, args) => {
+          callTool: (tool, args) => {
             const bridge = deps!.getAgentRuntimeBridge()
             if (!bridge) throw new Error('Agent Runtime 尚未就绪，读不了微信会话')
-            return bridge.callMcpTool(server, tool, args)
+            return bridge.callWechatTool(tool, args)
           },
           getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
         },
@@ -160,12 +161,12 @@ export function registerChannelIpcHandlers(): void {
   )
 
   // 多开：设置页的账号页签要列出本机有哪些号（含没在跑的）。读不到就空表 + 原因，
-  // 界面退回「只配默认」——不能因为 MCP 没连上就让策略页打不开。
+  // 界面退回「只配默认」——不能因为侧车没起来就让策略页打不开。
   ipcMain.handle('channel:listWechatAccounts', async () => {
     const bridge = deps!.getAgentRuntimeBridge()
     if (!bridge) return { accounts: [], error: 'Agent Runtime 尚未就绪' }
     try {
-      const raw = await bridge.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'list_accounts', {})
+      const raw = await bridge.callWechatTool('list_accounts', {})
       const parsed = JSON.parse(raw) as { active?: unknown; accounts?: unknown }
       const accounts = (Array.isArray(parsed.accounts) ? parsed.accounts : [])
         .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
@@ -189,34 +190,36 @@ export function registerChannelIpcHandlers(): void {
 
   // === 本机微信环境自检（确定性：check_env + locate_db；不叫模型） ===
   const withBridge =
-    <T>(fn: (call: (s: string, t: string, a: Record<string, unknown>) => Promise<string>) => Promise<T>) =>
+    <T>(fn: (call: (t: string, a: Record<string, unknown>) => Promise<string>) => Promise<T>) =>
     async (): Promise<T | null> => {
       const bridge = deps!.getAgentRuntimeBridge()
       if (!bridge) return null
-      return fn((s, t, a) => bridge.callMcpTool(s, t, a))
+      return fn((t, a) => bridge.callWechatTool(t, a))
     }
   ipcMain.handle('wechat:selfcheck', withBridge((call) => runWechatSelfcheck(call)))
   ipcMain.handle('wechat:repair', withBridge((call) => repairWechatEnv(call)))
 
   /**
-   * 「本机微信助手」这个 MCP 的**检测**结果（装没装、能不能用）。
+   * 本机微信的**就绪**判定（扩展开没开、侧车起没起来、工具齐不齐）。
    *
-   * MCP 归用户自己装、自己配（2026-10-25 与插件解耦）；渠道卡片只负责把事实讲清楚，
-   * 并把缺的那步指到「设置 › MCP 服务」。所以这里**只读**，没有任何安装入口。
-   * 判据与实现在 `shared/wechat-mcp-status.ts`（纯函数，可单测）。
+   * 这曾经是「用户自己装的 MCP 有没有配好」的检测；能力归内置扩展后，判据只剩
+   * 扩展开关 + 侧车状态（见 `shared/wechat-mcp-status.ts` 的文件头）。
+   * **返回结构保持不变**，UI 侧（插件设置卡片、渠道绑定弹窗）因此不用跟着改。
    */
   ipcMain.handle('wechat:mcpStatus', async (): Promise<WechatMcpVerdict> => {
-    const bridge = deps!.getAgentRuntimeBridge()
-    if (!bridge) return evaluateWechatMcp({ configured: false, connected: false })
-    const status = bridge.getMcpStatus().find((s) => s.name === WECHAT_WATCH_MCP_SERVER)
-    return evaluateWechatMcp({
-      configured: !!status,
-      // `enabled === undefined` 是「老配置没写这个字段」= 默认启用，不能当成停用
-      enabled: status?.enabled,
-      connected: status?.connected === true,
-      ...(status?.serverVersion ? { serverVersion: status.serverVersion } : {}),
-      tools: status?.tools ?? [],
-      ...(status?.lastError ? { lastError: status.lastError } : {}),
-    })
+    if (!isExtensionActive('com.lumii.pcwechat')) {
+      return evaluateWechatMcp({ pluginEnabled: false, sidecarReady: false })
+    }
+    try {
+      // `listTools()` 会在首次调用时拉起侧车——这正是「就绪」要验的事，所以不缓存结果
+      const tools = (await getWechatSidecar().listTools()).map((t) => t.name)
+      return evaluateWechatMcp({ pluginEnabled: true, sidecarReady: true, tools })
+    } catch (err) {
+      return evaluateWechatMcp({
+        pluginEnabled: true,
+        sidecarReady: false,
+        lastError: err instanceof Error ? err.message : String(err),
+      })
+    }
   })
 }

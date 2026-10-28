@@ -146,6 +146,8 @@ import { S } from './kernel/services'
 import type { MainEvents } from './kernel/events'
 import { readExtensionPrefs } from './kernel/extension-store'
 import { createExtensionControl, setExtensionControl } from '../plugins/control'
+import { DEFAULT_DISABLED_EXTENSIONS } from '../plugins/registry'
+import { destroyWechatSidecar } from './agent-runtime/wechat-sidecar-client'
 import { setChannelContinuityAccessor } from './channel/continuity-accessor'
 import { getAutonomousService, setAutonomousAccessor } from './agent-runtime/autonomous-accessor'
 import { setupExtensionIpcHandlers } from './ipc/extension-ipc'
@@ -1213,7 +1215,7 @@ async function wireOfficialExtensionInstalled(id: string): Promise<void> {
 }
 
 async function startExtensions(): Promise<void> {
-  const { disabled, warning } = readExtensionPrefs()
+  const { disabled, warning } = readExtensionPrefs(undefined, DEFAULT_DISABLED_EXTENSIONS)
   if (warning) log.warn(`[extensions] ${warning}`)
 
   const { host, disabled: disabledPlugins, eventBus } = createPluginHost(
@@ -1690,6 +1692,15 @@ async function performCleanup(): Promise<void> {
       log.info('[performCleanup] MCP Server 已停止')
     } catch (err) {
       log.warn('[performCleanup] MCP Server 停止失败:', err)
+    }
+
+    // 本机微信侧车：Python 子进程，独立于 MCP 那套。stdin 关闭时它会自己退出，
+    // 但显式 shutdown 一次能让它先收尾（发送锁、日志 flush），再 kill。
+    try {
+      await destroyWechatSidecar()
+      log.info('[performCleanup] 微信侧车已停止')
+    } catch (err) {
+      log.warn('[performCleanup] 微信侧车停止失败:', err)
     }
 
     // 终止所有运行中的 ACP CLI 子进程（dispose 内部 abort 全部 run 并清理定时器）

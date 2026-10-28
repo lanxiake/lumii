@@ -37,13 +37,15 @@ export interface WechatSelfcheck {
   reason: string
 }
 
-export type CallMcpTool = (
-  server: string,
-  tool: string,
-  args: Record<string, unknown>,
-) => Promise<string>
+export type CallWechatTool = (tool: string, args: Record<string, unknown>) => Promise<string>
 
-/** 探测到的数据目录写进 MCP 配置（仅当缺失时）。返回是否真的写了。 */
+/**
+ * 探测到的数据目录写进 MCP 配置（仅当缺失时）。返回是否真的写了。
+ *
+ * 能力已归内置扩展（侧车自己 `locate_db`，不读这份配置），所以对**新用户**这已是
+ * 空操作（配置里根本没有 `wechat-chat` 条目）。留着是给**老用户**：他们的配置里
+ * 可能还有那条自己写的 MCP，补上目录能让它继续可用。等老配置自然消失即可删。
+ */
 export function writeWechatDbToConfig(root: string): boolean {
   if (!root) return false
   try {
@@ -62,11 +64,11 @@ export function writeWechatDbToConfig(root: string): boolean {
 }
 
 /**
- * 跑一次自检。`callMcpTool` 由调用方注入（生产走 `bridge.callMcpTool`）。
+ * 跑一次自检。`callTool` 由调用方注入（生产走 `bridge.callWechatTool`）。
  * 任何异常都收敛成 `ok:false` + `reason`，绝不抛（这是个诊断入口，不该把 UI 炸掉）。
  */
 export async function runWechatSelfcheck(
-  callMcpTool: CallMcpTool,
+  callTool: CallWechatTool,
   opts: { writeConfig?: boolean } = {},
 ): Promise<WechatSelfcheck> {
   const actions: string[] = []
@@ -80,15 +82,15 @@ export async function runWechatSelfcheck(
     reason: '',
   }
   try {
-    const envRaw = await callMcpTool(WECHAT_WATCH_MCP_SERVER, 'check_env', {})
+    const envRaw = await callTool('check_env', {})
     out.env = JSON.parse(envRaw) as Record<string, unknown>
     out.connected = true
   } catch (err) {
-    out.reason = `wechat-chat MCP 未连接：${err instanceof Error ? err.message : String(err)}`
+    out.reason = `本机微信侧车未就绪：${err instanceof Error ? err.message : String(err)}`
     return out
   }
   try {
-    const dbRaw = await callMcpTool(WECHAT_WATCH_MCP_SERVER, 'locate_db', {})
+    const dbRaw = await callTool('locate_db', {})
     const db = JSON.parse(dbRaw) as {
       found?: boolean
       root?: string | null
@@ -122,19 +124,19 @@ export async function runWechatSelfcheck(
 }
 
 /**
- * 一键修复：调 MCP `repair_env`（还原窗口 + 规范化到预设尺寸 + 重探目录），再复检一次。
+ * 一键修复：调 `repair_env`（还原窗口 + 规范化到预设尺寸 + 重探目录），再复检一次。
  */
-export async function repairWechatEnv(callMcpTool: CallMcpTool): Promise<{
+export async function repairWechatEnv(callTool: CallWechatTool): Promise<{
   repaired: Record<string, unknown> | null
   selfcheck: WechatSelfcheck
 }> {
   let repaired: Record<string, unknown> | null = null
   try {
-    const raw = await callMcpTool(WECHAT_WATCH_MCP_SERVER, 'repair_env', {})
+    const raw = await callTool('repair_env', {})
     repaired = JSON.parse(raw) as Record<string, unknown>
   } catch {
     repaired = null
   }
-  const selfcheck = await runWechatSelfcheck(callMcpTool, { writeConfig: true })
+  const selfcheck = await runWechatSelfcheck(callTool, { writeConfig: true })
   return { repaired, selfcheck }
 }

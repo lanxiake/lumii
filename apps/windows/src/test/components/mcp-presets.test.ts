@@ -1,26 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   MCP_PRESETS,
   MCP_PRESET_CATEGORIES,
-  WECHAT_MCP_VERSION,
   findMcpPreset,
   isReadyToUse,
 } from '../../shared/mcp-presets'
 import { validateMcpServerEntry } from '../../main/config/mcp-config'
-
-/** apps/windows 根 */
-const windowsRoot = resolve(__dirname, '../../..')
-/** 独立仓库里的 MCP 源码根（SERVER_VERSION 在 common/app.py）；默认与 Lumii 并排 */
-const wechatSrc = process.env.WECHAT_MCP_DIR
-  ? resolve(process.env.WECHAT_MCP_DIR)
-  : resolve(windowsRoot, '../../..', 'wechat-mcp')
-// 2026-10 仓库重构后源码在 src/common/；旧布局 common/ 仍兼容
-const wechatVersionSrc = [
-  resolve(wechatSrc, 'src', 'common', 'app.py'),
-  resolve(wechatSrc, 'common', 'app.py'),
-].find((p) => existsSync(p)) ?? resolve(wechatSrc, 'src', 'common', 'app.py')
 
 describe('MCP 内置清单', () => {
   it('每条都能通过主进程的配置校验', () => {
@@ -79,22 +64,10 @@ describe('MCP 内置清单', () => {
     }
   })
 
-  it('wechat-chat 仍是独立 exe，不带参数', () => {
-    const wechat = findMcpPreset('wechat-chat')
-    expect(wechat?.bundledExe).toBe('wechat-chat-mcp')
-    expect(wechat?.args).toEqual([])
-  })
-
-  // 源码仓库不在（CI / 只拿了 exe 的机器）时没有可对账的对象；在开发机上必须跑。
-  it.skipIf(!existsSync(wechatVersionSrc))('面板展示的版本跟 common/app.py 的 SERVER_VERSION 对得上', () => {
-    // 版本号唯一来源是 common/app.py；TS 侧只是镜像（面板每 5s 轮询，实读 exe 太慢，
-    // 见 mcp-presets.ts 里 WECHAT_MCP_VERSION 的注释）。发版只改 app.py 时这里会红。
-    const declared = readFileSync(wechatVersionSrc, 'utf-8').match(
-      /^SERVER_VERSION\s*=\s*"([^"]+)"/m,
-    )?.[1]
-    expect(declared, 'common/app.py 里找不到 SERVER_VERSION').toBeTruthy()
-    expect(WECHAT_MCP_VERSION).toBe(declared)
-    expect(findMcpPreset('wechat-chat')?.bundledVersion).toBe(declared)
+  // 本机微信已从预设清单摘除（2026-10-28，能力归内置扩展 com.lumii.pcwechat）。
+  // 下面这条断言的是**摘除这件事本身**——否则哪天有人顺手把它加回来，没有任何信号。
+  it('本机微信不在预设清单里（能力已归内置扩展，不再播种 MCP 条目）', () => {
+    expect(findMcpPreset('wechat-chat')).toBeUndefined()
   })
 
   it('只有带 bundledExe 的预置项才提供版本，其它项不给假值', () => {
@@ -102,15 +75,6 @@ describe('MCP 内置清单', () => {
       if (preset.bundledExe) continue
       expect(preset.bundledVersion, preset.name).toBeUndefined()
     }
-    expect(findMcpPreset('wechat-chat')?.bundledVersion).toBeTruthy()
-  })
-
-  it('wechat-chat 必须自带超时：发送要走整串 GUI 安全网，30s 默认值会把已发成功的那次报成失败', () => {
-    // 2026-10-09 15:15 实测：send_text 实耗 36.2s、自报 ok=true，而 30s 的客户端超时先到。
-    // 服务端 tool_send 还套了 `_send_with_retry(max_retries=2)`，最坏两轮。断言取的是
-    // 「盖得住两轮最坏」这条不变量，不是那个具体数字——调参不必回来改这里。
-    const ms = findMcpPreset('wechat-chat')?.timeoutMs
-    expect(ms).toBeGreaterThanOrEqual(120_000)
   })
 
   it('不重复内置的 browser_* 工具', () => {

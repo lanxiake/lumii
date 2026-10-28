@@ -49,12 +49,14 @@ describe('wechat-contacts', () => {
 
   it('微信读不到时退回已配名单并如实给原因', async () => {
     const policy = policyOf([{ id: 'wxid_a', label: '阿呆', mode: 'auto' }])
-    const res = await loadWechatContacts({
-      mcpServer: 'wechat-chat',
-      callMcpTool: async () => '错误：MCP 未连接',
+    const res = await loadWechatContacts({
+      // 侧车失败即抛（不再有「同一段字符串里嗅探未连接」那种判据，见 callText 的注释）
+      callTool: async () => {
+        throw new Error('本机微信侧车未就绪：spawn ENOENT')
+      },
       getPolicy: () => policy,
     })
-    expect(res.error).toMatch(/没连上/)
+    expect(res.error).toMatch(/读微信会话失败/)
     expect(res.contacts).toEqual([{ id: 'wxid_a', label: '阿呆', isGroup: false }])
   })
 
@@ -62,9 +64,8 @@ describe('wechat-contacts', () => {
     // 用户报的坑：名单里配过、但微信里早就删掉的人，不该出现在「从微信里挑人」里
     // ——那些人在微信里压根选不到，混进来会让人以为微信里还有他们。
     const policy = policyOf([{ id: 'wxid_old', label: '删掉的老同学', mode: 'draft' }])
-    const res = await loadWechatContacts({
-      mcpServer: 'wechat-chat',
-      callMcpTool: async () => '[{"talker":"wxid_mama","name":"妈妈","last":"在吗"}]',
+    const res = await loadWechatContacts({
+      callTool: async () => '[{"talker":"wxid_mama","name":"妈妈","last":"在吗"}]',
       getPolicy: () => policy,
     })
     expect(res.error).toBeUndefined()

@@ -71,3 +71,18 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
 export const HOT_SWAPPABLE_BUILTINS: ReadonlySet<string> = new Set(
   BUILTIN_EXTENSIONS.filter((entry) => entry.hot).map((entry) => entry.manifest.id),
 )
+
+/**
+ * 默认**关闭**的内置插件（由各插件 manifest 的 `defaultEnabled: false` 派生）。
+ *
+ * 与 `HOT_SWAPPABLE_BUILTINS` 同一套做法：插件自己声明，宿主任一张表聚合，
+ * kernel 只认参数不认具体 id。新增一个默认关闭的插件 = 在它自己的 manifest 里写一行。
+ *
+ * 与 `manifest.disabled`（迁移期过渡开关，开关根本不给点）是两回事：这里的开关
+ * 用户在设置页可以随时打开。
+ */
+export const DEFAULT_DISABLED_EXTENSIONS: ReadonlySet<string> = new Set(
+  BUILTIN_EXTENSIONS.filter((entry) => entry.manifest.defaultEnabled === false).map(
+    (entry) => entry.manifest.id,
+  ),
+)

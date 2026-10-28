@@ -40,7 +40,8 @@ import {
   type ChannelHub,
 } from './channel-hub-bootstrap'
 import { getChannelPolicyStore } from './channel-policy-store'
-import { PCWECHAT_CHANNEL, WECHAT_WATCH_MCP_SERVER } from '../agent-runtime/wechat-watch-tick'
+import { PCWECHAT_CHANNEL } from '../agent-runtime/wechat-watch-tick'
+import { getWechatSidecar } from '../agent-runtime/wechat-sidecar-client'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 
 const log = {
@@ -94,7 +95,7 @@ export function initChannelHub(): ChannelHub {
  * 渠道同一套启停语义。`getBridge` **现取**：插件在 S1 激活，Agent Runtime 到 S7.4
  * 才建，闭包里抓实例会一直拿到 null。
  *
- * 没有登录服务：「在线」= wechat-chat MCP 连着，名单 = 渠道策略里配过的人。
+ * 没有登录服务：「在线」= 应用托管的 Python 侧车起来了，名单 = 渠道策略里配过的人。
  */
 export function startPcwechat(
   hub: ChannelHub,
@@ -102,23 +103,11 @@ export function startPcwechat(
 ): () => void {
   const provider = new PcwechatChannelProvider({
     getPolicy: () => getChannelPolicyStore().get(PCWECHAT_CHANNEL),
-    mcpServer: WECHAT_WATCH_MCP_SERVER,
-    isMcpConnected: () => {
-      try {
-        return (
-          getBridge()
-            ?.getMcpStatus()
-            .some((s) => s.name === WECHAT_WATCH_MCP_SERVER && s.connected) ?? false
-        )
-      } catch {
-        return false
-      }
-    },
-    callMcpTool: (server, tool, args) => {
-      const bridge = getBridge()
-      if (!bridge) throw new Error('Agent Runtime 尚未就绪，无法调用 MCP 工具')
-      return bridge.callMcpTool(server, tool, args)
-    },
+    // 「那双手在不在」= 应用托管的 Python 侧车起没起来（能力归内置扩展，不再看 MCP）
+    isReady: () => getWechatSidecar().isReady(),
+    // 侧车调的与 Agent 用的是同一批原生工具（`bridge-wechat-tools.ts`），
+    // 只是这条不经 Agent 回合——出站 Provider 拿不到 tool 执行器。
+    callTool: (tool, args) => getWechatSidecar().callText(tool, args),
     // 「此刻发不出去」（锁屏 / 窗口抢不到前台）：排队，盯梢回路下一拍自己补发
     onUndeliverable: (to, text, account) => {
       const bridge = getBridge()

@@ -21,26 +21,15 @@
  */
 
 /**
- * 本机微信 MCP（`wechat-chat-mcp`）**客户端验证过的版本**
- *
- * 版本号唯一来源是独立仓库 `src/common/app.py` 的 `SERVER_VERSION`，这里是它的
- * TS 镜像。`mcp-presets.test.ts` 会读回 app.py 对账，发版漏改这里会红。
- *
- * **MCP 与插件解耦**（2026-10-25）：客户端不再下载/安装这个二进制，只负责
- * 「这个版本我验证过」这一条信息（面板上作为推荐值展示）。用户自己装、自己在
- * 「设置 › MCP 服务」里配；实际在跑的版本以**握手自报**的 `serverVersion` 为准。
- */
-export const WECHAT_MCP_VERSION = '0.12.0'
-
-/**
  * MCP 在客户端配置里的 Server 名（= 产品自己的 `SERVER_NAME`）。
  *
- * 旧名 `wechat-local` 已废弃；`migrateWechatMcpEntry` 会把老条目合并到这个名字，
- * 并带上 5 分钟超时（产品自带安装器写出的条目没有这个字段）。
+ * 预设清单里**没有**这一条（能力已归内置扩展，见 `MCP_PRESETS` 上的注释），但这个
+ * 名字仍然要用：老用户的配置里可能还写着它，`migrateWechatMcpEntry` 靠它把旧名
+ * （`wechat-local`）合并过来并补超时——删了这个常量，老配置的迁移就没了判据。
  */
 export const WECHAT_MCP_SERVER_NAME = 'wechat-chat'
 
-/** 本机微信的长任务超时（切会话/读 UIA 的单发实测可达 36s） */
+/** 本机微信 MCP 条目的默认超时（切会话/读 UIA 的单发实测可达 36s；仅供老配置迁移用） */
 export const WECHAT_MCP_TIMEOUT_MS = 300_000
 
 export type McpPresetCategory =
@@ -105,31 +94,15 @@ export function isReadyToUse(preset: McpPreset): boolean {
 }
 
 export const MCP_PRESETS: readonly McpPreset[] = [
-  {
-    name: WECHAT_MCP_SERVER_NAME,
-    title: '本机微信',
-    description: '读取本机微信会话、历史消息、检索聊天记录，并能发送消息、文件、引用回复、群发，以及蒸馏用户/好友画像',
-    categories: ['life'],
-    // 独立单文件 exe（scripts/build-wechat-mcp.mjs），不依赖 Python 与灵栖占位符
-    command: 'wechat-chat-mcp.exe',
-    args: [],
-    bundledExe: 'wechat-chat-mcp',
-    bundledVersion: WECHAT_MCP_VERSION,
-    // 每条回复都要走一整串 GUI 安全网（UIA 全树读 ≈3–4s/次 × 5–6 次 + 切会话 + 读库确认），
-    // 表头不对、要走切会话那条路时单发实测 36.2s；服务端 tool_send 外面还套了
-    // `_send_with_retry(max_retries=2)`，最坏两轮 ⇒ 30s 默认值会把**已经发成功**的那次
-    // 报成失败（2026-10-09 15:15 实测：消息 15:15:50 落库，服务端 36.2s 自报 ok，客户端
-    // 15:15:46 超时）。给足 5 分钟，让本地这双手自己把结论说完。
-    timeoutMs: WECHAT_MCP_TIMEOUT_MS,
-    // 2026-10-25：MCP 与插件解耦。客户端不再下载、安装这个 exe——用户自己装，
-    // 并在「设置 › MCP 服务」里把命令指向它。播种出来的条目默认**停用**：
-    // 部署路径上未必有文件，默认启用只会连不上。
-    defaultEnabled: false,
-    // Agent 使用指南**不在这里**——它随 MCP 协议从 `server.py` 的 INSTRUCTIONS 走
-    // `initialize` → `McpClient.getInstructions()` → 系统提示词的 `## MCP Servers` 段。
-    // 预设清单只负责「怎么把服务跑起来」（command/args/env/超时），不是提示词的载体：
-    // 在这加 instructions 字段没有任何消费方，是死代码（2026-10-10 验证过）。
-  },
+  // 本机微信**不在**这里（2026-10-28 定案）。
+  //
+  // 能力已归内置扩展 `com.lumii.pcwechat`：它以原生工具注册（31 个，名字不带 `mcp__`
+  // 前缀，见 `main/agent-runtime/bridge-wechat-tools.ts`），随扩展启停。再播一条 MCP
+  // 预设等于给同一个能力开两个入口——实测 Agent 会挑 `mcp__wechat-chat__*` 那条，
+  // 于是用户以为的「插件开关」管不到它。
+  //
+  // 老配置里已有的条目**不动**（那是用户自己写的，客户端从 2026-10-25 起就不代管这个
+  // exe）；这里只是不再向新用户播种。
   {
     name: 'comfyui-remote',
     title: 'ComfyUI 生图',

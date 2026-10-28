@@ -77,20 +77,20 @@ function fakeDb(initial: Record<string, string> = {}) {
 
 function deps(over: Partial<WechatWatchDeps> = {}) {
   const { db, kv } = fakeDb()
-  // 形参写全（server/tool），`mockImplementation` 才按工具分流；契约类型只声明了 0 参，故断言一次
-  const callMcpTool = vi.fn(async (_server: string, _tool: string) =>
+  // 形参写全（tool/args），`mockImplementation` 才按工具分流；契约类型只声明了 2 参，故断言一次
+  const callTool = vi.fn(async (_tool: string, _args: Record<string, unknown>) =>
     JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 }),
   )
   const showNotification = vi.fn()
   const d: WechatWatchDeps = {
     getDb: () => db,
-    callMcpTool: callMcpTool as unknown as WechatWatchDeps['callMcpTool'],
+    callTool: callTool as unknown as WechatWatchDeps['callTool'],
     showNotification,
     configPath: 'NUL',
     nowMs: () => 1_800_000,
     ...over,
   }
-  return { d, kv, callMcpTool, showNotification }
+  return { d, kv, callTool, showNotification }
 }
 
 describe('parseWechatWatchConfig', () => {
@@ -384,14 +384,14 @@ describe('runWechatWatch', () => {
   })
 
   it('首次运行（无水位）只从现在起看，不翻历史', async () => {
-    const { d, callMcpTool } = deps()
+    const { d, callTool } = deps()
     await runWechatWatch(d)
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'poll_new', { since_ts: 1800 })
+    expect(callTool).toHaveBeenCalledWith('poll_new', { since_ts: 1800 })
   })
 
   it('有新消息：通知正文含名字与内容，水位照推进', async () => {
-    const { d, kv, callMcpTool, showNotification } = deps()
-    callMcpTool.mockResolvedValueOnce(
+    const { d, kv, callTool, showNotification } = deps()
+    callTool.mockResolvedValueOnce(
       JSON.stringify({
         count: 2,
         messages: [
@@ -409,8 +409,8 @@ describe('runWechatWatch', () => {
   })
 
   it('poll 失败：不推进水位、不通知（门闩失败=这拍什么都不做）', async () => {
-    const { d, kv, callMcpTool, showNotification } = deps({})
-    callMcpTool.mockRejectedValueOnce(new Error('MCP request timeout: tools/call'))
+    const { d, kv, callTool, showNotification } = deps({})
+    callTool.mockRejectedValueOnce(new Error('MCP request timeout: tools/call'))
     const out = await runWechatWatch(d)
     expect(out).toContain('poll 失败')
     expect(showNotification).not.toHaveBeenCalled()
@@ -419,31 +419,31 @@ describe('runWechatWatch', () => {
 
   it('空错误 ERROR: 会重启 MCP 并重试，成功则当正常一拍', async () => {
     __resetWatchPendingForTest()
-    const resetMcpServer = vi.fn(async () => {})
-    const { d, callMcpTool } = deps({ resetMcpServer })
-    callMcpTool
+    const resetSidecar = vi.fn(async () => {})
+    const { d, callTool } = deps({ resetSidecar })
+    callTool
       .mockRejectedValueOnce(new Error('ERROR: '))
       .mockResolvedValueOnce(JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 }))
     const out = await runWechatWatch(d)
-    expect(resetMcpServer).toHaveBeenCalledWith('wechat-chat')
-    expect(callMcpTool).toHaveBeenCalledTimes(2)
+    expect(resetSidecar).toHaveBeenCalled()
+    expect(callTool).toHaveBeenCalledTimes(2)
     expect(out).toBe('无新消息')
   })
 
   it('冷却期内的空错误不再重启，只跳过', async () => {
     __resetWatchPendingForTest()
-    const resetMcpServer = vi.fn(async () => {})
-    const { d, callMcpTool } = deps({ resetMcpServer })
-    callMcpTool.mockRejectedValue(new Error('ERROR:'))
+    const resetSidecar = vi.fn(async () => {})
+    const { d, callTool } = deps({ resetSidecar })
+    callTool.mockRejectedValue(new Error('ERROR:'))
     await runWechatWatch(d)
     const out = await runWechatWatch(d)
-    expect(resetMcpServer).toHaveBeenCalledTimes(1)
+    expect(resetSidecar).toHaveBeenCalledTimes(1)
     expect(out).toContain('poll 失败')
   })
 
   it('密钥还没就绪：不当成 poll 失败', async () => {
-    const { d, callMcpTool, showNotification } = deps({})
-    callMcpTool.mockRejectedValueOnce(
+    const { d, callTool, showNotification } = deps({})
+    callTool.mockRejectedValueOnce(
       new Error('ERROR: EnvError: 未能取到 message/message_0.db 的数据库密钥'),
     )
     const out = await runWechatWatch(d)
@@ -455,11 +455,11 @@ describe('runWechatWatch', () => {
   it('微信未运行：60 秒内不再调 MCP，到点才重新自检', async () => {
     let now = 1_800_000
     const listAccounts = vi.fn(async () => [{ wxid: 'wxid_1', running: false }])
-    const { d, callMcpTool } = deps({ listAccounts, nowMs: () => now })
+    const { d, callTool } = deps({ listAccounts, nowMs: () => now })
 
     expect(await runWechatWatch(d)).toContain('微信未运行')
     expect(listAccounts).toHaveBeenCalledTimes(1)
-    expect(callMcpTool).not.toHaveBeenCalled()
+    expect(callTool).not.toHaveBeenCalled()
 
     now += 15_000
     expect(await runWechatWatch(d)).toContain('下一分钟')
@@ -472,16 +472,16 @@ describe('runWechatWatch', () => {
 
   it('密钥未就绪：60 秒内不再反复 poll', async () => {
     let now = 1_800_000
-    const { d, callMcpTool } = deps({ nowMs: () => now })
-    callMcpTool.mockRejectedValue(
+    const { d, callTool } = deps({ nowMs: () => now })
+    callTool.mockRejectedValue(
       new Error('ERROR: EnvError: 未能取到 message/message_0.db 的数据库密钥'),
     )
 
     expect(await runWechatWatch(d)).toContain('密钥未就绪')
-    const calls = callMcpTool.mock.calls.length
+    const calls = callTool.mock.calls.length
     now += 15_000
     expect(await runWechatWatch(d)).toContain('下一分钟')
-    expect(callMcpTool.mock.calls.length).toBe(calls)
+    expect(callTool.mock.calls.length).toBe(calls)
   })
 
   it('微信恢复后立刻继续盯梢', async () => {
@@ -490,20 +490,20 @@ describe('runWechatWatch', () => {
       .fn()
       .mockResolvedValueOnce([{ wxid: 'wxid_1', running: false }])
       .mockResolvedValue([{ wxid: 'wxid_1', running: true }])
-    const { d, callMcpTool } = deps({ listAccounts, nowMs: () => now })
+    const { d, callTool } = deps({ listAccounts, nowMs: () => now })
 
     await runWechatWatch(d)                          // 判定未运行，进入退避
     now += 61_000
     expect(await runWechatWatch(d)).toBe('无新消息')
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'poll_new', {
+    expect(callTool).toHaveBeenCalledWith('poll_new', {
       since_ts: 1861,        // 首轮无水位：从当前时钟起，不翻历史
       account: 'wxid_1',
     })
   })
 
   it('MCP 没装/没连：安静跳过（客户端不依赖微信 MCP）', async () => {
-    const { d, kv, callMcpTool, showNotification } = deps({})
-    callMcpTool.mockRejectedValueOnce(new Error('MCP Server [wechat-local] 未连接'))
+    const { d, kv, callTool, showNotification } = deps({})
+    callTool.mockRejectedValueOnce(new Error('MCP Server [wechat-local] 未连接'))
     const out = await runWechatWatch(d)
     expect(out).toContain('未连接')
     expect(out).not.toContain('poll 失败') // 不是"失败"，是"这台机器没这个数据源"
@@ -512,15 +512,15 @@ describe('runWechatWatch', () => {
   })
 
   it('enabled=false：连 MCP 都不调', async () => {
-    const { d, callMcpTool } = deps({ config: { ...DEFAULT_WECHAT_WATCH_CONFIG, enabled: false } })
+    const { d, callTool } = deps({ config: { ...DEFAULT_WECHAT_WATCH_CONFIG, enabled: false } })
     const out = await runWechatWatch(d)
     expect(out).toContain('已关闭')
-    expect(callMcpTool).not.toHaveBeenCalled()
+    expect(callTool).not.toHaveBeenCalled()
   })
 
   it('被过滤掉的消息：不通知，但仍推进水位（否则下一拍重复读同一段）', async () => {
-    const { d, kv, callMcpTool, showNotification } = deps()
-    callMcpTool.mockResolvedValueOnce(
+    const { d, kv, callTool, showNotification } = deps()
+    callTool.mockResolvedValueOnce(
       JSON.stringify({
         count: 1,
         // 普通会话里**自己发的**（非自聊）⇒ 被 `!from_me` 过滤：不必提醒自己
@@ -567,8 +567,8 @@ describe('runWechatWatch · 分组策略', () => {
 
   it('auto 组：回合说发了 → 还要读库确认；库里没有就写「未发」（不替它邀功）', async () => {
     const driveTurn = vi.fn(async () => '已发出：在的')
-    const { d, callMcpTool, showNotification } = deps({ config: cfgAutoLoop, driveTurn })
-    callMcpTool.mockResolvedValueOnce(incoming('在吗'))
+    const { d, callTool, showNotification } = deps({ config: cfgAutoLoop, driveTurn })
+    callTool.mockResolvedValueOnce(incoming('在吗'))
     const out = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
     const [prompt, meta] = driveTurn.mock.calls[0] as unknown as [
@@ -599,8 +599,8 @@ describe('runWechatWatch · 分组策略', () => {
       groups: [{ name: '好友', mode: 'auto', peers: ['Loop', '小明'], cooldownSeconds: 300 }],
     })
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool, showNotification } = deps({ config: cfgBoth, driveTurn })
-    callMcpTool.mockResolvedValueOnce(
+    const { d, callTool, showNotification } = deps({ config: cfgBoth, driveTurn })
+    callTool.mockResolvedValueOnce(
       JSON.stringify({
         count: 2,
         messages: [
@@ -623,8 +623,8 @@ describe('runWechatWatch · 分组策略', () => {
 
   it('auto 组：库里确实有我发的 → 写「已代回」', async () => {
     const driveTurn = vi.fn(async () => '发好了')
-    const { d, callMcpTool } = deps({ config: cfgAutoLoop, driveTurn })
-    callMcpTool
+    const { d, callTool } = deps({ config: cfgAutoLoop, driveTurn })
+    callTool
       .mockResolvedValueOnce(incoming('在吗'))
       .mockResolvedValueOnce(JSON.stringify({ messages: [{ ts: 1991, name: 'Loop', talker: 'wxid_loop', from_me: true, text: '我回的' }] }))
     const out = await runWechatWatch(d)
@@ -635,8 +635,8 @@ describe('runWechatWatch · 分组策略', () => {
     // 2026-10-10 用户定调：冷却期的语义是「等后续消息累计，下一轮合并交给 Agent 回」，
     // **不是静默丢弃**。用户自己刚回过也是一个冷却来源，同样按这个语义走。
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ config: cfgAutoLoop, driveTurn, nowMs: () => 1_800_000 })
-    callMcpTool.mockResolvedValueOnce(JSON.stringify({
+    const { d, callTool } = deps({ config: cfgAutoLoop, driveTurn, nowMs: () => 1_800_000 })
+    callTool.mockResolvedValueOnce(JSON.stringify({
       messages: [
         { ts: 1990, name: '我', talker: 'wxid_loop', from_me: true, text: '我自己回了' },
         { ts: 1991, name: 'Loop', talker: 'wxid_loop', from_me: false, text: '他又说了一句' },
@@ -653,9 +653,9 @@ describe('runWechatWatch · 分组策略', () => {
       groups: [{ name: '同事', mode: 'draft', peers: ['Loop'] }],
     })
     const driveTurn = vi.fn(async () => '草稿：在的，稍等')
-    const { d, callMcpTool } = deps({ config: cfgDraft, driveTurn })
+    const { d, callTool } = deps({ config: cfgDraft, driveTurn })
     // 第一次 poll 给「新消息」，第二次（回合后的自证）给一条 from_me
-    callMcpTool
+    callTool
       .mockResolvedValueOnce(incoming('在吗'))
       .mockResolvedValueOnce(
         JSON.stringify({ messages: [{ ts: 1999, name: 'Loop', talker: 'wxid_loop', from_me: true, text: '我发的' }] }),
@@ -667,8 +667,8 @@ describe('runWechatWatch · 分组策略', () => {
   })
 
   it('没有 driveTurn（未接线）：draft/auto 降级为提醒，不出错', async () => {
-    const { d, callMcpTool, showNotification } = deps({ config: cfgAutoLoop })
-    callMcpTool.mockResolvedValue(incoming('在吗'))
+    const { d, callTool, showNotification } = deps({ config: cfgAutoLoop })
+    callTool.mockResolvedValue(incoming('在吗'))
     const out = await runWechatWatch(d)
     expect(out).toContain('提醒 1 条')
     expect(showNotification).toHaveBeenCalled()
@@ -679,13 +679,13 @@ describe('runWechatWatch · 分组策略', () => {
     // 若不排掉，助手每回一次就把自己关进「用户正在聊」一整个冷却窗口，期间对方再说话
     // 只会弹个通知、既不回也不落库——用户连发三条语音全丢。
     const driveTurn = vi.fn(async () => '我在的')
-    const { d, callMcpTool } = deps({
+    const { d, callTool } = deps({
       config: cfgAutoLoop,
       driveTurn,
       nowMs: () => 1_800_000,
     })
     // 第一拍：入站一条；`detectSentTo` 的第二次 poll 回我们**真发出去**的那句
-    callMcpTool
+    callTool
       .mockResolvedValueOnce(incoming('在吗', 1990))
       .mockResolvedValueOnce(
         JSON.stringify({
@@ -699,7 +699,7 @@ describe('runWechatWatch · 分组策略', () => {
     expect(out1).toContain('已代回') // 读库确认发了
 
     // 第二拍：我们那句以 from_me 回来 + 对方又说了句新的
-    callMcpTool.mockResolvedValue(
+    callTool.mockResolvedValue(
       JSON.stringify({
         count: 2,
         messages: [
@@ -718,12 +718,12 @@ describe('runWechatWatch · 分组策略', () => {
     // 起因（2026-10-10 用户实测报障）：连发三条语音，只有第一条被回、也只有第一条进了会话记录——
     // 后两条撞进冷却期被降级成"只弹个通知"，既不回也不落库。现在改成攒着等冷却过。
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ config: cfgAutoLoop, driveTurn, nowMs: () => 1_800_000 })
-    callMcpTool.mockResolvedValue(incoming('第一条', 1990))
+    const { d, callTool } = deps({ config: cfgAutoLoop, driveTurn, nowMs: () => 1_800_000 })
+    callTool.mockResolvedValue(incoming('第一条', 1990))
     await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
     // 同一会话、下一拍（水位推进后）又来一条 → 冷却 300s 未过 → 不驱动
-    callMcpTool.mockResolvedValue(incoming('第二条', 1995))
+    callTool.mockResolvedValue(incoming('第二条', 1995))
     const out2 = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
     // 关键：**不再降级成"仅提醒"**——那正是消息被丢掉的那条路
@@ -732,25 +732,25 @@ describe('runWechatWatch · 分组策略', () => {
 
   it('冷却期内攒下的消息 → **下一轮**合并成一次交给 Agent（不是等冷却过期）', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({
+    const { d, callTool } = deps({
       config: cfgAutoLoop,
       driveTurn,
       nowMs: () => 1_800_000,   // 时钟不动：证明**不靠冷却过期**也能放行
     })
 
-    callMcpTool.mockResolvedValue(incoming('第一条', 1990))
+    callTool.mockResolvedValue(incoming('第一条', 1990))
     await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
 
     // 冷却期内又来一条：**攒着**，不驱动、也不降级成"仅提醒"
-    callMcpTool.mockResolvedValue(incoming('第二条', 1995))
+    callTool.mockResolvedValue(incoming('第二条', 1995))
     const out2 = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
     expect(out2).not.toContain('提醒')
 
     // **下一轮**：又到一条 → 攒着的那条连新到的一起交给 Agent
     // （一次回合、两条都在提示词里；时钟一动没动，证明不靠"冷却过期"）
-    callMcpTool.mockResolvedValue(incoming('第三条', 1996))
+    callTool.mockResolvedValue(incoming('第三条', 1996))
     await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(2)
     const [prompt] = driveTurn.mock.calls[1] as unknown as [string]
@@ -835,12 +835,12 @@ describe('手册归属：护栏住在代聊 Agent 里，手册只在回落路径
 
   it('代聊 Agent 在 → 手册不重复注入，但「本次触发」和发送通道照旧', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({
+    const { d, callTool } = deps({
       config: cfgFile,
       driveTurn,
       getRelayAgent: () => ({ id: 'wechat-relay', systemPrompt: `身份…\n${RUNBOOK_TEXT}` }),
     })
-    callMcpTool.mockResolvedValueOnce(incoming)
+    callTool.mockResolvedValueOnce(incoming)
     await runWechatWatch(d)
     const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
     expect(prompt).not.toContain(RUNBOOK_TEXT)
@@ -850,8 +850,8 @@ describe('手册归属：护栏住在代聊 Agent 里，手册只在回落路径
 
   it('代聊 Agent 不在 → 退回每轮注入：**护栏分档照样在**（不能因为少了个 Agent 就没了护栏）', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ config: cfgFile, driveTurn, getRelayAgent: () => undefined })
-    callMcpTool.mockResolvedValueOnce(incoming)
+    const { d, callTool } = deps({ config: cfgFile, driveTurn, getRelayAgent: () => undefined })
+    callTool.mockResolvedValueOnce(incoming)
     await runWechatWatch(d)
     const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
     expect(prompt).toContain(RUNBOOK_TEXT)
@@ -864,13 +864,13 @@ describe('手册归属：护栏住在代聊 Agent 里，手册只在回落路径
   it('手册改了不再报「不一致」——手册已整段移出提示词，比对只会变成永久假警告', async () => {
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({
+    const { d, callTool } = deps({
       config: cfgFile,
       driveTurn,
       // 用户在设置页把护栏改短了/改了措辞：文件里那句就不在里面了
       getRelayAgent: () => ({ id: 'wechat-relay', systemPrompt: '身份…\n【护栏】我自己改过的版本' }),
     })
-    callMcpTool.mockResolvedValueOnce(incoming)
+    callTool.mockResolvedValueOnce(incoming)
     await runWechatWatch(d)
     const [prompt] = driveTurn.mock.calls[0] as unknown as [string]
     expect(prompt).not.toContain(RUNBOOK_TEXT)
@@ -900,8 +900,8 @@ describe('回合元数据带上触发这一轮的消息', () => {
 
   it('同一会话这拍的多条一起给桥接侧；群消息补发送者，私聊不补', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ config: cfg, driveTurn })
-    callMcpTool.mockResolvedValueOnce(payload)
+    const { d, callTool } = deps({ config: cfg, driveTurn })
+    callTool.mockResolvedValueOnce(payload)
     await runWechatWatch(d)
     const byConv = new Map(
       (driveTurn.mock.calls as unknown as [string, { convId: string; incoming: WechatMessage[] }][]).map(
@@ -1010,9 +1010,9 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
   function outboxDeps(
     opts: { send?: (n: number) => string; lastFromMe?: boolean; lastFromMeTs?: number } = {},
   ) {
-    const { d, callMcpTool, kv, showNotification } = deps({ config: cfgOutbox, nowMs: () => Date.now() })
+    const { d, callTool, kv, showNotification } = deps({ config: cfgOutbox, nowMs: () => Date.now() })
     let sends = 0
-    callMcpTool.mockImplementation(async (_s: string, tool: string) => {
+    callTool.mockImplementation(async (tool: string, _args: Record<string, unknown>) => {
       if (tool === 'read_history') {
         // 默认取「入队之后」的秒（时钟往后挪一分钟只为满足判据），正是"期间已回过话"的形态
         const ts = opts.lastFromMeTs ?? Math.floor(Date.now() / 1000) + 60
@@ -1028,7 +1028,7 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
       }
       return JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 })
     })
-    return { d, callMcpTool, kv, showNotification, sent: () => sends }
+    return { d, callTool, kv, showNotification, sent: () => sends }
   }
 
   it('入队去重（同一 (peer, 文本) 只留一条）；空 peer / 空文本直接丢', () => {
@@ -1052,16 +1052,16 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
   })
 
   it('多开：按账号分别轮询，各自推进自己的水位', async () => {
-    const { d, kv, callMcpTool } = deps({
+    const { d, kv, callTool } = deps({
       listAccounts: async () => [{ wxid: 'wxid_1' }, { wxid: 'wxid_2' }],
       nowMs: () => 1_800_000,
     })
-    const mcp = callMcpTool as unknown as {
+    const mcp = callTool as unknown as {
       mockImplementation: (
-        fn: (server: string, tool: string, args?: { account?: string }) => Promise<string>,
+        fn: (tool: string, args?: { account?: string }) => Promise<string>,
       ) => void
     }
-    mcp.mockImplementation(async (_s, tool, args) => {
+    mcp.mockImplementation(async (tool, args) => {
       if (tool === 'poll_new') {
         return JSON.stringify({
           count: 0,
@@ -1072,31 +1072,30 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
       return JSON.stringify({ count: 0, messages: [], next_since_ts: 2000 })
     })
     await runWechatWatch(d)
-    const calls = callMcpTool.mock.calls as unknown as [
-      server: string,
+    const calls = callTool.mock.calls as unknown as [
       tool: string,
       args?: { account?: string },
     ][]
-    const polls = calls.filter((c) => c[1] === 'poll_new').map((c) => c[2]?.account)
+    const polls = calls.filter((c) => c[0] === 'poll_new').map((c) => c[1]?.account)
     expect(polls.sort()).toEqual(['wxid_1', 'wxid_2'])
     expect(kv.get('wechat_watch_last_ts:wxid_1')).toBe('2001')
     expect(kv.get('wechat_watch_last_ts:wxid_2')).toBe('2002')
   })
 
   it('多开：某个号密钥没就绪时按账号边沿提示（汇总退避在混合场景不触发）', async () => {
-    const { d, callMcpTool } = deps({
+    const { d, callTool } = deps({
       listAccounts: async () => [{ wxid: 'wxid_ok' }, { wxid: 'wxid_bad' }],
       nowMs: () => 1_800_000,
     })
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
     const info = vi.spyOn(log, 'info').mockImplementation(() => {})
-    const mcp = callMcpTool as unknown as {
+    const mcp = callTool as unknown as {
       mockImplementation: (
-        fn: (server: string, tool: string, args?: { account?: string }) => Promise<string>,
+        fn: (tool: string, args?: { account?: string }) => Promise<string>,
       ) => void
     }
     let badReady = false
-    mcp.mockImplementation(async (_s, tool, args) => {
+    mcp.mockImplementation(async (tool, args) => {
       if (args?.account === 'wxid_bad' && !badReady) {
         throw new Error('未能从微信进程内存取到数据库密钥')
       }
@@ -1140,22 +1139,21 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
       },
     }
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({
+    const { d, callTool } = deps({
       getPolicy: () => policy,
       setPolicy: () => {},
       listAccounts: async () => [{ wxid: 'wxid_1' }, { wxid: 'wxid_2' }],
       driveTurn,
     })
-    const mcp = callMcpTool as unknown as {
+    const mcp = callTool as unknown as {
       mockImplementation: (
         fn: (
-          server: string,
-          tool: string,
+      tool: string,
           args?: { account?: string },
         ) => Promise<string>,
       ) => void
     }
-    mcp.mockImplementation(async (_s, tool, args) => {
+    mcp.mockImplementation(async (tool, args) => {
       if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
       return JSON.stringify({
         messages: [
@@ -1194,7 +1192,7 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
       },
     }
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({
+    const { d, callTool } = deps({
       getPolicy: () => policy,
       setPolicy: () => {},
       listAccounts: async () => [{ wxid: 'wxid_main' }, { wxid: 'wxid_loop' }],
@@ -1204,12 +1202,12 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
     // Loop 代回主号的那句话：台账记在发送方（wxid_loop）名下，key = wxid_loop\nwxid_main
     rememberSelfSends('wxid_main', ['收到，我来处理'], 1_800_000, 'wxid_loop')
 
-    const mcp = callMcpTool as unknown as {
+    const mcp = callTool as unknown as {
       mockImplementation: (
-        fn: (server: string, tool: string, args?: { account?: string }) => Promise<string>,
+        fn: (tool: string, args?: { account?: string }) => Promise<string>,
       ) => void
     }
-    mcp.mockImplementation(async (_s, tool, args) => {
+    mcp.mockImplementation(async (tool, args) => {
       if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
       const messages =
         args?.account === 'wxid_main'
@@ -1352,7 +1350,7 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
   })
 
   it('过期（>30 分钟）的不再补——迟到的问候不如不发', async () => {
-    const { d, callMcpTool, sent, showNotification } = outboxDeps()
+    const { d, callTool, sent, showNotification } = outboxDeps()
     const db = d.getDb()
     enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '早')
     const future = Date.now() + 31 * 60_000
@@ -1367,14 +1365,14 @@ describe('待补发队列（发送门够不着时排队，门开了自动补发�
       'pcwechat:wxid_s6piyhfvptv522',
     )
     // 全程只有本拍那次 poll_new：过期判定在**碰微信之前**，不该白读一次历史
-    expect(callMcpTool.mock.calls.map((c) => c[1])).toEqual(['poll_new'])
+    expect(callTool.mock.calls.map((c) => c[0])).toEqual(['poll_new'])
   })
 
   it('这一拍有活回合 → 不补发（不跟回合抢那双手）', async () => {
-    const { d, callMcpTool, sent } = outboxDeps()
+    const { d, callTool, sent } = outboxDeps()
     const db = d.getDb()
     enqueueWechatOutbox(db, 'wxid_s6piyhfvptv522', '早')
-    callMcpTool.mockImplementation(async (_s: string, tool: string) => {
+    callTool.mockImplementation(async (tool: string, _args: Record<string, unknown>) => {
       if (tool === 'poll_new') {
         return JSON.stringify({
           count: 1,
@@ -1428,8 +1426,8 @@ describe('画像巡检（空闲拍给名单里的人补画像）', () => {
 
   it('空闲拍驱动一轮巡检：给还没画像的那个人，且提示词里禁发消息', async () => {
     const driveTurn = vi.fn(async () => '已建画像')
-    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
-    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+    const { d, callTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callTool.mockImplementation(async (tool: string, _args: Record<string, unknown>) =>
       tool === 'wechat_profile_get'
         ? files('wxid_loop')
         : JSON.stringify({ messages: [], next_since_ts: 2000 }),
@@ -1450,8 +1448,8 @@ describe('画像巡检（空闲拍给名单里的人补画像）', () => {
 
   it('30 分钟节流：紧接着下一拍不再巡检（否则每 15 秒叫一轮模型）', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
-    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+    const { d, callTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callTool.mockImplementation(async (tool: string, _args: Record<string, unknown>) =>
       tool === 'wechat_profile_get' ? files('wxid_loop') : JSON.stringify({ messages: [], next_since_ts: 2000 }),
     )
     await runWechatWatch(d)
@@ -1463,8 +1461,8 @@ describe('画像巡检（空闲拍给名单里的人补画像）', () => {
 
   it('画像清单读不到（MCP 没连/怪形状）→ 什么都不做，不空跑模型', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
-    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+    const { d, callTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callTool.mockImplementation(async (tool: string, _args: Record<string, unknown>) =>
       tool === 'wechat_profile_get' ? '{"error":"boom"}' : JSON.stringify({ messages: [], next_since_ts: 2000 }),
     )
     expect(await runWechatWatch(d)).toBe('无新消息')
@@ -1473,8 +1471,8 @@ describe('画像巡检（空闲拍给名单里的人补画像）', () => {
 
   it('名单里人人都有画像 → 不驱动', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
-    callMcpTool.mockImplementation(async (_s: string, tool: string) =>
+    const { d, callTool } = deps({ config: cfgSweep, driveTurn, nowMs: () => 1_800_000_000 })
+    callTool.mockImplementation(async (tool: string, _args: Record<string, unknown>) =>
       tool === 'wechat_profile_get'
         ? files('Loop')
         : JSON.stringify({ messages: [], next_since_ts: 2000 }),
@@ -1487,8 +1485,8 @@ describe('画像巡检（空闲拍给名单里的人补画像）', () => {
 describe('runWechatWatch · 自聊（文件传输助手）当入站渠道', () => {
   it('文件传输助手里自己发的消息（from_me=true）会驱动代聊，而不是被当"自己发的"丢掉', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ driveTurn })
-    const impl = async (_s: string, tool: string, args: Record<string, unknown>) => {
+    const { d, callTool } = deps({ driveTurn })
+    const impl = async (tool: string, args: Record<string, unknown>) => {
       if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
       // 第一拍（since=1800）给自聊消息；其后 detectSentTo 的 poll 返回空
       if (args.since_ts === 1800) {
@@ -1501,7 +1499,7 @@ describe('runWechatWatch · 自聊（文件传输助手）当入站渠道', () =
       }
       return JSON.stringify({ messages: [], next_since_ts: 1990 })
     }
-    callMcpTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
+    callTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
     const out = await runWechatWatch(d)
     expect(driveTurn).toHaveBeenCalledTimes(1)
     const [, meta] = driveTurn.mock.calls[0] as unknown as [string, { peer: string }]
@@ -1514,8 +1512,8 @@ describe('runWechatWatch · 自聊（文件传输助手）当入站渠道', () =
 describe('出站记账（挂出站唯一入口，防自回环）', () => {
   /** 跑一拍，poll_new 第一拍回一条 from_me 的自聊消息 */
   async function tickWithEcho(text: string, driveTurn: ReturnType<typeof vi.fn>) {
-    const { d, callMcpTool } = deps({ driveTurn })
-    const impl = async (_s: string, tool: string, args: Record<string, unknown>) => {
+    const { d, callTool } = deps({ driveTurn })
+    const impl = async (tool: string, args: Record<string, unknown>) => {
       if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
       if (args.since_ts === 1800) {
         return JSON.stringify({
@@ -1527,7 +1525,7 @@ describe('出站记账（挂出站唯一入口，防自回环）', () => {
       }
       return JSON.stringify({ messages: [], next_since_ts: 1990 })
     }
-    callMcpTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
+    callTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
     return runWechatWatch(d)
   }
 
@@ -1579,8 +1577,8 @@ describe('出站记账（挂出站唯一入口，防自回环）', () => {
 
   it('带标记的回声走 MCP 侧 agent_sent 判据时，连文本比对都不需要', async () => {
     const driveTurn = vi.fn(async () => 'ok')
-    const { d, callMcpTool } = deps({ driveTurn })
-    const impl = async (_s: string, tool: string, args: Record<string, unknown>) => {
+    const { d, callTool } = deps({ driveTurn })
+    const impl = async (tool: string, args: Record<string, unknown>) => {
       if (tool !== 'poll_new') return JSON.stringify({ messages: [], next_since_ts: 2000 })
       if (args.since_ts === 1800) {
         return JSON.stringify({
@@ -1599,7 +1597,7 @@ describe('出站记账（挂出站唯一入口，防自回环）', () => {
       }
       return JSON.stringify({ messages: [], next_since_ts: 1990 })
     }
-    callMcpTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
+    callTool.mockImplementation(impl as unknown as (...a: unknown[]) => Promise<string>)
     await runWechatWatch(d)
     expect(driveTurn).not.toHaveBeenCalled()
   })
@@ -1649,7 +1647,7 @@ describe('ensureWechatWatchCronJobSeeded', () => {
         },
       })),
     }
-    ensureWechatWatchCronJobSeeded(db as never, { mcpConfigured: true })
+    ensureWechatWatchCronJobSeeded(db as never, { wechatEnabled: true })
     const insert = runs.find((r) => String(r[0]).includes('INSERT INTO local_cron_jobs'))
     expect(insert).toBeTruthy()
     expect(String(insert![0])).toContain("'every'")
@@ -1661,7 +1659,7 @@ describe('ensureWechatWatchCronJobSeeded', () => {
   it('未配置 wechat-local MCP：不建任务（客户端不依赖微信 MCP）', () => {
     const runs: unknown[][] = []
     const db = { prepare: vi.fn(() => ({ get: () => undefined, run: (...a: unknown[]) => { runs.push(a); return { changes: 1 } } })) }
-    ensureWechatWatchCronJobSeeded(db as never, { mcpConfigured: false })
+    ensureWechatWatchCronJobSeeded(db as never, { wechatEnabled: false })
     expect(runs).toHaveLength(0)
   })
 
@@ -1673,7 +1671,7 @@ describe('ensureWechatWatchCronJobSeeded', () => {
         run: (...args: unknown[]) => { runs.push([sql, ...args]); return { changes: 1 } },
       })),
     }
-    ensureWechatWatchCronJobSeeded(db as never, { mcpConfigured: true, pluginEnabled: false })
+    ensureWechatWatchCronJobSeeded(db as never, { wechatEnabled: true, pluginEnabled: false })
     expect(String(runs[0][0])).toContain('SET enabled = 0')
   })
 
@@ -1685,7 +1683,7 @@ describe('ensureWechatWatchCronJobSeeded', () => {
         run: (...args: unknown[]) => { runs.push([sql, ...args]); return { changes: 1 } },
       })),
     }
-    ensureWechatWatchCronJobSeeded(db as never, { mcpConfigured: false })
+    ensureWechatWatchCronJobSeeded(db as never, { wechatEnabled: false })
     expect(String(runs[0][0])).toContain('SET enabled = 0')
   })
 
@@ -1700,7 +1698,7 @@ describe('ensureWechatWatchCronJobSeeded', () => {
         },
       })),
     }
-    ensureWechatWatchCronJobSeeded(db as never, { mcpConfigured: true })
+    ensureWechatWatchCronJobSeeded(db as never, { wechatEnabled: true })
     const upd = runs.find((r) => String(r[0]).includes('agent_id = NULL'))
     expect(upd).toBeTruthy()
     expect(upd).toContain(15_000)
@@ -1719,10 +1717,10 @@ describe('ensureWechatWatchCronJobSeeded', () => {
       })),
     })
     // 1) MCP 未配置 → 自动暂停（写标记）
-    ensureWechatWatchCronJobSeeded(mkDb([]) as never, { mcpConfigured: false })
+    ensureWechatWatchCronJobSeeded(mkDb([]) as never, { wechatEnabled: false })
     // 2) MCP 恢复 → 应自动重新启用
     const runs: unknown[][] = []
-    ensureWechatWatchCronJobSeeded(mkDb(runs) as never, { mcpConfigured: true })
+    ensureWechatWatchCronJobSeeded(mkDb(runs) as never, { wechatEnabled: true })
     expect(runs.some((r) => String(r[0]).includes('SET enabled = 1'))).toBe(true)
   })
 })
@@ -1767,18 +1765,18 @@ describe('syncWechatWatchJobEnabled', () => {
 
   it('装了助手（从未播种）→ 变成启用：要求重排', () => {
     const state: { enabled?: number } = {}
-    expect(syncWechatWatchJobEnabled(stateDb(state), { mcpConfigured: true })).toBe(true)
+    expect(syncWechatWatchJobEnabled(stateDb(state), { wechatEnabled: true })).toBe(true)
     expect(state.enabled).toBe(1)
   })
 
   it('MCP 断线重连（状态没变）→ 不重排（否则每次重连都打扰别的任务）', () => {
     const db = stateDb({ enabled: 1 })
-    expect(syncWechatWatchJobEnabled(db, { mcpConfigured: true })).toBe(false)
+    expect(syncWechatWatchJobEnabled(db, { wechatEnabled: true })).toBe(false)
   })
 
   it('MCP 被停用 → 任务真停：要求重排', () => {
     const state = { enabled: 1 }
-    expect(syncWechatWatchJobEnabled(stateDb(state), { mcpConfigured: false })).toBe(true)
+    expect(syncWechatWatchJobEnabled(stateDb(state), { wechatEnabled: false })).toBe(true)
     expect(state.enabled).toBe(0)
   })
 })

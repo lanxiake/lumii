@@ -119,7 +119,7 @@ import {
   type WikiEroExtractSourceResult,
 } from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
-import { loadMcpServerConfigs, type McpServerEntry } from '../config/mcp-config'
+import type { McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
 import { readWorkspaceTextForWiki } from './wiki-text-reader'
 import { syncWikiSourceToVault } from './wiki-vault-host'
@@ -159,6 +159,8 @@ import { BridgePromptComposer } from './bridge-prompt-composer'
 import {
   agentRuntimeLog as log,
 } from './bridge-utils'
+import { registerWechatTools as registerWechatToolsFn } from './bridge-wechat-tools'
+import { getWechatSidecar } from './wechat-sidecar-client'
 import { InstanceStateStore } from './bridge-instance-state'
 import type { ChannelInteractionRequest } from '../channel/types'
 import { BridgeImageServices } from './bridge-image-services'
@@ -184,7 +186,6 @@ import {
   type WechatMessage,
   type WechatProfileBlock,
   type WechatWatchDeps,
-  WECHAT_WATCH_MCP_SERVER,
   WECHAT_WATCH_MCP_TOOL,
 } from './wechat-watch-tick'
 import {
@@ -1797,7 +1798,7 @@ export class AgentRuntimeBridge {
     for (const [scope, label] of [['self', '关于我（本人）'], [peer, '关于这个人']] as const) {
       const target = scope === 'self' ? '我（本人）' : '这个人/群'
       try {
-        const raw = await this.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'wechat_profile_get', { scope })
+        const raw = await this.callWechatTool('wechat_profile_get', { scope })
         const got = JSON.parse(raw) as { content?: string; exists?: boolean; stale?: boolean }
         const content = got.content ?? ''
         // 只在**确实读到了**（exists 为真且正文非空）且过期时才说"过期"；
@@ -1821,6 +1822,48 @@ export class AgentRuntimeBridge {
     // 而"到底注入了没有"是下一轮代聊质量归因的前提。没有画像时**不记**（免刷屏）。
     if (profiles) log.info(`[wechat-watch] 已注入画像 peer=${peer} chars=${profiles.length}`)
     return profiles
+  }
+
+  /**
+   * 代聊回合的**最近对话**注入：把最近 10 条历史拼成一段前缀。
+   *
+   * 为什么要预取而不是让模型自己调 `read_history`：`auto` 档的提示词里根本没写这一步
+   * （只有 `draft` 档写了），于是直接代回时模型只看见「刚发来的这一条」——不知道上一轮
+   * 说到哪、对方什么语气，回出来的话容易接不上。预取一次约 100ms，换每轮都有上下文。
+   *
+   * 读不到就**静默不注入**（与画像同口径）：这轮照常回，只是少一点上下文。
+   * `limit=10` 与提示词里给 draft 档的建议一致——够看清一轮来回，又不撑上下文。
+   */
+  private async wechatHistoryPrompt(talker: string, account?: string): Promise<string> {
+    try {
+      const raw = await this.callWechatTool('read_history', {
+        talker,
+        limit: 10,
+        ...(account ? { account } : {}),
+      })
+      const got = JSON.parse(raw) as {
+        messages?: { ts?: number; from_me?: boolean; sender?: string; text?: string; type?: number }[]
+      }
+      const msgs = (got.messages ?? []).filter((m) => typeof m.ts === 'number')
+      if (msgs.length === 0) return ''
+      const lines = msgs.map((m) => {
+        // `from_me` 是「我发的」；群里其它人显示 sender，私聊就是对方
+        const who = m.from_me ? '我' : (m.sender || talker)
+        const when = new Date((m.ts ?? 0) * 1000).toLocaleString('zh-CN', { hour12: false })
+        // 400 字硬截断与 whitelist 的 read_messages 同口径：一段就够，别把长文整篇搬进来
+        const text = (m.text ?? '').replace(/\s+/g, ' ').slice(0, 400)
+        return `[${when}] ${who}：${text}`
+      })
+      log.info(`[wechat-watch] 已注入最近对话 talker=${talker} 条数=${lines.length}`)
+      return [
+        `【最近对话（最近 ${lines.length} 条，时间正序；末条即刚触发的那条）】`,
+        ...lines,
+        '【对话结束】',
+      ].join('\n')
+    } catch (err) {
+      log.warn(`[wechat-watch] 最近对话读取失败 talker=${talker}（本轮不注入）:`, err)
+      return ''
+    }
   }
 
   /**
@@ -1872,8 +1915,14 @@ export class AgentRuntimeBridge {
       }
     }
     try {
-      const profiles = await this.wechatProfilePrompt(meta.peer)
-      await this.prompt(instanceId, profiles ? `${profiles}\n\n${prompt}` : prompt)
+      // 画像 + 最近对话：两者都是「回复要贴着这段关系」的前提，所以**程序侧预取**，
+      // 不靠模型自己想起来去调 read_history（auto 档的提示词里本来就没写这一步）。
+      const [profiles, history] = await Promise.all([
+        this.wechatProfilePrompt(meta.peer),
+        this.wechatHistoryPrompt(meta.peer, meta.account),
+      ])
+      const prefix = [profiles, history].filter(Boolean).join('\n\n')
+      await this.prompt(instanceId, prefix ? `${prefix}\n\n${prompt}` : prompt)
       await this.waitForInstanceIdle(instanceId)
       return this.getAssistantOutputFromInstance(instanceId) ?? ''
     } finally {
@@ -1882,15 +1931,17 @@ export class AgentRuntimeBridge {
   }
 
   /**
-   * 微信盯梢的依赖装配。生产 tick 与**开发期回放**共用这一份，回放只换 `callMcpTool`。
+   * 微信盯梢的依赖装配。生产 tick 与**开发期回放**共用这一份，回放只换 `callTool`。
    */
   private wechatWatchDeps(): WechatWatchDeps {
     return {
       getDb: () => this.localDb.db,
       // 走 public 的那个（多一层出站记账）：补发队列也是"以本人身份发消息"，一样要记
-      callMcpTool: (server, tool, args) => this.callMcpTool(server, tool, args),
-      // 空的 poll 错误多半是子进程里的残缺密钥缓存，重启后重新扫描
-      resetMcpServer: (name) => this.reconnectMcpServer(name),
+      callTool: (tool, args) => this.callWechatTool(tool, args),
+      // 空的 poll 错误多半是子进程里的残缺密钥缓存，重启侧车后重新扫描
+      resetSidecar: async () => {
+        getWechatSidecar().reset('poll_new 空错误')
+      },
       // 第三个参数是会话 id：点通知直接跳到「微信盯梢」看草稿/代回结果
       showNotification: this.config.showCronNotification
         ? (title, body, convId) => this.config.showCronNotification!(title, body, convId)
@@ -1909,7 +1960,7 @@ export class AgentRuntimeBridge {
       getSelfWxids: () => this.wechatSelfWxids(),
       // 多开：每个账号单独读；MCP 没这个工具时回落单账号路径
       listAccounts: async () => {
-        const raw = await this.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'list_accounts', {})
+        const raw = await this.callWechatTool('list_accounts', {})
         const parsed = JSON.parse(raw) as {
           accounts?: { wxid?: unknown; running?: unknown }[]
         }
@@ -1945,7 +1996,7 @@ export class AgentRuntimeBridge {
     const ids = new Set<string>()
     let anyOk = false
     try {
-      const raw = await this.mcpManager.callTool(WECHAT_WATCH_MCP_SERVER, 'locate_db', {})
+      const raw = await this.callWechatTool('locate_db', {})
       const out = JSON.parse(raw) as { wxid?: string }
       if (out.wxid) ids.add(out.wxid)
       anyOk = true
@@ -1953,7 +2004,7 @@ export class AgentRuntimeBridge {
       /* 单个来源失败不拖累另一个 */
     }
     try {
-      const raw = await this.mcpManager.callTool(WECHAT_WATCH_MCP_SERVER, 'list_accounts', {})
+      const raw = await this.callWechatTool('list_accounts', {})
       const out = JSON.parse(raw) as { accounts?: { wxid?: unknown }[] }
       for (const a of out.accounts ?? []) {
         if (typeof a?.wxid === 'string' && a.wxid.trim()) ids.add(a.wxid.trim())
@@ -2020,8 +2071,8 @@ export class AgentRuntimeBridge {
             },
           }
         : {}),
-      callMcpTool: async (server, tool, args) => {
-        const text = await deps.callMcpTool(server, tool, args)
+      callTool: async (tool, args) => {
+        const text = await deps.callTool(tool, args)
         if (injected || tool !== WECHAT_WATCH_MCP_TOOL) return text
         injected = true
         const payload = JSON.parse(text) as { messages?: WechatMessage[] }
@@ -2445,18 +2496,15 @@ export class AgentRuntimeBridge {
     ensurePetEvolveCronJobSeeded(this.localDb.db)
     // 微信消息盯梢（本机微信）：同样是独立的一条——它是**零 token 的确定性读库**，
     // 15 秒一拍、没有新消息就什么都不做（见 wechat-watch-tick.ts 文件头）。
-    // **看配置决定建不建**：客户端不依赖微信 MCP，没配/没启用的机器上不出现这条任务。
     //
-    // ⚠️ 这里必须读**配置文件**（`loadMcpServerConfigs`）而不是 `this.mcpManager`：
-    // initializeCronScheduler 在构造函数早期（:803）就跑，而 mcpManager 要到 :2384 才赋值——
-    // 走 manager 会 TypeError 把整个启动打断（实测：应用起来后立刻"优雅退出"）。
-    // 而且任何异常都不该影响启动：种子失败最多是没有这条任务。
+    // **看扩展开关决定建不建**：能力已归 `com.lumii.pcwechat`（2026-10-28），
+    // 插件没启用的机器上不该出现这条任务。`isExtensionActive` 读的是启动时的
+    // 激活快照/解析器，不碰 `mcpManager`（它在构造函数早期还没赋值）。
+    // 任何异常都不该影响启动：种子失败最多是没有这条任务。
     try {
-      const mcpConfigured = loadMcpServerConfigs().some(
-        (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
-      )
+      const wechatEnabled = isExtensionActive('com.lumii.pcwechat')
       ensureWechatWatchCronJobSeeded(this.localDb.db, {
-        mcpConfigured,
+        wechatEnabled,
         // 代聊插件被禁用时把循环真停掉（含已播种的既有任务）
         pluginEnabled: isExtensionActive('com.lumii.relay'),
       })
@@ -3322,11 +3370,25 @@ export class AgentRuntimeBridge {
   abortWithChildren(instanceId: string): void { this.promptDispatcher.abortWithChildren(instanceId) }
 
   /**
+   * 取消全部挂起提问并通知渲染层收起 AskUserCard（避免 abort 后脏 pending 挡住下一张卡）
+   */
+  private clearAskUserPendingAndNotify(reason: 'aborted' | 'superseded'): void {
+    const cancelledIds = this.askUserQuestionController.clearAll()
+    for (const requestId of cancelledIds) {
+      this.ipcChannel.forwardIpcEvent({
+        type: 'agent:ask-user:cancelled',
+        requestId,
+        reason,
+      })
+    }
+  }
+
+  /**
    * 中止会话：清掉挂起的权限/提问，再级联 abort，避免 tool 等待挂死导致会话锁不释放
    */
   abortSession(rootSessionKey: string): number {
     this.permissionController.rejectAllPending()
-    this.askUserQuestionController.clearAll()
+    this.clearAskUserPendingAndNotify('aborted')
     return this.promptDispatcher.abortSession(rootSessionKey)
   }
 
@@ -3335,7 +3397,7 @@ export class AgentRuntimeBridge {
    */
   abortWithChildrenAndPending(instanceId: string): void {
     this.permissionController.rejectAllPending()
-    this.askUserQuestionController.clearAll()
+    this.clearAskUserPendingAndNotify('aborted')
     this.promptDispatcher.abortWithChildren(instanceId)
   }
   destroy(instanceId: string): void { this.lifecycle.destroy(instanceId) }
@@ -3658,6 +3720,32 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 运行期装/卸本机微信工具（`com.lumii.pcwechat` 的启停用）。
+   *
+   * 工具清单来自 Python 侧车（首次会拉起进程），所以是异步的——插件侧 `await` 后再
+   * `ctx.effect(...)`。返回的 disposer 按名字摘掉本次注册的工具，并**必须**再刷一遍实例工具集：
+   * 实例是在创建时按 `getEnabledTools()` 快照构建的，只 unregister 不 refresh 的话，
+   * 已经在跑的会话到下次重启仍会看见这些工具。
+   */
+  async installWechatTools(): Promise<() => void> {
+    if (!this.toolContext) throw new Error('toolContext 未初始化')
+    const names = await registerWechatToolsFn(
+      this.toolRegistry,
+      this.toolContext,
+      getWechatSidecar(),
+    )
+    this.refreshAllInstanceTools()
+    return () => {
+      for (const name of names) this.toolRegistry.unregister(name)
+      this.refreshAllInstanceTools()
+      // **顺带停掉侧车**：它是「以用户本人身份读私聊/发消息」那双手，关掉扩展就该真的停下，
+      // 而不是留个后台进程继续持有微信密钥扫描缓存与明文镜像。下次启用会重新拉起
+      // （依赖已装好，约 0.3s），代价远小于「关了还开着」的安全含义。
+      getWechatSidecar().reset('插件停用')
+    }
+  }
+
+  /**
    * MCP 配置变化后，同步盯梢任务的启停（`wechat-watch`）并按需重排调度器。
    *
    * 为什么挂在 `notifyToolsChanged` 这个**唯一汇聚点**上，而不是每个 MCP 写入口各挂一次：
@@ -3671,11 +3759,11 @@ export class AgentRuntimeBridge {
    */
   private syncWechatWatchJob(): void {
     try {
-      const mcpConfigured = loadMcpServerConfigs().some(
-        (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
-      )
+      const wechatEnabled = isExtensionActive('com.lumii.pcwechat')
+
+
       const changed = syncWechatWatchJobEnabled(this.localDb.db, {
-        mcpConfigured,
+        wechatEnabled,
         pluginEnabled: isExtensionActive('com.lumii.relay'),
       })
       if (changed && this.initialized) this.cronScheduler?.reloadLocalCronScheduler()
@@ -3692,10 +3780,10 @@ export class AgentRuntimeBridge {
    */
   setRelayLoopEnabled(enabled: boolean): void {
     try {
-      const mcpConfigured = loadMcpServerConfigs().some(
-        (s) => s.name === WECHAT_WATCH_MCP_SERVER && s.enabled !== false,
-      )
-      ensureWechatWatchCronJobSeeded(this.localDb.db, { mcpConfigured, pluginEnabled: enabled })
+      const wechatEnabled = isExtensionActive('com.lumii.pcwechat')
+
+
+      ensureWechatWatchCronJobSeeded(this.localDb.db, { wechatEnabled, pluginEnabled: enabled })
       // **必须重排**：播种只改 DB 的 enabled，调度器不轮询库——不重载的话
       // 「插件重新启用 / 助手刚装好」这种**进程内**恢复永远不生效，要等下次重启
       // （2026-10-25 实测：MCP 装好并启用后任务仍是 enabled=0，一拍都没跑）。
@@ -3708,18 +3796,21 @@ export class AgentRuntimeBridge {
   getMcpStatus(): McpServerRuntimeStatus[] { return this.mcpManager.getStatus() }
 
   /**
-   * 主进程内直接调一个 MCP 工具（不经 Agent 回合）。
+   * 主进程内直接调一个**本机微信原生工具**（走 Python 侧车，不经 Agent 回合、不经 MCP）。
    *
-   * 给渠道出站用：本机微信的 Provider 要发消息时只有这一条路（见
-   * `channel/providers/pcwechat-outbound-provider.ts`）——它拿不到 agent 的 tool 执行器，
-   * 而 `mcpManager` 只被 bridge 持有。与 `getMcpStatus` 同一层：都是"把 manager 的一小块
-   * 暴露给装配处"，不开放 manager 本身。
+   * 能力已归扩展 `com.lumii.pcwechat`（见 `bridge-wechat-tools.ts`）：出站 Provider /
+   * 环境自检 / 盯梢这些「主进程内自己调」的地方都走这里。返回一段文本——业务失败的
+   * `{ok:false,...}` 载荷原样在内，由调用方按 `error_code` 处置。
+   *
+   * 曾经有个 `callMcpTool(server, tool, args)` 干同样的事（走 MCP），本机微信迁到内置
+   * 扩展后它已无调用方，删掉了；其它 MCP 都走 Agent 回合，不需要这条直连口。
+   *
+   * **记账挂在这里而不是侧车 client 上**：client 是通用的，读工具也走它；
+   * 只有「出站」这件事需要 `noteWechatOutbound`（下一拍轮询才不会把自己的话当用户指令）。
    */
-  async callMcpTool(server: string, tool: string, args: Record<string, unknown>): Promise<string> {
-    const text = await this.mcpManager.callTool(server, tool, args)
-    // 出站唯一入口：真发出去的微信消息在这里记账，下一拍轮询才不会把自己的话当用户指令
-    // （见 `noteWechatOutbound`；代聊回合、主人渠道回复、补发队列全走这一条）
-    if (server === WECHAT_WATCH_MCP_SERVER) noteWechatOutbound(tool, args, text)
+  async callWechatTool(tool: string, args: Record<string, unknown>): Promise<string> {
+    const text = await getWechatSidecar().callText(tool, args)
+    noteWechatOutbound(tool, args, text)
     return text
   }
 

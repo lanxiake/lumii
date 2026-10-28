@@ -22,8 +22,8 @@ export interface WechatContact {
 }
 
 export interface WechatContactsDeps {
-  callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
-  mcpServer: string
+  /** 调一个本机微信原生工具（走侧车）。失败即抛——见 `WechatSidecarClient.callText` */
+  callTool: (tool: string, args: Record<string, unknown>) => Promise<string>
   getPolicy: () => ChannelPolicy
 }
 
@@ -93,17 +93,14 @@ export async function loadWechatContacts(
 ): Promise<WechatContactsResult> {
   const configured = contactsFromPolicy(deps.getPolicy(), account)
   try {
-    const raw = await deps.callMcpTool(deps.mcpServer, 'list_sessions', {
+    const raw = await deps.callTool('list_sessions', {
       ...(account ? { account } : {}),
     })
-    if (/未连接|not connected/i.test(raw.slice(0, 200))) {
-      return { contacts: configured, error: '本机微信的 MCP 没连上，现在只能编辑已有名单' }
-    }
     const parsed = parseWechatSessions(raw)
     if (parsed.length === 0) {
       return { contacts: configured, error: '没读到微信会话（微信可能没登录，或还没有聊天记录）' }
     }
-    // MCP 成功读到会话 → **只返回微信里真实存在的**，不merge已配的
+    // 成功读到会话 → **只返回微信里真实存在的**，不merge已配的
     // （用户期望看到的是"能在微信里选到的人"，而不是"曾经配过但已删除的人"）
     return { contacts: parsed }
   } catch (err) {

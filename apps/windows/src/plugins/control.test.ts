@@ -28,7 +28,32 @@ const builtins: BuiltinExtension[] = [
   },
 ]
 
+/** 默认关闭的内置插件：只在验那条派生逻辑的用例里注入，避免打乱上面清单的下标 */
+const optInBuiltin: BuiltinExtension = {
+  manifest: {
+    id: 'com.test.optin',
+    name: 'OptIn',
+    version: '1.0.0',
+    engines: { lumii: '>=0.1.0' },
+    kind: 'code',
+    defaultEnabled: false,
+  },
+  definition: { id: 'com.test.optin', apply() {} },
+}
+
+/** 本轮注入的默认关闭项（与 control.ts 同一判据） */
+const DEFAULT_DISABLED = new Set(
+  builtins.filter(({ manifest }) => manifest.defaultEnabled === false).map(({ manifest }) => manifest.id),
+)
+
 /** 只实现控制面用到的方法 */
+/** 用户显式关掉的项（默认关闭项不算——那由默认值决定） */
+function userDisabled(file: string): string[] {
+  return [...readExtensionPrefs(file, DEFAULT_DISABLED).disabled].filter(
+    (id) => !DEFAULT_DISABLED.has(id),
+  )
+}
+
 function fakeExternal(
   entries: Array<{ id: string; enabled: boolean }>,
   disabledAtStartup: string[] = [],
@@ -317,7 +342,22 @@ describe('createExtensionControl', () => {
     expect(await control.setEnabled('com.test.alpha', false)).toEqual({ ok: true, restartRequired: true })
 
     expect(control.list()[0]).toMatchObject({ enabled: false, state: 'disabled' })
-    expect([...readExtensionPrefs(storeFile).disabled]).toEqual(['com.test.alpha'])
+    expect(userDisabled(storeFile)).toEqual(['com.test.alpha'])
+  })
+
+  it('默认关闭项：清单里没写过偏好时也是关的，打开后落 enabled', async () => {
+    // 本用例自带清单（含 defaultEnabled:false 的项），与上面的 builtins 无关
+    const withOptIn = [...builtins, optInBuiltin]
+    const control = createExtensionControl({ host, builtins: withOptIn, storeFile })
+
+    // 没碰过偏好文件，但 defaultEnabled:false 的那项显示为关
+    expect(control.list().find((i) => i.id === 'com.test.optin')).toMatchObject({ enabled: false })
+    // 而普通项默认是开的
+    expect(control.list().find((i) => i.id === 'com.test.alpha')).toMatchObject({ enabled: true })
+
+    expect(await control.setEnabled('com.test.optin', true)).toMatchObject({ ok: true })
+    expect(control.list().find((i) => i.id === 'com.test.optin')).toMatchObject({ enabled: true })
+    expect(userDisabled(storeFile)).toEqual([])
   })
 
   it('未知 id 不写盘', async () => {
@@ -325,7 +365,7 @@ describe('createExtensionControl', () => {
 
     expect(await control.setEnabled('nope', false)).toMatchObject({ ok: false })
 
-    expect(readExtensionPrefs(storeFile).disabled.size).toBe(0)
+    expect(userDisabled(storeFile)).toEqual([])
   })
 
   it('内置扩展不能删除，只能禁用', async () => {
@@ -345,12 +385,12 @@ describe('createExtensionControl', () => {
       external: fakeExternal([{ id: 'com.test.ext', enabled: true }]),
     })
     control.setEnabled('com.test.ext', false)
-    expect(readExtensionPrefs(storeFile).disabled.size).toBe(1)
+    expect(userDisabled(storeFile)).toHaveLength(1)
 
     const result = await control.remove({ kind: 'external', id: 'com.test.ext' })
 
     expect(result).toMatchObject({ ok: true })
-    expect(readExtensionPrefs(storeFile).disabled.size).toBe(0)
+    expect(userDisabled(storeFile)).toEqual([])
   })
 
   it('删除客户端插件：删目录并清掉 disabledClient', async () => {
@@ -393,6 +433,6 @@ describe('createExtensionControl', () => {
 
     const prefs = readExtensionPrefs(storeFile)
     expect([...prefs.disabledClient]).toEqual(['demo-card'])
-    expect(prefs.disabled.size).toBe(0)
+    expect(userDisabled(storeFile)).toEqual([])
   })
 })

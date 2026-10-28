@@ -120,6 +120,12 @@ const inflightInstalls = new Map<string, Promise<string | undefined>>()
 /**
  * 找出解释器里还没装的依赖（按导入名探测，起一个进程，约 100ms）
  *
+ * **必须带 `PYTHONNOUSERSITE=1`**：托管解释器打算被隔离环境（清 PYTHONPATH/conda、
+ * 禁用户 site）拉起，而不带这个变量探测会把只装在 `%APPDATA%\Python\...\site-packages`
+ * 里的包算作「已就绪」——于是不装、真跑起来又 import 不到。
+ * 实测（2026-10-28）：用户全局装过 pycryptodome，直连 `python sidecar.py` 一切正常，
+ * 从 App（隔离环境）起来就报「缺少依赖 pycryptodome」。
+ *
  * @param pythonExe 解释器绝对路径
  * @param packages 依赖声明
  * @returns 缺失的依赖声明
@@ -135,7 +141,7 @@ export async function findMissingPythonPackages(
   const { stdout } = await execFileAsync(
     pythonExe,
     ['-c', probe, ...packages.map((p) => p.module)],
-    { timeout: 15_000, windowsHide: true },
+    { timeout: 15_000, windowsHide: true, env: { ...process.env, PYTHONNOUSERSITE: '1' } },
   )
   const missing = new Set(stdout.trim().split(',').filter(Boolean))
   return packages.filter((p) => missing.has(p.module))
@@ -147,9 +153,13 @@ export async function findMissingPythonPackages(
  * 失败不抛错：依赖缺失时 Server 仍可启动并通过自检工具报告，
  * 这里只返回一条告警供日志与界面展示，不阻断连接。
  *
+ * 导出供**非 MCP 的托管 Python 侧车**复用（本机微信的 `WechatSidecarClient`）：
+ * 它同样跑在托管解释器里、同样有依赖要装，且隔离环境（`PYTHONNOUSERSITE=1`）
+ * 会把用户 site-packages 里的包挡在外面——不显式装就只在「用户恰好全局装过」时能跑。
+ *
  * @returns 告警文案；全部就绪返回 undefined
  */
-async function ensurePythonPackages(
+export async function ensureManagedPythonPackages(
   pythonExe: string,
   packages: readonly PythonPackageRequirement[],
 ): Promise<string | undefined> {
@@ -163,9 +173,13 @@ async function ensurePythonPackages(
       if (missing.length === 0) return undefined
       const specs = missing.map((p) => p.spec)
       log.info(`安装 MCP 依赖: ${specs.join(' ')}`)
+      // 同 `findMissingPythonPackages`：必须带 `PYTHONNOUSERSITE=1`，否则 pip 会看见
+      // 用户 site 里的同名包、报「Requirement already satisfied」什么都不装——
+      // 而隔离环境下拉起时那个包根本不在可见路径里（2026-10-28 实测的完整链路）。
       await execFileAsync(pythonExe, buildBundledPipInstallArgs(specs), {
         timeout: 300_000,
         windowsHide: true,
+        env: { ...process.env, PYTHONNOUSERSITE: '1' },
       })
       return undefined
     } catch (err) {
@@ -208,6 +222,6 @@ export async function resolveMcpPython(
       message: `未找到可用的 Python 3，且自动准备 Python 运行时失败：${reason}`,
     }
   }
-  const warning = kind === 'managed' ? await ensurePythonPackages(exe, packages) : undefined
+  const warning = kind === 'managed' ? await ensureManagedPythonPackages(exe, packages) : undefined
   return warning ? { ok: true, command: exe, warning } : { ok: true, command: exe }
 }

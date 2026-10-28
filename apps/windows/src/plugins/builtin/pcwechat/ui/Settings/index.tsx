@@ -1,14 +1,13 @@
 /**
  * 本机微信（pcwechat）渠道卡片：**摘要 + 一个「配置」按钮**。
  *
- * 与另外四张卡片不同，这里没有"登录"——"在线"就等于本机 wechat-chat MCP 连着
+ * 与另外四张卡片不同，这里没有"登录"——"在线"就等于应用托管的 Python 侧车起来了
  * （助手用这台电脑上已登录的微信说话）。主体是回复策略，但表单本身放在
  * `PolicyModal` 里单独弹窗（用户 2026-10-08 指定：卡片上塞不下，也不该塞）。
  *
- * **MCP 不由这里安装**（2026-10-25 定案）：`wechat-chat` 这个 MCP 归用户自己装、
- * 自己配，卡片只**检测**并把缺的那步指过去（`设置 › MCP 服务`）。之前这里有一整套
- * 下载/升级按钮，结果是同一件事有两条互相打架的链路——插件读本地版本边车说「可更新」，
- * 而 MCP 能不能跑其实由连接决定（边车被写成带 BOM 的 JSON 时解析失败 ⇒ 永远提示更新）。
+ * **能力归内置扩展**（2026-10-28）：工具是原生注册的（`bridge-wechat-tools.ts`），
+ * 用户不再需要装/配任何 MCP——「启不启用」就是「设置 › 插件 › 本机微信」那个开关。
+ * 所以这张卡片只**显示就绪状态**，缺东西时把人指到插件的开关上（`去插件里打开`）。
  *
  * 这份策略是**唯一真源**：盯梢循环每拍从主进程同一份缓存读，弹窗里改完立刻生效。
  */
@@ -62,8 +61,8 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
    * 在 `SettingsHubProvider` 之下（测试里就没有 Provider，hook 会直接抛）。
    * `mtbot:navigate-request` 是 App 早就有的跨层导航通道，与「设置里跳回对话页」同一个。
    */
-  const openMcpSettings = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('mtbot:navigate-request', { detail: { view: 'mcp' } }))
+  const openPluginSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('mtbot:navigate-request', { detail: { view: 'plugins' } }))
   }, [])
 
   const refreshCheck = useCallback(async () => {
@@ -182,12 +181,12 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
   const envLine = !check
     ? ''
     : !mcpReady
-      ? `微信：${mcp?.state === 'not-configured' ? '还没配置本机微信的 MCP' : '本机微信 MCP 未就绪'}`
+      ? `微信：${mcp?.state === 'not-configured' ? '本机微信扩展还没启用' : '本机微信侧车未就绪'}`
       : !check.connected
-        ? '微信：wechat-chat MCP 未连接'
+        ? '微信：本机微信侧车未连接'
         : `微信：${envOk ? '就绪' : String(check.env?.reason ?? '不可用')}`
 
-  const statusLabel = connected ? '已连接' : mcpReady ? '未接入' : mcp?.state === 'disabled' ? '已停用' : '未就绪'
+  const statusLabel = connected ? '已连接' : mcpReady ? '未就绪' : mcp?.state === 'disabled' ? '已停用' : '未就绪'
 
   return (
     <>
@@ -201,8 +200,8 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
         actions={
           <>
             {!mcpReady && (
-              <Button size="sm" onClick={openMcpSettings}>
-                {mcp?.state === 'not-configured' ? '去配置 MCP' : '去检查 MCP'}
+              <Button size="sm" onClick={openPluginSettings}>
+                {mcp?.state === 'not-configured' ? '去插件里打开' : '去检查'}
               </Button>
             )}
             <Button size="sm" variant="secondary" onClick={() => setModalOpen(true)}>
@@ -214,14 +213,13 @@ export const PcwechatChannelSettings: React.FC<PcwechatChannelSettingsProps> = (
       >
         {mcp && !mcpReady && (
           <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-fg-3)', lineHeight: 1.7 }}>
-            {mcp.hint ?? '本机微信的 MCP 还没就绪。'}
+            {mcp.hint ?? '本机微信还没就绪。'}
             {mcp.missingTools.length > 0 && `（缺工具：${mcp.missingTools.join('、')}）`}
           </p>
         )}
         {mcp?.state === 'ready' && mcp.outdated && (
           <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--mt-fg-3)' }}>
-            当前 MCP 版本低于本客户端验证过的版本，能用但行为可能对不上；要换版本请自己在
-            「设置 › MCP 服务」里改命令。
+            侧车自报的版本低于本客户端验证过的版本，能用但行为可能对不上；更新应用即可。
           </p>
         )}
         <p style={{ margin: '10px 0 0', fontSize: 13, color: 'var(--mt-fg-2)' }}>{summary}</p>

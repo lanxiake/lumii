@@ -86,6 +86,39 @@ const TOOL_SUMMARIES: Record<string, string> = {
   channel_send: "Send text/file to an explicit peer",
   wechat_peer_mode: "Set a WeChat peer's relay mode (auto/draft/notify/ignore)",
 
+  // Local WeChat（`com.lumii.pcwechat` 插件，默认关闭；插件没开时这组不渲染）
+  list_sessions: "List the user's own WeChat chats (resolve a friend/group to a `talker`)",
+  read_history: "Read one chat's messages (paged via `before_ts`)",
+  read_image: "Fetch one image message as a bitmap by `local_id`",
+  poll_new: "Incremental new-message poll from `since_ts` (returns `next_since_ts`)",
+  check_env: "Diagnose the WeChat automation environment (window / data dir)",
+  locate_db: "Locate the WeChat 4.x data directory (read-only)",
+  repair_env: "Try reversible fixes for window/tray/size problems found by check_env",
+  send_text: "Send text as the user (`dry_run` defaults to **true** — pass false to really send)",
+  send_file: "Send a local file as the user (same dry_run default)",
+  send_batch: "Send to several peers, each independently validated (same dry_run default)",
+  reply_to: "Send a quoted reply (`quote` = text of the message to quote)",
+  search_messages: "Search the user's WeChat by keyword/time span",
+  preview_export: "Size up an export before writing anything",
+  export_chat: "Export chat records to md/html/json/csv/pdf",
+  list_unread: "Chats with unread messages",
+  wechat_digest: "Local statistics + real exchange pairs for building a profile",
+  wechat_distill_state: "Read/write the incremental-distill watermark",
+  wechat_distill_clear: "Delete distill output (needs explicit scope or everything=true)",
+  wechat_profile_save: "Save a distilled profile (self or one peer)",
+  wechat_profile_get: "Read back a saved profile, or list which ones exist",
+  kb_search: "Look up the local knowledge base before drafting a reply",
+  kb_save: "Store reusable knowledge (tone, facts, contact prefs, rules)",
+  kb_delete: "Delete knowledge-base entries",
+  autoreply_rules: "Read/set auto-reply gating rules (action=get/set/check)",
+  autoreply_drafts: "Review queue for auto-reply drafts",
+  autoreply_stats: "Auto-reply counters and recent audit",
+  tag_plan: "Dry plan for applying WeChat contact tags",
+  tag_start: "Apply tags via the WeChat UI (async job; needs confirm=true)",
+  tag_status: "Poll a tag job's progress",
+  tag_cancel: "Request cancellation of a tag job",
+  list_accounts: "Which WeChat accounts exist on this machine and which are running",
+
   // Session & Settings
   session_create: "Start a fresh conversation session",
   session_clear: "Delete all messages in this session",
@@ -138,6 +171,13 @@ const GROUP_NOTES: Record<string, string> = {
   "Memory & Knowledge":
     "Order matters: `memory_search` → `memory_read`; `wiki_overview` → `wiki_search` → `wiki_read`. Wiki **writes** (folder import, organize, archive) use `bash` + `lumii-ui`, not `wiki_*` tools — see `## Wiki Knowledge Base`.",
   "Browser Tools": "See `## Browser Control` for the interaction loop.",
+  // 这组工具来自 `com.lumii.pcwechat` 插件——用户**本人**的微信，与渠道（Bot 收件箱）
+  // 是两回事，工具描述里的【别用】就是在防这个混用。
+  //
+  // 下面这几条是**跨工具的纪律**，工具 schema 里放不下（每条都只管自己），
+  // 而漏掉任何一条都会造成真实伤害（重发一次 = 给对方发第二遍）：
+  "Local WeChat":
+    "This is the user's **own** WeChat account, not the channel inbox — replies to channel peers go through `channel_send`/`message`, never here. **`send_text`/`send_file`/`send_batch`/`reply_to` default to `dry_run=true`, which validates and sends nothing**; pass `dry_run=false` only after the user explicitly asks you to actually send. Sends take 7–36s (session switching is the slow part) and **a timeout is not a failure — the message may already be out. Never resend; call `read_history` to confirm instead.** Read `error_code` before retrying: `send_not_confirmed` and `target_unconfirmed` must **never** be retried, `target_not_found` means resolve the name with `list_sessions` first, `env_not_ready` is already queued for retry by the watch loop. Multi-account: pass the same `account` you read with to the send tool. Order: `list_sessions` → `read_history` → (images) `read_image`; incremental watching uses `poll_new` with the previous `next_since_ts`.",
   // 这条不是客套话：`resolve_sync_conflict` 超时会返回 status='running' + isError=false，
   // 因为落决在后台继续跑。Agent 若把它当失败重排，会排到还在跑的那一轮后面——
   // 2026-09-17 实测就这样空转了 7 轮（每 10 分钟一次）。见 T3.4 与设计文档 §2.3。
@@ -177,6 +217,46 @@ const MEMORY_TOOLS = new Set([
   "wiki_read",
 ])
 const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send", "wechat_peer_mode"])
+/**
+ * 本机微信（`com.lumii.pcwechat` 插件注册的原生工具，名字不带 `mcp__` 前缀）。
+ *
+ * 这份清单是**静态**的，而工具只有在用户打开那个扩展后才真实注册——扩展默认关闭。
+ * 分组只是归类表，`partitionToolNames` 按实际工具集过滤，插件没开时整组不渲染。
+ * 与 `CLIENT_REGISTERED_NAMES`（测试侧）成对：改名要两处一起改。
+ */
+const LOCAL_WECHAT_TOOLS = new Set([
+  "list_accounts",
+  "list_sessions",
+  "read_history",
+  "read_image",
+  "poll_new",
+  "check_env",
+  "locate_db",
+  "repair_env",
+  "send_text",
+  "send_file",
+  "send_batch",
+  "reply_to",
+  "search_messages",
+  "preview_export",
+  "export_chat",
+  "list_unread",
+  "wechat_digest",
+  "wechat_distill_state",
+  "wechat_distill_clear",
+  "wechat_profile_save",
+  "wechat_profile_get",
+  "kb_search",
+  "kb_save",
+  "kb_delete",
+  "autoreply_rules",
+  "autoreply_drafts",
+  "autoreply_stats",
+  "tag_plan",
+  "tag_start",
+  "tag_status",
+  "tag_cancel",
+])
 const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt", "plugin_dev"])
 const INTERACTION_TOOLS = new Set(["ask_user_question"])
 const DASHBOARD_TOOLS = new Set(["dashboard_feed_write", "dashboard_feed_read"])
@@ -242,6 +322,7 @@ export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> =
   Skills: SKILL_TOOLS,
   "Memory & Knowledge": MEMORY_TOOLS,
   Messaging: MESSAGING_TOOLS,
+  "Local WeChat": LOCAL_WECHAT_TOOLS,
   "Self-Configuration": SELF_CONFIG_TOOLS,
   Interaction: INTERACTION_TOOLS,
   Dashboard: DASHBOARD_TOOLS,

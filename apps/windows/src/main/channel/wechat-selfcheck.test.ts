@@ -11,7 +11,7 @@ import { runWechatSelfcheck, writeWechatDbToConfig } from './wechat-selfcheck'
 const ROOT = 'D:\\微信\\xwechat_files\\wxid_a_1234\\db_storage'
 
 function okCall() {
-  return vi.fn(async (_s: string, tool: string) =>
+  return vi.fn(async (tool: string, _args: Record<string, unknown>) =>
     tool === 'check_env'
       ? JSON.stringify({ ok: true, reason: '', weixin_running: true })
       : JSON.stringify({ found: true, root: ROOT, source: 'ini', wxid: 'wxid_a' }),
@@ -81,7 +81,7 @@ describe('runWechatSelfcheck', () => {
   })
 
   it('数据目录没找到 ⇒ db.ok=false，reason 指向目录', async () => {
-    const call = vi.fn(async (_s: string, tool: string) =>
+    const call = vi.fn(async (tool: string, _args: Record<string, unknown>) =>
       tool === 'check_env'
         ? JSON.stringify({ ok: true, reason: '' })
         : JSON.stringify({ found: false, root: null, source: null }),
@@ -94,7 +94,7 @@ describe('runWechatSelfcheck', () => {
   })
 
   it('环境不可用（窗口最小化）⇒ ok=false，reason 用 check_env 的 reason', async () => {
-    const call = vi.fn(async (_s: string, tool: string) =>
+    const call = vi.fn(async (tool: string, _args: Record<string, unknown>) =>
       tool === 'check_env'
         ? JSON.stringify({ ok: false, reason: '主窗口已最小化' })
         : JSON.stringify({ found: true, root: ROOT, source: 'ini', wxid: 'wxid_a' }),

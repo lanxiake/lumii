@@ -77,7 +77,7 @@ const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
  */
 function normalizeStatus(channel: BindableChannel, raw: string): ChannelRowStatus {
   if (channel === 'pcwechat') {
-    // 本机微信没有登录状态，只有「这台机器上够不够得着微信」（MCP 连上=就绪）
+    // 本机微信没有登录状态，只有「这台机器上够不够得着微信」（侧车起来了=就绪）
     return raw === 'connected' ? 'connected' : 'idle'
   }
   if (channel === 'wechat') {
@@ -161,7 +161,7 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({
             | null
           if (sess?.appIdMasked) detail = `App ${sess.appIdMasked}`
         } else if (def.id === 'pcwechat') {
-          // 就绪 = 本机 wechat-chat MCP 连上（与设置页那张卡片同一个判据，不叫模型）
+          // 就绪 = 本机微信侧车起来了（与设置页那张卡片同一个判据，不叫模型）
           const r = await window.channelService?.wechatSelfcheck?.()
           raw = r?.connected ? 'connected' : 'idle'
           if (r?.db?.root) detail = '已就绪，可配回复名单'

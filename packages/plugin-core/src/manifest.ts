@@ -71,6 +71,17 @@ export interface LumiiPluginManifest {
   configSchema?: Record<string, unknown>;
   /** 内置功能迁移期的过渡开关 */
   disabled?: boolean;
+  /**
+   * 默认启用（缺省 `true`）。
+   *
+   * `false` = 随包装上但**先不开**，等用户进设置页自己打开。判据是「打开它等于把用户的
+   * 真实身份或隐私交出去」（本机微信就是这一类），而**不是**「还没做完」——后者用上面的
+   * `disabled`（开关根本不给点）。
+   *
+   * 偏好文件只记「用户推翻了默认」，所以这张默认表不会写进磁盘、改默认值不会让用户
+   * 的旧选择失效（见 `apps/windows/src/main/kernel/extension-store.ts`）。
+   */
+  defaultEnabled?: boolean;
 }
 
 /** 只校验「结构 + 必需字段」，逐字段类型交给下面的语义检查，避免 schema 与类型两处维护。 */

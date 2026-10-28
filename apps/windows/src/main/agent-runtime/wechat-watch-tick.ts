@@ -825,7 +825,9 @@ export function buildDraftPrompt(
     '（这个人的策略是：起草给我确认。）',
     '',
     '请：',
-    `1. 用 wechat-chat 的 read_history 看我和「${who}」最近的对话（talker=${msg.talker}${msg.account ? `, account="${msg.account}"` : ''}）；`,
+    // 最近 10 条历史与画像已由主进程**预取并拼在提示词开头**（见 bridge 的
+    // `wechatHistoryPrompt` / `wechatProfilePrompt`），这里不再让模型重复读一遍。
+    `1. 最近对话已经给你了（提示词开头的【最近对话】）；要更早的再用 read_history 翻页（talker=${msg.talker}${msg.account ? `, account="${msg.account}"` : ''}）；`,
     '2. 判档后写一条**以我本人身份**发出的回复草稿（放行/软回那两档）；命中硬停的，就写转人工的措辞。',
     '',
     '⚠️ 这一档**只起草、不要发送**（不要调用 channel_send、也不要碰 MCP 的发送工具）——',
@@ -864,6 +866,11 @@ export function buildAutoPrompt(
     ...voiceLine(msgs),
     ...imageLine(msgs),
     '（这个人的策略是：**允许按护栏直接替我回**。）',
+    '',
+    // 画像与最近对话由主进程预取后拼在提示词开头（bridge 的 wechatProfilePrompt /
+    // wechatHistoryPrompt）；这里点一句，模型才知道「上面那两段就是上下文」。
+    '上下文：提示词开头的【最近对话】是我和这个人的最近 10 条往来，画像也在前面——',
+    '**据此接话**，别把它当成新的消息再处理一遍。',
     '',
     '先判档，再走对应的出口：',
     `- **放行** → \`channel_send\`（channel="pcwechat", to="${msg.talker}"${msg.account ? `, account="${msg.account}"` : ''}, text=你要说的话）直接回；`,
@@ -964,7 +971,7 @@ async function detectSentTo(
   since: number,
 ): Promise<{ sent: boolean; texts: string[] }> {
   try {
-    const text = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, {
+    const text = await deps.callTool(WECHAT_WATCH_MCP_TOOL, {
       since_ts: since,
       // 多开：必须读回**这条消息所在账号**，否则另一号的新消息会把结果判反
       ...(msg.account ? { account: msg.account } : {}),
@@ -1055,15 +1062,21 @@ function pruneOwnRuns(db: DatabaseAdapter): void {
 
 export interface WechatWatchDeps {
   getDb: () => DatabaseAdapter
-  /** 直接调 MCP 工具（主进程内、不经 Agent 回合），见 `McpManager.callTool` */
-  callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
   /**
-   * 重启某个 MCP Server（bridge 注入：`reconnectMcpServer`）。
+   * 直接调一个本机微信**原生工具**（走侧车，主进程内、不经 Agent 回合）。
+   *
+   * 曾经是 `callMcpTool(server, tool, args)`——能力归内置扩展 `com.lumii.pcwechat`
+   * 之后没有了「哪个 MCP Server」这一档（见 `wechat-sidecar-client.ts`）。
+   * 业务失败的 `{ok:false,...}` 载荷原样返回；工具内部炸了才抛。
+   */
+  callTool: (tool: string, args: Record<string, unknown>) => Promise<string>
+  /**
+   * 重启侧车（bridge 注入：`resetWechatSidecar`）。
    *
    * 只在 `poll_new` 返回空错误时用：旧进程可能缓存了残缺密钥表，重启后重新扫描。
    * 不给这个回调时，空错误只记一笔跳过，不杀进程。
    */
-  resetMcpServer?: (server: string) => Promise<void>
+  resetSidecar?: () => Promise<void>
   /** 系统通知（第三个参数是会话 id，点击可跳到那个好友的会话） */
   showNotification?: (title: string, body: string, convId?: string) => void
   /**
@@ -1564,7 +1577,7 @@ async function flushWechatOutbox(
     for (const item of queue) {
       let repliedAfterQueue = false
       try {
-        const raw = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'read_history', {
+        const raw = await deps.callTool('read_history', {
           talker: item.peer,
           limit: 1,
           ...(item.account ? { account: item.account } : {}),
@@ -1584,7 +1597,7 @@ async function flushWechatOutbox(
         writeWechatOutbox(db, queue)
         continue
       }
-      const out = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'send_text', {
+      const out = await deps.callTool('send_text', {
         talker: item.peer,
         text: item.text,
         dry_run: false,
@@ -1649,7 +1662,7 @@ async function maybeDistillProfiles(
     if (nowMs - readKvNumber(db, KV_KEY_PROFILE_SWEEP) < PROFILE_SWEEP_INTERVAL_MS) return ''
     // 读一次已有画像：读不到（MCP 没连/返回怪形状）就**什么都别做**——
     // 拿不到清单时"以为缺"会变成每隔半小时空跑一轮模型
-    const raw = await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, 'wechat_profile_get', {})
+    const raw = await deps.callTool('wechat_profile_get', {})
     const files = (JSON.parse(raw) as { files?: unknown }).files
     if (!Array.isArray(files)) return ''
     writeKvNumber(db, KV_KEY_PROFILE_SWEEP, nowMs) // 先记一拍：失败也不要在 15 秒后重来
@@ -1682,12 +1695,12 @@ async function maybeDistillProfiles(
 async function readPollText(deps: WechatWatchDeps, since: number, account?: string): Promise<string> {
   const args = { since_ts: since, ...(account ? { account } : {}) }
   try {
-    return await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, args)
+    return await deps.callTool(WECHAT_WATCH_MCP_TOOL, args)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     const now = deps.nowMs?.() ?? Date.now()
     if (
-      !deps.resetMcpServer ||
+      !deps.resetSidecar ||
       !isOpaqueMcpToolError(msg) ||
       now - lastOpaqueMcpResetAt < OPAQUE_MCP_RESET_COOLDOWN_MS
     ) {
@@ -1696,12 +1709,12 @@ async function readPollText(deps: WechatWatchDeps, since: number, account?: stri
     lastOpaqueMcpResetAt = now
     log.warn('[wechat-watch] poll_new 返回空错误，重启 MCP 后重试一次')
     try {
-      await deps.resetMcpServer(WECHAT_WATCH_MCP_SERVER)
+      await deps.resetSidecar()
     } catch (resetErr) {
       log.warn('[wechat-watch] 重启 MCP 失败:', resetErr)
       throw err
     }
-    return await deps.callMcpTool(WECHAT_WATCH_MCP_SERVER, WECHAT_WATCH_MCP_TOOL, args)
+    return await deps.callTool(WECHAT_WATCH_MCP_TOOL, args)
   }
 }
 
@@ -2139,7 +2152,7 @@ export async function runWechatWatch(deps: WechatWatchDeps): Promise<string> {
 /**
  * 「自动暂停」标记路径：把「MCP 未配置 → 我们自动停的」与「用户手动关的」区分开。
  *
- * 没有它就修不了这个不对称：`!mcpConfigured` 时把 `enabled=0`，但恢复时若也强行 `=1`
+ * 没有它就修不了这个不对称：`!wechatEnabled` 时把 `enabled=0`，但恢复时若也强行 `=1`
  * 就会覆盖用户的手动开关。有了标记，恢复时**只认领自己停的那次**。
  */
 function autoPausedMarkerPath(): string {
@@ -2179,7 +2192,7 @@ function consumeAutoPausedMarker(): boolean {
  */
 export function syncWechatWatchJobEnabled(
   db: DatabaseAdapter,
-  opts: { mcpConfigured: boolean; pluginEnabled?: boolean },
+  opts: { wechatEnabled: boolean; pluginEnabled?: boolean },
 ): boolean {
   const readEnabled = (): number | undefined => {
     try {
@@ -2198,19 +2211,20 @@ export function syncWechatWatchJobEnabled(
 
 export function ensureWechatWatchCronJobSeeded(
   db: DatabaseAdapter,
-  opts: { mcpConfigured: boolean; pluginEnabled?: boolean },
+  opts: { wechatEnabled: boolean; pluginEnabled?: boolean },
 ): void {
   try {
     const existing = db
       .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id = ?`)
       .get(WECHAT_WATCH_CRON_ID)
-    // 两个停用理由共用同一条暂停路径：插件被禁用（`com.lumii.relay`）与 MCP 没配。
+    // 两个停用理由共用同一条暂停路径：代聊插件被禁用（`com.lumii.relay`）与
+    // 本机微信插件没开（`com.lumii.pcwechat`，那双手的来源）。
     // 都已存在任务时都要真的停掉——只挡住「新播种」的话，已装机器上那条 15 秒循环照转。
     const pausedReason =
       opts.pluginEnabled === false
         ? '代聊插件已禁用'
-        : !opts.mcpConfigured
-          ? 'wechat-chat MCP 未配置/未启用'
+        : !opts.wechatEnabled
+          ? '本机微信插件未启用'
           : null
     if (pausedReason) {
       if (existing) {
@@ -2225,7 +2239,7 @@ export function ensureWechatWatchCronJobSeeded(
       if (consumeAutoPausedMarker()) {
         db.prepare(`UPDATE local_cron_jobs SET enabled = 1 WHERE id = ?`).run(WECHAT_WATCH_CRON_ID)
         log.info(
-          `[ensureWechatWatchCronJobSeeded] wechat-chat MCP 已恢复，自动重新启用 job id=${WECHAT_WATCH_CRON_ID}`,
+          `[ensureWechatWatchCronJobSeeded] 本机微信已启用，自动重新启用 job id=${WECHAT_WATCH_CRON_ID}`,
         )
       }
       db.prepare(

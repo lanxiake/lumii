@@ -122,9 +122,17 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
   const builtinIds = new Set(builtins.map(({ manifest }) => manifest.id))
   const hotSwappable = deps.hotSwappable ?? HOT_SWAPPABLE_BUILTINS
   const storeFile = deps.storeFile ?? resolveExtensionsConfigPath()
+  /**
+   * 默认关闭项：从**注入的**插件清单派生（不是全局常量），这样测试注入假清单时
+   * 行为跟着走，也免得 kernel 认识具体插件 id。与 `registry.ts` 的
+   * `DEFAULT_DISABLED_EXTENSIONS` 是同一个判据（`manifest.defaultEnabled === false`）。
+   */
+  const defaultDisabled: ReadonlySet<string> = new Set(
+    builtins.filter(({ manifest }) => manifest.defaultEnabled === false).map(({ manifest }) => manifest.id),
+  )
 
   function list(): ExtensionInfo[] {
-    const { disabled } = readExtensionPrefs(storeFile)
+    const { disabled } = readExtensionPrefs(storeFile, defaultDisabled)
 
     const builtinItems: ExtensionInfo[] = builtins.map(({ manifest }) => {
       const live = deps.host.get(manifest.id)
@@ -246,7 +254,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       if (!result.ok) return result
       // 目录都没了，禁用记录留着只会让以后同名插件莫名其妙处于禁用态
       try {
-        setMainExtensionEnabled(target.id, true, storeFile)
+        setMainExtensionEnabled(target.id, true, storeFile, defaultDisabled)
       } catch {
         /* 偏好清理失败不影响删除本身 */
       }
@@ -275,7 +283,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
     const known = list().some((item) => item.id === id)
     if (!known) return { ok: false, error: `未知扩展：${id}` }
     try {
-      setMainExtensionEnabled(id, enabled, storeFile)
+      setMainExtensionEnabled(id, enabled, storeFile, defaultDisabled)
     } catch (err) {
       return { ok: false, error: `写入偏好失败：${messageOf(err)}` }
     }
@@ -288,7 +296,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
       const result = await deps.external.setEnabled(id, enabled)
       if (!result.ok) {
         try {
-          setMainExtensionEnabled(id, !enabled, storeFile)
+          setMainExtensionEnabled(id, !enabled, storeFile, defaultDisabled)
         } catch {
           /* 写回失败只影响显示 */
         }
@@ -319,7 +327,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
           // 启用失败就把偏好改回去：否则开关停在「开」、插件却是停的，
           // 下次启动又会尝试一次（语音这类失败每次都会重演）。
           try {
-            setMainExtensionEnabled(id, false, storeFile)
+            setMainExtensionEnabled(id, false, storeFile, defaultDisabled)
           } catch {
             /* 写回失败只影响显示，不影响结论 */
           }

@@ -202,20 +202,11 @@ describe('内置自研 MCP 迁移为独立 exe', () => {
   const resolveExe = (name: string) =>
     name === 'wechat-chat-mcp' ? deployedExe : `unexpected:${name}`
 
-  it('占位符 / 裸 python / 写死的托管解释器都迁成 exe 绝对路径，且不再带参数', () => {
-    for (const command of ['{{LUMII_PYTHON}}', 'python', 'python3', 'Python.exe', managedExe]) {
-      const [migrated] = migrateBundledExeCommands(
-        [{ name: 'wechat-chat', command, args: wechatArgs, enabled: true, env: { LUMII_WECHAT_ACCOUNT: 'wxid_a' } }],
-        [managedExe],
-        resolveExe,
-      )
-      expect(migrated.command, command).toBe(deployedExe)
-      expect(migrated.args, command).toEqual([])
-      expect(migrated.enabled).toBe(true)
-      expect(migrated.env).toEqual({ LUMII_WECHAT_ACCOUNT: 'wxid_a' })
-      expect(JSON.stringify(migrated)).not.toContain('{{')
-    }
-  })
+  // 「占位符/裸 python/托管解释器 → 部署 exe」那条用例随本机微信预设一起移除
+  // （2026-10-28）：`migrateBundledExeCommands` 由 `MCP_PRESETS` 里带 `bundledExe` 的项
+  // 驱动，而摘掉 wechat-chat 后清单里已无这样的项——机制与 `bundled-mcp-exe.ts` 都保留
+  // （见那里的注释：留给将来别的随包 exe），但**没有 preset 就没法构造用例**，硬留着
+  // 只会是一条必然失败的断言。
 
   it('用户自定义的解释器、改过脚本路径、已是 exe 或非内置项都不动', () => {
     const entries: McpServerEntry[] = [
@@ -227,15 +218,10 @@ describe('内置自研 MCP 迁移为独立 exe', () => {
     expect(migrateBundledExeCommands(entries, [managedExe], resolveExe)).toEqual(entries)
   })
 
-  it('播种出的微信 MCP 不含任何占位符，command 指向部署后的 exe', () => {
+  // 本机微信已从预设清单摘除（2026-10-28，能力归内置扩展 com.lumii.pcwechat）
+  it('播种不再产出微信 MCP 条目（能力已归内置扩展）', () => {
     const wechat = computeMcpPresetBackfill([], new Set()).added.find((e) => e.name === 'wechat-chat')
-    expect(wechat?.command).toMatch(/[\\/]mcp[\\/]wechat-chat-mcp[\\/]wechat-chat-mcp\.exe$/)
-    expect(path.isAbsolute(wechat!.command)).toBe(true)
-    expect(JSON.stringify(wechat)).not.toContain('{{')
-    // 2026-10-25：MCP 与插件解耦，客户端不再下载/安装这个 exe。播种出来的条目
-    // 默认**停用**（部署路径上未必有文件，默认启用只会连不上），由用户自己在
-    // 「设置 › MCP 服务」里把命令指向装好的 exe 并打开开关。
-    expect(wechat?.enabled).toBe(false)
+    expect(wechat).toBeUndefined()
   })
 })
 

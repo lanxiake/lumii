@@ -231,27 +231,26 @@ describe('PcwechatChannelProvider', () => {
   ): ChannelPolicy => ({ defaultMode: 'notify', peers, ...extra })
 
   function make(opts: { policy?: ChannelPolicy; connected?: boolean; reply?: string } = {}) {
-    const callMcpTool = vi.fn(
+    const callTool = vi.fn(
       async () => opts.reply ?? '{"ok":true,"detail":"sent","dry_run":false}',
     )
     const onUndeliverable = vi.fn()
     const provider = new PcwechatChannelProvider({
-      getPolicy: () => opts.policy ?? policy([{ id: 'wxid_loop', label: 'Loop', mode: 'auto' }]),
-      mcpServer: 'wechat-chat',
-      isMcpConnected: () => opts.connected ?? true,
-      callMcpTool,
+      getPolicy: () => opts.policy ?? policy([{ id: 'wxid_loop', label: 'Loop', mode: 'auto' }]),
+      isReady: () => opts.connected ?? true,
+      callTool,
       onUndeliverable,
     })
-    return { provider, callMcpTool, onUndeliverable }
+    return { provider, callTool, onUndeliverable }
   }
 
   it('MCP 没连上 = 不在线：名单为空，发送直接失败且不碰工具', async () => {
-    const { provider, callMcpTool } = make({ connected: false })
+    const { provider, callTool } = make({ connected: false })
     expect(provider.getSnapshot().connected).toBe(false)
     expect(provider.getSnapshot().peers).toEqual([])
     const res = await provider.sendText({ to: 'wxid_loop', text: '在吗' })
     expect(res.errorCode).toBe('CHANNEL_NOT_CONNECTED')
-    expect(callMcpTool).not.toHaveBeenCalled()
+    expect(callTool).not.toHaveBeenCalled()
   })
 
   it('peers = 策略里非 ignore 的名单（黑名单与没配过的人都不出现）', () => {
@@ -266,20 +265,20 @@ describe('PcwechatChannelProvider', () => {
   })
 
   it('名单里的人发得出去，且显式 dry_run=false（工具的默认值是只校验）', async () => {
-    const { provider, callMcpTool } = make()
+    const { provider, callTool } = make()
     const res = await provider.sendText({ to: 'wxid_loop', text: '在的' })
     expect(res).toEqual({ ok: true, channel: 'pcwechat', to: 'wxid_loop' })
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'send_text', {
+    expect(callTool).toHaveBeenCalledWith('send_text', {
       talker: 'wxid_loop',
       text: withAgentMarker('在的'),
       dry_run: false,
     })
   })
 
-  it('多开：accountId 透传给 MCP，待补发队列也带上账号', async () => {
-    const { provider, callMcpTool } = make()
+  it('多开：accountId 透传给侧车，待补发队列也带上账号', async () => {
+    const { provider, callTool } = make()
     await provider.sendText({ to: 'wxid_loop', text: '在的', accountId: 'wxid_a' })
-    expect(callMcpTool).toHaveBeenCalledWith('wechat-chat', 'send_text', {
+    expect(callTool).toHaveBeenCalledWith('send_text', {
       talker: 'wxid_loop',
       text: withAgentMarker('在的'),
       dry_run: false,
@@ -294,7 +293,7 @@ describe('PcwechatChannelProvider', () => {
   })
 
   it('多开：快照是各号并集，发送白名单按**实际账号**判（不许跨号发名单外的人）', async () => {
-    const { provider, callMcpTool } = make({
+    const { provider, callTool } = make({
       policy: policy([], {
         accounts: {
           wxid_a: { defaultMode: 'notify', peers: [{ id: 'wxid_loop', label: 'Loop', mode: 'auto' }] },
@@ -309,16 +308,16 @@ describe('PcwechatChannelProvider', () => {
     // B 号没有自己的分账 → 沿用顶层（顶层名单是空的）：这个人不许从 B 号发出
     const denied = await provider.sendText({ to: 'wxid_loop', text: '在的', accountId: 'wxid_b' })
     expect(denied.errorCode).toBe('PEER_NOT_FOUND')
-    expect(callMcpTool).toHaveBeenCalledTimes(1)
+    expect(callTool).toHaveBeenCalledTimes(1)
   })
 
   it('名单外（含黑名单）不发：Router 之外的第二道白名单', async () => {
-    const { provider, callMcpTool } = make({ policy: policy([{ id: 'filehelper', mode: 'ignore' }]) })
+    const { provider, callTool } = make({ policy: policy([{ id: 'filehelper', mode: 'ignore' }]) })
     for (const to of ['filehelper', 'wxid_陌生人']) {
       const res = await provider.sendText({ to, text: 'hi' })
       expect(res.errorCode, to).toBe('PEER_NOT_FOUND')
     }
-    expect(callMcpTool).not.toHaveBeenCalled()
+    expect(callTool).not.toHaveBeenCalled()
   })
 
   it('env_not_ready = 此刻够不着（锁屏/抢不到前台）：投进待补发队列；别的失败不投', async () => {
@@ -366,10 +365,9 @@ describe('PcwechatChannelProvider', () => {
     expect((await provider.sendText({ to: 'wxid_loop', text: '在的' })).queued).toBeUndefined()
 
     const bare = new PcwechatChannelProvider({
-      getPolicy: () => policy([{ id: 'wxid_loop', mode: 'auto' }]),
-      mcpServer: 'wechat-chat',
-      isMcpConnected: () => true,
-      callMcpTool: async () => '{"ok":false,"error_code":"target_unconfirmed","detail":"x"}',
+      getPolicy: () => policy([{ id: 'wxid_loop', mode: 'auto' }]),
+      isReady: () => true,
+      callTool: async () => '{"ok":false,"error_code":"target_unconfirmed","detail":"x"}',
     })
     const res = await bare.sendText({ to: 'wxid_loop', text: '在的' })
     expect(res.ok).toBe(false)

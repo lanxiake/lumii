@@ -54,12 +54,20 @@ interface SendTextPayload {
 export interface PcwechatProviderDeps {
   /** 当前策略（名单即白名单，每拍现读，设置页改完下一个请求就生效） */
   getPolicy: () => ChannelPolicy
-  /** wechat-chat 的 MCP server 名（装配处给，不写死在 Provider 里） */
-  mcpServer: string
-  /** 该 MCP 现在连着没有（McpManager 的运行时状态，不是配置文件） */
-  isMcpConnected: () => boolean
-  /** 直接调 MCP 工具（主进程内，不经 Agent 回合） */
-  callMcpTool: (server: string, tool: string, args: Record<string, unknown>) => Promise<string>
+  /**
+   * 那双手在不在（侧车进程就绪）。
+   *
+   * 曾经读的是「`wechat-chat` 这个 MCP 连没连」（McpManager 的运行时状态）；能力归内置
+   * 扩展后，判据变成应用托管的 Python 侧车起没起来（`getWechatSidecar().isReady()`）。
+   */
+  isReady: () => boolean
+  /**
+   * 调一个本机微信**原生工具**（走侧车，主进程内、不经 Agent 回合）。
+   *
+   * 失败的两种形态：工具内部炸了 → 抛；**业务失败** → 返回
+   * `{ok:false, error_code, detail, suggestion}` 的 JSON 文本（要读 error_code 分档处理）。
+   */
+  callTool: (tool: string, args: Record<string, unknown>) => Promise<string>
   /**
    * 「此刻发不出去」（`UNDELIVERABLE_CODES`：微信没运行 / 主窗口被收进托盘 / 切不过去）时，
    * 把这条投进待补发队列，等那双手回来了由盯梢回路补发（见 `wechat-watch-tick.ts`）。
@@ -76,7 +84,7 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
   constructor(private readonly deps: PcwechatProviderDeps) {}
 
   getSnapshot(): ChannelSnapshot {
-    const connected = this.deps.isMcpConnected()
+    const connected = this.deps.isReady()
     const policy = this.deps.getPolicy()
     return {
       channel: 'pcwechat',
@@ -112,8 +120,8 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
       message: string,
     ): ChannelSendResult => ({ ok: false, errorCode, message, channel: 'pcwechat', to })
 
-    if (!this.deps.isMcpConnected()) {
-      return fail('CHANNEL_NOT_CONNECTED', '本机微信的 wechat-chat MCP 没连上')
+    if (!this.deps.isReady()) {
+      return fail('CHANNEL_NOT_CONNECTED', '本机微信侧车没起来（扩展未启用或环境异常）')
     }
     // 兜底白名单：Router 已经按快照挡过一次，但「策略刚被改成 ignore」与快照之间有窗口，
     // 而发出去就收不回——这里再判一次，宁可多判。
@@ -135,7 +143,7 @@ export class PcwechatChannelProvider implements IChannelOutboundProvider {
 
     let raw: string
     try {
-      raw = await this.deps.callMcpTool(this.deps.mcpServer, 'send_text', {
+      raw = await this.deps.callTool('send_text', {
         talker: to,
         text: markedText,
         // 显式 false：工具的默认值是 true（只校验不发送），少写这一次就是"报告已发、其实没发"

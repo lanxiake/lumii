@@ -52,6 +52,46 @@ const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "cloud_sync_push",
   "resolve_sync_conflict",
   "propose_dev_handoff",
+  // 宿主注册但一直漏登记的三个（`plugin_dev` 见 bridge-plugin-dev-tools.ts，
+  // `dashboard_feed_*` 见 bridge-tool-registrar-cron.ts）——补上，否则这两条守卫永远是红的
+  "plugin_dev",
+  "dashboard_feed_write",
+  "dashboard_feed_read",
+  // 本机微信（com.lumii.pcwechat 插件，默认关闭）。工具由插件启用时**动态**注册
+  // （bridge-wechat-tools.ts 用 `name: t.name`），静态扫描扫不到——所以必须手工列在这里，
+  // 否则「分组常量不含幽灵工具名」那条守卫会把它们当成不存在的名字。
+  // 侧车会摘掉 `transcribe_voice`（依赖没随包发），所以这里也不列它。
+  "list_accounts",
+  "list_sessions",
+  "read_history",
+  "read_image",
+  "poll_new",
+  "check_env",
+  "locate_db",
+  "repair_env",
+  "send_text",
+  "send_file",
+  "send_batch",
+  "reply_to",
+  "search_messages",
+  "preview_export",
+  "export_chat",
+  "list_unread",
+  "wechat_digest",
+  "wechat_distill_state",
+  "wechat_distill_clear",
+  "wechat_profile_save",
+  "wechat_profile_get",
+  "kb_search",
+  "kb_save",
+  "kb_delete",
+  "autoreply_rules",
+  "autoreply_drafts",
+  "autoreply_stats",
+  "tag_plan",
+  "tag_start",
+  "tag_status",
+  "tag_cancel",
 ]
 
 /**
