@@ -334,6 +334,81 @@ describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压�
 
     expect(prepared.some((sql) => sql.includes('DELETE'))).toBe(false)
   })
+
+  it('LLM 摘要前先发 compacting，成功后再发 compacted', async () => {
+    const { compactor, forwardIpcEvent } = makeCompactHarness(4)
+
+    await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    const types = forwardIpcEvent.mock.calls.map((call) => (call[0] as { type?: string }).type)
+    const compactingIdx = types.indexOf('agent:context:compacting')
+    const compactedIdx = types.indexOf('agent:context:compacted')
+    expect(compactingIdx).toBeGreaterThanOrEqual(0)
+    expect(compactedIdx).toBeGreaterThan(compactingIdx)
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'agent:context:compacting',
+        sessionKey: 'sess-1',
+        messagesBefore: 4,
+        tokensBefore: 212_000,
+        threshold: 0.8,
+      }),
+    )
+  })
+
+  it('low_yield 时仍发 compacting + messagesRemoved=0 的 compacted 收尾', async () => {
+    const longSummary = '摘'.repeat(2000)
+    const { compactor, forwardIpcEvent } = makeCompactHarness(4, longSummary, undefined, {
+      messageChars: 5,
+    })
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(result.reason).toBe('low_yield')
+    const types = forwardIpcEvent.mock.calls.map((call) => (call[0] as { type?: string }).type)
+    expect(types).toContain('agent:context:compacting')
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'agent:context:compacted',
+        messagesRemoved: 0,
+      }),
+    )
+  })
+
+  it('用户 abort 时发 compacting 收尾，不落库', async () => {
+    const { compactor, forwardIpcEvent, compacted, saved } = makeCompactHarness(4)
+    const controller = new AbortController()
+    controller.abort()
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6, controller.signal)
+
+    expect(result.messagesRemoved).toBe(0)
+    expect(compacted).toEqual([])
+    expect(saved).toHaveLength(0)
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'agent:context:compacting' }),
+    )
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'agent:context:compacted', messagesRemoved: 0 }),
+    )
+  })
+
+  it('事务失败时发 compacting 收尾，避免前端粘住', async () => {
+    const { compactor, forwardIpcEvent, repo } = makeCompactHarness(4)
+    repo.saveMessage.mockImplementation(() => {
+      throw new Error('disk full')
+    })
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(result.success).toBe(false)
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'agent:context:compacting' }),
+    )
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'agent:context:compacted', messagesRemoved: 0 }),
+    )
+  })
 })
 
 describe('BridgeContextCompactor.compactContext — 同步短对话仍可裁剪', () => {

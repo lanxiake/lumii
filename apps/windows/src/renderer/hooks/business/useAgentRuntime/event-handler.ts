@@ -1795,6 +1795,14 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:context:compacted': {
       updateSessionState(sessionKey, (prev) => {
+        // 未真正压缩的收尾（abort / low_yield 等）：只清「压缩中」，不刷空卡片
+        if (event.messagesRemoved === 0 && !event.summaryText) {
+          return {
+            ...prev,
+            isAutoCompacting: false,
+            compactionOrigin: null,
+          }
+        }
         const ratio = prev.contextUsage && prev.contextUsage.contextWindow > 0
           ? event.newTokenCount / prev.contextUsage.contextWindow
           : 0

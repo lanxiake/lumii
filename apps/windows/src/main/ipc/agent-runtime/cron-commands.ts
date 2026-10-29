@@ -114,6 +114,7 @@ export function handleCronCreate(
     activeHourStart: command.activeHourStart ?? undefined,
     activeHourEnd: command.activeHourEnd ?? undefined,
     notifyTargets: command.notifyTargets ?? undefined,
+    wakeMode: command.wakeMode === 'active' ? 'active' : 'own',
   })
 
   log.info(`[cron:create] 创建定时任务: id=${id} name="${name}" type=${command.scheduleType} expr="${scheduleExpr}"`)
@@ -159,6 +160,8 @@ export function handleCronList(
       ...(r.active_hour_start != null ? { activeHourStart: r.active_hour_start } : {}),
       ...(r.active_hour_end != null ? { activeHourEnd: r.active_hour_end } : {}),
       ...(r.notify_targets != null ? { notifyTargets: r.notify_targets } : {}),
+      // 老库没有这一列时保守报 own（与它们的实际行为一致）
+      wakeMode: r.wake_mode === 'active' ? 'active' : 'own',
     })),
     total: rows.length,
   }
@@ -180,7 +183,7 @@ export function handleCronDelete(
 export function handleCronUpdate(
   bridge: AgentRuntimeBridge,
   id: string,
-  patch: { name?: string; taskText?: string; agentId?: string | null; scheduleType?: 'at' | 'every' | 'cron'; scheduleExpr?: string; enabled?: boolean; activeDays?: string | null; activeHourStart?: number | null; activeHourEnd?: number | null; notifyTargets?: string | null },
+  patch: { name?: string; taskText?: string; agentId?: string | null; scheduleType?: 'at' | 'every' | 'cron'; scheduleExpr?: string; enabled?: boolean; activeDays?: string | null; activeHourStart?: number | null; activeHourEnd?: number | null; notifyTargets?: string | null; wakeMode?: 'own' | 'active' },
 ): { status: 'ok' | 'error'; id: string; message?: string } {
   const row = bridge.getLocalCronJobRecordById(id)
   if (!row) {
@@ -233,6 +236,7 @@ export function handleCronUpdate(
     activeHourStart: patch.activeHourStart !== undefined ? patch.activeHourStart : row.active_hour_start ?? undefined,
     activeHourEnd: patch.activeHourEnd !== undefined ? patch.activeHourEnd : row.active_hour_end ?? undefined,
     notifyTargets: patch.notifyTargets !== undefined ? patch.notifyTargets : row.notify_targets ?? undefined,
+    wakeMode: patch.wakeMode !== undefined ? patch.wakeMode : row.wake_mode === 'active' ? 'active' : 'own',
   })
 
   log.info(`[cron:update] 更新定时任务: id=${id} patch=${JSON.stringify(patch)}`)

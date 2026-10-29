@@ -106,3 +106,4 @@ export function getChannelPolicyStore(): ChannelPolicyStore {
   if (!singleton) singleton = new ChannelPolicyStore(channelPolicyStorePath())
   return singleton
 }
+

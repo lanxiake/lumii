@@ -284,6 +284,80 @@ describe('agent:context:usage 的无变化短路', () => {
  * 渲染层兜底还会再发一次多余的 allow-once（日志里的 "already resolved" 噪音）。
  * 现在主进程在全部审批出口统一广播 granted/denied，这里按 requestId 收起卡片。
  */
+/**
+ * 压缩生命周期：compacting 亮起「压缩中」；无实质压缩的 compacted 只清态、不刷空卡片。
+ */
+describe('agent:context:compacting / compacted UI 态', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  const session = () => runtimeStore.getState().sessions.get(SESSION_KEY)
+
+  it('compacting 将 isAutoCompacting 置为 true', () => {
+    handleRuntimeEvent({
+      type: 'agent:context:compacting',
+      sessionKey: SESSION_KEY,
+      tokensBefore: 100_000,
+      threshold: 0.78,
+      messagesBefore: 20,
+      timestamp: Date.now(),
+    })
+
+    expect(session()?.isAutoCompacting).toBe(true)
+    expect(session()?.compactionOrigin).toBe('auto')
+  })
+
+  it('messagesRemoved=0 且无 summary 的 compacted 只清压缩中，不追加卡片', () => {
+    handleRuntimeEvent({
+      type: 'agent:context:compacting',
+      sessionKey: SESSION_KEY,
+      tokensBefore: 100_000,
+      threshold: 0.78,
+      messagesBefore: 20,
+      timestamp: Date.now(),
+    })
+    handleRuntimeEvent({
+      type: 'agent:context:compacted',
+      sessionKey: SESSION_KEY,
+      previousTokenCount: 100_000,
+      newTokenCount: 100_000,
+      messagesRemoved: 0,
+      messagesBefore: 20,
+      messagesAfter: 20,
+      timestamp: Date.now(),
+    })
+
+    expect(session()?.isAutoCompacting).toBe(false)
+    expect(session()?.compactionOrigin).toBeNull()
+    expect(session()?.compactionEvents).toEqual([])
+  })
+
+  it('真正压缩的 compacted 仍追加 CompactionCard 事件', () => {
+    handleRuntimeEvent({
+      type: 'agent:context:compacted',
+      sessionKey: SESSION_KEY,
+      previousTokenCount: 200_000,
+      newTokenCount: 80_000,
+      messagesRemoved: 12,
+      messagesBefore: 30,
+      messagesAfter: 8,
+      summaryText: '摘要正文',
+      timestamp: 1_700_000_000_000,
+    })
+
+    expect(session()?.isAutoCompacting).toBe(false)
+    expect(session()?.compactionEvents).toHaveLength(1)
+    expect(session()?.compactionEvents[0]).toMatchObject({
+      messagesRemoved: 12,
+      summaryText: '摘要正文',
+      tokensBefore: 200_000,
+      tokensAfter: 80_000,
+    })
+  })
+})
+
 describe('agent:permission:granted / denied 收起审批卡', () => {
   const REQUEST_ID = 'perm-req-1'
 

@@ -316,6 +316,11 @@ interface CronCreateCommand {
   readonly activeHourEnd?: number
   /** 逗号分隔的推送目标：system/news/focus/feishu */
   readonly notifyTargets?: string
+  /**
+   * 唤醒落点：`own`（默认）=自己的定时任务会话；`active`=注进用户当前活跃会话。
+   * `active` 会按那条会话的上下文付费，且输出直接出现在用户的对话里。
+   */
+  readonly wakeMode?: 'own' | 'active'
 }
 
 interface CronListCommand {
@@ -342,6 +347,8 @@ interface CronUpdateCommand {
     readonly activeHourStart?: number | null
     readonly activeHourEnd?: number | null
     readonly notifyTargets?: string
+    /** 唤醒落点；省略 = 保持原值 */
+    readonly wakeMode?: 'own' | 'active'
   }
 }
 

@@ -5,6 +5,7 @@
  * prependActiveDashboardFeedItem 被 mock，其余渠道用 spy 注入。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cronConversationId } from './cron-job-meta'
 
 const prependMock = vi.fn(async () => undefined)
 {
@@ -53,7 +54,11 @@ function makeScheduler(overrides: Partial<Deps> = {}) {
   return { dispatch, showCronNotification, addMemory, sendFeishuMessage }
 }
 
-const job = { id: 'custom-job', name: '测试提醒', task_text: '汇总今天要做的事' }
+const job: { id: string; name: string; task_text: string; agent_id?: string | null } = {
+  id: 'custom-job',
+  name: '测试提醒',
+  task_text: '汇总今天要做的事',
+}
 
 describe('dispatchNotifications', () => {
   beforeEach(() => {
@@ -63,7 +68,7 @@ describe('dispatchNotifications', () => {
   it('未配置 targets 时回落系统通知', async () => {
     const s = makeScheduler()
     await s.dispatch(job, null, '结果')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '结果', 'cron:custom-job')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '结果', cronConversationId(job.name, job.agent_id))
     expect(s.addMemory).not.toHaveBeenCalled()
     expect(s.sendFeishuMessage).not.toHaveBeenCalled()
     expect(prependMock).not.toHaveBeenCalled()
@@ -79,19 +84,19 @@ describe('dispatchNotifications', () => {
   it('多渠道逐个派发，各渠道拿到自己策略的产出', async () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,news,focus', '今天三件事')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天三件事', 'cron:custom-job')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天三件事', cronConversationId(job.name, job.agent_id))
     expect(s.addMemory).toHaveBeenCalledWith('测试提醒：今天三件事', 'assistant')
     expect(prependMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: '测试提醒', summary: '今天三件事', source: '定时任务' }),
       undefined,
-      { source: 'cron', conversationId: 'cron:custom-job' },
+      { source: 'cron', conversationId: cronConversationId(job.name, job.agent_id) },
     )
   })
 
   it('Markdown 正文按渠道分流：通知压单行、飞书走编译器的纯文本兜底', async () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,feishu', '## 今天\n\n- 写方案\n- **评审**')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天 · 写方案 · 评审', 'cron:custom-job')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天 · 写方案 · 评审', cronConversationId(job.name, job.agent_id))
     // Router 不可用时飞书走兜底直发：text 消息不渲染 Markdown，需先经编译器降级
     expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n【今天】\n\n· 写方案\n· 评审')
   })
@@ -102,7 +107,7 @@ describe('dispatchNotifications', () => {
     expect(s.showCronNotification).toHaveBeenCalledWith(
       '灵栖 · 渠道通知未送达',
       expect.stringContaining('wecom 发送失败'),
-      'cron:custom-job',
+      cronConversationId(job.name, job.agent_id),
     )
     expect(s.sendFeishuMessage).not.toHaveBeenCalled()
   })
@@ -238,7 +243,7 @@ describe('runLocalCronJob 失败通知', () => {
     expect(s.showCronNotification).toHaveBeenCalledWith(
       '灵栖 · 测试任务',
       expect.stringContaining('实例创建失败'),
-      'cron:job-fail',
+      cronConversationId('测试任务', 'assistant'),
     )
   })
 

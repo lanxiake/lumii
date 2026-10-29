@@ -44,6 +44,8 @@ export interface CronJob {
   activeHourEnd?: number | null
   /** 逗号分隔的推送目标：system/news/focus/feishu */
   notifyTargets?: string | null
+  /** 唤醒落点：own=自己的定时任务会话（默认）；active=注入当前活跃会话 */
+  wakeMode?: 'own' | 'active'
   source: CronJobSource
   managedBy?: CronJobManagedBy | null
   /** 删除后下次启动会重建（系统种子）；UI 隐藏删除入口 */
@@ -82,5 +84,6 @@ export interface CreateCronJobParams {
   activeHourStart?: number | null
   activeHourEnd?: number | null
   notifyTargets?: string
+  wakeMode?: 'own' | 'active'
 }
 

@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { classifyCronJobSource, getCronJobManagedBy, isReseededCronJob } from './cron-job-meta'
+import { classifyCronJobSource, cronConversationId, getCronJobManagedBy, isReseededCronJob } from './cron-job-meta'
+
+describe('cronConversationId', () => {
+  it('链式一次性任务：同名同人 → 同一条会话（不再每跑一次长一条）', () => {
+    // 真实事故：例行任务每次跑完再建下一个 at 任务，jobId 不同但名字相同，
+    // 旧口径按 jobId 建会话 ⇒ 41 个任务长出 631 条会话
+    expect(cronConversationId('A股盯盘·盘中哨兵', 'assistant')).toBe(
+      cronConversationId('A股盯盘·盘中哨兵', 'assistant'),
+    )
+  })
+
+  it('不同执行者 / 不同任务名 → 不同会话', () => {
+    expect(cronConversationId('早间简报', 'chronicler')).not.toBe(
+      cronConversationId('早间简报', 'assistant'),
+    )
+    expect(cronConversationId('早间简报', 'chronicler')).not.toBe(
+      cronConversationId('日报', 'chronicler'),
+    )
+  })
+
+  it('名字首尾空白与连续空格归一；空名字回落到 unnamed 而不是抛', () => {
+    expect(cronConversationId('  早间   简报 ', 'chronicler')).toBe(
+      cronConversationId('早间 简报', 'chronicler'),
+    )
+    expect(cronConversationId('', 'assistant')).toBe('cron:assistant:unnamed')
+    expect(cronConversationId(null, null)).toBe('cron:assistant:unnamed')
+  })
+})
 
 describe('classifyCronJobSource', () => {
   it('系统播种任务识别为 system', () => {

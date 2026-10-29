@@ -72,6 +72,7 @@ export function useCronJobs() {
         activeHourStart: data.activeHourStart ?? undefined,
         activeHourEnd: data.activeHourEnd ?? undefined,
         notifyTargets: data.notifyTargets,
+        wakeMode: data.wakeMode,
       }) as { status: 'ok' | 'error'; job?: Record<string, unknown> }
       if (created.status !== 'ok') {
         setError((created as { message?: string }).message ?? '创建任务失败')
@@ -103,6 +104,7 @@ export function useCronJobs() {
           activeHourStart: patch.activeHourStart,
           activeHourEnd: patch.activeHourEnd,
           notifyTargets: typeof patch.notifyTargets === 'string' ? patch.notifyTargets : undefined,
+          wakeMode: patch.wakeMode,
         },
       }) as { status?: 'ok' | 'not_found' | 'error'; message?: string }
       if (result.status && result.status !== 'ok') {

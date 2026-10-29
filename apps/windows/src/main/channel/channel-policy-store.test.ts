@@ -36,6 +36,19 @@ describe('ChannelPolicyStore', () => {
     expect(new ChannelPolicyStore(p).get('pcwechat')).toEqual(policy)
   })
 
+  it('渠道 → Agent 绑定：agentId 原样存取，空串/非串丢弃（丢弃＝沿用 main）', () => {
+    const p = tmpPath()
+    const s = new ChannelPolicyStore(p)
+    s.set('qbot', { ...DEFAULT_CHANNEL_POLICY, agentId: 'chronicler' })
+    expect(new ChannelPolicyStore(p).get('qbot').agentId).toBe('chronicler')
+
+    const blank = new ChannelPolicyStore(tmpPath())
+    expect(blank.set('wecom', { ...DEFAULT_CHANNEL_POLICY, agentId: '   ' }).agentId).toBeUndefined()
+    expect(
+      blank.set('wecom', { ...DEFAULT_CHANNEL_POLICY, agentId: 42 as never }).agentId,
+    ).toBeUndefined()
+  })
+
   it('入口收窄：坏值不进盘（mode 乱写的那条丢掉，defaultMode 退回默认）', () => {
     const s = new ChannelPolicyStore(tmpPath())
     const saved = s.set('pcwechat', {

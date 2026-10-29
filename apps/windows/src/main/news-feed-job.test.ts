@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
+import { cronConversationId } from './agent-runtime/cron-job-meta'
 import {
   NEWS_FEED_FALLBACK_AGENT_ID,
   newsFeedAgentId,
@@ -89,9 +90,11 @@ describe('resolveNewsFeedJob', () => {
     expect(newsFeedAgentId(resolveNewsFeedJob(blank))).toBe(NEWS_FEED_FALLBACK_AGENT_ID)
   })
 
-  it('会话 id / 标题与调度器的 cron:<jobId> 口径一致', () => {
+  it('会话 id 与调度器同源（cronConversationId），标题沿用任务名', () => {
     const ref = resolveNewsFeedJob(createFakeDb([job({ id: 'news-pipeline', name: '资讯抓取与综述' })]))
-    expect(newsFeedConversationId(ref)).toBe('cron:news-pipeline')
+    // 两条路径（定时驱动 / 概览页「立即抓取」）必须算出**同一个**会话，否则又分裂成两个
+    expect(newsFeedConversationId(ref)).toBe(cronConversationId(ref!.name, ref!.agentId))
+    expect(newsFeedConversationId(ref)).toContain('资讯抓取与综述')
     expect(newsFeedConversationTitle(ref)).toBe('定时任务 · 资讯抓取与综述')
   })
 

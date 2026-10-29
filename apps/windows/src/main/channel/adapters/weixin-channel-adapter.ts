@@ -51,6 +51,7 @@ import { getChannelContinuityService } from '../continuity-accessor'
 import { getChannelSessionStore, type RouteSource } from '../channel-session-store'
 import { ChannelRouteService } from '../channel-route'
 import { registerChannelAdapter } from '../channel-adapter-registry'
+import { getOrCreateChannelInstance } from '../channel-agent-binding'
 import {
   getChannelVoiceAsrFailedHint,
   isWeixinSilkAsrFailed,
@@ -548,22 +549,9 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     pendingAttachments.clear(makePendingKey('weixin', channelUserId))
   }
 
-  /** 获取或创建 Agent 实例（复用同一实例保持对话历史） */
-  private async getOrCreateInstance(sessionKey: string): Promise<string> {
-    const cachedId = this.sessionToInstance.get(sessionKey)
-    if (cachedId) {
-      const instances = this.bridge.getInstances()
-      if (instances.some((i: { id: string }) => i.id === cachedId)) {
-        log.info(`[getOrCreateInstance] 复用现有实例: sessionKey=${sessionKey} instanceId=${cachedId}`)
-        return cachedId
-      }
-      this.sessionToInstance.delete(sessionKey)
-      log.info(`[getOrCreateInstance] 实例已失效，重新创建: sessionKey=${sessionKey}`)
-    }
-    const instanceId = await this.bridge.createInstanceById('main', sessionKey, sessionKey)
-    this.sessionToInstance.set(sessionKey, instanceId)
-    log.info(`[getOrCreateInstance] 新建实例: sessionKey=${sessionKey} instanceId=${instanceId}`)
-    return instanceId
+  /** 获取或创建 Agent 实例（复用同一实例保持对话历史；交给哪个 Agent 见渠道策略的 agentId） */
+  private getOrCreateInstance(sessionKey: string): Promise<string> {
+    return getOrCreateChannelInstance(this.bridge, this.sessionToInstance, this.channelType, sessionKey)
   }
 
   /**

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 54;
+export const SCHEMA_VERSION = 55;
 
 /**
  * V1 DDL — 初始 schema
@@ -1851,6 +1851,22 @@ ALTER TABLE autonomous_satisfaction_scores ADD COLUMN error_count INTEGER;
     54,
     `
 DROP TABLE IF EXISTS wiki_syntheses;
+`,
+  ],
+  // V55: 定时任务的「唤醒落点」——自己的会话，还是用户当前打开的会话
+  //
+  // 默认 'own'：例行任务写进 `cron:<执行者>:<任务名>` 自己的会话，隔离、便宜、互不干扰。
+  // 'active'：到点注进用户当前活跃会话（实例空闲才投，绝不打断正在跑的回合）。
+  //
+  // 为什么默认自己：注入用户会话意味着**按那条会话的上下文付费**，同一条任务可能贵几倍；
+  // 而且例行输出会持续往主对话里塞内容。所以逐任务显式开，不是全局默认。
+  //
+  // 老行一律回填 'own'（DEFAULT 自动完成）——与它们此前的行为完全一致，无需数据迁移。
+  [
+    55,
+    `
+ALTER TABLE local_cron_jobs ADD COLUMN wake_mode TEXT NOT NULL DEFAULT 'own'
+  CHECK (wake_mode IN ('own', 'active'));
 `,
   ],
 ] as const;

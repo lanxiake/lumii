@@ -1,4 +1,4 @@
-import { app, shell } from 'electron'
+import { app, shell, webContents } from 'electron'
 import type { PerformanceMonitor } from './impl/performance-monitor'
 import type { PerfEvent, PerfEventKind, PerfSummary } from '../../../shared/performance'
 import { resolvePerfLogsDir } from '../../../main/paths'
@@ -50,6 +50,69 @@ export function normalizeIncomingEvent(raw: unknown): Omit<PerfEvent, 'timestamp
     event.detail = detail
   }
   return event
+}
+
+/** 单窗口页面口径的读取超时：窗口卡死不能拖住整次采集 */
+const WINDOW_PROBE_TIMEOUT_MS = 1500
+
+/**
+ * 逐个窗口读一次「页面口径」（DOM 节点数 / JS 堆），给手动内存现场用。
+ *
+ * `app.getAppMetrics()` 只给 `Tab#25028:850MB` 这种匿名 pid —— 看不出是哪个窗口，
+ * 也看不出那 850MB 里有多少是 DOM。2026-10-29 复盘渲染进程 1.32GB 时正是卡在这一点，
+ * 只能看到「哪个进程胖」而查不下去。
+ *
+ * 每个窗口各自 try + 超时：读不到就记「?」，不让一个窗口拖垮整次采集。
+ */
+async function inspectWindows(): Promise<string[]> {
+  const out: string[] = []
+  for (const wc of webContents.getAllWebContents()) {
+    if (wc.isDestroyed()) continue
+    // 不按类型过滤：宠物窗、内嵌浏览器未必报 'window'，漏掉的那个往往正是要查的
+    const type = wc.getType()
+
+    // 必须用 OS pid 才能和 app.getAppMetrics() 的条目对上（getProcessId 给的是 Chromium 内部 id）
+    const pid = typeof wc.getOSProcessId === 'function' ? wc.getOSProcessId() : wc.getProcessId()
+    let label = `${type}#${pid}`
+    try {
+      const url = wc.getURL()
+      if (url) label += ` ${url.slice(0, 100)}`
+    } catch {
+      // 取不到 URL 不影响后面
+    }
+
+    try {
+      const stats = (await withTimeout(
+        wc.executeJavaScript(
+          '({ nodes: document.getElementsByTagName("*").length, heap: performance.memory?.usedJSHeapSize ?? 0 })',
+        ),
+        WINDOW_PROBE_TIMEOUT_MS,
+      )) as { nodes?: unknown; heap?: unknown } | null
+      const nodes = typeof stats?.nodes === 'number' ? stats.nodes : null
+      const heap = typeof stats?.heap === 'number' ? stats.heap : null
+      label += ` nodes=${nodes ?? '?'} heap=${heap == null ? '?' : `${Math.round(heap / 1048576)}MB`}`
+    } catch {
+      label += ' nodes=?'
+    }
+    out.push(label)
+  }
+  return out
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms)
+    promise.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
 }
 
 /**
@@ -114,6 +177,7 @@ export function registerPerformanceIpc(
         external: usage.external,
         arrayBuffers: usage.arrayBuffers,
         processes: metrics.map(m => `${m.type}#${m.pid}:${Math.round(m.privateBytes / 1048576)}MB`).join(';'),
+        windows: (await inspectWindows()).join('; '),
       },
     })
     log.info('[capture] 手动内存现场已记录')

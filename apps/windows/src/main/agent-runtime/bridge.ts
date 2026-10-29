@@ -130,6 +130,7 @@ import { isDelegatedOwnership, resolveChannelIdentity } from '../channel/channel
 import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
+import { narrowDefinitionForCron } from './cron-instance-profile'
 import { dispatchChannelTarget } from './channel-target-dispatch'
 import { persistCronOutputToWiki } from './cron-wiki-persist'
 import { getAutonomousService } from './autonomous-accessor'
@@ -244,6 +245,14 @@ function formatWikiEroExtractSummary(result: WikiEroExtractSourceResult): string
 
 /** 云同步冲突处理单轮执行超时：实例被用户中止（cascade abort）时 prompt/waitForIdle 可能不 settle，需兜底释放互斥 */
 const SYNC_CONFLICT_EXEC_TIMEOUT_MS = 10 * 60 * 1000
+
+/**
+ * 定时任务注入用户会话前，最多等多久让它变空闲。
+ *
+ * 等不到就回落任务自己的会话——「不打断」优先于「一定投进当前会话」。
+ * 2 分钟足够覆盖一次正常回合的收尾，又不至于让定时任务在别人跑长任务时无限挂起。
+ */
+const ACTIVE_WAKE_WAIT_MS = 2 * 60 * 1000
 
 export type { AgentRuntimeBridgeConfig }
 
@@ -2109,7 +2118,20 @@ export class AgentRuntimeBridge {
         }
         return this.createInstance(restrictedDef, sessionKey, conversationId)
       },
+      // 定时任务档：只限轮数 + 摘整组无关工具，**不动**工具白名单——
+      // 实测语料里 A股盯盘用 bash 取墙钟、小红书巡检用 mcp-trends-hub，
+      // 白名单会把这些任务当场弄坏（详见 cron-instance-profile.ts 的文件头）。
+      createScheduledInstanceById: async (agentId, sessionKey, conversationId) => {
+        const baseDef = this.definitionStore ? await this.definitionStore.get(agentId) : null
+        if (!baseDef) return this.createInstanceById(agentId, sessionKey, conversationId)
+        return this.createInstance(
+          narrowDefinitionForCron(baseDef) as AgentDefinition,
+          sessionKey,
+          conversationId,
+        )
+      },
       prompt: (instanceId, message) => this.prompt(instanceId, message),
+      deliverInternalMessage: (conversationId, text) => this.deliverInternalMessage(conversationId, text),
       waitForInstanceIdle: (instanceId) => this.waitForInstanceIdle(instanceId),
       getAssistantOutputFromInstance: (instanceId) => this.getAssistantOutputFromInstance(instanceId),
       destroy: (instanceId) => this.destroy(instanceId),
@@ -3572,6 +3594,69 @@ export class AgentRuntimeBridge {
   }
 
   /** 等待 Agent 实例进入 idle 状态 */
+  /** 正在被定时任务注入的会话：同一会话同时只允许一条，避免两次触发的回复交错 */
+  private readonly activeWakeInFlight = new Set<string>()
+
+  /**
+   * 定时任务唤醒用户当前会话（`wake_mode='active'`）。
+   *
+   * 与 `prompt()` 的三点差别：
+   * - 只投 **internal** 来源，**不写 user 消息**——那条会话里不该出现用户没说过的话；
+   * - **不打断**：实例在跑就先等它空闲（最多 {@link ACTIVE_WAKE_WAIT_MS}），等不到返回 null
+   *   让调用方回落到任务自己的会话；
+   * - 同一会话同时只允许一条注入。
+   *
+   * 找不到实例（比如重启后用户还没打开过那条会话）也返回 null —— 不为它凭空建实例，
+   * 否则回复会落进一条用户根本不在看的会话，既没意义又要按它的上下文付费。
+   */
+  async deliverInternalMessage(conversationId: string, text: string): Promise<string | null> {
+    if (this.activeWakeInFlight.has(conversationId)) return null
+    let instanceId: string | undefined
+    for (const [id, conv] of this.instanceToConversation) {
+      if (conv === conversationId) {
+        instanceId = id
+        break
+      }
+    }
+    let instance = instanceId ? this.agentRegistry.get(instanceId) : undefined
+
+    if (!instance) {
+      // 用户正开着这条会话，但进程重启后实例还没建（要等他发第一条消息才会懒建）。
+      // 此刻「唤醒它」就该替他把实例建出来，否则定时任务永远只能在重启后第一次对话前失效。
+      // 建完必须**恢复历史**——不然这条唤醒是脱离上下文的，等于在空白会话里自言自语。
+      try {
+        const agentId = this._conversationRepo?.getAgentParticipantId(conversationId) ?? 'assistant'
+        instanceId = await this.createInstanceById(agentId, conversationId, conversationId)
+        instance = this.agentRegistry.get(instanceId)
+        if (!instance) return null
+        this.restoreHistoryForInstance(instanceId, conversationId)
+      } catch (err) {
+        console.warn(`[deliverInternalMessage] 建实例失败 conversation=${conversationId}:`, err)
+        return null
+      }
+    }
+    if (!instanceId) return null
+
+    this.activeWakeInFlight.add(conversationId)
+    try {
+      if (instance.state !== 'idle') {
+        const idle = await Promise.race([
+          instance.waitForIdle().then(() => true),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ACTIVE_WAKE_WAIT_MS)),
+        ])
+        if (!idle) return null
+      }
+      await instance.prompt(text, undefined, 'internal')
+      await instance.waitForIdle()
+      return this.getAssistantOutputFromInstance(instanceId)
+    } catch (err) {
+      console.warn(`[deliverInternalMessage] 注入失败 conversation=${conversationId}:`, err)
+      return null
+    } finally {
+      this.activeWakeInFlight.delete(conversationId)
+    }
+  }
+
   async waitForInstanceIdle(instanceId: string): Promise<void> {
     const instance = this.agentRegistry.get(instanceId)
     if (!instance) return

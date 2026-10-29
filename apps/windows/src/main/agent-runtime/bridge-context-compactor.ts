@@ -18,6 +18,7 @@ import {
   NO_TOOLS_TRAILER,
   ProgressFence,
   withTransaction,
+  DEFAULT_COMPACTION_TRIGGER_RATIO,
 } from '@mtbot/agent-runtime'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import {
@@ -245,6 +246,9 @@ export class BridgeContextCompactor {
    * 4. 将摘要写入 DB（作为 assistant 消息）
    * 5. 同步 Agent 内存（restoreHistoryForInstance）
    * 6. 推送 agent:context:compacted 事件
+   *
+   * LLM 摘要前发 `agent:context:compacting`；若之后未真正压缩，仍发
+   * `messagesRemoved: 0` 的 compacted 收尾，避免前端「压缩中」粘住。
    */
   async compactContextAsync(
     instanceId: string,
@@ -292,6 +296,8 @@ export class BridgeContextCompactor {
     let summaryText: string | null = null
     const piMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
     const conversationBefore = estimateTokenCount(piMessages)
+    /** 是否已发 compacting；为 true 时提前返回必须 compacted 收尾 */
+    let compactingEmitted = false
     // 优先用当前实例的 stream，降级到主 Agent stream
     const instanceStreamEntry = this.deps.getInstanceStream(instanceId)
     const activeInnerStream = instanceStreamEntry?.innerStream ?? this.deps.getMainInnerStream()
@@ -303,6 +309,14 @@ export class BridgeContextCompactor {
           buildCompactSummaryPrompt({ domainHint: 'general' }) +
           NO_TOOLS_TRAILER
         const generator = this.deps.createSummaryGenerator(activeInnerStream, activeModel)
+        this.emitCompacting({
+          sessionKey,
+          tokensBefore:
+            usageBefore && usageBefore.usedTokens > 0 ? usageBefore.usedTokens : conversationBefore,
+          threshold: usageBefore?.triggerThreshold ?? DEFAULT_COMPACTION_TRIGGER_RATIO,
+          messagesBefore: previousMessageCount,
+        })
+        compactingEmitted = true
         const rawSummary = await generator(piMessages, summaryPrompt, signal)
         summaryText = rawSummary ? formatCompactSummary(rawSummary) : null
         if (summaryText) {
@@ -321,9 +335,25 @@ export class BridgeContextCompactor {
       log.warn(`[compactContextAsync] mainInnerStream/mainModel 未初始化，跳过 LLM 摘要`)
     }
 
+    /** 摘要已开始但未真正落库时清掉前端「压缩中」态 */
+    const clearCompactingUi = (): void => {
+      if (!compactingEmitted) return
+      this.emitCompacted({
+        sessionKey,
+        conversationBefore,
+        conversationAfter: conversationBefore,
+        messagesRemoved: 0,
+        messagesBefore: previousMessageCount,
+        messagesAfter: previousMessageCount,
+        usageBefore,
+      })
+      compactingEmitted = false
+    }
+
     // 用户主动停止：不做无摘要裁剪，原样返回，避免留下"已裁剪但无摘要"的半成品
     if (signal?.aborted) {
       log.info(`[compactContextAsync] 用户已停止压缩，保持会话不变: sessionKey=${sessionKey}`)
+      clearCompactingUi()
       return {
         success: true,
         previousMessageCount,
@@ -343,6 +373,7 @@ export class BridgeContextCompactor {
       log.info(
         `[compactContextAsync] 无法压缩（无摘要且仅 ${previousMessageCount} 条）: sessionKey=${sessionKey}`,
       )
+      clearCompactingUi()
       return {
         success: true,
         previousMessageCount,
@@ -366,6 +397,7 @@ export class BridgeContextCompactor {
         log.info(
           `[compactContextAsync] 收益过低已放弃（摘要后 ${projectedAfter} ≥ 原文 ${conversationBefore} tokens）: sessionKey=${sessionKey}`,
         )
+        clearCompactingUi()
         return {
           success: true,
           previousMessageCount,
@@ -393,6 +425,7 @@ export class BridgeContextCompactor {
     const fence = new ProgressFence()
     if (!fence.beginCommit()) {
       log.warn(`[compactContextAsync] 提交入场权已被撤销，跳过写入: sessionKey=${sessionKey}`)
+      clearCompactingUi()
       return failedResult
     }
     const db = this.deps.getDb()
@@ -422,6 +455,7 @@ export class BridgeContextCompactor {
       log.error(
         `[compactContextAsync] 压缩事务失败已回滚，上下文保持原状: ${err instanceof Error ? err.message : String(err)}`,
       )
+      clearCompactingUi()
       return failedResult
     } finally {
       fence.finishCommit()
@@ -464,6 +498,25 @@ export class BridgeContextCompactor {
       conversationTokensBefore: conversationBefore,
       conversationTokensAfter: conversationAfter,
     }
+  }
+
+  /**
+   * 推送压缩开始事件，让前端在 LLM 摘要等待期间显示「压缩中」。
+   */
+  private emitCompacting(params: {
+    sessionKey: string
+    tokensBefore: number
+    threshold: number
+    messagesBefore: number
+  }): void {
+    this.deps.ipcChannel.forwardIpcEvent({
+      type: 'agent:context:compacting',
+      sessionKey: params.sessionKey,
+      tokensBefore: params.tokensBefore,
+      threshold: params.threshold,
+      messagesBefore: params.messagesBefore,
+      timestamp: Date.now(),
+    })
   }
 
   /**

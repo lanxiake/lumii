@@ -8,6 +8,17 @@ vi.mock('electron', () => ({
       { type: 'Tab', pid: 100, memory: { workingSetSize: 2048, privateBytes: 1024 } },
     ]),
   },
+  webContents: {
+    getAllWebContents: vi.fn(() => [
+      {
+        isDestroyed: () => false,
+        getType: () => 'window',
+        getOSProcessId: () => 100,
+        getURL: () => 'http://localhost/',
+        executeJavaScript: async () => ({ nodes: 42, heap: 2 * 1048576 }),
+      },
+    ]),
+  },
 }))
 
 import { registerPerformanceIpc, normalizeIncomingEvent } from './ipc'
@@ -110,5 +121,8 @@ describe('Performance IPC Handlers', () => {
     expect(event.kind).toBe('memory.spike')
     expect(event.name).toBe('manual')
     expect(event.detail?.processes).toContain('Tab#100')
+    // 逐窗口归属：pid 必须用 OS pid 才能和上面的 processes 对上
+    expect(event.detail?.windows).toContain('window#100')
+    expect(event.detail?.windows).toContain('nodes=42')
   })
 })

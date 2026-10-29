@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/schema'
 import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
+import { cronConversationId } from './cron-job-meta'
 
 const prependMock = vi.fn(async () => undefined)
 {
@@ -269,7 +270,7 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
       prompt: async () => {
         db.prepare(
           `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
-           VALUES (?, 'cron:sess-check', 'assistant', 'assistant', ?, ?)`,
+           VALUES (?, '${cronConversationId('会话检查', 'assistant')}', 'assistant', 'assistant', ?, ?)`,
         ).run(
           `msg-${Math.random().toString(36).slice(2)}`,
           JSON.stringify({ type: 'text', text: '已完成' }),
@@ -289,8 +290,8 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
       { manual: true },
     )
 
-    // 固定用 cron:${job.id}，不依赖 getLastActiveConvId
-    expect(ensured).toEqual(['cron:sess-check'])
+    // 会话身份按「执行者 + 任务名」聚合（`cronConversationId`），不依赖 getLastActiveConvId
+    expect(ensured).toEqual([cronConversationId('会话检查', 'assistant')])
     const runs = db
       .prepare<{ summary: string | null }>(`SELECT summary FROM local_cron_runs WHERE job_id = 'sess-check'`)
       .all()
@@ -319,7 +320,7 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
     expect(prependMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: '日报', summary: '今天完成 · 写了 方案 · 过了评审' }),
       undefined,
-      { source: 'cron', conversationId: 'cron:t1' },
+      { source: 'cron', conversationId: cronConversationId('日报', 'assistant') },
     )
   })
 

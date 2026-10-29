@@ -19,6 +19,28 @@
  */
 
 import { SELF_CRON_ID_PREFIX } from '@mtbot/agent-runtime'
+import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
+
+/**
+ * 定时任务 → 会话 id（**唯一构造处**）。
+ *
+ * 旧口径是 `cron:<jobId>`：一条任务记录 = 一条会话。对**链式一次性任务**是灾难——
+ * 例行任务跑完再建下一个 `at` 任务，每次都是新 jobId，于是同一个例行任务每跑一次
+ * 就长出一条会话（本机实测：41 个任务 → 631 条 `cron:` 会话，占会话总数一半）。
+ *
+ * 新口径按「执行者 + 任务名」聚合：链式新建的同名任务复用同一条会话，会话里是这个
+ * 例行任务的历史。改名 = 换一条会话（改名本就是换身份），旧会话保留、可手动清。
+ *
+ * 名字为空时退回任务指令不可用，用 `unnamed` 兜底而不是抛——建会话失败会让任务整个跑不了。
+ */
+export function cronConversationId(
+  name: string | null | undefined,
+  agentId: string | null | undefined,
+): string {
+  const slug = (name ?? '').trim().replace(/\s+/g, ' ')
+  const owner = (agentId ?? '').trim() || DEFAULT_AGENT_ID
+  return slug ? `cron:${owner}:${slug}` : `cron:${owner}:unnamed`
+}
 
 export type CronJobSource = 'system' | 'agent' | 'user'
 /**

@@ -72,6 +72,7 @@ export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, onToggle, onRu
                       <span><Clock3 size={14} />{describeCron(job)}</span>
                       <span>Agent：{agents.find((agent) => agent.id === job.agentId)?.name ?? '系统默认 Agent'}</span>
                       <span>{formatNextRun(job)}</span>
+                      {job.wakeMode === 'active' && <span className={styles.managedNote}>唤醒当前会话</span>}
                       {job.managedBy && <span className={styles.managedNote}>{MANAGED_HINT[job.managedBy]}</span>}
                     </div>
                     {job.lastError && <p className={styles.errorText} title={job.lastError}>上次执行失败：{job.lastError}</p>}

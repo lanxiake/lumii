@@ -90,6 +90,8 @@ interface ChatContainerProps {
   isLoading: boolean
   isStreaming: boolean
   isSending: boolean
+  /** 上下文压缩（LLM 摘要）进行中：TypingIndicator 改文案并保证可见 */
+  isAutoCompacting?: boolean
   onSuggestionClick?: (suggestion: string) => void
   /**
    * 本地 Agent Runtime：当前轮次流式思考文本（与最后一条 assistant 气泡同步展示）
@@ -259,6 +261,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   isLoading,
   isStreaming,
   isSending,
+  isAutoCompacting = false,
   onSuggestionClick,
   streamingThinkingText,
   fileEvents,
@@ -575,8 +578,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return { turnTasksByMessageId: byMessage, looseBackgroundTasks: loose }
   }, [backgroundTasks, chatItems])
 
-  // Check if we need to show typing indicator (sending state OR streaming with last message from user)
-  const showTypingIndicator = (isSending || isStreaming) && messages.length > 0 && messages[messages.length - 1].role === 'user'
+  // 发送中 / 流式中 / 压缩中：末条为 user 时展示占位（压缩常在 prompt 前，尚无 streaming）
+  const showTypingIndicator =
+    (isSending || isStreaming || isAutoCompacting) &&
+    messages.length > 0 &&
+    messages[messages.length - 1].role === 'user'
 
   // 窗口化：只保持视口附近的行真实挂载（见 useWindowedRows.ts）
   //
@@ -804,7 +810,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
         {/* 等待首个 token 的占位。原先带  头像，且那两个 class 在本模块 CSS 里没定义，
             表现为一闪而过的裸 emoji，直接去掉容器只留指示器 */}
-        {showTypingIndicator && <TypingIndicator label="正在思考…" />}
+        {showTypingIndicator && (
+          <TypingIndicator label={isAutoCompacting ? '正在整理上下文…' : '正在思考…'} />
+        )}
 
         {/* 会话元信息：轻量居中卡片，随消息流滚动，不固定遮挡输入区。
             文件变更改由每条助手气泡底部的 TurnFileChangesCard 呈现本轮净变更，

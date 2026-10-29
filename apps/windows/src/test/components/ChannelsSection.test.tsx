@@ -94,11 +94,11 @@ describe('ChannelsSection', () => {
     render(<ChannelsSection />)
 
     expect(await screen.findByText('0 / 5 渠道已连接')).toBeInTheDocument()
-    expect(screen.getByText('微信（个人）')).toBeInTheDocument()
-    expect(screen.getByText('企业微信')).toBeInTheDocument()
-    expect(screen.getByText('飞书')).toBeInTheDocument()
-    expect(screen.getByText('QQ')).toBeInTheDocument()
-    expect(screen.getByText('本机微信')).toBeInTheDocument()
+    // 渠道名在页面上出现两处：上方「渠道由谁接管」路由表 + 下面各自的卡片，
+    // 所以按「至少出现一次」断言，而不是 getByText 的唯一性
+    for (const label of ['微信（个人）', '企业微信', '飞书', 'QQ', '本机微信']) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+    }
   })
 
   it('本机微信：卡片摘要说人话——谁、什么档、名单外怎么办', async () => {

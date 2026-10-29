@@ -33,6 +33,7 @@ import { getChannelContinuityService } from '../continuity-accessor'
 import { getChannelSessionStore, type RouteSource } from '../channel-session-store'
 import { ChannelRouteService } from '../channel-route'
 import { registerChannelAdapter } from '../channel-adapter-registry'
+import { getOrCreateChannelInstance } from '../channel-agent-binding'
 import type { ChannelPeerStore } from '../channel-peer-store'
 import type { WecomChannelProvider } from '../providers/wecom-outbound-provider'
 import {
@@ -440,19 +441,8 @@ export class WecomChannelAdapter implements IChannelAdapter {
   /**
    * 获取或创建 Agent 实例。
    */
-  private async getOrCreateInstance(sessionKey: string): Promise<string> {
-    const cachedId = this.sessionToInstance.get(sessionKey)
-    if (cachedId) {
-      const instances = this.bridge.getInstances()
-      if (instances.some((i: { id: string }) => i.id === cachedId)) {
-        return cachedId
-      }
-      log.warn(`[getOrCreateInstance] 缓存实例已销毁，重建: ${cachedId}`)
-      this.sessionToInstance.delete(sessionKey)
-    }
-    const instanceId = await this.bridge.createInstanceById('main', sessionKey, sessionKey)
-    this.sessionToInstance.set(sessionKey, instanceId)
-    return instanceId
+  private getOrCreateInstance(sessionKey: string): Promise<string> {
+    return getOrCreateChannelInstance(this.bridge, this.sessionToInstance, this.channelType, sessionKey)
   }
 
   /**

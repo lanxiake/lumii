@@ -68,6 +68,8 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
   const [hourStart, setHourStart] = useState(editingJob?.activeHourStart ?? 9)
   const [hourEnd, setHourEnd] = useState(editingJob?.activeHourEnd ?? 18)
   const [onceAt, setOnceAt] = useState(editingJob?.scheduleType === 'at' ? msToDatetimeLocal(Number(editingJob.scheduleExpr)) : getDefaultDatetime())
+  /** 唤醒落点：默认自己的会话（隔离、便宜）；逐任务才能改成当前会话 */
+  const [wakeMode, setWakeMode] = useState<'own' | 'active'>(editingJob?.wakeMode === 'active' ? 'active' : 'own')
   const validTargetIds = new Set<string>(NOTIFY_TARGETS.map((t) => t.id))
   const [notify, setNotify] = useState<string[]>(
     editingJob?.notifyTargets
@@ -143,6 +145,7 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
         activeHourStart: mode === 'interval' ? hourStart : null,
         activeHourEnd: mode === 'interval' ? hourEnd : null,
         notifyTargets: notify.join(','),
+        wakeMode,
       }
       if (editingJob && onUpdate) await onUpdate(editingJob.id, data)
       else await onSubmit(data)
@@ -277,6 +280,20 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
             )}
           </div>
           <p className={styles.hint}>企业微信与微信的机器人只能被动回复用户消息，暂不支持主动推送。</p>
+        </div>
+
+        <div className={styles.formGroup}>
+          <label className={styles.label}>执行位置</label>
+          <div className={`${styles.segmented} ${styles.segmented2}`}>
+            {([['own', '自己的会话'], ['active', '当前会话']] as const).map(([id, label]) => (
+              <button key={id} type="button" className={wakeMode === id ? styles.segmentActive : ''} onClick={() => setWakeMode(id)}>{label}</button>
+            ))}
+          </div>
+          <p className={styles.hint}>
+            {wakeMode === 'own'
+              ? '在「定时任务 · 任务名」自己的会话里执行，与你的对话互不干扰。'
+              : '到点提醒到你当前打开的会话里；只在会话空闲时插入，不会打断正在进行的回合。会按那条会话的上下文计费。'}
+          </p>
         </div>
 
         <NextRunPreview scheduleType={schedule.type} scheduleExpr={schedule.expr} />

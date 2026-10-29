@@ -40,6 +40,15 @@ const CronCreateParams = Type.Object({
   agentId: Type.Optional(
     Type.String({ description: "Agent ID to run the task (defaults to current agent)" }),
   ),
+  wakeMode: Type.Optional(
+    Type.Union([Type.Literal("own"), Type.Literal("active")], {
+      description:
+        "Where the run's output goes. 'own' (default) = its own 「定时任务」 conversation, isolated and cheap. " +
+        "'active' = wake the conversation the user currently has open (delivered only when that conversation is idle — " +
+        "it never interrupts a running turn; if it stays busy the run falls back to its own conversation). " +
+        "Use 'active' only when the user asks to be reminded *here*, since it is billed against that conversation's context.",
+    }),
+  ),
   notifyTargets: Type.Optional(
     Type.String({
       description:

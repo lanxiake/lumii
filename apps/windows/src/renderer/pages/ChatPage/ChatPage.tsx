@@ -2093,6 +2093,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
               isLoading={false}
               isStreaming={runtimeIsStreaming}
               isSending={isSending}
+              isAutoCompacting={runtimeIsAutoCompacting}
               onSuggestionClick={handleSuggestionClick}
               streamingThinkingText={runtimeThinkingLive}
               fileEvents={runtimeFileEvents}

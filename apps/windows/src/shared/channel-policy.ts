@@ -82,6 +82,14 @@ export interface ChannelPolicy {
    * 多账号的分账在 `accounts` 里；这里只是缺省值。
    */
   accountId?: string
+  /**
+   * 这个渠道的**入站消息交给哪个 Agent 定义**（`assistant` / `chronicler` / `code-dev` / 用户 Agent id）。
+   *
+   * 留空 = `main`，也就是改造前的行为（四个入站渠道都硬编码这个值）。
+   * 只做**渠道级**：入站那一刻拿不到「正在登录的是哪个账号」，按账号分账的绑定先不做——
+   * 结构上 `accounts` 已经能容纳，等真有多开需求再加。
+   */
+  agentId?: string
   /** 没列在 `peers` 里的人怎么处理（未单独配置的账号也用它） */
   defaultMode: PeerReplyMode
   /** 每人一档；同一个 peer 只保留第一条（见 `parseChannelPolicy`） */
@@ -197,6 +205,7 @@ export function parseChannelPolicy(raw: unknown): ChannelPolicy {
   if (!raw || typeof raw !== 'object') return out
   const o = raw as Record<string, unknown>
   if (typeof o.accountId === 'string' && o.accountId.trim()) out.accountId = o.accountId.trim()
+  if (typeof o.agentId === 'string' && o.agentId.trim()) out.agentId = o.agentId.trim()
   // 名单外**收敛到非-agent 档**（见 NON_AGENT_MODES）：老配置里的 draft/auto 一律退回 notify
   out.defaultMode = parseDefaultMode(o.defaultMode)
   out.peers = parsePeers(o.peers)

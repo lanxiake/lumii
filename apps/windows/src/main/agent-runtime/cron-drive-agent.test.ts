@@ -7,6 +7,7 @@ import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/sc
 import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 
 const { CronScheduler } = await import('./cron-scheduler')
+const { cronConversationId } = await import('./cron-job-meta')
 
 /** 内存库 + 全量迁移 */
 function createMigratedDb(): DatabaseAdapter {
@@ -39,7 +40,7 @@ describe.skipIf(!hasFts5Db)('cron driveAgent 产出回读', () => {
     // 往一个没有 conversations 行的库里插 messages → FOREIGN KEY constraint failed，
     // 且因为是定时器回调，表现为 unhandled error，整个 test run 以 exit 1 结束。
     const testDb = db
-    const convId = 'cron:seed-daily-report'
+    const convId = cronConversationId('工作日报整理', 'assistant')
     const taskText = '整理我今天的工作进度，生成一份简短日报。'
     const agentReply = '今天完成\n- 修复定时任务回读\n\n进行中\n- 无\n\n明天优先\n- 验证早间简报'
 
@@ -105,7 +106,7 @@ describe.skipIf(!hasFts5Db)('cron driveAgent 产出回读', () => {
   })
 
   it('产出落库携带任务执行者归属（saveMessage.agentId 透传）', async () => {
-    const convId = 'cron:test-chronicler'
+    const convId = cronConversationId('测试记事', 'chronicler')
     const taskText = '整理今天的工作'
     db.prepare(
       `INSERT INTO local_cron_jobs
@@ -161,7 +162,7 @@ describe.skipIf(!hasFts5Db)('cron driveAgent 会话归属与落库顺序', () =>
        (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets, system_prompt)
        VALUES (?, '早间简报', ?, ?, 'cron', '30 8 * * 1', 0, NULL, 1, 0, 'silent', '写简报')`,
     ).run(jobId, taskText, agentId)
-    const convId = `cron:${jobId}`
+    const convId = cronConversationId('早间简报', agentId)
     db.prepare(
       `INSERT INTO conversations (id, user_id, type, title, created_at) VALUES (?, 'local-user', 'direct', '定时任务 · 早间简报', ?)`,
     ).run(convId, new Date().toISOString())

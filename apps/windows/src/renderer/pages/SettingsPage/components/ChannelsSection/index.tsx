@@ -9,6 +9,7 @@
  */
 import React from 'react'
 import { SlotHost } from '../../../../components/slots/SlotHost'
+import { ChannelAgentRouting } from './ChannelAgentRouting'
 import { useChannelSnapshots } from './useChannelSnapshots'
 import styles from './ChannelsSection.module.css'
 
@@ -38,6 +39,9 @@ export const ChannelsSection: React.FC = () => {
           {loading ? '读取连接状态…' : `${connectedCount} / ${TOTAL_CHANNELS} 渠道已连接`}
         </span>
       </div>
+
+      {/* 跨渠道一张表：这些渠道进来的消息交给哪个 Agent（卡片由各插件注册，放一起才看得清差异） */}
+      <ChannelAgentRouting />
 
       <div className={styles.list}>
         {/* 五个渠道卡片由各自插件注册；插件停用后那一张就不出现 */}

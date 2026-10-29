@@ -15,6 +15,7 @@
  */
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
+import { cronConversationId } from './agent-runtime/cron-job-meta'
 
 /** 资讯管线任务的判定标记：任务指令里出现即算「这活是情报的」 */
 const NEWS_FEED_TASK_MARKER = 'dashboard_feed_write'
@@ -93,11 +94,12 @@ export function resolveNewsFeedJob(db: DatabaseAdapter): NewsFeedJobRef | null {
 /**
  * 解析资讯管线要写入的会话 id。
  *
- * 有任务时用 `cron:<jobId>`（与调度器 `driveAgent` 完全一致，两条路径同一个会话）；
- * 任务不存在时退回历史约定的 `cron:news-pipeline`，保证手动抓取始终可用。
+ * 有任务时走 `cronConversationId`（与调度器 `driveAgent` **同一个构造处**，
+ * 两条路径落在同一条会话上）；任务不存在时退回历史约定的 `cron:news-pipeline`，
+ * 保证手动抓取始终可用。
  */
 export function newsFeedConversationId(job: NewsFeedJobRef | null): string {
-  return job ? `cron:${job.id}` : `cron:${NEWS_FEED_SEED_JOB_ID}`
+  return job ? cronConversationId(job.name, job.agentId) : `cron:${NEWS_FEED_SEED_JOB_ID}`
 }
 
 /** 会话标题（与调度器生成的口径一致） */

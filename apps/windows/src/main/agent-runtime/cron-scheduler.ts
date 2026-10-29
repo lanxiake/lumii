@@ -17,6 +17,7 @@ import { Cron } from 'croner'
 import { SELF_CRON_ID_PREFIX, type LocalDatabase, type FileRepo } from '@mtbot/agent-runtime'
 import { getDashboardFeedService } from './dashboard-feed-accessor'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
+import { cronConversationId } from './cron-job-meta'
 import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-format'
 import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
 import { dispatchChannelTarget } from './channel-target-dispatch'
@@ -51,6 +52,8 @@ export type LocalCronJobRow = {
   system_prompt: string | null
   /** 逗号分隔的推送目标：system/news/focus/feishu */
   notify_targets: string | null
+  /** 唤醒落点：own=自己的定时任务会话；active=用户当前活跃会话（空闲才投） */
+  wake_mode: 'own' | 'active'
 }
 
 /**
@@ -157,7 +160,7 @@ function buildNotifyToolsPrompt(notifyTargets: string | null): string {
 /** LocalCronJobRow 的完整列清单，避免多处 SELECT 漂移 */
 const CRON_JOB_COLUMNS = `id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms,
         enabled, created_at, last_run_at, last_status,
-        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets`
+        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode`
 
 /** 任务在 at 时刻是否落在生效窗口内。窗口未配置时恒为 true。 */
 export function isWithinActiveWindow(
@@ -188,6 +191,18 @@ export interface CronSchedulerDeps {
    * 未提供时 agent-self 任务回落普通 createInstanceById（兼容旧装配）。
    */
   createRestrictedInstanceById?: (agentId: string, sessionKey?: string, conversationId?: string) => Promise<string>
+  /**
+   * 定时任务专用实例：限轮数 + 摘掉整组无关工具（见 `cron-instance-profile.ts`）。
+   * 未提供时回落 `createInstanceById`（兼容旧装配与测试）。
+   */
+  createScheduledInstanceById?: (agentId: string, sessionKey?: string, conversationId?: string) => Promise<string>
+  /**
+   * 把一条**内部**消息投进指定会话（wake_mode='active' 用）。
+   *
+   * 契约：**不写 user 消息**（否则用户会看到自己没说过的话）、**不打断**正在跑的回合。
+   * 返回本轮助手产出；投不进去（没有实例 / 一直忙）返回 null，由调用方回落自身会话。
+   */
+  deliverInternalMessage?: (conversationId: string, text: string) => Promise<string | null>
   /**
    * bridge 是否已完成初始化（instanceFactory / promptDispatcher 就绪）。
    * 未就绪时不注册任何计时器——过期 every 任务会立即补跑，若此时工厂尚未创建，
@@ -267,6 +282,8 @@ export interface CronSchedulerDeps {
 export class CronScheduler {
   private readonly localCronTimers = new Map<string, ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>>()
   private readonly localCronRunningJobs = new Set<string>()
+  /** 正在跑的**会话**（按 `cronConversationId`）：同名任务共用一条会话，不能两轮并发 */
+  private readonly localCronRunningConversations = new Set<string>()
   private readonly cronInstances = new Map<string, Cron>()
   /** 本次进程内已补跑过的过期 every 任务（防 reloadLocalCronScheduler 重复补跑） */
   private readonly caughtUpEveryJobs = new Set<string>()
@@ -304,6 +321,7 @@ export class CronScheduler {
     }
     this.localCronTimers.clear()
     this.localCronRunningJobs.clear()
+    this.localCronRunningConversations.clear()
     for (const instance of this.cronInstances.values()) {
       instance.stop()
     }
@@ -320,6 +338,7 @@ export class CronScheduler {
     }
     this.localCronTimers.clear()
     this.localCronRunningJobs.clear()
+    this.localCronRunningConversations.clear()
     for (const instance of this.cronInstances.values()) {
       instance.stop()
     }
@@ -346,12 +365,13 @@ export class CronScheduler {
     activeHourEnd?: number | null
     systemPrompt?: string | null
     notifyTargets?: string | null
+    wakeMode?: 'own' | 'active'
   }): void {
     this.localDb.db.prepare(
       `INSERT INTO local_cron_jobs
        (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at,
-        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       params.id,
       params.name,
@@ -368,6 +388,7 @@ export class CronScheduler {
       params.activeHourEnd ?? null,
       params.systemPrompt?.trim() || null,
       params.notifyTargets?.trim() || null,
+      params.wakeMode === 'active' ? 'active' : 'own',
     )
   }
 
@@ -421,11 +442,12 @@ export class CronScheduler {
     activeHourStart?: number | null
     activeHourEnd?: number | null
     notifyTargets?: string | null
+    wakeMode?: 'own' | 'active'
   }): number {
     const result = this.localDb.db.prepare(
       `UPDATE local_cron_jobs
        SET name = ?, task_text = ?, agent_id = ?, enabled = ?, schedule_type = ?, schedule_expr = ?, next_run_at = ?, interval_ms = ?,
-           active_days = ?, active_hour_start = ?, active_hour_end = ?, notify_targets = ?
+           active_days = ?, active_hour_start = ?, active_hour_end = ?, notify_targets = ?, wake_mode = ?
        WHERE id = ?`
     ).run(
       params.name,
@@ -440,6 +462,7 @@ export class CronScheduler {
       params.activeHourStart ?? null,
       params.activeHourEnd ?? null,
       params.notifyTargets?.trim() || null,
+      params.wakeMode === 'active' ? 'active' : 'own',
       params.id,
     )
     // 禁用任务时：清理运行集合 + 无条件清除 last_status='running'
@@ -763,8 +786,8 @@ export class CronScheduler {
     if (!setAgent) return
     try {
       const jobs = this.localDb.db
-        .prepare<{ id: string; agent_id: string | null }>(
-          `SELECT id, agent_id FROM local_cron_jobs WHERE agent_id IS NOT NULL`
+        .prepare<{ id: string; name: string; agent_id: string | null }>(
+          `SELECT id, name, agent_id FROM local_cron_jobs WHERE agent_id IS NOT NULL`
         )
         .all()
       if (jobs.length === 0) return
@@ -776,7 +799,7 @@ export class CronScheduler {
       )
       let updated = 0
       for (const job of jobs) {
-        const convId = `cron:${job.id}`
+        const convId = cronConversationId(job.name, job.agent_id)
         if (!knownConvIds.has(convId)) continue
         setAgent(convId, job.agent_id!)
         updated += 1
@@ -957,6 +980,21 @@ export class CronScheduler {
    * cron 执行是全新实例、跑完即销毁，会话里累积的记录 Agent 看不到——
    * 不显式注入，它每轮都从零开始：不知道昨天推过什么、同一件事是不是已经做过。
    */
+  /**
+   * 注入活跃会话时的消息头。
+   *
+   * 与自身会话不同：**不拼自述**（对方实例本来就有对话上下文），也不落 user 消息。
+   * 只用一行头让模型知道这是定时任务插进来的，别当成用户刚说的话。
+   */
+  private buildActiveWakeMessage(
+    row: { name: string; system_prompt: string | null },
+    job: { task_text: string },
+  ): string {
+    const label = row.name?.trim() || job.task_text.slice(0, 20)
+    const head = `[定时任务 · ${label}] 到点触发了下面这件事；它不是用户刚说的话。`
+    return [head, row.system_prompt?.trim(), job.task_text].filter(Boolean).join('\n\n')
+  }
+
   private buildSelfBriefingFor(convId: string): string {
     const prev = this.readPreviousAssistantTurn(convId)
     // NO_REPLY 是「本轮无话可说」的哨兵，不是产出——拿它当"上次说到哪"只会误导
@@ -982,6 +1020,8 @@ export class CronScheduler {
     notifyTargets: string | null,
     output: string,
   ): Promise<void> {
+    // 通知点进去要落到**这条任务的历史会话**上（与 driveAgent 同一个口径）
+    const convId = cronConversationId(job.name, job.agent_id)
     const targets = notifyTargets?.trim()
       ? notifyTargets.split(',').map((t) => t.trim()).filter(Boolean)
       : ['system']
@@ -1000,7 +1040,7 @@ export class CronScheduler {
 
         switch (kind) {
           case 'system':
-            this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body, `cron:${job.id}`)
+            this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body, convId)
             break
           case 'news':
             await getDashboardFeedService()?.prependActiveItem(
@@ -1013,7 +1053,7 @@ export class CronScheduler {
                 kind: 'cron',
               },
               undefined,
-              { source: 'cron', conversationId: `cron:${job.id}` },
+              { source: 'cron', conversationId: convId },
             )
             break
           case 'focus':
@@ -1044,7 +1084,7 @@ export class CronScheduler {
                 this.deps.showCronNotification?.(
                   '灵栖 · 渠道通知未送达',
                   `${payload.title ?? label}：${target} 发送失败（${res.error ?? '未知原因'}）。内容未改投其他渠道。`,
-                  `cron:${job.id}`,
+                  convId,
                 )
               }
             }
@@ -1122,6 +1162,8 @@ export class CronScheduler {
     currentRow: { name: string; system_prompt: string | null; notify_targets: string | null },
     agentId: string,
     startedAt: number,
+    /** 会话身份由调用方算好（按「执行者 + 任务名」聚合，见 `cronConversationId`） */
+    convId: string,
   ): Promise<string> {
     log.info(`[driveAgent] 驱动 Agent agentId=${agentId} 执行任务 jobId=${job.id}`)
     // 落库的 agent_id 可能是旧数据 / 模型幻觉出的脏值（如 assistant-at8）。执行前校验，
@@ -1132,7 +1174,6 @@ export class CronScheduler {
     if (resolvedAgentId !== agentId) {
       log.warn(`[driveAgent] 未知 agentId=${agentId}，回落为 ${resolvedAgentId} jobId=${job.id}`)
     }
-    const convId = `cron:${job.id}`
     this.deps.ensureConversationExists(convId, `定时任务 · ${currentRow.name}`)
     // 会话归属执行者：侧栏据此把记录归到对应 Agent 分组（如「早间简报」→「记事」）
     this.deps.setConversationAgent?.(convId, resolvedAgentId)
@@ -1143,7 +1184,9 @@ export class CronScheduler {
     const instanceId =
       isSelfTask && this.deps.createRestrictedInstanceById
         ? await this.deps.createRestrictedInstanceById(resolvedAgentId, convId, convId)
-        : await this.deps.createInstanceById(resolvedAgentId, convId, convId)
+        : this.deps.createScheduledInstanceById
+          ? await this.deps.createScheduledInstanceById(resolvedAgentId, convId, convId)
+          : await this.deps.createInstanceById(resolvedAgentId, convId, convId)
     try {
       // 构建完整消息：system_prompt + 通知工具指导 + 「自述」+ task_text
       const notifyPrompt = buildNotifyToolsPrompt(currentRow.notify_targets)
@@ -1231,8 +1274,9 @@ export class CronScheduler {
       active_hour_end: number | null
       system_prompt: string | null
       notify_targets: string | null
+      wake_mode: 'own' | 'active' | null
     }>(
-      `SELECT name, enabled, active_days, active_hour_start, active_hour_end, system_prompt, notify_targets
+      `SELECT name, enabled, active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode
        FROM local_cron_jobs WHERE id = ?`
     ).get(job.id)
     if (!currentRow) {
@@ -1254,7 +1298,17 @@ export class CronScheduler {
       return
     }
 
+    // 会话身份按「执行者 + 任务名」聚合（见 `cronConversationId`）：链式一次性任务同名同人，
+    // 复用同一条会话，不再每跑一次长出一条。代价是两个不同的 job 可能落到同一条会话上，
+    // 所以除了 job 级单飞锁，还要挡「同一会话两轮并发」——那会让两条回复交错写进同一会话。
+    const convId = cronConversationId(currentRow.name, job.agent_id)
+    if (this.localCronRunningConversations.has(convId)) {
+      log.info(`[runLocalCronJob] 会话 ${convId} 上一轮仍在跑，跳过本次触发 jobId=${job.id}`)
+      return
+    }
+
     this.localCronRunningJobs.add(job.id)
+    this.localCronRunningConversations.add(convId)
     const startedAt = Date.now()
     const runId = `local-run-${startedAt}-${Math.random().toString(36).slice(2, 8)}`
     log.info(`[runLocalCronJob] 开始执行 jobId=${job.id} taskText="${job.task_text.slice(0, 60)}" agentId=${job.agent_id ?? 'none'}`)
@@ -1296,14 +1350,45 @@ export class CronScheduler {
       // 而不是把任务指令原文当结果推出去。
       const feedVersionBefore = getDashboardFeedService()?.readVersion() ?? 0
       let output = job.task_text
-      if (job.agent_id) {
-        output = await this.driveAgent(job, currentRow, job.agent_id, startedAt)
+      // 唤醒落点：'active' = 注进用户当前打开的会话。投不进去（没有实例 / 一直忙）就回落
+      // 自己的定时任务会话——任务不能因为「用户当时在忙」而丢掉。
+      let deliveredToActive = false
+      if (currentRow.wake_mode === 'active') {
+        const target = this.deps.getLastActiveConvId?.() ?? null
+        const usable =
+          !!target && target !== convId && !target.startsWith('cron:') && !target.startsWith('evolution:')
+        if (usable && this.deps.deliverInternalMessage) {
+          // **不要** notifyIncomingMessage：那条事件推的是 user 角色的气泡，会在用户会话里
+          // 显示一句他从没说过的话（而且不落库，刷新后消失）。注入的痕迹只进模型上下文。
+          const reply = await this.deps.deliverInternalMessage(
+            target,
+            this.buildActiveWakeMessage(currentRow, job),
+          )
+          if (reply !== null) {
+            output = reply
+            deliveredToActive = true
+            log.info(`[runLocalCronJob] 已注入活跃会话 ${target} jobId=${job.id}`)
+          } else {
+            log.info(`[runLocalCronJob] 活跃会话 ${target} 投不进去，回落自身会话 jobId=${job.id}`)
+          }
+        } else {
+          // 落点是 active 却没注入：把三个判据写出来，否则只会看到「莫名其妙跑了自己的会话」
+          log.info(
+            `[runLocalCronJob] 未注入活跃会话 jobId=${job.id} target=${target ?? 'null'} ` +
+              `usable=${usable} hasDeliverer=${Boolean(this.deps.deliverInternalMessage)}`,
+          )
+        }
+      }
+      if (deliveredToActive) {
+        // 已注入用户会话：不建实例、不落 user 消息（那条会话里不该出现用户没说过的话）
+      } else if (job.agent_id) {
+        output = await this.driveAgent(job, currentRow, job.agent_id, startedAt, convId)
       } else {
         // 未绑定 Agent 且不是 companion 指令：task_text 是写给 Agent 的指令，
         // 不驱动 Agent 就只会把指令原文当通知正文推出去，任务实际从未执行。
         // 默认 Agent 不可用时退回原有的纯通知模式，不让任务整体失败。
         try {
-          output = await this.driveAgent(job, currentRow, DEFAULT_AGENT_ID, startedAt)
+          output = await this.driveAgent(job, currentRow, DEFAULT_AGENT_ID, startedAt, convId)
         } catch (err) {
           log.warn(`[runLocalCronJob] 回落默认 Agent 失败，退回通知模式 jobId=${job.id}:`, err)
         }
@@ -1373,13 +1458,15 @@ export class CronScheduler {
         const failLabel = currentRow.name?.trim() || job.task_text.slice(0, 20)
         const failBody = `执行失败：${message}`.slice(0, 120)
         try {
-          this.deps.showCronNotification?.(`灵栖 · ${failLabel}`, failBody, `cron:${job.id}`)
+          this.deps.showCronNotification?.(`灵栖 · ${failLabel}`, failBody, convId)
         } catch (notifyErr) {
           log.warn(`[runLocalCronJob] 失败通知发送异常 jobId=${job.id}:`, notifyErr)
         }
       }
     } finally {
       this.localCronRunningJobs.delete(job.id)
+      // 只删自己那一格：中间若任务被删/改名，convId 可能与 finally 时算出来的不同
+      this.localCronRunningConversations.delete(convId)
     }
   }
 }

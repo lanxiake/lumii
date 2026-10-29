@@ -47,6 +47,7 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
         scheduleExpr: string
         agentId?: string
         notifyTargets?: string
+        wakeMode?: 'own' | 'active'
       }
       const scheduleExpr = p.scheduleExpr?.trim() ?? ''
       if (!p.name?.trim()) {
@@ -136,12 +137,13 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
         enabled: 1,
         created_at: now,
         notify_targets: notifyTargets,
+        wake_mode: p.wakeMode === 'active' ? 'active' : 'own',
       } as const
 
       deps.localDb.db.prepare(
         `INSERT INTO local_cron_jobs
-         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets, wake_mode)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         row.id,
         row.name,
@@ -154,6 +156,7 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
         row.enabled,
         row.created_at,
         row.notify_targets,
+        row.wake_mode,
       )
 
       deps.getCronScheduler().scheduleJob(row)
