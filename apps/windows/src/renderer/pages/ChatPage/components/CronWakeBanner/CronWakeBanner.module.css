@@ -1,0 +1,51 @@
+/* 「定时任务唤醒了本会话」提示条：中性色，不抢审批卡/中断条的位置 */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--mt-radius-lg);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--mt-fg-3);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  margin-left: 2px;
+  color: var(--mt-fg-4);
+}
+
+.close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  color: var(--mt-fg-4);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-2);
+}

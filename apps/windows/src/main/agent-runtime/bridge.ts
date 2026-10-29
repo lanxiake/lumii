@@ -2132,6 +2132,14 @@ export class AgentRuntimeBridge {
       },
       prompt: (instanceId, message) => this.prompt(instanceId, message),
       deliverInternalMessage: (conversationId, text) => this.deliverInternalMessage(conversationId, text),
+      notifyCronWake: (sessionKey, jobId, jobName) =>
+        this.ipcChannel.forwardIpcEvent({
+          type: 'agent:cron-wake',
+          sessionKey,
+          jobId,
+          jobName,
+          at: Date.now(),
+        }),
       waitForInstanceIdle: (instanceId) => this.waitForInstanceIdle(instanceId),
       getAssistantOutputFromInstance: (instanceId) => this.getAssistantOutputFromInstance(instanceId),
       destroy: (instanceId) => this.destroy(instanceId),

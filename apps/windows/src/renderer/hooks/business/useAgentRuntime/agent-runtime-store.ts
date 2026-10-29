@@ -359,6 +359,21 @@ export interface PerSessionState {
   readonly steer: SteerState
   /** 长耗时工具后台化任务（会话级，按 taskId 更新） */
   readonly backgroundTasks: readonly BackgroundTask[]
+  /**
+   * 最近一次「定时任务唤醒本会话」的标记。
+   *
+   * 只活在内存里：注入不写 user 消息，没有这条标记用户只会看到一条凭空出现的回复。
+   * 刷新/重启后消失是刻意的——它不是消息，是提示。
+   */
+  readonly cronWake: CronWakeNotice | null
+}
+
+/** 定时任务唤醒了本会话（见主进程 `agent:cron-wake` 事件） */
+export interface CronWakeNotice {
+  readonly jobId: string
+  readonly jobName: string
+  /** epoch ms */
+  readonly at: number
 }
 
 /**
@@ -471,6 +486,7 @@ const DEFAULT_PER_SESSION_STATE: PerSessionState = {
   lastTaskCompletion: null,
   steer: EMPTY_STEER_STATE,
   backgroundTasks: EMPTY_BACKGROUND_TASKS,
+  cronWake: null,
 }
 
 /**
@@ -652,6 +668,23 @@ export function upsertBackgroundTask(
     next[idx] = merged
     return { ...prev, backgroundTasks: next }
   })
+}
+
+/**
+ * 记下「本会话刚被定时任务唤醒」。
+ *
+ * 同一任务重复唤醒只保留最新一条（用户要看的是"刚刚"，不是流水账）。
+ */
+export function setCronWake(sessionKey: string, notice: CronWakeNotice): void {
+  updateSessionState(sessionKey, (prev) => {
+    if (prev.cronWake && prev.cronWake.at === notice.at) return prev
+    return { ...prev, cronWake: notice }
+  })
+}
+
+/** 用户关掉「定时任务唤醒」提示 */
+export function clearCronWake(sessionKey: string): void {
+  updateSessionState(sessionKey, (prev) => (prev.cronWake === null ? prev : { ...prev, cronWake: null }))
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   updateSessionState,
   getDefaultPerSessionState,
   upsertBackgroundTask,
+  setCronWake,
   type BackgroundTask,
 } from './agent-runtime-store'
 import {
@@ -1567,6 +1568,12 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       break
     }
 
+    case 'agent:cron-wake': {
+      // 定时任务注入了这条会话：只留一个提示标记，不碰消息列表（注入本来就不写 user 消息）
+      debugLog('[AgentRuntime] agent:cron-wake', event.sessionKey, event.jobName)
+      setCronWake(event.sessionKey, { jobId: event.jobId, jobName: event.jobName, at: event.at })
+      break
+    }
     case 'conversation:message:new': {
       debugLog('[AgentRuntime] conversation:message:new sessionKey:', sessionKey, 'msgId:', event.message.id, 'role:', event.message.role)
       updateSessionState(sessionKey, (prev) => {

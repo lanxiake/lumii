@@ -1,6 +1,7 @@
 import React from 'react'
 import { ConfirmationDialog } from '../../../components/ConfirmationDialog'
 import { InterruptBanner } from '../components/InterruptBanner'
+import { CronWakeBanner } from '../components/CronWakeBanner'
 import { VoiceCallPanel } from '../components/VoiceCallPanel'
 import styles from '../ChatPage.module.css'
 
@@ -27,6 +28,9 @@ export interface ChatBottomOverlayProps {
   interruptedSessionKey?: string | null
   onContinue: (sessionKey: string) => void | Promise<void>
   onDismiss: (sessionKey: string) => void | Promise<void>
+  /** 定时任务刚唤醒过本会话（仅内存标记，不落库） */
+  cronWake?: { jobName: string; at: number } | null
+  onDismissCronWake?: () => void
   voice?: VoiceCallPanelProps
   input: React.ReactNode
 }
@@ -42,6 +46,8 @@ export const ChatBottomOverlay: React.FC<ChatBottomOverlayProps> = ({
   interruptedSessionKey,
   onContinue,
   onDismiss,
+  cronWake,
+  onDismissCronWake,
   voice,
   input,
 }) => (
@@ -66,6 +72,13 @@ export const ChatBottomOverlay: React.FC<ChatBottomOverlayProps> = ({
         sessionKey={interruptedSessionKey}
         onContinue={(sessionKey) => Promise.resolve(onContinue(sessionKey))}
         onDismiss={onDismiss}
+      />
+    ) : null}
+    {cronWake ? (
+      <CronWakeBanner
+        jobName={cronWake.jobName}
+        at={cronWake.at}
+        onDismiss={onDismissCronWake ?? (() => undefined)}
       />
     ) : null}
     {voice ? <VoiceCallPanel {...voice} /> : input}

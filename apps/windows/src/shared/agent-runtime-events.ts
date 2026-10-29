@@ -339,6 +339,24 @@ interface ConversationUpdatedEvent {
   readonly lastMessageAt?: number
 }
 
+/**
+ * 定时任务唤醒事件（`wake_mode='active'`）。
+ *
+ * 为什么需要它：注入走 internal 来源、**不写 user 消息**，所以对话里只会凭空多出一条
+ * 助手回复。这个事件让 UI 能标出来源，而不用往消息表里塞一条用户没说过的话。
+ * 只推给**正在看那条会话**的渲染层做提示，不落库。
+ */
+export interface AgentCronWakeEvent {
+  readonly type: 'agent:cron-wake'
+  /** 被唤醒的会话 */
+  readonly sessionKey: string
+  readonly jobId: string
+  /** 任务名（UI 直接显示） */
+  readonly jobName: string
+  /** 唤醒时刻（epoch ms），用于「多久之前」与去重 */
+  readonly at: number
+}
+
 /** 外部通道（如微信 /new 命令）触发的会话导航事件：通知客户端切换到指定会话 */
 interface ConversationNavigateEvent {
   readonly type: 'conversation:navigate'
@@ -841,6 +859,7 @@ export type AgentRuntimeEvent =
   | ConversationUpdatedEvent
   | ConversationNavigateEvent
   | ConversationMessageNewEvent
+  | AgentCronWakeEvent
   | AgentActivitySnapshotEvent
   | AgentSubagentCompletedEvent
   | AgentBackgroundTaskEvent

@@ -21,7 +21,7 @@ import type { ViewType } from '../../components/Router'
 import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
 import { executeSlashCommand, BACKEND_INFO } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
-import { updateSessionState, setFocusPermissionRequestId, setPendingPetHandoff, setPendingPanel } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { updateSessionState, setFocusPermissionRequestId, setPendingPetHandoff, setPendingPanel, clearCronWake } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
 import {
   readPersistedSessionThinkingPrefs,
   writePersistedThinkingEnabled,
@@ -201,6 +201,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const runtimeHistoryPaging = useAgentRuntimeState((s) => s.historyPaging)
   const runtimeLastTaskCompletion = useAgentRuntimeState((s) => s.lastTaskCompletion)
   const runtimeBackgroundTasks = useAgentRuntimeState((s) => s.backgroundTasks)
+  /** 定时任务刚唤醒过本会话（仅内存，用于提示条；不是消息） */
+  const runtimeCronWake = useAgentRuntimeState((s) => s.cronWake)
   const runtimeActiveAgents = useAgentRuntimeState((s) => s.activeAgents)
 
   /**
@@ -2159,6 +2161,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           interruptedSessionKey={currentSessionInterrupted ? runtimeCurrentSessionKey : null}
           onContinue={handleContinueInterrupted}
           onDismiss={handleDismissInterrupt}
+          cronWake={runtimeCronWake}
+          onDismissCronWake={() => {
+            if (runtimeCurrentSessionKey) clearCronWake(runtimeCurrentSessionKey)
+          }}
           voice={voiceCallState.state !== 'idle' ? {
             state: voiceCallState.state,
             partialTranscript: voiceCallState.partialTranscript,

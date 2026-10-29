@@ -204,6 +204,11 @@ export interface CronSchedulerDeps {
    */
   deliverInternalMessage?: (conversationId: string, text: string) => Promise<string | null>
   /**
+   * 通知渲染层「这条会话刚被定时任务唤醒」——只用于 UI 标记，不影响执行。
+   * 注入不写 user 消息，没有这个事件用户只会看到一条凭空出现的回复。
+   */
+  notifyCronWake?: (sessionKey: string, jobId: string, jobName: string) => void
+  /**
    * bridge 是否已完成初始化（instanceFactory / promptDispatcher 就绪）。
    * 未就绪时不注册任何计时器——过期 every 任务会立即补跑，若此时工厂尚未创建，
    * driveAgent 会抛 "Cannot read properties of undefined (reading 'createInstanceById')"。
@@ -1367,6 +1372,7 @@ export class CronScheduler {
           if (reply !== null) {
             output = reply
             deliveredToActive = true
+            this.deps.notifyCronWake?.(target, job.id, currentRow.name?.trim() || job.task_text.slice(0, 20))
             log.info(`[runLocalCronJob] 已注入活跃会话 ${target} jobId=${job.id}`)
           } else {
             log.info(`[runLocalCronJob] 活跃会话 ${target} 投不进去，回落自身会话 jobId=${job.id}`)

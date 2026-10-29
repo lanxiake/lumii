@@ -18,6 +18,8 @@ import {
   setPendingPanel,
   setSteerDraft,
   updateSessionState,
+  setCronWake,
+  clearCronWake,
   type PendingAskUser,
   type PendingPermission,
 } from './agent-runtime-store'
@@ -1091,5 +1093,35 @@ describe('handleRuntimeEvent background-task routing', () => {
     })
     logs = runtimeStore.getState().sessions.get('session-bg')?.backgroundTasks[0]?.logs ?? []
     expect(logs.map((log) => log.message)).toEqual(['入队', '渲染中', '完成'])
+  })
+})
+
+describe('定时任务唤醒提示（cronWake）', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+  })
+
+  it('默认没有；记下后按会话隔离', () => {
+    expect(getDefaultPerSessionState().cronWake).toBeNull()
+    setCronWake('s-a', { jobId: 'j1', jobName: '喝口水', at: 1000 })
+    expect(runtimeStore.getState().sessions.get('s-a')?.cronWake).toEqual({
+      jobId: 'j1',
+      jobName: '喝口水',
+      at: 1000,
+    })
+    expect(runtimeStore.getState().sessions.get('s-b')?.cronWake).toBeUndefined()
+  })
+
+  it('同一时刻重复事件保持引用（不触发无谓重渲染）', () => {
+    setCronWake('s-a', { jobId: 'j1', jobName: '喝口水', at: 1000 })
+    const before = runtimeStore.getState().sessions.get('s-a')
+    setCronWake('s-a', { jobId: 'j1', jobName: '喝口水', at: 1000 })
+    expect(runtimeStore.getState().sessions.get('s-a')).toBe(before)
+  })
+
+  it('clear 之后回 null（用户关掉提示）', () => {
+    setCronWake('s-a', { jobId: 'j1', jobName: '喝口水', at: 1000 })
+    clearCronWake('s-a')
+    expect(runtimeStore.getState().sessions.get('s-a')?.cronWake).toBeNull()
   })
 })
