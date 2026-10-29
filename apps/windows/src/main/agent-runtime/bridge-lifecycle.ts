@@ -191,7 +191,14 @@ export class BridgeLifecycle {
   /** 销毁所有实例并关闭数据库 */
   destroyAll(): void {
     this.deps.permissionController.clearAll()
-    this.deps.askUserQuestionController.clearAll()
+    const cancelledAskIds = this.deps.askUserQuestionController.clearAll() ?? []
+    for (const requestId of cancelledAskIds) {
+      this.deps.ipcChannel.forwardIpcEvent({
+        type: 'agent:ask-user:cancelled',
+        requestId,
+        reason: 'aborted',
+      })
+    }
 
     log.info('[destroyAll] 开始销毁所有实例前，先最终确认所有流式消息')
     const conversationRepo = this.deps.getConversationRepo()

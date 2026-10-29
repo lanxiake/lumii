@@ -17,6 +17,7 @@ import {
   updateSessionState,
   findAnyPendingPermission,
   findAnyPendingAskUser,
+  findPendingAskUserByRequestId,
   getPendingPermissionSnapshot,
   getPendingAskUserSnapshot,
   markSteerSent,
@@ -227,30 +228,43 @@ export function useAgentRuntimeActions() {
    *
    * @param payload - `answers` 必填，可选 `annotations` / `declined`
    *                  `answers` key = 问题文本；value = 答案字符串（多选逗号拼接；"Other" 时为自定义文本）
+   * @param requestId - 时间线卡传入的 toolCallId（= part.id）；缺省时回退全局首个 pending
    */
   const respondAskUser = useCallback(
-    async (payload: {
-      answers: Record<string, string>
-      annotations?: Record<string, { preview?: string; notes?: string }>
-      declined?: boolean
-    }) => {
+    async (
+      payload: {
+        answers: Record<string, string>
+        annotations?: Record<string, { preview?: string; notes?: string }>
+        declined?: boolean
+      },
+      requestId?: string,
+    ) => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return
 
-      const found = findAnyPendingAskUser(runtimeStore.getState())
-      if (!found) return
-      const { sessionKey, pending } = found
+      const state = runtimeStore.getState()
+      const found = requestId
+        ? findPendingAskUserByRequestId(state, requestId)
+        : findAnyPendingAskUser(state)
+      // 即便渲染侧丢了 pending（IPC 路由错位 / 脏残留），主进程仍按 requestId 挂着 wait
+      const resolvedRequestId = found?.pending.requestId ?? requestId
+      if (!resolvedRequestId) return
+
       await api.sendCommand({
         type: 'user:ask-user:respond',
-        requestId: pending.requestId,
+        requestId: resolvedRequestId,
         answers: payload.answers,
         annotations: payload.annotations,
         declined: payload.declined,
       })
-      updateSessionState(sessionKey, (prev) => ({
-        ...prev,
-        pendingAskUser: null,
-      }))
+      // 按 requestId 扫清所有会话，避免残留 pending 挡住下一张卡
+      for (const [sessionKey, sessionState] of runtimeStore.getState().sessions) {
+        if (sessionState.pendingAskUser?.requestId !== resolvedRequestId) continue
+        updateSessionState(sessionKey, (prev) => {
+          if (prev.pendingAskUser?.requestId !== resolvedRequestId) return prev
+          return { ...prev, pendingAskUser: null }
+        })
+      }
     },
     [],
   )

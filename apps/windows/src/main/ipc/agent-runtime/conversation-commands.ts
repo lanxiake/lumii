@@ -31,8 +31,22 @@ const log = {
 
 const LOCAL_USER_ID = 'local-user'
 const CONVERSATION_PAGE_SIZE = 50
-/** 会话列表预览：最多回溯多少条消息去找 Agent 的最后一句文本回复 */
-const PREVIEW_SCAN_LIMIT = 20
+/**
+ * 会话列表预览：最多回溯多少条消息去找 Agent 的最后一句文本回复。
+ *
+ * 2026-10-29 实测（1246 个活跃会话 / 8827 条消息 / 正文合计 137MB，只读副本）：
+ *
+ * | limit | 查询耗时 | 载荷  | 与 20 相比一致的预览 |
+ * |------:|--------:|------:|------:|
+ * | 20    | 374 ms  | 53.7MB | 基准 |
+ * | 10    | 238 ms  | —     | 1240/1243 |
+ * | **5** | **211 ms** | 38.6MB | **1237/1243** |
+ * | 3     | 204 ms  | 33.8MB | 1234/1243 |
+ *
+ * 5 条之后收益就没了（工具调用的 assistant 消息很少连排超过 2 条），
+ * 而每条都要在主进程里 `JSON.parse` 一次——这才是主线程被占住的真凶。
+ */
+const PREVIEW_SCAN_LIMIT = 5
 /** 会话列表预览的最大字符数 */
 const PREVIEW_MAX_LENGTH = 80
 /** 侧栏搜索最多返回多少个命中会话（超出按 SQL 扫描顺序截断） */
@@ -308,6 +322,10 @@ export function handleConversationList(
     conversationIds,
     PREVIEW_SCAN_LIMIT,
   )
+  // 下面两项以前是逐会话查询（各 1246 次）：hasStreamingMessages 每次都要全表扫
+  // `is_streaming = 1`（无可用索引），实测 707ms 压在主线程上。
+  const agentParticipantIds = bridge.conversationRepo.listAgentParticipantIds()
+  const streamingConversationIds = bridge.conversationRepo.listStreamingConversationIds()
 
   return conversations.map((c) => {
     const messages = lastMessagesMap.get(c.id) ?? []
@@ -318,8 +336,8 @@ export function handleConversationList(
       sessionKey: c.id, // sessionKey 直接使用 conversationId，重启后不失效
       title: c.title ?? '新对话',
       updatedAt: c.last_msg_at ?? c.created_at,
-      agentId: normalizeConversationAgentId(bridge.conversationRepo.getAgentParticipantId(c.id)),
-      hasRunning: bridge.hasStreamingMessages(c.id),
+      agentId: normalizeConversationAgentId(agentParticipantIds.get(c.id)),
+      hasRunning: streamingConversationIds.has(c.id),
       isPinned: c.is_pinned === 1,
       wasInterrupted: bridge.isConversationInterrupted(c.id),
       channel: resolveConversationChannel(c.id, weixinConvIds, c.channel_type),

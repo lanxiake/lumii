@@ -1,15 +1,25 @@
 /**
  * ask_user_question 时间线卡片：待答时内联表单，答完后展示摘要。
+ *
+ * 可点选表单优先对齐 `pendingAskUser.requestId === part.id`；
+ * 若 IPC pending 丢失 / 被其它会话脏数据抢占，则回退到 `part.args`，
+ * 避免只显示「等待用户回答…」却无法选择。
  */
 
 import React, { useMemo } from 'react'
-import { AskUserModal } from '../../../../components/AskUserModal'
+import { AskUserModal, type AskUserModalQuestion } from '../../../../components/AskUserModal'
 import {
-  useAnyPendingAskUser,
   useAgentRuntimeActions,
+  useAgentRuntimeGlobalState,
 } from '../../../../hooks/business/useAgentRuntime'
+import {
+  findPendingAskUserByRequestId,
+  type PendingAskUser,
+} from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import type { TimelineCardContext } from '../TimelineCards/registry'
 import styles from './AskUserCard.module.css'
+
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 
 /** 从工具结果里抽出简短摘要文案 */
 function summarizeAskResult(result: unknown): string | null {
@@ -32,25 +42,92 @@ function summarizeAskResult(result: unknown): string | null {
   }
 }
 
+/** 从工具 args 解析提问内容（pending 丢失时的回退数据源） */
+function parseAskArgs(args: unknown): {
+  context?: string
+  questions: AskUserModalQuestion[]
+} | null {
+  if (!args || typeof args !== 'object') return null
+  const record = args as Record<string, unknown>
+  const rawQuestions = record.questions
+  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null
+
+  const questions: AskUserModalQuestion[] = []
+  for (const item of rawQuestions) {
+    if (!item || typeof item !== 'object') continue
+    const q = item as Record<string, unknown>
+    if (typeof q.question !== 'string' || typeof q.header !== 'string') continue
+    if (!Array.isArray(q.options) || q.options.length < 2) continue
+    const options = q.options
+      .map((opt) => {
+        if (!opt || typeof opt !== 'object') return null
+        const o = opt as Record<string, unknown>
+        if (typeof o.label !== 'string' || typeof o.description !== 'string') return null
+        return {
+          label: o.label,
+          description: o.description,
+          ...(typeof o.preview === 'string' ? { preview: o.preview } : {}),
+          ...(o.recommended === true ? { recommended: true as const } : {}),
+          ...(typeof o.recommendReason === 'string' ? { recommendReason: o.recommendReason } : {}),
+        }
+      })
+      .filter((opt): opt is NonNullable<typeof opt> => opt !== null)
+    if (options.length < 2) continue
+    questions.push({
+      question: q.question,
+      header: q.header,
+      ...(q.multiSelect === true ? { multiSelect: true } : {}),
+      options,
+    })
+  }
+  if (questions.length === 0) return null
+  return {
+    ...(typeof record.context === 'string' && record.context.trim()
+      ? { context: record.context }
+      : {}),
+    questions,
+  }
+}
+
+/** 订阅与本 part 对齐的 pending（按 requestId，而非全局首个） */
+function usePendingAskForPart(requestId: string): PendingAskUser | null {
+  return useAgentRuntimeGlobalState((state) => {
+    const found = findPendingAskUserByRequestId(state, requestId)
+    return found?.pending ?? null
+  })
+}
+
 /**
- * 匹配 ask_user_question 工具 part；pending 时渲染可点选表单。
+ * 匹配 ask_user_question 工具 part；pending 或 running+args 时渲染可点选表单。
  */
 export const AskUserCard: React.FC<TimelineCardContext> = ({ part }) => {
-  const { pending } = useAnyPendingAskUser()
+  const pending = usePendingAskForPart(part.id)
   const { respondAskUser } = useAgentRuntimeActions()
-  const isPending = pending?.requestId === part.id
   const summary = useMemo(() => summarizeAskResult(part.result), [part.result])
+  const argsFallback = useMemo(() => parseAskArgs(part.args), [part.args])
 
-  if (isPending && pending) {
+  const interactive = useMemo(() => {
+    if (pending) return pending
+    if (part.status !== 'running' || !argsFallback) return null
+    return {
+      requestId: part.id,
+      context: argsFallback.context,
+      questions: argsFallback.questions,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      receivedAt: 0,
+    }
+  }, [pending, part.status, part.id, argsFallback])
+
+  if (interactive) {
     return (
       <AskUserModal
         open
         variant="inline"
-        context={pending.context}
-        questions={pending.questions}
-        timeoutMs={pending.timeoutMs}
-        onSubmit={(payload) => void respondAskUser(payload)}
-        onDecline={() => void respondAskUser({ answers: {}, declined: true })}
+        context={interactive.context}
+        questions={interactive.questions}
+        timeoutMs={interactive.timeoutMs}
+        onSubmit={(payload) => void respondAskUser(payload, part.id)}
+        onDecline={() => void respondAskUser({ answers: {}, declined: true }, part.id)}
       />
     )
   }
@@ -66,3 +143,6 @@ export const AskUserCard: React.FC<TimelineCardContext> = ({ part }) => {
     </div>
   )
 }
+
+/** 单测入口：args 解析 */
+export const __askUserCardTest = { parseAskArgs, summarizeAskResult }

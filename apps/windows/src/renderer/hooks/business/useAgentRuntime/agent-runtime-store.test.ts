@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   findAnyPendingPermission,
   findAnyPendingAskUser,
+  findPendingAskUserByRequestId,
   getDefaultPerSessionState,
   getPendingPermissionSnapshot,
   getPendingAskUserSnapshot,
@@ -120,6 +121,76 @@ describe('findAnyPendingAskUser', () => {
     const found = findAnyPendingAskUser(runtimeStore.getState())
     expect(found?.sessionKey).toBe('weixin:foo@im.wechat')
     expect(found?.pending.requestId).toBe('ask-1')
+  })
+
+  it('当前会话与其它会话都有 pending 时优先当前会话', () => {
+    const currentPending: PendingAskUser = {
+      requestId: 'ask-current',
+      questions: [
+        {
+          question: '当前？',
+          header: 'cur',
+          options: [{ label: 'A', description: 'a' }],
+        },
+      ],
+      timeoutMs: 60_000,
+      receivedAt: Date.now(),
+    }
+    const otherPending: PendingAskUser = {
+      requestId: 'ask-other',
+      questions: [
+        {
+          question: '其它？',
+          header: 'oth',
+          options: [{ label: 'B', description: 'b' }],
+        },
+      ],
+      timeoutMs: 60_000,
+      receivedAt: Date.now(),
+    }
+    runtimeStore.setState((prev) => {
+      const sessions = new Map(prev.sessions)
+      // Map 插入顺序：其它会话在前，当前会话在后——旧实现会误返回其它
+      sessions.set('channel:other', {
+        ...getDefaultPerSessionState(),
+        pendingAskUser: otherPending,
+      })
+      sessions.set('local:desktop', {
+        ...getDefaultPerSessionState(),
+        pendingAskUser: currentPending,
+      })
+      return { ...prev, currentSessionKey: 'local:desktop', sessions }
+    })
+    const found = findAnyPendingAskUser(runtimeStore.getState())
+    expect(found?.sessionKey).toBe('local:desktop')
+    expect(found?.pending.requestId).toBe('ask-current')
+  })
+
+  it('findPendingAskUserByRequestId 按 toolCallId 精确命中', () => {
+    const pending: PendingAskUser = {
+      requestId: 'tool-42',
+      questions: [
+        {
+          question: '？',
+          header: 'q',
+          options: [{ label: 'A', description: 'a' }],
+        },
+      ],
+      timeoutMs: 60_000,
+      receivedAt: Date.now(),
+    }
+    runtimeStore.setState((prev) => {
+      const sessions = new Map(prev.sessions)
+      sessions.set('local:desktop', {
+        ...getDefaultPerSessionState(),
+        pendingAskUser: pending,
+      })
+      return { ...prev, sessions }
+    })
+    expect(findPendingAskUserByRequestId(runtimeStore.getState(), 'tool-42')?.pending.requestId).toBe(
+      'tool-42',
+    )
+    expect(findPendingAskUserByRequestId(runtimeStore.getState(), 'missing')).toBeNull()
   })
 
   it('getPendingAskUserSnapshot 在 ask 未变时返回稳定引用', () => {

@@ -27,8 +27,8 @@ const ENTRIES = [
   {
     id: 'com.lumii.perf',
     name: '性能监控',
-    description: 'IPC 耗时、慢调用、启动阶段与内存快照',
-    version: '0.1.0',
+    description: '慢 IPC、慢 SQL、主线程阻塞、内存尖峰与启动阶段',
+    version: '0.2.0',
     entry: 'src/plugins/external-src/perf/index.ts',
   },
   {

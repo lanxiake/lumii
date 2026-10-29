@@ -25,13 +25,30 @@ describe('preload performance API bridge', () => {
     return call![1] as { performance: Record<string, (...args: unknown[]) => unknown> }
   }
 
-  it('should expose performance.getReport() wired to the performance:getReport channel', async () => {
+  it('should expose performance.getSummary() wired to the performance:getSummary channel', async () => {
     const electronAPI = await loadExposedElectronApi()
     const { ipcRenderer } = await import('electron')
 
-    expect(electronAPI.performance.getReport).toBeDefined()
-    await electronAPI.performance.getReport()
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('performance:getReport')
+    expect(electronAPI.performance.getSummary).toBeDefined()
+    await electronAPI.performance.getSummary()
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('performance:getSummary')
+  })
+
+  it('should expose performance.listEvents() wired to the performance:listEvents channel', async () => {
+    const electronAPI = await loadExposedElectronApi()
+    const { ipcRenderer } = await import('electron')
+
+    await electronAPI.performance.listEvents({ since: 42 })
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('performance:listEvents', { since: 42 })
+  })
+
+  it('should expose performance.recordEvent() wired to the performance:recordEvent channel', async () => {
+    const electronAPI = await loadExposedElectronApi()
+    const { ipcRenderer } = await import('electron')
+
+    const event = { kind: 'renderer.longtask', name: 'self', duration: 120 }
+    await electronAPI.performance.recordEvent(event)
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('performance:recordEvent', event)
   })
 
   it('should expose performance.capture() wired to the performance:capture channel', async () => {

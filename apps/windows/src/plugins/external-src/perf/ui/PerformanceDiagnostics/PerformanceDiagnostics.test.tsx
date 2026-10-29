@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { ToastProvider } from '../../../../../renderer/components/ui/Toast/ToastContainer'
 import { PerformanceDiagnostics } from './PerformanceDiagnostics'
+import type { PerfEvent, PerfSummary } from '../../../../../shared/performance'
 
-// jsdom 没有实现 ResizeObserver，recharts 的 ResponsiveContainer 依赖它测量容器尺寸
 class ResizeObserverStub {
   observe(): void {}
   unobserve(): void {}
@@ -11,77 +11,48 @@ class ResizeObserverStub {
 }
 ;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver = ResizeObserverStub
 
-function buildReport(overrides: Partial<Record<string, unknown>> = {}) {
-  return {
-    generatedAt: Date.now(),
-    startupStats: { totalDuration: 1000, phases: { preload: 100, window: 500 }, completed: true },
-    ipcStats: {
-      totalCalls: 42,
-      slowCalls: 3,
-      errors: 1,
-      channelBreakdown: {
-        'agent-runtime:command': {
-          channel: 'agent-runtime:command',
-          totalCalls: 20,
-          successCalls: 19,
-          errorCalls: 1,
-          totalDuration: 1000,
-          minDuration: 50,
-          maxDuration: 250,
-          averageDuration: 50,
-        },
-      },
-      averageLatency: 85,
-    },
-    memoryStats: {
-      current: {
-        mainProcess: { heapUsed: 100 * 1024 * 1024, heapTotal: 150 * 1024 * 1024, external: 10, arrayBuffers: 4, rss: 300 * 1024 * 1024 },
-        childProcesses: [],
-      },
-      peak: {
-        mainProcess: { heapUsed: 150 * 1024 * 1024, heapTotal: 200 * 1024 * 1024, external: 20, arrayBuffers: 6, rss: 400 * 1024 * 1024 },
-        childProcesses: [],
-      },
-    },
-    health: 'good',
-    ...overrides,
-  }
+const writeText = vi.fn(async (_text: string) => undefined)
+
+const summary: PerfSummary = {
+  generatedAt: 1,
+  today: { total: 3, byKind: { 'ipc.slow': 2, 'db.slow': 1 }, slowestMs: 800 },
+  ipc: {
+    totalCalls: 100,
+    slowCalls: 2,
+    errors: 0,
+    byChannel: {},
+  },
+  startupStats: { totalDuration: 1000, phases: { 'S1-extensions': 16 } },
+  memory: { rss: 300, heapUsed: 100, peakRss: 400 },
+  logDir: '/tmp/perf',
+  health: 'warning',
 }
 
-function buildHistory(overrides: Partial<Record<string, unknown>> = {}) {
-  return {
-    ipcAggregates: [],
-    memorySnapshots: [],
-    ...overrides,
+const events: PerfEvent[] = [
+  { timestamp: 1, kind: 'ipc.slow', name: 'agent-runtime:command', duration: 300 },
+  { timestamp: 2, kind: 'ipc.slow', name: 'agent-runtime:command', duration: 500 },
+  { timestamp: 3, kind: 'db.slow', name: 'SELECT * FROM messages WHERE id = ?', duration: 800, detail: { op: 'all' } },
+]
+
+function mockApi(eventList: PerfEvent[] = events) {
+  const api = {
+    getSummary: vi.fn(async () => summary),
+    listEvents: vi.fn(async () => eventList),
+    capture: vi.fn(async () => ({ success: true })),
+    openLogFolder: vi.fn(async () => ({ success: true })),
+    recordEvent: vi.fn(async () => ({ success: true })),
+    readRendererNativeMemory: vi.fn(),
   }
+  // 只挂 electronAPI，不要替换 window —— React DOM 依赖 jsdom 的 window/document
+  ;(window as unknown as { electronAPI: unknown }).electronAPI = { performance: api }
+  Object.defineProperty(globalThis.navigator, 'clipboard', {
+    value: { writeText },
+    configurable: true,
+  })
+  return api
 }
 
-/** 本面板不消费 native 读数，只需形状合法 */
-function nativeZeros() {
-  return {
-    rss: 0,
-    heapTotal: 0,
-    heapUsed: 0,
-    external: 0,
-    arrayBuffers: 0,
-    v8UsedHeap: 0,
-    v8TotalPhysical: 0,
-    v8Malloced: 0,
-    v8PeakMalloced: 0,
-    blinkAllocated: 0,
-    blinkTotal: 0,
-    resImages: 0,
-    resImagesLive: 0,
-    resScripts: 0,
-    resCss: 0,
-    resFonts: 0,
-    resOther: 0,
-    selfPrivate: 0,
-    selfWorkingSet: 0,
-  }
-}
-
-function renderWithToast() {
+function renderPanel() {
   return render(
     <ToastProvider>
       <PerformanceDiagnostics />
@@ -89,147 +60,103 @@ function renderWithToast() {
   )
 }
 
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
 describe('PerformanceDiagnostics', () => {
-  beforeEach(() => {
-    window.electronAPI = {
-      ...window.electronAPI,
-      performance: {
-        getReport: vi.fn(async () => buildReport()),
-        capture: vi.fn(async () => ({ success: true })),
-        openLogFolder: vi.fn(async () => ({ success: true })),
-        getHistory: vi.fn(async () => buildHistory()),
-        recordRendererMemory: vi.fn(async () => ({ success: true })),
-        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
-      },
-    } as typeof window.electronAPI
+  it('展示今日摘要与明细行', async () => {
+    mockApi()
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('警告')).toBeTruthy())
+    expect(screen.getByText('今日慢事件')).toBeTruthy()
+    expect(screen.getByText('明细（3）')).toBeTruthy()
+    expect(screen.getAllByText('agent-runtime:command')).toHaveLength(2)
+    expect(screen.getByText('SELECT * FROM messages WHERE id = ?')).toBeTruthy()
   })
 
-  it('should render performance diagnostics panel with the health status', async () => {
-    renderWithToast()
+  it('按类型筛选后明细只剩该类型，计数同步', async () => {
+    mockApi()
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('明细（3）')).toBeTruthy())
 
-    await waitFor(() => {
-      expect(screen.getByText('良好')).toBeInTheDocument()
-    })
+    const select = screen.getByLabelText('事件类型') as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'db.slow' } })
+
+    expect(screen.getByText('明细（1）')).toBeTruthy()
+    expect(screen.queryByText('agent-runtime:command')).toBeNull()
   })
 
-  it('should load and display performance report metrics', async () => {
-    renderWithToast()
+  it('最小耗时筛掉快事件', async () => {
+    mockApi()
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('明细（3）')).toBeTruthy())
 
-    await waitFor(() => {
-      expect(screen.getByText('42')).toBeInTheDocument() // 总调用数（计数保持整数）
-      expect(screen.getByText('85.0ms')).toBeInTheDocument() // 平均延迟
-      expect(screen.getByText('1000.0ms')).toBeInTheDocument() // 启动耗时
-    })
+    const input = screen.getByLabelText('最小耗时（毫秒）') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '600' } })
+
+    expect(screen.getByText('明细（1）')).toBeTruthy()
+    expect(screen.getByText('SELECT * FROM messages WHERE id = ?')).toBeTruthy()
   })
 
-  it('should render durations and memory sizes with one decimal place', async () => {
-    renderWithToast()
+  it('复制筛选结果输出 JSONL（一行一条）', async () => {
+    mockApi()
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('明细（3）')).toBeTruthy())
 
-    await waitFor(() => {
-      expect(screen.getByText('100.0MB')).toBeInTheDocument() // 当前堆内存
-      expect(screen.getByText('150.0MB')).toBeInTheDocument() // 峰值堆内存
-      expect(screen.getByText('300.0MB')).toBeInTheDocument() // 当前 RSS
-      expect(screen.getByText('100.0ms')).toBeInTheDocument() // 启动阶段 preload
-      expect(screen.getByText('500.0ms')).toBeInTheDocument() // 启动阶段 window
-      expect(screen.getByText('20 次 · 平均 50.0ms')).toBeInTheDocument() // IPC 通道
-    })
+    fireEvent.change(screen.getByLabelText('事件类型'), { target: { value: 'ipc.slow' } })
+    fireEvent.click(screen.getByText('复制筛选结果'))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalled())
+    const text = writeText.mock.calls[0]![0] as string
+    const lines = text.split('\n')
+    expect(lines).toHaveLength(2)
+    expect(JSON.parse(lines[0]!)).toMatchObject({ kind: 'ipc.slow', name: 'agent-runtime:command' })
   })
 
-  it('should show an error state when getReport rejects', async () => {
-    window.electronAPI = {
-      ...window.electronAPI,
-      performance: {
-        getReport: vi.fn(async () => {
-          throw new Error('IPC unavailable')
-        }),
-        capture: vi.fn(),
-        openLogFolder: vi.fn(),
-        getHistory: vi.fn(async () => buildHistory()),
-        recordRendererMemory: vi.fn(async () => ({ success: true })),
-        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
-      },
-    } as typeof window.electronAPI
+  it('展开某条后可单独复制它的完整 JSON', async () => {
+    mockApi()
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('明细（3）')).toBeTruthy())
 
-    renderWithToast()
+    // 点第一条明细行（按时间倒序，最上面是 db.slow）
+    const row = screen.getByText('SELECT * FROM messages WHERE id = ?').closest('button')!
+    fireEvent.click(row)
 
-    await waitFor(() => {
-      expect(screen.getByText('IPC unavailable')).toBeInTheDocument()
-    })
+    expect(screen.getByText(/"kind": "db\.slow"/)).toBeTruthy()
+    fireEvent.click(screen.getByText('复制这条'))
+    await waitFor(() => expect(writeText).toHaveBeenCalled())
+    expect(JSON.parse(writeText.mock.calls[0]![0] as string)).toMatchObject({ kind: 'db.slow' })
   })
 
-  it('should show empty placeholders when history has no data points', async () => {
-    renderWithToast()
+  it('排行视图展示次数与百分位', async () => {
+    mockApi()
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('明细（3）')).toBeTruthy())
 
-    await waitFor(() => {
-      expect(screen.getAllByText('暂无历史数据')).toHaveLength(2)
-    })
+    fireEvent.click(screen.getByText('排行（2）'))
+
+    // agent-runtime:command 两条：300 / 500 → p50 400, p95 490, max 500, 合计 800
+    const row = screen.getByText('agent-runtime:command').closest('div')!
+    expect(row.textContent).toContain('2')
+    expect(row.textContent).toContain('400ms')
+    expect(row.textContent).toContain('500ms')
+    expect(row.textContent).toContain('800ms')
   })
 
-  it('should render memory and ipc trend charts when history has data', async () => {
-    window.electronAPI = {
-      ...window.electronAPI,
-      performance: {
-        getReport: vi.fn(async () => buildReport()),
-        capture: vi.fn(async () => ({ success: true })),
-        openLogFolder: vi.fn(async () => ({ success: true })),
-        recordRendererMemory: vi.fn(async () => ({ success: true })),
-        readRendererNativeMemory: vi.fn(async () => nativeZeros()),
-        getHistory: vi.fn(async () =>
-          buildHistory({
-            memorySnapshots: [
-              {
-                timestamp: Date.now(),
-                kind: 'memory.snapshot',
-                mainProcess: { heapUsed: 100 * 1024 * 1024, heapTotal: 150 * 1024 * 1024, external: 10, arrayBuffers: 4, rss: 300 * 1024 * 1024 },
-                childProcesses: [],
-              },
-            ],
-            ipcAggregates: [
-              {
-                timestamp: Date.now(),
-                kind: 'ipc.aggregate',
-                windowStart: Date.now() - 60000,
-                windowEnd: Date.now(),
-                channel: 'agent-runtime:command',
-                totalCalls: 10,
-                totalDuration: 500,
-                errors: 0,
-                minDuration: 10,
-                maxDuration: 100,
-              },
-            ],
-          }),
-        ),
-      },
-    } as typeof window.electronAPI
+  it('筛选后无事件时显示空态', async () => {
+    mockApi()
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('明细（3）')).toBeTruthy())
 
-    renderWithToast()
-
-    await waitFor(() => {
-      expect(screen.queryByText('暂无历史数据')).not.toBeInTheDocument()
-    })
+    fireEvent.change(screen.getByLabelText('最小耗时（毫秒）'), { target: { value: '99999' } })
+    expect(screen.getByText('当前筛选下没有事件')).toBeTruthy()
   })
 
-  it('should allow manual capture and reload the report afterwards', async () => {
-    renderWithToast()
-
-    const captureBtn = await screen.findByText('手动捕获')
-    fireEvent.click(captureBtn)
-
-    await waitFor(() => {
-      expect(window.electronAPI.performance.capture).toHaveBeenCalledTimes(1)
-      expect(window.electronAPI.performance.getReport).toHaveBeenCalledTimes(2) // 初次加载 + 捕获后刷新
-    })
-  })
-
-  it('should open the log folder', async () => {
-    renderWithToast()
-
-    const openBtn = await screen.findByText('打开日志')
-    fireEvent.click(openBtn)
-
-    await waitFor(() => {
-      expect(window.electronAPI.performance.openLogFolder).toHaveBeenCalledTimes(1)
-    })
+  it('加载失败时显示错误', async () => {
+    const api = mockApi()
+    api.getSummary.mockRejectedValueOnce(new Error('boom'))
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('boom')).toBeTruthy())
   })
 })

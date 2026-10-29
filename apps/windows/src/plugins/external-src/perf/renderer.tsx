@@ -1,23 +1,22 @@
 import type { RendererPlugin } from '../../api'
 import { PerformanceDiagnostics } from './ui/PerformanceDiagnostics/PerformanceDiagnostics'
-import { startRendererMemoryProbe } from './ui/renderer-memory-probe'
+import { startRendererPerfProbe } from './ui/renderer-perf-probe'
 
 const OWNER = 'com.lumii.perf'
 
 /**
  * 性能监控的渲染层半边。
  *
- * - `settings.section.perf`：设置 › 关于与更新 里的诊断面板；
- * - 渲染进程内存采样：`setup` 时启动、`dispose` 时停（每分钟上报一次，
+ * - `settings.section.perf`：设置 › 隐私与数据 里的诊断面板（今日慢事件分析）；
+ * - 渲染层探针：`setup` 时启动、`dispose` 时停（长任务 + 关键交互 + 内存尖峰，
  *   停用后必须真的停，否则通道已摘掉、探针还在 invoke）。
  *
- * 这是**仓库内**的渲染层半边（随主进程一起打 bundle），不是外部 `client.js`；
- * 官方外部扩展的 client 半边尚未纳入打包流水线（见 plugins/README.md）。
+ * 这是**仓库内**的渲染层半边（随主进程一起打 bundle），不是外部 `client.js`。
  */
 export const perfRenderer: RendererPlugin = {
   id: OWNER,
   setup(api) {
-    const stopProbe = startRendererMemoryProbe()
+    const stopProbe = startRendererPerfProbe()
     const off = api.registerSlot('settings.section.perf', {
       id: 'perf.diagnostics',
       component: PerformanceDiagnostics,

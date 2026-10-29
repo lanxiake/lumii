@@ -1,578 +1,219 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { PerformanceMonitor } from './performance-monitor'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { PerformanceMonitor, asHydratableEvent } from './performance-monitor'
+import { readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
-describe('PerformanceMonitor', () => {
-  let monitor: PerformanceMonitor
-  let tempDir: string
+const BASE_CONFIG = {
+  enabled: true,
+  ipcSlowThresholdMs: 200,
+  memoryRssThresholdBytes: 2 * 1024 * 1024 * 1024,
+  memoryGrowthThresholdBytes: 300 * 1024 * 1024,
+  memorySpikeCooldownMs: 5 * 60_000,
+  maxQueueSize: 200,
+}
 
-  beforeEach(() => {
-    tempDir = path.join(os.tmpdir(), `perf-test-${Date.now()}`)
-    fs.mkdirSync(tempDir, { recursive: true })
+let tempDir: string
+let monitor: PerformanceMonitor
 
-    monitor = new PerformanceMonitor({
-      enabled: true,
-      ipcSlowThresholdMs: 200,
-      memorySnapshotIntervalMs: 10000,
-      maxQueueSize: 200,
-      logDir: tempDir,
-    })
-  })
+function makeMonitor(overrides: Partial<typeof BASE_CONFIG> = {}) {
+  return new PerformanceMonitor({ ...BASE_CONFIG, ...overrides, logDir: tempDir })
+}
 
-  afterEach(() => {
-    if (fs.existsSync(tempDir)) {
-      const files = fs.readdirSync(tempDir)
-      files.forEach(f => fs.unlinkSync(path.join(tempDir, f)))
-      fs.rmdirSync(tempDir)
-    }
-  })
+function loggedLines(): unknown[] {
+  return readdirSync(tempDir)
+    .filter((f) => f.endsWith('.jsonl'))
+    .flatMap((f) => readFileSync(join(tempDir, f), 'utf-8').split('\n'))
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line))
+}
 
-  it('should initialize with config', () => {
-    expect(monitor).toBeDefined()
-  })
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), 'perf-monitor-'))
+  monitor = makeMonitor()
+})
 
-  it('should record IPC calls and flush to log file', async () => {
-    monitor.recordIpcCall('agent-runtime:command', 250, false)
-    monitor.recordIpcCall('agent-runtime:command', 300, false)
+afterEach(async () => {
+  await monitor.flush()
+  monitor.destroy()
+  rmSync(tempDir, { recursive: true, force: true })
+})
 
+describe('PerformanceMonitor：只记慢事件', () => {
+  it('常规 IPC 调用只计数，不落盘', async () => {
+    for (let i = 0; i < 100; i++) monitor.recordIpcCall('agent-runtime:command', 50, false)
     await monitor.flush()
 
-    const files = fs.readdirSync(tempDir)
-    expect(files.length).toBeGreaterThan(0)
-
-    const logFile = path.join(tempDir, files[0])
-    const content = fs.readFileSync(logFile, 'utf-8')
-    const lines = content.trim().split('\n')
-
-    expect(lines.length).toBeGreaterThanOrEqual(2)
-    const firstEvent = JSON.parse(lines[0])
-    expect(firstEvent.kind).toBe('ipc.slow')
+    expect(loggedLines()).toHaveLength(0)
+    const summary = monitor.getSummary()
+    expect(summary.ipc.totalCalls).toBe(100)
+    expect(summary.ipc.slowCalls).toBe(0)
   })
 
-  it('should create date-based log file', async () => {
-    monitor.recordIpcCall('agent-runtime:command', 250, false)
-    await monitor.flush()
-
-    const files = fs.readdirSync(tempDir)
-    const filename = files[0]
-
-    // 文件名格式应为 perf-YYYY-MM-DD.jsonl
-    expect(filename).toMatch(/^perf-\d{4}-\d{2}-\d{2}\.jsonl$/)
-  })
-
-  it('should handle maximum queue size', () => {
-    const config = {
-      enabled: true,
-      ipcSlowThresholdMs: 200,
-      memorySnapshotIntervalMs: 10000,
-      maxQueueSize: 3,
-      logDir: tempDir,
-    }
-    const limitedMonitor = new PerformanceMonitor(config)
-
-    limitedMonitor.recordIpcCall('channel-1', 250, false)
-    limitedMonitor.recordIpcCall('channel-2', 250, false)
-    limitedMonitor.recordIpcCall('channel-3', 250, false)
-    limitedMonitor.recordIpcCall('channel-4', 250, false) // 应被丢弃
-
-    const queue = limitedMonitor.getQueueSize()
-    expect(queue).toBeLessThanOrEqual(3)
-  })
-
-  it('should record startup events', async () => {
-    monitor.recordStartupPhase('preload', 100)
-    monitor.recordStartupPhase('window', 500)
-
-    await monitor.flush()
-
-    const files = fs.readdirSync(tempDir)
-    const logFile = path.join(tempDir, files[0])
-    const content = fs.readFileSync(logFile, 'utf-8')
-    const lines = content.trim().split('\n')
-
-    const hasStartupEvent = lines.some(line => {
-      const event = JSON.parse(line)
-      return event.kind === 'startup.phase'
-    })
-    expect(hasStartupEvent).toBe(true)
-  })
-
-  it('should rotate log file on date boundary', () => {
-    const firstDate = monitor.getCurrentLogDate()
-    // 模拟跨天
-    monitor.recordIpcCall('channel-1', 150, false)
-
-    // 实际使用中需要 mock Date.now()，这里做简单验证
-    expect(firstDate).toBeDefined()
-  })
-
-  it('should disable logging when not enabled', async () => {
-    const disabledMonitor = new PerformanceMonitor({
-      enabled: false,
-      ipcSlowThresholdMs: 200,
-      memorySnapshotIntervalMs: 10000,
-      maxQueueSize: 200,
-      logDir: tempDir,
-    })
-
-    disabledMonitor.recordIpcCall('channel-1', 250, false)
-    await disabledMonitor.flush()
-
-    const files = fs.readdirSync(tempDir)
-    expect(files.length).toBe(0)
-  })
-
-  it('should keep only the most recent log files when cleaning old logs', () => {
-    // 构造 10 个不同日期的假日志文件（超过 MAX_LOG_FILES=7）
-    const dates = [
-      '2026-01-01',
-      '2026-01-02',
-      '2026-01-03',
-      '2026-01-04',
-      '2026-01-05',
-      '2026-01-06',
-      '2026-01-07',
-      '2026-01-08',
-      '2026-01-09',
-      '2026-01-10',
-    ]
-    dates.forEach(date => {
-      fs.writeFileSync(path.join(tempDir, `perf-${date}.jsonl`), '{}\n')
-    })
-
-    monitor.cleanOldLogs()
-
-    const remaining = fs.readdirSync(tempDir)
-      .filter(f => f.startsWith('perf-') && f.endsWith('.jsonl'))
-      .sort()
-
-    expect(remaining.length).toBe(7)
-    // 应保留最近的 7 个（按文件名日期排序后的最后 7 个）
-    expect(remaining).toEqual([
-      'perf-2026-01-04.jsonl',
-      'perf-2026-01-05.jsonl',
-      'perf-2026-01-06.jsonl',
-      'perf-2026-01-07.jsonl',
-      'perf-2026-01-08.jsonl',
-      'perf-2026-01-09.jsonl',
-      'perf-2026-01-10.jsonl',
-    ])
-  })
-
-  it('should archive the log file when it exceeds MAX_FILE_SIZE, and keep writing to a fresh base file afterwards', async () => {
-    const sizeMonitor = new PerformanceMonitor({
-      enabled: true,
-      ipcSlowThresholdMs: 0, // 阈值设为 0，让每次调用都产生 ipc.slow 事件
-      memorySnapshotIntervalMs: 10000,
-      maxQueueSize: 10000,
-      logDir: tempDir,
-    })
-
-    // 用较长的 channel 名把单条事件撑大，减少凑够 20MB 所需的事件数
-    const bigChannel = 'x'.repeat(5000)
-    const eventCount = 4300 // 单条约 5KB，4300 条 ≈ 21.5MB，足以触发 20MB 阈值
-
-    for (let i = 0; i < eventCount; i++) {
-      sizeMonitor.recordIpcCall(bigChannel, 250, false)
-    }
-
-    await sizeMonitor.flush()
-
-    const date = sizeMonitor.getCurrentLogDate()
-    const baseFile = path.join(tempDir, `perf-${date}.jsonl`)
-    const archivedFile = path.join(tempDir, `perf-${date}.1.jsonl`)
-
-    // 归档文件应存在且有内容——证明轮转真正发生，而不是原地重开同名文件
-    expect(fs.existsSync(archivedFile)).toBe(true)
-    const archivedContent = fs.readFileSync(archivedFile, 'utf-8')
-    expect(archivedContent.trim().length).toBeGreaterThan(0)
-
-    // 基础文件名下应该是一个全新的、比归档文件小得多的文件（本次轮转后的新写入）
-    expect(fs.existsSync(baseFile)).toBe(true)
-    const baseSizeBefore = fs.statSync(baseFile).size
-    expect(baseSizeBefore).toBeLessThan(fs.statSync(archivedFile).size)
-
-    // 轮转之后继续写入应该落在基础文件上，而不是丢失或写进归档文件
-    sizeMonitor.recordIpcCall('after-rotation-channel', 250, false)
-    await sizeMonitor.flush()
-
-    const baseContentAfter = fs.readFileSync(baseFile, 'utf-8')
-    expect(baseContentAfter.length).toBeGreaterThan(baseSizeBefore)
-    expect(baseContentAfter).toContain('after-rotation-channel')
-
-    sizeMonitor.destroy()
-  })
-
-  it('should invoke cleanOldLogs when the log date rolls over', async () => {
-    vi.useFakeTimers()
-    try {
-      const day1 = new Date('2026-01-10T23:59:00')
-      vi.setSystemTime(day1)
-
-      const rollMonitor = new PerformanceMonitor({
-        enabled: true,
-        ipcSlowThresholdMs: 0,
-        memorySnapshotIntervalMs: 10000,
-        maxQueueSize: 200,
-        logDir: tempDir,
-      })
-
-      // 预置超过 MAX_LOG_FILES(7) 的旧日志文件，验证日期滚动后是否被自动清理
-      const staleDates = [
-        '2025-12-01',
-        '2025-12-02',
-        '2025-12-03',
-        '2025-12-04',
-        '2025-12-05',
-        '2025-12-06',
-        '2025-12-07',
-        '2025-12-08',
-      ]
-      staleDates.forEach(d => {
-        fs.writeFileSync(path.join(tempDir, `perf-${d}.jsonl`), '{}\n')
-      })
-
-      const cleanSpy = vi.spyOn(rollMonitor, 'cleanOldLogs')
-
-      // 跨到第二天，触发 checkDateRoll()
-      const day2 = new Date('2026-01-11T00:00:30')
-      vi.setSystemTime(day2)
-
-      rollMonitor.recordIpcCall('channel-1', 250, false)
-      await rollMonitor.flush()
-
-      expect(cleanSpy).toHaveBeenCalled()
-
-      const remaining = fs.readdirSync(tempDir)
-        .filter(f => f.startsWith('perf-') && f.endsWith('.jsonl'))
-      // 7 天保留策略应已生效，旧文件被清理，不再需要外部调用方手动触发
-      expect(remaining.length).toBeLessThanOrEqual(7)
-
-      rollMonitor.destroy()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('should generate a performance report via aggregator delegation', () => {
-    monitor.recordIpcCall('agent-runtime:command', 250, false)
+  it('慢 IPC 超过阈值才落一条', async () => {
     monitor.recordIpcCall('agent-runtime:command', 50, false)
+    monitor.recordIpcCall('agent-runtime:command', 250, false)
+    await monitor.flush()
 
-    const report = monitor.getReport()
-
-    expect(report.generatedAt).toBeDefined()
-    expect(report.ipcStats.totalCalls).toBe(2)
-    expect(report.ipcStats.channelBreakdown['agent-runtime:command']).toBeDefined()
-    expect(report.startupStats).toBeDefined()
-    expect(report.memoryStats).toBeDefined()
-    expect(['good', 'warning', 'critical']).toContain(report.health)
-  })
-
-  it('should not duplicate aggregate events when flush is called repeatedly', async () => {
-    vi.useFakeTimers()
-    try {
-      const baseTime = Date.now()
-      vi.setSystemTime(baseTime)
-      monitor.recordIpcCall('agent-runtime:command', 150, false)
-
-      // 模拟 65 秒后的下一次调用，触发聚合器的窗口轮转，
-      // 产出一条 ipc.aggregate 事件
-      vi.setSystemTime(baseTime + 65000)
-      monitor.recordIpcCall('agent-runtime:command', 100, false)
-
-      await monitor.flush()
-      await monitor.flush()
-      await monitor.flush()
-    } finally {
-      vi.useRealTimers()
-    }
-
-    const files = fs.readdirSync(tempDir)
-    const logFile = path.join(tempDir, files[0])
-    const content = fs.readFileSync(logFile, 'utf-8')
-    const lines = content.trim().split('\n').filter(Boolean)
-
-    const aggregateEvents = lines
-      .map(line => JSON.parse(line))
-      .filter(event => event.kind === 'ipc.aggregate')
-
-    // 三次 flush 之后，聚合事件应只被写入一次，而不是三次
-    expect(aggregateEvents.length).toBe(1)
-  })
-
-  describe('recordRendererMemory', () => {
-    /** 造一条渲染进程采样（字段完整，和真实上报同形） */
-    function sample(overrides: Record<string, unknown> = {}) {
-      return {
-        timestamp: Date.now(),
-        kind: 'renderer.memory' as const,
-        pid: 4321,
-        jsHeapUsed: 209 * 1024 * 1024,
-        jsHeapLimit: 4096 * 1024 * 1024,
-        domNodes: 12139,
-        imgs: 2,
-        imageBytes: 2 * 1024 * 1024,
-        canvases: 1,
-        canvasBytes: 5 * 1024 * 1024,
-        iframes: 0,
-        sessions: 1,
-        messages: 122,
-        contentChars: 860_000,
-        fileEvents: 37,
-        compactionEvents: 0,
-        topSessions: '394c9ea33cee:122',
-        native: {
-          rss: 5_400_000_000,
-          heapTotal: 300 * 1024 * 1024,
-          heapUsed: 209 * 1024 * 1024,
-          external: 12 * 1024 * 1024,
-          arrayBuffers: 8 * 1024 * 1024,
-          v8UsedHeap: 209 * 1024 * 1024,
-          v8TotalPhysical: 300 * 1024 * 1024,
-          v8Malloced: 4 * 1024 * 1024,
-          v8PeakMalloced: 6 * 1024 * 1024,
-          blinkAllocated: 1_500_000,
-          blinkTotal: 1_800_000,
-          resImages: 2 * 1024 * 1024,
-          resImagesLive: 2 * 1024 * 1024,
-          resScripts: 30 * 1024 * 1024,
-          resCss: 4 * 1024 * 1024,
-          resFonts: 1024 * 1024,
-          resOther: 512 * 1024,
-          selfPrivate: 5_300_000,
-          selfWorkingSet: 5_200_000,
-        },
-        ...overrides,
-      }
-    }
-
-    /** 读出 tempDir 里唯一 jsonl 的解析后事件 */
-    function readEvents(): { kind: string; [k: string]: unknown }[] {
-      const files = fs.readdirSync(tempDir)
-      const content = fs.readFileSync(path.join(tempDir, files[0]!), 'utf-8')
-      return content.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
-    }
-
-    it('把采样写进与 memory.snapshot 同一份 perf 日志', async () => {
-      monitor.recordMemorySnapshot({
-        timestamp: Date.now(),
-        kind: 'memory.snapshot',
-        mainProcess: { heapUsed: 1, heapTotal: 2, external: 2, arrayBuffers: 1, rss: 3 },
-        childProcesses: [],
-      })
-      monitor.recordRendererMemory(sample())
-      await monitor.flush()
-
-      const events = readEvents()
-      const kinds = events.map(e => e.kind)
-      expect(kinds).toContain('memory.snapshot')
-      expect(kinds).toContain('renderer.memory')
-
-      const rendererEvent = events.find(e => e.kind === 'renderer.memory')!
-      expect(rendererEvent.pid).toBe(4321)
-      expect(rendererEvent.domNodes).toBe(12139)
-      expect(rendererEvent.topSessions).toBe('394c9ea33cee:122')
-    })
-
-    it('不进入聚合器：性能报告的内存口径仍是进程级', async () => {
-      monitor.recordRendererMemory(sample())
-      await monitor.flush()
-
-      const report = monitor.getReport()
-      expect(report.memoryStats.current.childProcesses ?? []).toHaveLength(0)
-      expect(monitor.getMemorySnapshotHistory()).toHaveLength(0)
-    })
-
-    it('超出队列上限时丢弃最旧的采样，不无限增长', () => {
-      const smallQueue = new PerformanceMonitor({
-        enabled: true,
-        ipcSlowThresholdMs: 200,
-        memorySnapshotIntervalMs: 10000,
-        maxQueueSize: 3,
-        logDir: tempDir,
-      })
-      for (let i = 0; i < 5; i++) smallQueue.recordRendererMemory(sample({ domNodes: i }))
-      expect(smallQueue.getQueueSize()).toBe(3)
-      smallQueue.destroy()
-    })
-
-    it('disabled 时直接丢弃', async () => {
-      const disabled = new PerformanceMonitor({
-        enabled: false,
-        ipcSlowThresholdMs: 200,
-        memorySnapshotIntervalMs: 10000,
-        maxQueueSize: 200,
-        logDir: tempDir,
-      })
-      disabled.recordRendererMemory(sample())
-      expect(disabled.getQueueSize()).toBe(0)
-      await disabled.flush()
-      expect(fs.readdirSync(tempDir)).toHaveLength(0)
-      disabled.destroy()
+    const lines = loggedLines() as Array<Record<string, unknown>>
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      kind: 'ipc.slow',
+      name: 'agent-runtime:command',
+      duration: 250,
     })
   })
 
-  describe('hydrateTodayFromDisk', () => {
-    /** 与 PerformanceMonitor.formatDate 同口径的本地日期 */
-    function todayStamp(): string {
-      const d = new Date()
-      const y = d.getFullYear()
-      const m = String(d.getMonth() + 1).padStart(2, '0')
-      const day = String(d.getDate()).padStart(2, '0')
-      return `${y}-${m}-${day}`
-    }
+  it('IPC 报错总是落盘（与耗时无关）', async () => {
+    monitor.recordIpcCall('voice:command', 10, true)
+    await monitor.flush()
 
-    beforeEach(() => {
-      // 外层 beforeEach 已打开当日日志流；先关掉，避免与 writeFileSync / 第二个 monitor 抢文件
-      monitor.destroy()
+    const lines = loggedLines() as Array<Record<string, unknown>>
+    expect(lines[0]).toMatchObject({ kind: 'ipc.error', name: 'voice:command' })
+  })
+
+  it('启动阶段落盘，但不进今日事件列表', async () => {
+    monitor.recordStartupPhase('S1-extensions', 16)
+    await monitor.flush()
+
+    const lines = loggedLines() as Array<Record<string, unknown>>
+    expect(lines[0]).toMatchObject({ kind: 'startup.phase', phase: 'S1-extensions', duration: 16 })
+    expect(monitor.listEvents()).toHaveLength(0)
+    expect(monitor.getSummary().startupStats.phases['S1-extensions']).toBe(16)
+  })
+
+  it('通用事件（慢 SQL / 长任务）进事件列表并落盘', async () => {
+    monitor.recordEvent({
+      timestamp: Date.now(),
+      kind: 'db.slow',
+      name: 'SELECT * FROM messages WHERE id = ?',
+      duration: 800,
+      detail: { op: 'all', db: 'agent-runtime.db' },
     })
+    await monitor.flush()
 
-    it('启动时回放当天 jsonl 中的聚合与内存快照，忽略其他日期', () => {
-      const today = todayStamp()
-      const windowStart = Date.now() - 120_000
-      const agg = {
-        timestamp: windowStart + 60_000,
-        kind: 'ipc.aggregate',
-        windowStart,
-        windowEnd: windowStart + 60_000,
-        channel: 'agent-runtime:command',
-        totalCalls: 4,
-        totalDuration: 800,
-        errors: 0,
-        minDuration: 100,
-        maxDuration: 300,
-      }
-      const mem = {
-        timestamp: Date.now() - 30_000,
-        kind: 'memory.snapshot',
-        mainProcess: {
-          heapUsed: 50 * 1024 * 1024,
-          heapTotal: 80 * 1024 * 1024,
-          external: 1,
-          arrayBuffers: 1,
-          rss: 120 * 1024 * 1024,
-        },
-        childProcesses: [],
-      }
-      const startup = {
-        timestamp: Date.now() - 60_000,
-        kind: 'startup.phase',
-        phase: 'preload',
-        duration: 42,
-      }
+    expect(monitor.listEvents()).toHaveLength(1)
+    const lines = loggedLines() as Array<Record<string, unknown>>
+    expect(lines[0]).toMatchObject({ kind: 'db.slow', duration: 800 })
+  })
+})
 
-      fs.writeFileSync(
-        path.join(tempDir, `perf-${today}.jsonl`),
-        `${JSON.stringify(agg)}\n${JSON.stringify(mem)}\n${JSON.stringify(startup)}\n`,
-      )
-      // 昨天的文件不应进入历史
-      fs.writeFileSync(
-        path.join(tempDir, 'perf-2000-01-01.jsonl'),
-        `${JSON.stringify({ ...agg, channel: 'should-not-load' })}\n`,
-      )
+describe('PerformanceMonitor：内存尖峰', () => {
+  it('首次采样只建基线', () => {
+    monitor.sampleMemory({ rss: 3 * 1024 * 1024 * 1024, heapUsed: 1 })
+    expect(monitor.listEvents()).toHaveLength(0)
+  })
 
-      // 构造时自动回放当天 jsonl
-      const hydrated = new PerformanceMonitor({
-        enabled: true,
-        ipcSlowThresholdMs: 200,
-        memorySnapshotIntervalMs: 10000,
-        maxQueueSize: 200,
-        logDir: tempDir,
-      })
+  it('超过 RSS 阈值记一条 over-limit', () => {
+    monitor.sampleMemory({ rss: 100 * 1024 * 1024, heapUsed: 1 })
+    monitor.sampleMemory({ rss: 2.5 * 1024 * 1024 * 1024, heapUsed: 1 })
+    const events = monitor.listEvents()
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ kind: 'memory.spike', name: 'main' })
+    expect(events[0]!.detail?.reason).toBe('over-limit')
+  })
 
-      const aggregates = hydrated.getIpcAggregateHistory()
-      expect(aggregates).toHaveLength(1)
-      expect(aggregates[0]!.channel).toBe('agent-runtime:command')
-      expect(aggregates[0]!.totalCalls).toBe(4)
+  it('快速上涨记一条 growth', () => {
+    monitor.sampleMemory({ rss: 100 * 1024 * 1024, heapUsed: 1 })
+    monitor.sampleMemory({ rss: 500 * 1024 * 1024, heapUsed: 1 })
+    expect(monitor.listEvents()[0]!.detail?.reason).toBe('growth')
+  })
 
-      const snapshots = hydrated.getMemorySnapshotHistory()
-      expect(snapshots).toHaveLength(1)
-      expect(snapshots[0]!.mainProcess.rss).toBe(120 * 1024 * 1024)
+  it('冷却期内不重复记', () => {
+    monitor.sampleMemory({ rss: 100 * 1024 * 1024, heapUsed: 1 })
+    monitor.sampleMemory({ rss: 500 * 1024 * 1024, heapUsed: 1 })
+    monitor.sampleMemory({ rss: 900 * 1024 * 1024, heapUsed: 1 })
+    expect(monitor.listEvents()).toHaveLength(1)
+  })
 
-      const report = hydrated.getReport()
-      expect(report.startupStats.phases.preload).toBe(42)
+  it('平稳时不出事件，但峰值仍被记住', () => {
+    monitor.sampleMemory({ rss: 300 * 1024 * 1024, heapUsed: 1 })
+    monitor.sampleMemory({ rss: 320 * 1024 * 1024, heapUsed: 1 })
+    expect(monitor.listEvents()).toHaveLength(0)
+    expect(monitor.getSummary().memory.peakRss).toBe(320 * 1024 * 1024)
+  })
+})
 
-      hydrated.destroy()
+describe('PerformanceMonitor：子进程内存', () => {
+  it('首次只建基线，越阈值才记一条', () => {
+    monitor.sampleChildProcesses([{ pid: 7, type: 'Tab', rss: 100, privateBytes: 100 }])
+    expect(monitor.listEvents()).toHaveLength(0)
+
+    monitor.sampleChildProcesses([
+      { pid: 7, type: 'Tab', rss: 2.5e9, privateBytes: 2.5e9 },
+    ])
+    const events = monitor.listEvents()
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ kind: 'memory.spike', name: 'child:Tab#7' })
+    expect(events[0]!.detail?.reason).toBe('over-limit')
+  })
+
+  it('渲染进程单独判定，不被主进程的状态掩盖', () => {
+    monitor.sampleMemory({ rss: 100 * 1024 * 1024, heapUsed: 1 })
+    monitor.sampleChildProcesses([{ pid: 9, type: 'Renderer', rss: 100, privateBytes: 100 }])
+    monitor.sampleChildProcesses([{ pid: 9, type: 'Renderer', rss: 900, privateBytes: 500 * 1024 * 1024 }])
+    const events = monitor.listEvents()
+    expect(events).toHaveLength(1)
+    expect(events[0]!.detail?.reason).toBe('growth')
+    expect(events[0]!.detail?.deltaPrivateBytes).toBe(500 * 1024 * 1024 - 100)
+  })
+
+  it('GPU / utility 这类小进程不参与判定', () => {
+    monitor.sampleChildProcesses([{ pid: 3, type: 'Utility', rss: 1, privateBytes: 1 }])
+    monitor.sampleChildProcesses([{ pid: 3, type: 'Utility', rss: 9e9, privateBytes: 9e9 }])
+    expect(monitor.listEvents()).toHaveLength(0)
+  })
+})
+
+describe('PerformanceMonitor：今日回放', () => {
+  it('重启后能读到今日已落盘的事件', async () => {
+    monitor.recordEvent({ timestamp: Date.now(), kind: 'ipc.slow', name: 'agent-runtime:command', duration: 300 })
+    await monitor.flush()
+    monitor.destroy()
+
+    const revived = makeMonitor()
+    expect(revived.listEvents()).toHaveLength(1)
+    // 回放不重复写盘：flush 一次后文件里仍只有一条
+    await revived.flush()
+    expect(loggedLines()).toHaveLength(1)
+    revived.destroy()
+  })
+
+  it('旧格式（聚合 / 内存快照）被跳过', async () => {
+    const date = new Date()
+    const name = `perf-${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}.jsonl`
+    writeFileSync(
+      join(tempDir, name),
+      [
+        JSON.stringify({ kind: 'ipc.aggregate', timestamp: 1, channel: 'x', totalCalls: 1 }),
+        JSON.stringify({ kind: 'memory.snapshot', timestamp: 1, mainProcess: {} }),
+        JSON.stringify({ kind: 'ipc.slow', timestamp: 2, name: 'chan', duration: 300 }),
+      ].join('\n') + '\n',
+    )
+    monitor.destroy()
+
+    const revived = makeMonitor()
+    expect(revived.listEvents().map((e) => e.name)).toEqual(['chan'])
+    revived.destroy()
+  })
+})
+
+describe('asHydratableEvent', () => {
+  it('拒绝脏行与未知 kind', () => {
+    expect(asHydratableEvent(null)).toBeNull()
+    expect(asHydratableEvent({ kind: 'nope', timestamp: 1, name: 'x' })).toBeNull()
+    expect(asHydratableEvent({ kind: 'ipc.slow', timestamp: 1 })).toBeNull()
+  })
+
+  it('剔除非法 detail 值，保留合法字段', () => {
+    const event = asHydratableEvent({
+      kind: 'db.slow',
+      timestamp: 5,
+      name: 'SELECT ?',
+      duration: 120,
+      detail: { op: 'all', bad: { nested: 1 }, ok: 3 },
     })
-
-    it('回放后 flush 不会把历史聚合事件再写一遍', async () => {
-      const today = todayStamp()
-      const windowStart = Date.now() - 120_000
-      const agg = {
-        timestamp: windowStart + 60_000,
-        kind: 'ipc.aggregate',
-        windowStart,
-        windowEnd: windowStart + 60_000,
-        channel: 'agent-runtime:command',
-        totalCalls: 2,
-        totalDuration: 200,
-        errors: 0,
-        minDuration: 100,
-        maxDuration: 100,
-      }
-      const logPath = path.join(tempDir, `perf-${today}.jsonl`)
-      fs.writeFileSync(logPath, `${JSON.stringify(agg)}\n`)
-
-      const hydrated = new PerformanceMonitor({
-        enabled: true,
-        ipcSlowThresholdMs: 200,
-        memorySnapshotIntervalMs: 10000,
-        maxQueueSize: 200,
-        logDir: tempDir,
-      })
-      await hydrated.flush()
-
-      const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean)
-      const aggregates = lines.map(l => JSON.parse(l)).filter((e: { kind: string }) => e.kind === 'ipc.aggregate')
-      expect(aggregates).toHaveLength(1)
-
-      hydrated.destroy()
-    })
-
-    it('同时回放当天归档段（perf-date.N.jsonl），按时间从旧到新', () => {
-      const today = todayStamp()
-      const older = {
-        timestamp: 1_000,
-        kind: 'ipc.aggregate',
-        windowStart: 0,
-        windowEnd: 60_000,
-        channel: 'older',
-        totalCalls: 1,
-        totalDuration: 10,
-        errors: 0,
-        minDuration: 10,
-        maxDuration: 10,
-      }
-      const newer = {
-        timestamp: 2_000,
-        kind: 'ipc.aggregate',
-        windowStart: 60_000,
-        windowEnd: 120_000,
-        channel: 'newer',
-        totalCalls: 1,
-        totalDuration: 20,
-        errors: 0,
-        minDuration: 20,
-        maxDuration: 20,
-      }
-      // .1 比 base 更旧（见 rollLogBySize）
-      fs.writeFileSync(path.join(tempDir, `perf-${today}.1.jsonl`), `${JSON.stringify(older)}\n`)
-      fs.writeFileSync(path.join(tempDir, `perf-${today}.jsonl`), `${JSON.stringify(newer)}\n`)
-
-      const hydrated = new PerformanceMonitor({
-        enabled: true,
-        ipcSlowThresholdMs: 200,
-        memorySnapshotIntervalMs: 10000,
-        maxQueueSize: 200,
-        logDir: tempDir,
-      })
-
-      const channels = hydrated.getIpcAggregateHistory().map(e => e.channel)
-      expect(channels).toEqual(['older', 'newer'])
-
-      hydrated.destroy()
-    })
+    expect(event).toMatchObject({ kind: 'db.slow', duration: 120 })
+    expect(event!.detail).toEqual({ op: 'all', ok: 3 })
   })
 })

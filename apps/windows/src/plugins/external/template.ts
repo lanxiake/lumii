@@ -203,7 +203,8 @@ api.registerTimelineCard({
 \`window.electronAPI\` 直接可用——这是插件拿应用数据的唯一通道，不需要宿主再包一层：
 
 \`\`\`js
-await window.electronAPI.performance.getReport()   // 性能诊断
+await window.electronAPI.performance.getSummary()   // 性能诊断（今日慢事件摘要）
+await window.electronAPI.performance.listEvents()   // 今日全部慢事件
 await window.electronAPI.plugins.list()            // 资产插件状态
 await window.electronAPI.extensions.list()         // 扩展与客户端插件列表
 \`\`\`

@@ -14,6 +14,11 @@ import type { PerSessionState, RuntimeMessage, RuntimeToolCall, RuntimeFileEvent
 import type { SessionContextUsageResult } from '../../../../shared/agent-runtime-commands'
 import { toRuntimeMsg, debugLog } from './bridge-init'
 import { HISTORY_PAGE_SIZE, type DbMessagePage } from './useAgentRuntime.types'
+import {
+  abortInteraction,
+  markInteractionStart,
+  markInteractionEndOnNextPaint,
+} from '../../../utils/perf-marks'
 
 type DbFileRow = {
   id: string; fileName: string; localPath: string; mimeType: string | null
@@ -138,6 +143,7 @@ export async function switchSession(
 ): Promise<{ preferredModel?: string } | void> {
   const api = window.electronAPI?.agentRuntime
   if (!api?.sendCommand) return
+  markInteractionStart('switch-session')
   const switchRequestId = ++latestSwitchRequestId
   const isCurrentSwitch = () => switchRequestId === latestSwitchRequestId
 
@@ -152,7 +158,10 @@ export async function switchSession(
       modelId: preferredModelId,
     })
     .catch(() => undefined)) as SessionContextUsageResult | undefined
-  if (!isCurrentSwitch()) return
+  if (!isCurrentSwitch()) {
+    abortInteraction('switch-session')
+    return
+  }
   preferredModel = primeResult?.preferredModel?.trim() || undefined
   // preferredModel 留给调用方同步下拉框；用量条由下方 context-usage 刷新
 
@@ -192,7 +201,11 @@ export async function switchSession(
         }) as Promise<SessionContextUsageResult>,
         fetchSessionMeta(),
       ])
-      if (!isCurrentSwitch()) return
+      if (!isCurrentSwitch()) {
+        abortInteraction('switch-session')
+        return
+      }
+
       updateSessionState(sessionKey, (prev) => {
         const ratio = contextUsage.contextWindow > 0
           ? contextUsage.usedTokens / contextUsage.contextWindow
@@ -217,6 +230,7 @@ export async function switchSession(
       debugLog('[switchSession] 刷新缓存会话元数据失败（已忽略） sessionKey=' + sessionKey, err)
     }
     debugLog('[switchSession] 切换到已缓存会话 sessionKey=' + sessionKey + ' msgs=' + existingSession.messages.length)
+    markInteractionEndOnNextPaint('switch-session')
     return { preferredModel }
   }
 
@@ -249,9 +263,15 @@ export async function switchSession(
    * 合并逻辑放在 setState updater 内，确保基于写入时刻的最新内存状态做合并，
    * 消除 await 期间后台事件写入导致的竞态覆盖问题。
    */
-  if (!isCurrentSwitch()) return
+  if (!isCurrentSwitch()) {
+    abortInteraction('switch-session')
+    return
+  }
   runtimeStore.setState((prev) => {
-    if (!isCurrentSwitch()) return prev
+    if (!isCurrentSwitch()) {
+      abortInteraction('switch-session')
+      return prev
+    }
     const newSessions = new Map(prev.sessions)
     const latestMemSession = prev.sessions.get(sessionKey)
     const baseState = latestMemSession ?? getDefaultPerSessionState()
@@ -342,5 +362,7 @@ export async function switchSession(
     })
     return { ...prev, sessions: newSessions, currentSessionKey: sessionKey }
   })
+  // 计时收尾放在 setState 之外：updater 可能被 React 重放多次
+  markInteractionEndOnNextPaint('switch-session')
   return { preferredModel }
 }

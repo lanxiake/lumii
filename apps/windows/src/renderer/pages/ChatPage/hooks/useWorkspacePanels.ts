@@ -199,6 +199,19 @@ export function useWorkspacePanels(
     setWorkbench((previous) => ({ ...previous, onlyArtifacts, open: true, view: 'workspace' }))
   }, [])
 
+  /**
+   * Agent 产出成品后自动打开「只看产出」工作台，便于浏览。
+   * 不强制改用户持久化的列表/网格偏好（面板内默认即为网格）。
+   */
+  const openArtifactsWorkbench = useCallback(() => {
+    setWorkbench((previous) => ({
+      ...previous,
+      open: true,
+      view: 'workspace',
+      onlyArtifacts: true,
+    }))
+  }, [])
+
   const setPreset = useCallback((preset: WorkbenchPreset, customWidth?: number) => {
     setWorkbench((previous) => ({
       ...previous,
@@ -295,6 +308,7 @@ export function useWorkspacePanels(
     closeWorkbench,
     selectWorkbenchView,
     setOnlyArtifacts,
+    openArtifactsWorkbench,
     setPreset,
     selectPath,
     revealInFiles,

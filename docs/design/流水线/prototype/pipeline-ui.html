@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>确定性流水线 · 前端原型</title>
+<style>
+/* ============ 令牌：直接取 design-system.css 的深/浅两套语义名 ============ */
+:root,
+[data-theme="dark"] {
+  --accent-400:#60a5fa; --accent-500:#3b82f6; --accent-600:#2563eb;
+  --bg-primary:#0f172a; --bg-secondary:#1e293b; --bg-tertiary:#334155;
+  --surface-2:#162033; --surface-3:#1c2a40;
+  --bg-overlay:rgba(0,0,0,.14);
+  --fg-1:#f8fafc; --fg-2:#cbd5e1; --fg-3:#94a3b8; --fg-4:#64748b; --fg-on-accent:#fff;
+  --border:#334155; --border-light:#475569; --hairline:rgba(255,255,255,.06);
+  --success:#22c55e; --warning:#f59e0b; --error:#ef4444; --violet:#8b5cf6;
+  --shadow-md:0 6px 14px rgba(0,0,0,.28),0 2px 4px rgba(0,0,0,.18);
+  --shadow-lg:0 18px 32px rgba(0,0,0,.35),0 4px 8px rgba(0,0,0,.2);
+  --shadow-glow:0 0 0 1px rgba(56,189,248,.35),0 10px 40px rgba(37,99,235,.28);
+  --r-sm:4px; --r-md:6px; --r-lg:8px; --r-xl:12px; --r-full:9999px;
+  --font-sans:'Segoe UI Variable Text','Segoe UI','Microsoft YaHei UI','Microsoft YaHei',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',Consolas,Monaco,monospace;
+}
+[data-theme="light"] {
+  --accent-400:#5292f8; --accent-500:#2a76f6; --accent-600:#1f5fd9;
+  --bg-primary:#f3f5f9; --bg-secondary:#fff; --bg-tertiary:#e8eef6;
+  --surface-2:#f7f9fc; --surface-3:#eef3f9;
+  --bg-overlay:rgba(15,23,42,.05);
+  --fg-1:#0f172a; --fg-2:#334155; --fg-3:#64748b; --fg-4:#94a3b8; --fg-on-accent:#fff;
+  --border:#dbe3ee; --border-light:#c7d4e4; --hairline:rgba(15,23,42,.07);
+  --success:#16a34a; --warning:#d97706; --error:#dc2626; --violet:#7c3aed;
+  --shadow-md:0 4px 12px rgba(15,23,42,.07),0 1px 3px rgba(15,23,42,.05);
+  --shadow-lg:0 16px 40px rgba(15,23,42,.11),0 4px 10px rgba(15,23,42,.06);
+  --shadow-glow:0 0 0 1px rgba(42,118,246,.35),0 10px 32px rgba(42,118,246,.18);
+}
+
+* { box-sizing:border-box; }
+body {
+  margin:0; padding:0; font-family:var(--font-sans); color:var(--fg-1);
+  background:var(--bg-primary); font-size:13px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ============ 演示壳：分节把四个面摆出来 ============ */
+.shell { max-width:1320px; margin:0 auto; padding:28px 24px 80px; }
+.page-head { display:flex; align-items:flex-end; gap:14px; margin-bottom:26px; }
+.page-head h1 { font-size:19px; margin:0; letter-spacing:-.01em; }
+.page-head p { margin:0; color:var(--fg-3); font-size:12.5px; max-width:760px; }
+.page-head .spacer { flex:1; }
+
+.section { margin-bottom:40px; }
+.section-label {
+  display:flex; align-items:center; gap:10px; margin:0 0 12px;
+  font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--fg-4);
+}
+.section-label::after { content:''; flex:1; height:1px; background:var(--hairline); }
+.section-note { font-size:11.5px; color:var(--fg-4); margin:-6px 0 12px; }
+
+/* ============ 通用件 ============ */
+.btn {
+  display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 12px;
+  border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-secondary);
+  color:var(--fg-2); font:inherit; font-size:12.5px; cursor:pointer; white-space:nowrap;
+  transition:background .13s, border-color .13s, color .13s;
+}
+.btn:hover { background:var(--bg-tertiary); color:var(--fg-1); }
+.btn.primary {
+  background:var(--accent-500); border-color:var(--accent-500); color:var(--fg-on-accent);
+  font-weight:500;
+}
+.btn.primary:hover { background:var(--accent-600); border-color:var(--accent-600); }
+.btn.ghost { background:transparent; border-color:var(--hairline); }
+.btn.sm { height:26px; padding:0 9px; font-size:12px; }
+.btn:disabled { opacity:.42; cursor:not-allowed; }
+.btn.danger { color:var(--error); border-color:color-mix(in srgb, var(--error) 35%, transparent); }
+
+.badge {
+  display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px;
+  border-radius:var(--r-sm); background:var(--bg-tertiary); color:var(--fg-3);
+  font-size:11px; font-weight:500; white-space:nowrap;
+}
+.badge.blue  { background:color-mix(in srgb,var(--accent-500) 16%,transparent); color:var(--accent-400); }
+.badge.green { background:color-mix(in srgb,var(--success) 16%,transparent); color:var(--success); }
+.badge.amber { background:color-mix(in srgb,var(--warning) 18%,transparent); color:var(--warning); }
+.badge.red   { background:color-mix(in srgb,var(--error) 16%,transparent); color:var(--error); }
+.badge.violet{ background:color-mix(in srgb,var(--violet) 16%,transparent); color:var(--violet); }
+.dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+.mono { font-family:var(--font-mono); font-size:11.5px; }
+
+/* ============ 一、流水线页：两栏 ============ */
+.app-frame {
+  border:1px solid var(--border); border-radius:var(--r-xl); overflow:hidden;
+  background:var(--bg-secondary); box-shadow:var(--shadow-lg);
+}
+.frame-bar {
+  display:flex; align-items:center; gap:10px; height:36px; padding:0 12px;
+  border-bottom:1px solid var(--border); background:var(--bg-secondary);
+  font-size:12px; color:var(--fg-3);
+}
+.frame-bar .lights { display:flex; gap:6px; }
+.frame-bar .lights i { width:10px; height:10px; border-radius:50%; background:var(--bg-tertiary); }
+.frame-bar .spacer { flex:1; }
+
+.pl-layout { display:grid; grid-template-columns:288px 1fr; min-height:560px; }
+
+/* 左：清单 */
+.pl-list { border-right:1px solid var(--border); background:var(--surface-2); display:flex; flex-direction:column; }
+.pl-list-head { padding:12px 12px 10px; border-bottom:1px solid var(--hairline); }
+.pl-list-head .row1 { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.pl-list-head .row1 b { font-size:13px; font-weight:600; }
+.pl-list-head .row1 .spacer { flex:1; }
+.pl-search {
+  display:flex; align-items:center; gap:7px; height:28px; padding:0 9px;
+  border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg-primary);
+  color:var(--fg-4); font-size:12px;
+}
+.pl-items { flex:1; overflow:auto; padding:6px; }
+.pl-item {
+  padding:9px 10px; border-radius:var(--r-md); cursor:pointer; margin-bottom:2px;
+  border:1px solid transparent; transition:background .12s, border-color .12s;
+}
+.pl-item:hover { background:var(--bg-tertiary); }
+.pl-item.active { background:color-mix(in srgb,var(--accent-500) 13%,transparent); border-color:color-mix(in srgb,var(--accent-500) 30%,transparent); }
+.pl-item .t { display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:500; }
+.pl-item .t .spacer { flex:1; }
+.pl-item .m { margin-top:3px; display:flex; align-items:center; gap:8px; font-size:11px; color:var(--fg-4); }
+.pl-item.draft .t b { color:var(--fg-3); font-weight:500; }
+.pl-list-foot {
+  border-top:1px solid var(--hairline); padding:9px 12px; display:flex; gap:8px; align-items:center;
+  font-size:11.5px; color:var(--fg-4);
+}
+
+/* 右：详情 */
+.pl-main { display:flex; flex-direction:column; min-width:0; }
+.pl-main-head { padding:16px 20px 14px; border-bottom:1px solid var(--hairline); }
+.pl-title-row { display:flex; align-items:center; gap:9px; margin-bottom:5px; }
+.pl-title-row h2 { margin:0; font-size:16px; font-weight:600; letter-spacing:-.01em; }
+.pl-title-row .spacer { flex:1; }
+.pl-desc { color:var(--fg-3); font-size:12.5px; }
+.pl-meta { display:flex; gap:14px; margin-top:10px; font-size:11.5px; color:var(--fg-4); flex-wrap:wrap; }
+.pl-meta span { display:flex; align-items:center; gap:4px; }
+.pl-meta b { color:var(--fg-2); font-weight:500; }
+
+.pl-body { flex:1; overflow:auto; padding:16px 20px 20px; display:grid; grid-template-columns:1fr 296px; gap:20px; }
+.pl-col-title {
+  font-size:11px; font-weight:600; color:var(--fg-4); letter-spacing:.06em;
+  text-transform:uppercase; margin:0 0 9px; display:flex; align-items:center; gap:8px;
+}
+.pl-col-title .spacer { flex:1; }
+
+/* 步骤表 */
+.steps { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; }
+.step-row {
+  display:grid; grid-template-columns:26px 1fr 132px 46px; align-items:center; gap:10px;
+  padding:9px 11px; border-bottom:1px solid var(--hairline); font-size:12.5px;
+}
+.step-row:last-child { border-bottom:0; }
+.step-row .no {
+  font-family:var(--font-mono); font-size:11px; color:var(--fg-4); text-align:center;
+}
+.step-row .lbl { min-width:0; }
+.step-row .lbl .n { display:flex; align-items:center; gap:6px; }
+.step-row .lbl .n b { font-weight:500; }
+.step-row .lbl .sub { font-size:11px; color:var(--fg-4); margin-top:1px; }
+.step-row .tool { font-family:var(--font-mono); font-size:11px; color:var(--fg-3); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.step-row .hold { font-family:var(--font-mono); font-size:11px; color:var(--fg-4); text-align:right; }
+.step-row.inline-edit { background:var(--bg-overlay); }
+.step-row.no-narr { opacity:.62; }
+.step-row .flag { font-size:10px; color:var(--warning); }
+
+/* 断言摘要 */
+.assert-box {
+  margin-top:12px; border:1px solid var(--border); border-radius:var(--r-lg);
+  padding:11px 12px; background:var(--surface-2);
+}
+.assert-box h4 { margin:0 0 8px; font-size:11.5px; color:var(--fg-3); font-weight:600; }
+.assert-line { display:flex; gap:8px; font-family:var(--font-mono); font-size:11px; color:var(--fg-3); margin-bottom:5px; }
+.assert-line:last-child { margin-bottom:0; }
+.assert-line .k { color:var(--accent-400); flex-shrink:0; }
+
+/* 历史 run */
+.runs { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; }
+.run-row {
+  display:flex; align-items:center; gap:8px; padding:8px 11px;
+  border-bottom:1px solid var(--hairline); font-size:12px; cursor:pointer;
+}
+.run-row:last-child { border-bottom:0; }
+.run-row:hover { background:var(--bg-tertiary); }
+.run-row .when { font-family:var(--font-mono); font-size:11px; color:var(--fg-4); }
+.run-row .spacer { flex:1; }
+.run-row .dur { font-family:var(--font-mono); font-size:11px; color:var(--fg-4); }
+
+/* 右侧动作区 */
+.actions-card {
+  border:1px solid var(--border); border-radius:var(--r-lg); padding:13px;
+  background:var(--surface-2); margin-top:14px;
+}
+.actions-card .btns { display:flex; flex-wrap:wrap; gap:8px; }
+.actions-card .hint { font-size:11px; color:var(--fg-4); margin-top:10px; line-height:1.6; }
+
+/* ============ 二、运行中（时间线卡） ============ */
+.chat-stage { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.chat-mock {
+  border:1px solid var(--border); border-radius:var(--r-xl); background:var(--bg-secondary);
+  padding:16px; box-shadow:var(--shadow-md);
+}
+.msg-user {
+  display:flex; gap:10px; margin-bottom:16px;
+}
+.msg-user .av {
+  width:26px; height:26px; border-radius:50%; flex-shrink:0;
+  background:linear-gradient(135deg,#667eea,#764ba2);
+}
+.msg-user .bubble {
+  background:var(--bg-tertiary); border-radius:var(--r-lg); padding:8px 12px;
+  font-size:12.5px; color:var(--fg-2); max-width:78%;
+}
+.msg-assistant { display:flex; gap:10px; }
+.msg-assistant .av {
+  width:26px; height:26px; border-radius:50%; flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent-400),var(--accent-600));
+  display:grid; place-items:center; font-size:11px; color:#fff; font-weight:600;
+}
+.msg-assistant .body { flex:1; min-width:0; }
+
+/* 时间线卡三态 */
+.tl-card {
+  border:1px solid var(--border); border-radius:var(--r-lg); background:var(--surface-2);
+  overflow:hidden; margin-bottom:10px;
+}
+.tl-card .hd {
+  display:flex; align-items:center; gap:9px; padding:10px 12px;
+  border-bottom:1px solid var(--hairline);
+}
+.tl-card .hd .ic {
+  width:20px; height:20px; border-radius:var(--r-sm); display:grid; place-items:center;
+  font-size:11px; flex-shrink:0;
+}
+.tl-card .hd .ic.run  { background:color-mix(in srgb,var(--accent-500) 18%,transparent); color:var(--accent-400); }
+.tl-card .hd .ic.ok   { background:color-mix(in srgb,var(--success) 18%,transparent); color:var(--success); }
+.tl-card .hd .ic.fail { background:color-mix(in srgb,var(--error) 18%,transparent); color:var(--error); }
+.tl-card .hd .ttl { font-size:12.5px; font-weight:500; }
+.tl-card .hd .sub { font-size:11.5px; color:var(--fg-4); }
+.tl-card .hd .spacer { flex:1; }
+.tl-card .bd { padding:11px 12px; }
+
+.prog { height:4px; border-radius:var(--r-full); background:var(--bg-tertiary); overflow:hidden; margin:2px 0 8px; }
+.prog > i { display:block; height:100%; background:var(--accent-500); border-radius:inherit; transition:width .3s; }
+.prog.fail > i { background:var(--error); }
+.prog.ok > i { background:var(--success); }
+
+.step-strip { display:flex; gap:3px; margin-bottom:9px; }
+.step-strip i {
+  flex:1; height:3px; border-radius:2px; background:var(--bg-tertiary);
+}
+.step-strip i.done { background:var(--success); }
+.step-strip i.cur  { background:var(--accent-500); animation:pulse 1.4s ease-in-out infinite; }
+.step-strip i.bad  { background:var(--error); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+.cur-step { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--fg-2); }
+.cur-step .spacer { flex:1; }
+.cur-step .t { font-family:var(--font-mono); font-size:11px; color:var(--fg-4); }
+
+.fail-detail {
+  background:color-mix(in srgb,var(--error) 8%,transparent);
+  border:1px solid color-mix(in srgb,var(--error) 26%,transparent);
+  border-radius:var(--r-md); padding:9px 10px; font-size:11.5px;
+}
+.fail-detail .row { display:flex; gap:8px; margin-bottom:4px; }
+.fail-detail .row:last-child { margin-bottom:0; }
+.fail-detail .k { color:var(--fg-4); width:42px; flex-shrink:0; }
+.fail-detail code { font-family:var(--font-mono); font-size:11px; color:var(--fg-2); }
+
+.result-row { display:flex; align-items:center; gap:10px; }
+.thumb {
+  width:64px; height:38px; border-radius:var(--r-sm); flex-shrink:0;
+  background:linear-gradient(135deg,var(--surface-3),var(--bg-tertiary));
+  border:1px solid var(--border); display:grid; place-items:center; font-size:14px; color:var(--fg-4);
+}
+.result-row .info { flex:1; min-width:0; font-size:11.5px; color:var(--fg-3); }
+.result-row .info b { display:block; color:var(--fg-2); font-size:12px; font-weight:500; }
+.card-actions { display:flex; gap:7px; padding:9px 12px; border-top:1px solid var(--hairline); }
+
+/* ============ 三、演进说明 ============ */
+.cmp { width:100%; border-collapse:collapse; font-size:12.5px; }
+.cmp th, .cmp td { text-align:left; padding:9px 11px; border-bottom:1px solid var(--hairline); vertical-align:top; }
+.cmp th { color:var(--fg-4); font-weight:600; font-size:11px; letter-spacing:.05em; text-transform:uppercase; }
+.cmp td { color:var(--fg-2); }
+.cmp td:first-child { color:var(--fg-3); white-space:nowrap; }
+.cmp tr:last-child td { border-bottom:0; }
+.cmp code { font-family:var(--font-mono); font-size:11.5px; color:var(--accent-400); }
+.cmp-wrap { border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; background:var(--surface-2); }
+
+.kv-note { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.kv-note > div {
+  border:1px solid var(--border); border-radius:var(--r-lg); padding:12px 13px; background:var(--surface-2);
+}
+.kv-note h5 { margin:0 0 6px; font-size:12px; font-weight:600; }
+.kv-note p { margin:0; font-size:12px; color:var(--fg-3); line-height:1.6; }
+.kv-note .warn h5 { color:var(--warning); }
+.kv-note .ok h5 { color:var(--success); }
+
+/* 位置说明（侧栏槽位） */
+.slot-map { display:flex; gap:12px; flex-wrap:wrap; }
+.slot-chip {
+  display:flex; align-items:center; gap:8px; padding:8px 11px; border-radius:var(--r-md);
+  border:1px dashed var(--border-light); font-size:12px; color:var(--fg-3);
+}
+.slot-chip b { font-family:var(--font-mono); font-size:11px; color:var(--accent-400); font-weight:500; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="page-head">
+    <div>
+      <h1>确定性流水线 · 前端原型</h1>
+      <p>四个面：流水线管理页（两栏）· 对话时间线卡（运行/成功/失败三态）· 运行中步骤进度 · 与 skill 的成本对照。静态可交互，点左侧条目切换。</p>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn sm ghost" onclick="toggleTheme()">切换浅色</button>
+  </div>
+
+  <!-- ============ 一、流水线管理页 ============ -->
+  <div class="section">
+    <div class="section-label">一 · 流水线页（<span class="mono">app.nav</span> → <span class="mono">app.view</span>）</div>
+    <div class="section-note">左栏永远是清单，主区永远是选中项的全部内容。管理是低频操作，不占主界面。</div>
+
+    <div class="app-frame">
+      <div class="frame-bar">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <span style="margin-left:6px">Lumii</span>
+        <span class="spacer"></span>
+        <span class="badge blue"><span class="dot"></span>流水线</span>
+      </div>
+
+      <div class="pl-layout">
+        <!-- 左栏 -->
+        <aside class="pl-list">
+          <div class="pl-list-head">
+            <div class="row1">
+              <b>流水线</b>
+              <span class="spacer"></span>
+              <button class="btn sm ghost" title="打开 pipelines 目录">＋</button>
+            </div>
+            <div class="pl-search">搜索流水线…</div>
+          </div>
+          <div class="pl-items" id="plItems">
+            <div class="pl-item active" data-pipe="wechat">
+              <div class="t"><span>微信自动回复演示</span><span class="spacer"></span><span class="badge green">成功</span></div>
+              <div class="m"><span>3 步 · 1 段旁白</span><span>·</span><span>2 分钟前</span></div>
+            </div>
+            <div class="pl-item" data-pipe="model">
+              <div class="t"><span>模型配置教程</span><span class="spacer"></span><span class="badge red">失败 @5</span></div>
+              <div class="m"><span>8 步 · 8 段旁白</span><span>·</span><span>昨天</span></div>
+            </div>
+            <div class="pl-item draft" data-pipe="pet">
+              <div class="t"><span>宠物精灵图流程</span><span class="spacer"></span><span class="badge">草稿</span></div>
+              <div class="m"><span>11 步 · 未跑过</span></div>
+            </div>
+          </div>
+          <div class="pl-list-foot">
+            <span>3 条 · 工作区 <code class="mono">workspace/pipelines/</code></span>
+          </div>
+        </aside>
+
+        <!-- 主区 -->
+        <div class="pl-main">
+          <div class="pl-main-head">
+            <div class="pl-title-row">
+              <h2 id="pTitle">微信自动回复演示</h2>
+              <span class="badge amber" id="pRisk">sensitive</span>
+              <span class="spacer"></span>
+              <button class="btn sm">看 spec.json</button>
+            </div>
+            <div class="pl-desc" id="pDesc">演示代聊如何读取并回复一条消息。真实发送不可撤回，首次录制前强制先跑一遍彩排。</div>
+            <div class="pl-meta">
+              <span>步骤 <b id="mSteps">3</b></span>
+              <span>旁白 <b id="mNarr">1</b></span>
+              <span>录制 <b id="mRec">开</b></span>
+              <span>最近 <b id="mLast">成功 · 1m42s</b></span>
+              <span>本机成功率 <b id="mRate">8/9</b></span>
+            </div>
+          </div>
+
+          <div class="pl-body">
+            <div>
+              <div class="pl-col-title">步骤<span class="spacer"></span><span style="font-weight:400;text-transform:none;letter-spacing:0">改 spec 后重新加载</span></div>
+              <div class="steps" id="stepList"></div>
+
+              <div class="assert-box" id="assertBox">
+                <h4>断言（每步 expect）</h4>
+                <div class="assert-line"><span class="k">#1</span><span>fields.ok == true</span></div>
+                <div class="assert-line"><span class="k">#2</span><span>fields.sessions[0].talker 存在</span></div>
+                <div class="assert-line"><span class="k">#3</span><span>viewState.view == "chat"</span></div>
+              </div>
+
+              <div style="margin-top:18px">
+                <div class="pl-col-title">历史 run<span class="spacer"></span><button class="btn sm ghost">全部</button></div>
+                <div class="runs" id="runList"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="actions-card" style="margin-top:0">
+                <div class="btns">
+                  <button class="btn primary sm">▶ 录制运行</button>
+                  <button class="btn sm">彩排（不发送）</button>
+                </div>
+                <div class="hint">
+                  <b style="color:var(--fg-3)">sensitive 规则</b><br>
+                  首次「录制运行」会自动先跑一次彩排。<br>
+                  彩排中所有 <span class="mono">needsPermission</span> 工具不执行。
+                </div>
+              </div>
+
+              <div class="actions-card">
+                <div class="pl-col-title" style="margin-bottom:8px">前置条件</div>
+                <div class="assert-line"><span class="k">✓</span><span>wechat_check_env ok</span></div>
+                <div class="assert-line"><span class="k" style="color:var(--success)">✓</span><span>relay_status.running == false</span></div>
+                <div class="hint" style="margin-top:8px">不满足即拒绝启动，<b>不会</b>录一段"看起来跑完了"的视频。</div>
+              </div>
+
+              <div class="actions-card" id="artifactCard"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 二、对话时间线卡三态 ============ -->
+  <div class="section">
+    <div class="section-label">二 · 对话时间线卡（主入口）</div>
+    <div class="section-note">用户在哪发起，结果就回哪。三种状态各一张，<span class="mono">pinned: true</span> 露在「执行过程」折叠区外。</div>
+
+    <div class="chat-stage">
+      <!-- 运行中 -->
+      <div class="chat-mock">
+        <div class="msg-user">
+          <div class="av"></div>
+          <div class="bubble">用流水线录一段自动回复的演示视频</div>
+        </div>
+        <div class="msg-assistant">
+          <div class="av">L</div>
+          <div class="body">
+            <div class="tl-card">
+              <div class="hd">
+                <span class="ic run">⟳</span>
+                <span class="ttl">流水线 · 微信自动回复演示</span>
+                <span class="spacer"></span>
+                <span class="sub">00:41</span>
+              </div>
+              <div class="bd">
+                <div class="step-strip">
+                  <i class="done"></i><i class="cur"></i><i></i>
+                </div>
+                <div class="cur-step">
+                  <span>第 2/3 步 · 读取最近一条</span>
+                  <span class="spacer"></span>
+                  <span class="t">1.2s</span>
+                </div>
+                <div class="prog"><i style="width:52%"></i></div>
+                <div class="mono" style="color:var(--fg-4);margin-top:7px">
+                  wechat_read_history · 录制中
+                </div>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--fg-3)">正在录制，跑到第 2 步…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 成功 -->
+      <div class="chat-mock">
+        <div class="msg-user">
+          <div class="av"></div>
+          <div class="bubble">用流水线录一段自动回复的演示视频</div>
+        </div>
+        <div class="msg-assistant">
+          <div class="av">L</div>
+          <div class="body">
+            <div class="tl-card">
+              <div class="hd">
+                <span class="ic ok">✓</span>
+                <span class="ttl">流水线 · 微信自动回复演示</span>
+                <span class="spacer"></span>
+                <span class="badge green">3 步 · 42s</span>
+              </div>
+              <div class="bd">
+                <div class="step-strip">
+                  <i class="done"></i><i class="done"></i><i class="done"></i>
+                </div>
+                <div class="result-row" style="margin-top:9px">
+                  <div class="thumb">▶</div>
+                  <div class="info">
+                    <b>wechat-reply-demo.mp4</b>
+                    dubbed ✓ burned ✓ · 2 段字幕
+                  </div>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="btn sm ghost">播放</button>
+                <button class="btn sm ghost">看 journal</button>
+                <span style="flex:1"></span>
+                <button class="btn sm ghost">再跑一次</button>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--fg-3)">录好了，3 步全部通过，字幕与操作同源对齐。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 失败 -->
+      <div class="chat-mock" style="grid-column:1 / -1; max-width:660px">
+        <div class="msg-user">
+          <div class="av"></div>
+          <div class="bubble">录一段模型配置教程</div>
+        </div>
+        <div class="msg-assistant">
+          <div class="av">L</div>
+          <div class="body">
+            <div class="tl-card">
+              <div class="hd">
+                <span class="ic fail">✕</span>
+                <span class="ttl">流水线 · 模型配置教程</span>
+                <span class="spacer"></span>
+                <span class="badge red">第 5 步失败</span>
+              </div>
+              <div class="bd">
+                <div class="step-strip">
+                  <i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i>
+                  <i class="bad"></i><i></i><i></i><i></i>
+                </div>
+                <div class="fail-detail" style="margin-top:9px">
+                  <div class="row"><span class="k">步骤</span><code>#5「保存」· click_by_button_text</code></div>
+                  <div class="row"><span class="k">期望</span><code>toast == "保存成功"</code></div>
+                  <div class="row"><span class="k">实际</span><code>toast == null（按钮未命中）</code></div>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="btn sm primary">从第 5 步续跑</button>
+                <button class="btn sm ghost">看 journal</button>
+                <button class="btn sm ghost">改 spec</button>
+              </div>
+            </div>
+            <div style="font-size:12px;color:var(--fg-3)">第 5 步的按钮选择器没命中。改完 spec 可以只从这一步续跑。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 三、槽位落点 ============ -->
+  <div class="section">
+    <div class="section-label">三 · 插件落点（全部走现成槽位，不改核心页面）</div>
+    <div class="slot-map">
+      <div class="slot-chip"><b>app.nav</b> 侧栏「流水线」入口</div>
+      <div class="slot-chip"><b>app.view</b> 流水线页本体</div>
+      <div class="slot-chip"><b>registerTimelineCard</b> 对话卡三态</div>
+      <div class="slot-chip" style="opacity:.5"><b>settings.*</b> 不做——无可配置项</div>
+    </div>
+  </div>
+
+  <!-- ============ 四、与 skill 的成本对照 ============ -->
+  <div class="section">
+    <div class="section-label">四 · 为什么复杂度不高于 skill</div>
+    <div class="cmp-wrap">
+      <table class="cmp">
+        <thead><tr><th></th><th>现在（SKILL.md）</th><th>流水线</th></tr></thead>
+        <tbody>
+          <tr><td>搭建</td><td>写 272 行 prose 教模型怎么做</td><td>写一份 ~30 行 <code>spec.json</code></td></tr>
+          <tr><td>修改</td><td>改文档 + 祈祷模型读到并照做</td><td>改一行，重跑</td></tr>
+          <tr><td>使用</td><td>对话里说一句话，赌它走对</td><td>聊天里说一句，或页面点一下</td></tr>
+          <tr><td>调试</td><td>读 70 段思考文本</td><td>看 <code>journal.jsonl</code> 哪一步 <code>assertOk:false</code></td></tr>
+          <tr><td>失败后</td><td>从头发散</td><td>从断点续跑</td></tr>
+          <tr><td>LLM 往返</td><td>70+ 次/任务</td><td>运行态 <b>0</b> 次</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="kv-note" style="margin-top:14px">
+      <div class="ok">
+        <h5>✓ 引擎做插件</h5>
+        <p><code>com.lumii.pipeline</code>，<code>hot: true</code>。停用后工具与页面同时消失，spec 文件保留。</p>
+      </div>
+      <div class="warn">
+        <h5>✕ 每条流水线不做插件</h5>
+        <p>一条 = 一个 JSON 文件放进 <code>workspace/pipelines/</code>。若做成插件，就要 manifest + apply + 构建 + 激活时机，直接击穿「不高于 skill」。</p>
+      </div>
+      <div>
+        <h5>★ 随工作区走 git</h5>
+        <p>spec 与 skills 同根，天然被工作区 VCS 跟踪；<code>runs/</code> 进忽略清单，不污染历史。</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const el = document.documentElement;
+  el.dataset.theme = el.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.querySelector('[onclick="toggleTheme()"]').textContent =
+    el.dataset.theme === 'dark' ? '切换浅色' : '切换深色';
+}
+
+/* ---- 流水线清单数据（原型内联，真实由 workspace/pipelines/ 扫描） ---- */
+const PIPES = {
+  wechat: {
+    title: '微信自动回复演示',
+    risk: 'sensitive', riskCls: 'amber',
+    desc: '演示代聊如何读取并回复一条消息。真实发送不可撤回，首次录制前强制先跑一遍彩排。',
+    steps: 3, narr: 2, rec: '开', last: '成功 · 42s', rate: '8/9',
+    rows: [
+      { no: 1, name: '打开会话', sub: '旁白：首先打开与客户的会话', tool: 'wechat_list_sessions', hold: 1200 },
+      { no: 2, name: '读取最近一条', sub: '旁白：读取最近一条消息的内容 · 引用 #1', tool: 'wechat_read_history', hold: 2000 },
+      { no: 3, name: '填入回复（不发送）', sub: '无旁白 —— 不参与成片', tool: 'app_fill_form', hold: 1500, noNarr: true },
+    ],
+    asserts: [['#1','fields.ok == true'],['#2','fields.sessions[0].talker 存在'],['#3','viewState.view == "chat"']],
+    runs: [
+      { ok: true,  when: '14:12:33', dur: '42s', tag: '3 步' },
+      { ok: false, when: '昨天 17:08', dur: '9s',  tag: '@step 2' },
+      { ok: null,  when: '昨天 16:51', dur: '4s',  tag: '插件被禁用' },
+    ],
+    artifact: { name: 'wechat-reply-demo.mp4', meta: '1080p · 42s · 字幕已烧录' },
+  },
+  model: {
+    title: '模型配置教程',
+    risk: 'write', riskCls: 'blue',
+    desc: '把「打开设置 → 展示文本对话槽 → 模拟填写 → 保存」录成带旁白的教程。上次在第 5 步失败：保存按钮选择器未命中。',
+    steps: 8, narr: 8, rec: '开', last: '失败 @5 · 22s', rate: '0/1',
+    rows: [
+      { no: 1, name: '开场：概览展示', sub: '旁白：打开灵栖，首先看到概览页', tool: 'app_goto', hold: 1500 },
+      { no: 2, name: '打开设置-模型配置', sub: '旁白：点击左下角设置', tool: 'app_goto', hold: 1000 },
+      { no: 3, name: '展示文本对话槽', sub: '旁白：第一张卡片是文本对话', tool: 'app_scroll_to_text', hold: 2500 },
+      { no: 4, name: '模拟填写模型 ID', sub: '旁白：在模型 ID 里填入…', tool: 'app_fill_form', hold: 1500 },
+      { no: 5, name: '保存', sub: '旁白：滑到底部，点击保存全部', tool: 'app_scroll_to_text', hold: 1200, fail: true },
+      { no: 6, name: '新建对话', sub: '旁白：保存后新建一个对话', tool: 'app_act', hold: 800 },
+      { no: 7, name: '选模型', sub: '旁白：在模型列表里选中刚配置的', tool: 'app_act', hold: 1200 },
+      { no: 8, name: '开始聊天', sub: '旁白：发一条消息，验证配置生效', tool: 'app_fill_form', hold: 2000 },
+    ],
+    asserts: [['#1','viewState.view == "dashboard"'],['#2','viewState.hub.category == "modelConfig"'],['#5','field.toast == "保存成功"'],['#8','fields.ok == true']],
+    runs: [
+      { ok: false, when: '昨天 17:08', dur: '22s', tag: '@step 5' },
+      { ok: null,  when: '昨天 16:51', dur: '6s',  tag: '插件被禁用' },
+    ],
+    artifact: null,
+    noArtifact: '上次在第 5 步失败，没出成片。续跑成功后在这里显示 mp4。',
+  },
+  pet: {
+    title: '宠物精灵图流程',
+    risk: 'read', riskCls: 'green',
+    desc: '草稿。把精灵图的切图 → 归一化 → 质检固化成流水线。还没跑过，先补断言再启用。',
+    steps: 11, narr: 0, rec: '关', last: '未跑过', rate: '—',
+    rows: [
+      { no: 1, name: '校验输入帧', sub: '无旁白', tool: 'pet_asset_check', hold: 200, noNarr: true },
+      { no: 2, name: '抠底', sub: '无旁白', tool: 'pet_asset_cutout', hold: 200, noNarr: true },
+      { no: 3, name: '归一化对齐', sub: '无旁白', tool: 'pet_asset_normalize', hold: 200, noNarr: true },
+      { no: 4, name: '导出图集', sub: '无旁白', tool: 'pet_asset_export', hold: 200, noNarr: true },
+    ],
+    asserts: [['#1','exists: 输出目录'],['#4','fields.frames == 107']],
+    runs: [],
+    noArtifact: '这条流水线不录制，产物由各 step 自己落盘。',
+  },
+};
+
+function renderPipe(id) {
+  const p = PIPES[id];
+  document.getElementById('pTitle').textContent = p.title;
+  const risk = document.getElementById('pRisk');
+  risk.textContent = p.risk;
+  risk.className = 'badge ' + p.riskCls;
+  document.getElementById('pDesc').textContent = p.desc;
+  document.getElementById('mSteps').textContent = p.steps;
+  document.getElementById('mNarr').textContent = p.narr;
+  document.getElementById('mRec').textContent = p.rec;
+  document.getElementById('mLast').textContent = p.last;
+  document.getElementById('mRate').textContent = p.rate;
+
+  const list = document.getElementById('stepList');
+  list.innerHTML = p.rows.map(r => `
+    <div class="step-row${r.noNarr ? ' no-narr' : ''}${r.fail ? ' inline-edit' : ''}">
+      <span class="no">${r.no}</span>
+      <div class="lbl">
+        <div class="n"><b>${r.name}</b>${r.fail ? '<span class="flag">上次失败</span>' : ''}</div>
+        <div class="sub">${r.sub}</div>
+      </div>
+      <span class="tool">${r.tool}</span>
+      <span class="hold">${r.hold}ms</span>
+    </div>`).join('');
+
+  document.getElementById('assertBox').innerHTML =
+    '<h4>断言（每步 expect）</h4>' +
+    p.asserts.map(([k, v]) => `<div class="assert-line"><span class="k">${k}</span><span>${v}</span></div>`).join('');
+
+  document.getElementById('artifactCard').innerHTML = p.artifact
+    ? `<div class="pl-col-title" style="margin-bottom:8px">产物</div>
+       <div class="result-row">
+         <div class="thumb">▶</div>
+         <div class="info"><b>${p.artifact.name}</b>${p.artifact.meta}</div>
+       </div>
+       <div class="btns" style="margin-top:10px">
+         <button class="btn sm ghost">播放</button>
+         <button class="btn sm ghost">打开目录</button>
+       </div>`
+    : `<div class="pl-col-title" style="margin-bottom:8px">产物</div>
+       <div style="font-size:11.5px;color:var(--fg-4)">${p.noArtifact}</div>`;
+
+  const runs = document.getElementById('runList');
+  if (!p.runs.length) {
+    runs.innerHTML = '<div class="run-row" style="color:var(--fg-4);cursor:default">还没有运行记录 —— 先跑一次彩排</div>';
+  } else {
+    runs.innerHTML = p.runs.map(r => `
+      <div class="run-row">
+        <span class="badge ${r.ok === true ? 'green' : r.ok === false ? 'red' : ''}"><span class="dot"></span>${r.ok === true ? '成功' : r.ok === false ? '失败' : '中止'}</span>
+        <span class="when">${r.when}</span>
+        <span class="spacer"></span>
+        <span class="dur">${r.dur}</span>
+        <span class="badge">${r.tag}</span>
+      </div>`).join('');
+  }
+}
+
+document.querySelectorAll('.pl-item').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.pl-item').forEach(x => x.classList.remove('active'));
+    el.classList.add('active');
+    renderPipe(el.dataset.pipe);
+  });
+});
+
+renderPipe('wechat');
+</script>
+</body>
+</html>

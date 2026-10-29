@@ -65,15 +65,19 @@ export class AskUserQuestionController {
   }
 
   /**
-   * 以 cancelled=true 拒绝所有挂起请求（destroyAll 或重启时调用）
+   * 以 cancelled=true 拒绝所有挂起请求（abort / destroyAll 时调用）。
+   * @returns 被取消的 requestId 列表，供调用方广播渲染侧收卡事件
    */
-  clearAll(): void {
+  clearAll(): string[] {
+    const cancelledIds: string[] = []
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timeoutHandle)
       entry.resolve({ answers: {}, cancelled: true })
+      cancelledIds.push(requestId)
       log.info(`[clearAll] cancelled pending ask: ${requestId}`)
     }
     this.pending.clear()
+    return cancelledIds
   }
 
   /** 暴露给外部诊断的当前挂起请求数 */

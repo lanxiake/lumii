@@ -6,6 +6,7 @@
  * 两边对不齐就会出现重复气泡。
  */
 import { updateSessionState } from './agent-runtime-store'
+import { markInteractionEnd, markInteractionStart } from '../../../utils/perf-marks'
 
 export interface SendUserMessageOptions {
   readonly agentId?: string
@@ -37,6 +38,12 @@ export async function sendUserMessage(
 
   const msgId = makeUserMessageId()
 
+  // 两个计时共用一个起点：
+  // - `send-message` 量「点击 → 发出」的本地耗时（首 token 不归它）；
+  // - `first-token` 量「发出 → 模型出第一个字」，阈值另设一档（大头是模型往返）。
+  markInteractionStart('send-message')
+  markInteractionStart('first-token')
+
   // 先将用户消息追加到对应会话的 Store（乐观写入，主进程广播会按同 id 去重）
   updateSessionState(sessionKey, (prev) => ({
     ...prev,
@@ -63,6 +70,9 @@ export async function sendUserMessage(
     msgId,
     imageAttachmentPaths: options?.imageAttachmentPaths,
   })) as { runId: string }
+
+  // 「点击 → 发出（IPC 返回 runId）」到这里就结束了；之后是模型往返，不属于本地耗时
+  markInteractionEnd('send-message')
 
   return result.runId
 }

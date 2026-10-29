@@ -187,4 +187,109 @@ describe('WorkspaceWorkbench · 布局与视图', () => {
     )
     expect(container.querySelector('[data-testid="parent"] aside')).not.toBeNull()
   })
+
+  it('非单栏时可收起/展开左侧产物路径 rail', () => {
+    // wide=860 ≥560，双栏
+    renderShell({
+      preset: 'wide',
+      selectedPath: 'outputs/a.png',
+      rail: <div>台账内容</div>,
+      main: <div>预览内容</div>,
+    })
+    expect(screen.getByText('台账内容')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '收起产物列表' }))
+    expect(screen.queryByText('台账内容')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '展开产物列表' }))
+    expect(screen.getByText('台账内容')).toBeVisible()
+  })
+
+  it('并排 inspector（满档）可用「信息」钮收起/展开', () => {
+    const onInspectorOpenChange = vi.fn()
+    const { rerender } = renderShell({
+      preset: 'full',
+      selectedPath: 'outputs/a.png',
+      inspector: <div>规格详情</div>,
+      inspectorOpen: true,
+      onInspectorOpenChange,
+    })
+    expect(screen.getByText('规格详情')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '产物信息与版本' }))
+    expect(onInspectorOpenChange).toHaveBeenCalledWith(false)
+
+    rerender(
+      <WorkspaceWorkbench
+        open
+        view="workspace"
+        onlyArtifacts
+        preset="full"
+        selectedPath="outputs/a.png"
+        onViewChange={vi.fn()}
+        onOnlyArtifactsChange={vi.fn()}
+        onPresetChange={vi.fn()}
+        onClose={vi.fn()}
+        uncommittedCount={0}
+        rail={<div>台账内容</div>}
+        main={<div>预览内容</div>}
+        inspector={<div>规格详情</div>}
+        inspectorOpen={false}
+        onInspectorOpenChange={onInspectorOpenChange}
+      />,
+    )
+    expect(screen.queryByText('规格详情')).not.toBeInTheDocument()
+  })
+
+  it('专注预览：顶栏按钮收起两侧，再按按快照恢复', () => {
+    const onInspectorOpenChange = vi.fn()
+    const base = {
+      open: true as const,
+      view: 'workspace' as const,
+      onlyArtifacts: true,
+      preset: 'full' as const,
+      selectedPath: 'outputs/a.png',
+      onViewChange: vi.fn(),
+      onOnlyArtifactsChange: vi.fn(),
+      onPresetChange: vi.fn(),
+      onClose: vi.fn(),
+      uncommittedCount: 0,
+      rail: <div>台账内容</div>,
+      main: <div>预览内容</div>,
+      inspector: <div>规格详情</div>,
+      onInspectorOpenChange,
+    }
+    const { rerender } = render(<WorkspaceWorkbench {...base} inspectorOpen />)
+    expect(screen.getByText('台账内容')).toBeVisible()
+    expect(screen.getByText('规格详情')).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: '专注预览' }))
+    expect(screen.queryByText('台账内容')).not.toBeInTheDocument()
+    expect(onInspectorOpenChange).toHaveBeenCalledWith(false)
+
+    onInspectorOpenChange.mockClear()
+    rerender(<WorkspaceWorkbench {...base} inspectorOpen={false} />)
+    fireEvent.click(screen.getByRole('button', { name: '退出专注预览' }))
+    expect(screen.getByText('台账内容')).toBeVisible()
+    expect(onInspectorOpenChange).toHaveBeenCalledWith(true)
+  })
+
+  it('Ctrl+B 在工作台打开时切换专注预览（捕获阶段拦住侧栏）', () => {
+    const onInspectorOpenChange = vi.fn()
+    const sidebarSpy = vi.fn()
+    window.addEventListener('keydown', sidebarSpy)
+
+    renderShell({
+      preset: 'full',
+      selectedPath: 'outputs/a.png',
+      inspector: <div>规格详情</div>,
+      inspectorOpen: true,
+      onInspectorOpenChange,
+      rail: <div>台账内容</div>,
+    })
+
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
+    expect(screen.queryByText('台账内容')).not.toBeInTheDocument()
+    expect(onInspectorOpenChange).toHaveBeenCalledWith(false)
+    expect(sidebarSpy).not.toHaveBeenCalled()
+
+    window.removeEventListener('keydown', sidebarSpy)
+  })
 })

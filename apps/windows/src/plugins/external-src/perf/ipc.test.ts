@@ -3,260 +3,112 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
   shell: { openPath: vi.fn(async () => '') },
+  app: {
+    getAppMetrics: vi.fn(() => [
+      { type: 'Tab', pid: 100, memory: { workingSetSize: 2048, privateBytes: 1024 } },
+    ]),
+  },
 }))
 
-import { registerPerformanceIpc, normalizeRendererSample } from './ipc'
+import { registerPerformanceIpc, normalizeIncomingEvent } from './ipc'
 import type { PerformanceMonitor } from './impl/performance-monitor'
-import { ipcMain } from 'electron'
 
-/** 扩展 apply 里传的就是这个注册器（ctx.registerIpc），这里用同形状的假对象 */
-const registrar = { handle: vi.fn() }
-const runRegister = (getMonitor: () => PerformanceMonitor | null) => {
-  registrar.handle.mockClear()
-  registerPerformanceIpc(registrar, getMonitor)
-}
+describe('normalizeIncomingEvent', () => {
+  it('拒绝非对象、未知 kind、空 name', () => {
+    expect(normalizeIncomingEvent(null)).toBeNull()
+    expect(normalizeIncomingEvent({ kind: 'nope', name: 'x' })).toBeNull()
+    expect(normalizeIncomingEvent({ kind: 'ipc.slow', name: '   ' })).toBeNull()
+  })
+
+  it('丢弃非有限数的 duration，保留 detail 里的标量', () => {
+    const event = normalizeIncomingEvent({
+      kind: 'renderer.longtask',
+      name: 'self',
+      duration: NaN,
+      detail: { entryType: 'longtask', ok: 1, bad: { x: 1 }, nan: NaN },
+    })
+    expect(event).not.toBeNull()
+    expect(event!.duration).toBeUndefined()
+    expect(event!.detail).toEqual({ entryType: 'longtask', ok: 1 })
+  })
+
+  it('detail 键数与字符串长度都受上限约束', () => {
+    const detail: Record<string, unknown> = {}
+    for (let i = 0; i < 20; i++) detail[`k${i}`] = 'x'.repeat(500)
+    const event = normalizeIncomingEvent({ kind: 'db.slow', name: 's', detail })
+    expect(Object.keys(event!.detail!).length).toBeLessThanOrEqual(8)
+    expect((event!.detail!.k0 as string).length).toBeLessThanOrEqual(200)
+  })
+})
 
 describe('Performance IPC Handlers', () => {
-  /** 扩展 apply 里传的就是这个注册器（ctx.registerIpc），这里用同形状的假对象 */
   const registrar = { handle: vi.fn() }
-  const runRegister = (getMonitor: () => PerformanceMonitor | null) => {
-    registrar.handle.mockClear()
-    registerPerformanceIpc(registrar, getMonitor)
-  }
   let mockMonitor: PerformanceMonitor
+
+  // 取最后一次注册的 handler：重注册时后者覆盖前者（与 IpcTable 的语义一致）
+  const channelOf = (name: string) =>
+    registrar.handle.mock.calls.filter((c) => c[0] === name).at(-1)?.[1] as (
+      event: unknown,
+      ...args: unknown[]
+    ) => unknown
 
   beforeEach(() => {
     vi.clearAllMocks()
     mockMonitor = {
-      getReport: vi.fn(() => ({
-        generatedAt: Date.now(),
-        startupStats: { totalDuration: 1000, phases: { preload: 100, window: 500 }, completed: true },
-        ipcStats: {
-          totalCalls: 10,
-          slowCalls: 1,
-          errors: 0,
-          channelBreakdown: {},
-          averageLatency: 50,
-        },
-        memoryStats: {
-          current: { mainProcess: { heapUsed: 100, external: 10, rss: 300 }, childProcesses: [] },
-          peak: { mainProcess: { heapUsed: 100, external: 10, rss: 300 }, childProcesses: [] },
-        },
-        health: 'good',
-      })),
-      recordMemorySnapshot: vi.fn(),
-      recordRendererMemory: vi.fn(),
-      getIpcAggregateHistory: vi.fn(() => []),
-      getMemorySnapshotHistory: vi.fn(() => []),
-      cleanOldLogs: vi.fn(),
-      destroy: vi.fn(),
+      getSummary: vi.fn(() => ({ generatedAt: 1, health: 'good' })),
+      listEvents: vi.fn(() => []),
+      recordEvent: vi.fn(),
     } as unknown as PerformanceMonitor
+    registerPerformanceIpc(registrar, () => mockMonitor)
   })
 
-  it('should register performance:getReport handler', () => {
-    runRegister(() => mockMonitor)
+  it('注册四条通道，且不再有 getHistory / recordRendererMemory', () => {
+    const channels = registrar.handle.mock.calls.map((c) => c[0])
+    expect(channels).toEqual([
+      'performance:getSummary',
+      'performance:listEvents',
+      'performance:recordEvent',
+      'performance:capture',
+      'performance:openLogFolder',
+    ])
+  })
 
-    expect(registrar.handle).toHaveBeenCalledWith(
-      'performance:getReport',
-      expect.any(Function),
+  it('perf 不可用时 getSummary 抛错，listEvents 返回空数组', async () => {
+    registerPerformanceIpc(registrar, () => null)
+    await expect(channelOf('performance:getSummary')({})).rejects.toThrow('perf_disabled')
+    expect(await channelOf('performance:listEvents')({})).toEqual([])
+  })
+
+  it('listEvents 透传 since', async () => {
+    await channelOf('performance:listEvents')({}, { since: 123 })
+    expect(mockMonitor.listEvents).toHaveBeenCalledWith(123)
+    await channelOf('performance:listEvents')({}, { since: 'bad' })
+    expect(mockMonitor.listEvents).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('recordEvent 补齐时间戳后交给 monitor；坏载荷被拒且不落事件', async () => {
+    const ok = await channelOf('performance:recordEvent')({}, {
+      kind: 'renderer.interaction',
+      name: 'switch-session',
+      duration: 900,
+    })
+    expect(ok).toEqual({ success: true })
+    expect(mockMonitor.recordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'renderer.interaction', name: 'switch-session', duration: 900 }),
     )
+    expect(typeof vi.mocked(mockMonitor.recordEvent).mock.calls[0]![0].timestamp).toBe('number')
+
+    const bad = await channelOf('performance:recordEvent')({}, { kind: 'nope', name: 'x' })
+    expect(bad).toMatchObject({ success: false, error: 'invalid-event' })
+    expect(mockMonitor.recordEvent).toHaveBeenCalledTimes(1)
   })
 
-  it('should return performance report', async () => {
-    runRegister(() => mockMonitor)
-
-    const calls = (registrar.handle as ReturnType<typeof vi.fn>).mock.calls
-    const getReportCall = calls.find(c => c[0] === 'performance:getReport')
-    const handler = getReportCall![1]
-
-    const report = await handler({})
-    expect(report.health).toBe('good')
-    expect(report.ipcStats.totalCalls).toBe(10)
-  })
-
-  it('should handle performance:capture', async () => {
-    runRegister(() => mockMonitor)
-
-    const calls = (registrar.handle as ReturnType<typeof vi.fn>).mock.calls
-    const captureCall = calls.find(c => c[0] === 'performance:capture')
-    const handler = captureCall![1]
-
-    const result = await handler({})
-    expect(result.success).toBe(true)
-    expect(mockMonitor.recordMemorySnapshot).toHaveBeenCalledTimes(1)
-  })
-
-  it('should handle performance:openLogFolder', async () => {
-    runRegister(() => mockMonitor)
-
-    const calls = (registrar.handle as ReturnType<typeof vi.fn>).mock.calls
-    const openCall = calls.find(c => c[0] === 'performance:openLogFolder')
-    const handler = openCall![1]
-
-    const result = await handler({})
-    expect(result.success).toBeDefined()
-  })
-
-  it('should return ipc aggregate and memory snapshot history', async () => {
-    runRegister(() => mockMonitor)
-
-    const calls = (registrar.handle as ReturnType<typeof vi.fn>).mock.calls
-    const historyCall = calls.find(c => c[0] === 'performance:getHistory')
-    const handler = historyCall![1]
-
-    const result = await handler({})
-    expect(result.ipcAggregates).toEqual([])
-    expect(result.memorySnapshots).toEqual([])
-    expect(mockMonitor.getIpcAggregateHistory).toHaveBeenCalledTimes(1)
-    expect(mockMonitor.getMemorySnapshotHistory).toHaveBeenCalledTimes(1)
-  })
-
-  describe('performance:recordRendererMemory', () => {
-    /** 取注册好的处理器；sender 用于提供渲染进程 pid */
-    function getRendererMemoryHandler() {
-      runRegister(() => mockMonitor)
-      const calls = (registrar.handle as ReturnType<typeof vi.fn>).mock.calls
-      const call = calls.find(c => c[0] === 'performance:recordRendererMemory')
-      return { handler: call![1], event: { sender: { getOSProcessId: () => 4321 } } }
-    }
-
-    it('registers the renderer memory handler', () => {
-      runRegister(() => mockMonitor)
-      expect(registrar.handle).toHaveBeenCalledWith(
-        'performance:recordRendererMemory',
-        expect.any(Function),
-      )
-    })
-
-    it('stamps timestamp and pid in the main process instead of trusting the renderer', async () => {
-      const { handler, event } = getRendererMemoryHandler()
-
-      const result = await handler(event, {
-        jsHeapUsed: 209 * 1024 * 1024,
-        jsHeapLimit: 4096 * 1024 * 1024,
-        domNodes: 12139,
-        topSessions: '394c9ea33cee:122',
-        // 渲染层自填的字段必须被忽略
-        pid: 999,
-        timestamp: 1,
-      })
-
-      expect(result.success).toBe(true)
-      const forwarded = (mockMonitor.recordRendererMemory as ReturnType<typeof vi.fn>).mock.calls[0]![0]
-      expect(forwarded.kind).toBe('renderer.memory')
-      expect(forwarded.pid).toBe(4321)
-      expect(forwarded.timestamp).toBeGreaterThan(1)
-      expect(forwarded.domNodes).toBe(12139)
-    })
-
-    it('rejects a non-object payload', async () => {
-      const { handler, event } = getRendererMemoryHandler()
-
-      const result = await handler(event, 'not-a-sample')
-
-      expect(result).toEqual({ success: false, error: 'invalid-sample' })
-      expect(mockMonitor.recordRendererMemory).not.toHaveBeenCalled()
-    })
-  })
-})
-
-describe('normalizeRendererSample', () => {
-  it('returns null for non-object payloads', () => {
-    expect(normalizeRendererSample(null)).toBeNull()
-    expect(normalizeRendererSample('x')).toBeNull()
-    expect(normalizeRendererSample(42)).toBeNull()
-  })
-
-  it('keeps valid counts as integers', () => {
-    const sample = normalizeRendererSample({ domNodes: 4700.9, imgs: 2 })
-    expect(sample?.domNodes).toBe(4700)
-    expect(sample?.imgs).toBe(2)
-  })
-
-  it('turns NaN, Infinity, negatives and non-numbers into 0 so the jsonl line stays valid JSON', () => {
-    const sample = normalizeRendererSample({
-      jsHeapUsed: NaN,
-      jsHeapLimit: Infinity,
-      domNodes: -1,
-      messages: '12',
-      sessions: undefined,
-    })
-    expect(sample).toMatchObject({
-      jsHeapUsed: 0,
-      jsHeapLimit: 0,
-      domNodes: 0,
-      messages: 0,
-      sessions: 0,
-    })
-    expect(JSON.parse(JSON.stringify(sample))).toBeTruthy()
-  })
-
-  it('truncates the topSessions summary and defaults it to empty string', () => {
-    const long = 'x'.repeat(500)
-    expect(normalizeRendererSample({ topSessions: long })?.topSessions).toHaveLength(200)
-    expect(normalizeRendererSample({ topSessions: 42 })?.topSessions).toBe('')
-  })
-
-  it('fills missing fields with 0 rather than dropping the sample', () => {
-    const sample = normalizeRendererSample({ jsHeapUsed: 1024 })
-    expect(sample).not.toBeNull()
-    expect(sample?.jsHeapUsed).toBe(1024)
-    expect(sample?.domNodes).toBe(0)
-    expect(sample?.topSessions).toBe('')
-  })
-
-  it('keeps the native readings as reported', () => {
-    const sample = normalizeRendererSample({
-      native: {
-        selfPrivate: 2_620_000,
-        selfWorkingSet: 2_583_000,
-        arrayBuffers: 8_388_608,
-        blinkTotal: 1_800_000,
-        resImagesLive: 1_048_576,
-      },
-    })
-    expect(sample?.native).toMatchObject({
-      selfPrivate: 2_620_000,
-      selfWorkingSet: 2_583_000,
-      arrayBuffers: 8_388_608,
-      blinkTotal: 1_800_000,
-      resImagesLive: 1_048_576,
-    })
-  })
-
-  it('normalizes a dirty native block field by field instead of dropping the sample', () => {
-    const sample = normalizeRendererSample({
-      jsHeapUsed: 1024,
-      native: { selfPrivate: NaN, blinkTotal: -5, arrayBuffers: '8388608' },
-    })
-    expect(sample).not.toBeNull()
-    expect(sample?.jsHeapUsed).toBe(1024)
-    expect(sample?.native.selfPrivate).toBe(0)
-    expect(sample?.native.blinkTotal).toBe(0)
-    expect(sample?.native.arrayBuffers).toBe(0)
-  })
-
-  it('perf 扩展被卸载（getter 返回 null）时：历史为空、采样返回 perf_disabled', async () => {
-    vi.clearAllMocks()
-    runRegister(() => null)
-    const calls = (registrar.handle as ReturnType<typeof vi.fn>).mock.calls
-    const getHistory = calls.findLast((c) => c[0] === 'performance:getHistory')![1]
-    const recordRenderer = calls.findLast((c) => c[0] === 'performance:recordRendererMemory')![1]
-
-    expect(await getHistory({})).toEqual({ ipcAggregates: [], memorySnapshots: [] })
-    expect(await recordRenderer({ sender: { getOSProcessId: () => 1 } }, { jsHeapUsed: 1 })).toEqual({
-      success: false,
-      error: 'perf_disabled',
-    })
-  })
-
-  it('fills a missing or non-object native block with zeros', () => {
-    // 旧版 preload 的采样（还没有 native 字段）不该被判成非法
-    for (const native of [undefined, null, 'x', 42]) {
-      const sample = normalizeRendererSample({ jsHeapUsed: 1024, native })
-      expect(sample).not.toBeNull()
-      expect(sample?.native.selfPrivate).toBe(0)
-      expect(sample?.native.resImagesLive).toBe(0)
-    }
+  it('capture 记录一次手动内存现场', async () => {
+    const result = await channelOf('performance:capture')({})
+    expect(result).toEqual({ success: true })
+    const event = vi.mocked(mockMonitor.recordEvent).mock.calls[0]![0]
+    expect(event.kind).toBe('memory.spike')
+    expect(event.name).toBe('manual')
+    expect(event.detail?.processes).toContain('Tab#100')
   })
 })

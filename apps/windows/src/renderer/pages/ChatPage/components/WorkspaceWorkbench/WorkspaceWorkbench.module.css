@@ -248,11 +248,75 @@
 }
 
 .rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   flex-shrink: 0;
   min-width: 0;
   height: 100%;
   overflow: hidden;
   border-right: 1px solid var(--mt-border-hairline);
+}
+
+.railBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/** 收起 rail：贴右缘中部，避免挡住台账顶栏 */
+.railCollapseBtn {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 36px;
+  transform: translate(50%, -50%);
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 999px;
+  background: var(--mt-surface-1);
+  color: var(--mt-fg-3);
+  cursor: pointer;
+  box-shadow: var(--mt-shadow-sm, 0 1px 2px rgb(0 0 0 / 8%));
+}
+
+.railCollapseBtn:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
+/** rail 收起后的窄条，点开可再展开 */
+.railStrip {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 28px;
+  height: 100%;
+  border-right: 1px solid var(--mt-border-hairline);
+  padding-top: 6px;
+}
+
+.railToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.railToggle:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
 }
 
 .rail[hidden],

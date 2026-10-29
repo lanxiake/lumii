@@ -307,6 +307,16 @@ export {
   clearInvalidSessionPreferredModels,
   toggleSessionDisabled,
 } from "./storage/index.js";
+export {
+  setSlowQueryListener,
+  getSlowQueryThresholdMs,
+  normalizeSql,
+  MAX_SQL_TEMPLATE_CHARS,
+} from "./storage/index.js";
+export type {
+  SlowQuerySample,
+  SlowQueryListener,
+} from "./storage/index.js";
 export type {
   SessionConfig,
   DatabaseAdapter,

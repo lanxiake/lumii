@@ -8,6 +8,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { SCHEMA_VERSION, MIGRATIONS } from "./schema.js";
+import { timeSql } from "./slow-query.js";
 import {
   startScheduledDatabaseBackup,
   tryRestoreFromLatestBackup,
@@ -212,18 +213,22 @@ async function createNodeSqliteAdapter(dbPath: string): Promise<DatabaseAdapter>
   console.log("[local-database] 创建 DatabaseSync 实例:", dbPath);
   const db = new DatabaseSync(dbPath);
   applySqliteConnectionPragmas(db);
+  const dbLabel = path.basename(dbPath);
 
   return {
-    exec: (sql: string) => db.exec(sql),
+    exec: (sql: string) => timeSql(dbLabel, "exec", sql, () => db.exec(sql)),
     prepare: <T = Record<string, unknown>>(sql: string) => {
       const stmt = db.prepare(sql);
       return {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        run: (...params: unknown[]) => stmt.run(...(params as any[])) as unknown as StatementResult,
+        run: (...params: unknown[]) =>
+          timeSql(dbLabel, "run", sql, () => stmt.run(...(params as any[])) as unknown as StatementResult),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        get: (...params: unknown[]) => stmt.get(...(params as any[])) as T | undefined,
+        get: (...params: unknown[]) =>
+          timeSql(dbLabel, "get", sql, () => stmt.get(...(params as any[])) as T | undefined),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        all: (...params: unknown[]) => stmt.all(...(params as any[])) as T[],
+        all: (...params: unknown[]) =>
+          timeSql(dbLabel, "all", sql, () => stmt.all(...(params as any[])) as T[]),
       };
     },
     close: () => db.close(),
@@ -272,15 +277,18 @@ async function createBetterSqliteAdapter(dbPath: string): Promise<DatabaseAdapte
   const db = new BetterSqlite(dbPath) as any;
   // 与 node:sqlite 路径共用同一组 PRAGMA（含 busy_timeout）
   applySqliteConnectionPragmas({ exec: (sql) => db.exec(sql) });
+  const dbLabel = path.basename(dbPath);
 
   return {
-    exec: (sql: string) => db.exec(sql),
+    exec: (sql: string) => timeSql(dbLabel, "exec", sql, () => db.exec(sql)),
     prepare: <T = Record<string, unknown>>(sql: string) => {
       const stmt = db.prepare(sql);
       return {
-        run: (...params: unknown[]) => stmt.run(...params) as StatementResult,
-        get: (...params: unknown[]) => stmt.get(...params) as T | undefined,
-        all: (...params: unknown[]) => stmt.all(...params) as T[],
+        run: (...params: unknown[]) =>
+          timeSql(dbLabel, "run", sql, () => stmt.run(...params) as StatementResult),
+        get: (...params: unknown[]) =>
+          timeSql(dbLabel, "get", sql, () => stmt.get(...params) as T | undefined),
+        all: (...params: unknown[]) => timeSql(dbLabel, "all", sql, () => stmt.all(...params) as T[]),
       };
     },
     close: () => db.close(),
@@ -611,25 +619,26 @@ export class LocalDatabase {
       throw new Error("Database not initialized before integrity_check.");
     }
 
-    // 上次是干净关闭 → SQLite 的 WAL 一致性由它自己保证，跳过全库扫描。
-    // 崩溃/断电没有标记，仍走 quick_check。（306MB 实测：跳过省 1.6 秒）
-    const cleanlyClosed = consumeCleanShutdownMarker(actualDbPath);
-
-    if (!cleanlyClosed && !verifyDatabaseIntegrity(dbForIntegrity)) {
-      dbForIntegrity.close();
-      this._db = null;
-      this._dbPath = null;
-      // 用 actualDbPath 而非 dbPath 恢复：本轮打开的可能是历史轮转路径，
-      // 恢复到 dbPath 会让「当前正在用的库」保持损坏状态。
-      if (recoveryDepth < maxRecovery && tryRestoreFromLatestBackup(actualDbPath, backupDir)) {
-        await this.openWithRecovery(options, backupDir, recoveryDepth + 1);
-        return;
+    // 上次是干净关闭 / 24 小时内已完整校验过 → 跳过全库扫描（356MB 实测 1.2–6.5 秒）。
+    // 跳过时**不刷新时间戳**：否则每天重启一次就永远不会再校验，等于关掉了这项保护。
+    if (!wasVerifiedRecently(actualDbPath)) {
+      if (!verifyDatabaseIntegrity(dbForIntegrity)) {
+        dbForIntegrity.close();
+        this._db = null;
+        this._dbPath = null;
+        // 用 actualDbPath 而非 dbPath 恢复：本轮打开的可能是历史轮转路径，
+        // 恢复到 dbPath 会让「当前正在用的库」保持损坏状态。
+        if (recoveryDepth < maxRecovery && tryRestoreFromLatestBackup(actualDbPath, backupDir)) {
+          await this.openWithRecovery(options, backupDir, recoveryDepth + 1);
+          return;
+        }
+        throw new Error(
+          "SQLite database failed integrity_check and could not be restored from backup.",
+        );
       }
-      throw new Error(
-        "SQLite database failed integrity_check and could not be restored from backup.",
-      );
+      // 只有真正跑过校验才起算 24 小时窗口
+      writeCleanShutdownMarker(actualDbPath);
     }
-
     phase("3-integrity-checked")
 
     if (options.enableScheduledBackup !== false) {
@@ -779,10 +788,24 @@ export class LocalDatabase {
 /**
  * 判断当前数据库是否像「刚创建的空库」（无会话与消息）。
  */
+
 /** 干净关闭标记的路径（与主库同目录，旁路文件）。 */
 function cleanShutdownMarkerPath(dbPath: string): string {
   return `${dbPath}.clean-shutdown`;
 }
+
+/**
+ * 距上次完整校验过了多久以内可以跳过。
+ *
+ * 为什么需要上限而不是「每次非正常退出都扫」：`quick_check` 要扫完 356MB，
+ * 实测 1.2–6.5 秒且**同步阻塞主线程**（发生在窗口已显示之后的 S7.4 阶段，
+ * 用户看到的就是 6 秒卡死）。dev 下频繁 taskkill、生产下崩溃都算「非正常退出」，
+ * 于是几乎每次启动都付一遍。
+ *
+ * 24 小时内已经完整校验过一次，就认为「结构损坏的概率足够低」：
+ * SQLite 自己在读取坏页时仍会抛错，这里放弃的只是「启动前主动发现」的提前量。
+ */
+const INTEGRITY_RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function writeCleanShutdownMarker(dbPath: string): void {
   try {
@@ -793,17 +816,17 @@ function writeCleanShutdownMarker(dbPath: string): void {
 }
 
 /**
- * 消费「干净关闭」标记：存在则删掉并返回 true。
+ * 距上次**实际校验通过**（或正常关闭）是否还在 24 小时窗口内。
  *
- * 语义是一次性的——无论这次启动是否正常结束，标记都要重新由 close() 写入，
- * 否则一次崩溃之后会一直跳过校验。
+ * 只读不删：跳过时不刷新窗口，避免「每天重启一次 ⇒ 永远不再校验」。
+ * 时间戳只在校验真正跑过、以及 `close()` 正常退出时更新。
  */
-function consumeCleanShutdownMarker(dbPath: string): boolean {
-  const marker = cleanShutdownMarkerPath(dbPath);
+function wasVerifiedRecently(dbPath: string): boolean {
   try {
+    const marker = cleanShutdownMarkerPath(dbPath);
     if (!fs.existsSync(marker)) return false;
-    fs.unlinkSync(marker);
-    return true;
+    const verifiedAt = Number(fs.readFileSync(marker, "utf-8").trim());
+    return Number.isFinite(verifiedAt) && Date.now() - verifiedAt < INTEGRITY_RECHECK_INTERVAL_MS;
   } catch {
     return false;
   }

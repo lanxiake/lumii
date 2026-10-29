@@ -1637,7 +1637,12 @@ def _render(lt, content):
     return out
 
 
-_ATUSERS_RE = re.compile(r"<atuserlist><!\[CDATA\[(.*?)\]\]></atuserlist>", re.S)
+# CDATA 与裸文本两种都有（2026-10-29 本机群库：约 1/3 CDATA、2/3 裸 wxid）。
+# 只认 CDATA 时「只回 @我」会漏掉大多数真 @，看起来像触发条件没生效。
+_ATUSERS_RE = re.compile(
+    r"<atuserlist>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</atuserlist>",
+    re.S,
+)
 
 
 def at_me_in_source(source, me):
@@ -1646,6 +1651,8 @@ def at_me_in_source(source, me):
     群消息 @人 时微信把**被 @ 的 wxid** 写在这里（2026-10-10 实测本机群库），是**确定性**信号
     ——比拿昵称去正文里猜可靠得多：群昵称跟全局昵称经常不是一回事（本人在群里叫 小王，
     正文里就只是一句 `@小王 …`，同名/改名立刻失准）。
+
+    也认 `notify@all`（@所有人）：点名全员时，「只回 @我」应当叫醒。
     """
     if not source or not me:
         return False
@@ -1656,7 +1663,8 @@ def at_me_in_source(source, me):
     m = _ATUSERS_RE.search(s)
     if not m:
         return False
-    return me in [x.strip() for x in re.split(r"[,\s]+", m.group(1)) if x.strip()]
+    users = [x.strip() for x in re.split(r"[,\s]+", m.group(1)) if x.strip()]
+    return me in users or "notify@all" in users
 
 
 _IMG_MD5_RE = re.compile(r'(?<![0-9A-Za-z_])md5="([0-9a-fA-F]{32})"')

@@ -740,13 +740,39 @@ let cachedPendingAskUserSnapshot: PendingAskUserSnapshot = EMPTY_PENDING_ASK_USE
 /**
  * 在全部会话中查找首个待回答的 ask_user_question 请求。
  * 后台频道会话与当前 UI 会话不一致时，仍需弹出 Modal。
+ *
+ * 优先当前 UI 会话，避免其它会话残留的 pending 抢先匹配，
+ * 导致本会话 AskUserCard 对不上 requestId、退化成「等待用户回答…」。
  */
 export function findAnyPendingAskUser(
   state: MultiSessionRuntimeState,
 ): { sessionKey: string; pending: PendingAskUser } | null {
+  const currentKey = state.currentSessionKey
+  if (currentKey) {
+    const currentPending = state.sessions.get(currentKey)?.pendingAskUser
+    if (currentPending) return { sessionKey: currentKey, pending: currentPending }
+  }
   for (const [sessionKey, sessionState] of state.sessions) {
+    if (sessionKey === currentKey) continue
     const pending = sessionState.pendingAskUser
     if (pending) {
+      return { sessionKey, pending }
+    }
+  }
+  return null
+}
+
+/**
+ * 按 requestId（= toolCallId / part.id）精确查找挂起提问。
+ * 时间线卡必须以 part 对齐，不能拿「全局首个 pending」硬套。
+ */
+export function findPendingAskUserByRequestId(
+  state: MultiSessionRuntimeState,
+  requestId: string,
+): { sessionKey: string; pending: PendingAskUser } | null {
+  for (const [sessionKey, sessionState] of state.sessions) {
+    const pending = sessionState.pendingAskUser
+    if (pending?.requestId === requestId) {
       return { sessionKey, pending }
     }
   }

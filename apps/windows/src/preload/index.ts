@@ -20,7 +20,7 @@ import type { UsageSummary } from '../plugins/builtin/usage/store'
 import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta, DashboardFeedBatchPage } from '../plugins/builtin/dashboard-feed/store'
 import type { LatencyView } from '../main/provider-latency'
 import type { PingReport } from '../shared/net-latency-types'
-import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent, RendererMemorySample } from '../shared/performance'
+import type { PerfEvent, PerfSummary, RendererPerfEvent } from '../shared/performance'
 import type { RendererNativeMemory } from '../shared/performance'
 import { readRendererNativeMemory } from './renderer-native-memory'
 import type { WechatSelfcheckResult, WechatRepairResult } from './api/channel-api'
@@ -1264,22 +1264,19 @@ export interface ElectronAPI {
 
   // 性能诊断
   performance: {
-    /** 获取性能诊断报告（IPC 耗时、启动阶段、内存占用、健康状态） */
-    getReport: () => Promise<PerformanceReport>
-    /** 手动捕获一次内存快照 */
+    /** 今日慢事件摘要（计数、最慢、启动阶段、内存、健康度） */
+    getSummary: () => Promise<PerfSummary>
+    /** 今日全部慢事件（含重启前从磁盘回放的）；`since` 为毫秒时间戳下界 */
+    listEvents: (opts?: { since?: number }) => Promise<PerfEvent[]>
+    /** 渲染层上报慢事件（长任务 / 关键交互 / 内存尖峰）；时间戳由主进程补 */
+    recordEvent: (event: RendererPerfEvent) => Promise<{ success: boolean; error?: string }>
+    /** 手动记录一次内存现场 */
     capture: () => Promise<{ success: boolean; error?: string }>
     /** 打开性能日志文件夹 */
     openLogFolder: () => Promise<{ success: boolean; error?: string }>
-    /** 获取历史时间序列（IPC 60秒窗口聚合 + 内存快照序列），用于运行时趋势图 */
-    getHistory: () => Promise<{ ipcAggregates: IpcAggregateEvent[]; memorySnapshots: MemorySnapshotEvent[] }>
-    /**
-     * 上报一次渲染进程内存采样，落到与 memory.snapshot 同一份 perf 日志。
-     * 时间戳与 pid 由主进程补，这里只递交读数。
-     */
-    recordRendererMemory: (sample: RendererMemorySample) => Promise<{ success: boolean; error?: string }>
     /**
      * 读一次本进程的原生内存口径（V8 堆外 / Blink 分配器 / Blink 资源缓存 / 进程级）。
-     * 只有 preload 够得着这几个 Electron 接口，故由这里读、渲染层的探针并进采样。
+     * 只有 preload 够得着这几个 Electron 接口，故由这里读、渲染层的探针并进尖峰事件。
      */
     readRendererNativeMemory: () => Promise<RendererNativeMemory>
   }
@@ -1565,12 +1562,11 @@ const electronAPI: ElectronAPI = {
 
   // 性能诊断
   performance: {
-    getReport: () => ipcRenderer.invoke('performance:getReport'),
+    getSummary: () => ipcRenderer.invoke('performance:getSummary'),
+    listEvents: (opts?: { since?: number }) => ipcRenderer.invoke('performance:listEvents', opts),
+    recordEvent: (event: RendererPerfEvent) => ipcRenderer.invoke('performance:recordEvent', event),
     capture: () => ipcRenderer.invoke('performance:capture'),
     openLogFolder: () => ipcRenderer.invoke('performance:openLogFolder'),
-    getHistory: () => ipcRenderer.invoke('performance:getHistory'),
-    recordRendererMemory: (sample: RendererMemorySample) =>
-      ipcRenderer.invoke('performance:recordRendererMemory', sample),
     readRendererNativeMemory: () => readRendererNativeMemory(),
   },
 

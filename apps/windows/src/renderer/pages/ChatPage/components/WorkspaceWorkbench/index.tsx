@@ -3,6 +3,7 @@
  *
  * 真 flex 分栏（不再是 fixed + padding）：拖宽时只有左边缘移动，对话区不重排。
  * 两个视图（工作区 / 版本）+ 「只看产出」开关；宽度三档（半 480 / 宽 860 / 满）。
+ * 非单栏时可收起 rail / inspector；专注预览（顶栏或 Ctrl+B）一次收两侧只留 main。
  *
  * 结构：shell（宽度动画）→ inner（固定宽度，避免动画时内容重排）
  *       → header + [rail | main | inspector]
@@ -10,7 +11,15 @@
 
 import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { X, RefreshCw, AppWindow, Info } from 'lucide-react'
+import {
+  X,
+  RefreshCw,
+  AppWindow,
+  Info,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ScanEye,
+} from 'lucide-react'
 import {
   CHAT_MIN_REMAIN,
   INSPECTOR_WIDTH,
@@ -24,6 +33,7 @@ import {
   type WorkbenchView,
 } from './layout'
 import styles from './WorkspaceWorkbench.module.css'
+import { markInteractionStart, markInteractionEndOnNextPaint } from '../../../../utils/perf-marks'
 
 export type {
   WorkbenchLayoutMode,
@@ -64,11 +74,17 @@ export interface WorkspaceWorkbenchProps {
   main: ReactNode | ((metrics: WorkbenchMetrics) => ReactNode)
   /** inspector：选中产物的规格 + 版本历史；宽度 ≥900 时并排，否则浮在 main 右侧 */
   inspector?: ReactNode
-  /** inspector 是否展开（宽度不足时由 header 的「信息」按钮开关） */
+  /** inspector 是否展开（并排与浮层共用；「信息」按钮开关） */
   inspectorOpen?: boolean
   onInspectorOpenChange?: (open: boolean) => void
   /** 版本视图（vcs 插件） */
   childrenVcs?: ReactNode
+}
+
+/** 专注预览进入前的两侧快照（会话内，组件挂载期有效） */
+interface FocusSnapshot {
+  railCollapsed: boolean
+  inspectorOpen: boolean
 }
 
 /** 判断焦点是否在可编辑控件内（避免抢快捷键） */
@@ -115,6 +131,13 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
   /** 与 dragWidth 同步的最新像素，避免 pointerup 读到尚未提交的 React state */
   const dragWidthRef = useRef<number | null>(null)
+  /** 左侧产物路径是否收起（会话内记住，刷新重置） */
+  const [railCollapsed, setRailCollapsed] = useState(false)
+  /** 是否处于专注预览（两侧收起）；用 state 驱动按钮文案 */
+  const [focusActive, setFocusActive] = useState(false)
+  const focusSnapshotRef = useRef<FocusSnapshot | null>(null)
+  /** 上一帧是否并排 inspector，用于跨入 ≥900 时自动展开一次 */
+  const wasInlineInspectorRef = useRef(false)
 
   // 可用宽度跟着父容器走（chat-page 去掉侧栏后的真实宽度）
   useEffect(() => {
@@ -221,12 +244,89 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
     if (open && !vcsEnabled && view === 'vcs') onViewChange('workspace')
   }, [open, vcsEnabled, view, onViewChange])
 
+  // 工作台展开/收起（含首帧挂载）的耗时要能被人看到：卡的往往是面板里那棵树
+  useEffect(() => {
+    if (!open) return
+    markInteractionStart('open-workspace-panel')
+    markInteractionEndOnNextPaint('open-workspace-panel')
+  }, [open])
+
   const effectiveView: WorkbenchView = !vcsEnabled && view === 'vcs' ? 'workspace' : view
+  const railWidth = railWidthFor(displayWidth)
+  /** 非单栏才提供两侧收起（单栏本身是 rail/main 互斥） */
+  const canCollapseSides = !compact && effectiveView === 'workspace'
+  /** 并排与浮层统一：inspectorOpen 控制是否显示 */
+  const showInspector = Boolean(inspector && selectedPath && inspectorOpen)
+
+  /** 设置 rail 收起态；手动展开时退出专注标记 */
+  const setRailCollapsedSafe = useCallback(
+    (collapsed: boolean) => {
+      setRailCollapsed(collapsed)
+      if (!collapsed && focusActive) {
+        focusSnapshotRef.current = null
+        setFocusActive(false)
+      }
+    },
+    [focusActive],
+  )
+
+  /** 切换 inspector；手动打开时退出专注标记 */
+  const toggleInspector = useCallback(() => {
+    const next = !inspectorOpen
+    if (next && focusActive) {
+      focusSnapshotRef.current = null
+      setFocusActive(false)
+    }
+    onInspectorOpenChange?.(next)
+  }, [inspectorOpen, focusActive, onInspectorOpenChange])
+
+  /** 专注预览：收起两侧；再按按进入前快照恢复 */
+  const toggleFocusPreview = useCallback(() => {
+    if (!canCollapseSides) return
+    if (focusActive) {
+      const snap = focusSnapshotRef.current
+      setRailCollapsed(snap?.railCollapsed ?? false)
+      onInspectorOpenChange?.(snap?.inspectorOpen ?? true)
+      focusSnapshotRef.current = null
+      setFocusActive(false)
+      return
+    }
+    focusSnapshotRef.current = { railCollapsed, inspectorOpen }
+    setRailCollapsed(true)
+    onInspectorOpenChange?.(false)
+    setFocusActive(true)
+  }, [
+    canCollapseSides,
+    focusActive,
+    railCollapsed,
+    inspectorOpen,
+    onInspectorOpenChange,
+  ])
+
+  // 宽度跨入并排断点时默认展开 inspector（设计：≥900 有位置）
+  useEffect(() => {
+    if (!open || !inspector || !selectedPath) {
+      wasInlineInspectorRef.current = inlineInspector
+      return
+    }
+    if (inlineInspector && !wasInlineInspectorRef.current && !focusActive) {
+      onInspectorOpenChange?.(true)
+    }
+    wasInlineInspectorRef.current = inlineInspector
+  }, [open, inlineInspector, inspector, selectedPath, focusActive, onInspectorOpenChange])
 
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return
+      // 工作台打开时 Ctrl/Cmd+B = 专注预览（捕获阶段拦住全局侧栏快捷键）
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
+        if (!canCollapseSides) return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        toggleFocusPreview()
+        return
+      }
       if (event.key === 'Escape') {
         // 预览打开时，Esc 先交给预览关闭，不整块关掉工作台
         if (selectedPath) return
@@ -244,21 +344,20 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
         onViewChange('vcs')
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [
     open,
     selectedPath,
     effectiveView,
     onlyArtifacts,
     vcsEnabled,
+    canCollapseSides,
+    toggleFocusPreview,
     onViewChange,
     onOnlyArtifactsChange,
     onClose,
   ])
-
-  const railWidth = railWidthFor(displayWidth)
-
   return (
     <aside
       ref={shellRef}
@@ -338,12 +437,24 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
           </div>
 
           <div className={styles.actions}>
-            {/* 窄档没有 inspector 栏位：「信息」按钮把它叫成浮层 */}
-            {inspector && !inlineInspector && selectedPath && (
+            {canCollapseSides && (
+              <button
+                type="button"
+                className={clsx(styles.iconBtn, focusActive && styles.iconBtnActive, 'mt-press')}
+                onClick={toggleFocusPreview}
+                aria-pressed={focusActive}
+                title={focusActive ? '退出专注预览（Ctrl+B）' : '专注预览：收起两侧（Ctrl+B）'}
+                aria-label={focusActive ? '退出专注预览' : '专注预览'}
+              >
+                <ScanEye size={14} strokeWidth={1.8} />
+              </button>
+            )}
+            {/* 并排与浮层共用「信息」开关 */}
+            {inspector && selectedPath && !compact && (
               <button
                 type="button"
                 className={clsx(styles.iconBtn, inspectorOpen && styles.iconBtnActive, 'mt-press')}
-                onClick={() => onInspectorOpenChange?.(!inspectorOpen)}
+                onClick={toggleInspector}
                 aria-pressed={inspectorOpen}
                 title="产物信息与版本"
                 aria-label="产物信息与版本"
@@ -380,17 +491,42 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
             )}
             hidden={effectiveView !== 'workspace'}
           >
-            <div
-              className={styles.rail}
-              style={
-                compact
-                  ? { width: '100%', flexBasis: '100%' }
-                  : { width: railWidth, flexBasis: railWidth }
-              }
-              hidden={compact && Boolean(selectedPath)}
-            >
-              {rail}
-            </div>
+            {canCollapseSides && railCollapsed ? (
+              <div className={styles.railStrip}>
+                <button
+                  type="button"
+                  className={styles.railToggle}
+                  onClick={() => setRailCollapsedSafe(false)}
+                  title="展开产物列表"
+                  aria-label="展开产物列表"
+                >
+                  <PanelLeftOpen size={14} strokeWidth={1.8} />
+                </button>
+              </div>
+            ) : (
+              <div
+                className={styles.rail}
+                style={
+                  compact
+                    ? { width: '100%', flexBasis: '100%' }
+                    : { width: railWidth, flexBasis: railWidth }
+                }
+                hidden={compact && Boolean(selectedPath)}
+              >
+                {canCollapseSides && (
+                  <button
+                    type="button"
+                    className={styles.railCollapseBtn}
+                    onClick={() => setRailCollapsedSafe(true)}
+                    title="收起产物列表"
+                    aria-label="收起产物列表"
+                  >
+                    <PanelLeftClose size={13} strokeWidth={1.8} />
+                  </button>
+                )}
+                <div className={styles.railBody}>{rail}</div>
+              </div>
+            )}
             <div className={styles.main} hidden={compact && !selectedPath}>
               {selectedPath && (
                 <div className={styles.mainHeader}>
@@ -422,12 +558,12 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
               )}
               {resolvedMain}
               {/* 窄档放不下第三栏：「信息」按钮把它叫成浮层，盖在预览上 */}
-              {inspector && !inlineInspector && inspectorOpen && (
+              {showInspector && !inlineInspector && (
                 <div className={styles.inspectorFloat}>{inspector}</div>
               )}
             </div>
-            {/* inspector 只在够宽时并排（<900 走上面的浮层），单栏下也不出现 */}
-            {inspector && inlineInspector && (
+            {/* inspector 只在够宽且展开时并排（<900 走上面的浮层） */}
+            {showInspector && inlineInspector && (
               <div className={styles.inspectorSlot} style={{ width: INSPECTOR_WIDTH }}>
                 {inspector}
               </div>

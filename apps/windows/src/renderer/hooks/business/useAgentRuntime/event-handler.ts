@@ -28,6 +28,7 @@ import {
   type LlmErrorDetail,
 } from '@mtbot/agent-runtime/browser'
 import { notifyDesktop } from '../../../services/app-service'
+import { markInteractionEnd } from '../../../utils/perf-marks'
 import { resolveBackfilledAgentLabel } from './sub-agent-label'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
@@ -771,6 +772,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:message:delta': {
+      // 「发出 → 模型出第一个字」的终点。子 Agent 的增量不算主回复，不结束这个计时。
+      // `send-message` 早已在 IPC 返回时结束（见 send-user-message.ts），这里只管 first-token。
+      if (!(isSubAgentStreamEvent(event) && event.instanceId)) markInteractionEnd('first-token')
       if (isSubAgentStreamEvent(event) && event.instanceId) {
         enqueuePendingDelta(
           { kind: 'sub_agent_text', sessionKey, instanceId: event.instanceId },

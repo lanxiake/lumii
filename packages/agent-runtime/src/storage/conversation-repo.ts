@@ -251,6 +251,40 @@ export class ConversationRepo {
   }
 
   /**
+   * 批量取所有会话绑定的 Agent 参与者（会话列表用）。
+   *
+   * 逐个调 `getAgentParticipantId` 是 N+1：2026-10-29 实测 1246 个会话要 30ms 的
+   * 纯 SQL + 1246 次语句准备，且全部压在主线程上。一次 GROUP BY 只要几毫秒。
+   * 一个会话有多条 agent 参与者时取 id 最小的那条（与原 LIMIT 1 的稳定性对齐）。
+   */
+  listAgentParticipantIds(): ReadonlyMap<string, string> {
+    const rows = this.db
+      .prepare<{ conversation_id: string; participant_id: string }>(
+        `SELECT conversation_id, MIN(participant_id) AS participant_id
+       FROM conversation_participants
+       WHERE participant_type = 'agent'
+       GROUP BY conversation_id`,
+      )
+      .all();
+    return new Map(rows.map((r) => [r.conversation_id, r.participant_id]));
+  }
+
+  /**
+   * 当前有流式消息的会话 id 集合（会话列表的 `hasRunning`）。
+   *
+   * 同样是为消灭 N+1：`WHERE conversation_id = ? AND is_streaming = 1` 没有可用索引，
+   * 1246 个会话逐个查实测 707ms（全表扫 × 1246 次）。一次 GROUP BY 只要 39ms。
+   */
+  listStreamingConversationIds(): ReadonlySet<string> {
+    const rows = this.db
+      .prepare<{ conversation_id: string }>(
+        `SELECT conversation_id FROM messages WHERE is_streaming = 1 GROUP BY conversation_id`,
+      )
+      .all();
+    return new Set(rows.map((r) => r.conversation_id));
+  }
+
+  /**
    * 更新对话绑定的 Agent 参与者（「切换 Agent = 转移当前会话」）。
    * 不存在 agent 参与者行时补插一条。
    */

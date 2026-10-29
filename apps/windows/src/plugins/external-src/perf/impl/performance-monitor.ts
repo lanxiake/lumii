@@ -1,44 +1,60 @@
 import { createWriteStream, readdirSync, unlinkSync, existsSync, mkdirSync, renameSync, readFileSync } from 'fs'
 import type { WriteStream } from 'fs'
 import { join } from 'path'
-import { PerformanceAggregator } from './performance-aggregator'
 import type {
-  PerformanceEvent,
+  PerfEvent,
+  PerfLogEntry,
+  PerfSummary,
   PerformanceMonitorConfig,
-  MemorySnapshotEvent,
-  RendererMemoryEvent,
-  StartupPhaseEvent,
-  IpcAggregateEvent,
 } from '../../../../shared/performance'
 
+/** 今日事件在内存里最多保留多少条（页面按今日回放，再多的直接丢最旧的） */
+const MAX_TODAY_EVENTS = 5000
+
+/**
+ * 性能监控：只记**慢/贵**事件，不记常规运行数据。
+ *
+ * 2026-10-29 前的版本每 60 秒给每个 IPC 通道写一条聚合、给内存写一条快照，
+ * 一天下来 5480 条里只有 142 条（2.6%）是真的慢调用——信号被自己埋掉了。
+ * 现在常规调用只在内存里累计计数（`getSummary` 用来给出「慢几次 / 总共几次」的分母），
+ * 只有超过阈值的事件才进队列、才落盘。
+ *
+ * 落盘仍是 JSONL + 日期/大小轮转（7 天保留），与业务日志分开存放。
+ */
 export class PerformanceMonitor {
-  private aggregator: PerformanceAggregator
-  private eventQueue: PerformanceEvent[] = []
+  private eventQueue: PerfLogEntry[] = []
+  /** 今日已产生的事件（含从磁盘回放的），供诊断页展示；有上限，避免长期运行吃内存 */
+  private todayEvents: PerfEvent[] = []
   private currentLogStream: WriteStream | null = null
   private currentLogDate: string
   private config: PerformanceMonitorConfig
   private readonly MAX_FILE_SIZE = 20 * 1024 * 1024 // 20MB
   private readonly MAX_LOG_FILES = 7 // 7天保留
   private currentFileSize = 0
-  /**
-   * 已写入日志的聚合事件数量。
-   *
-   * aggregator.getAggregateEvents() 是非破坏性只读方法（返回全部累积事件的
-   * 防御性拷贝，Task 2 的测试已固定这一契约），每次调用都会返回从一开始
-   * 累积至今的完整数组，而不会「消费」掉已经取走的部分。若每次 flush() 都
-   * 把它整体重新写入日志，历史聚合事件会被反复重复写入。这里用一个游标
-   * 记录已经写过多少条，每次 flush 只取新增的尾部部分写入。
-   */
-  private lastFlushedAggregateCount = 0
+
+  // ---- 常规计数（不落盘）----
+  private ipcTotals = new Map<string, { calls: number; slowCalls: number; errors: number; maxMs: number }>()
+  private ipcTotalCalls = 0
+  private ipcSlowCalls = 0
+  private ipcErrors = 0
+  private startupPhases = new Map<string, number>()
+
+  // ---- 内存尖峰判定 ----
+  private lastMemory: { rss: number; heapUsed: number; at: number } | null = null
+  private peakRss = 0
+  private lastMemoryEventAt = 0
+  /** 子进程上一次的内存读数（按 pid），用于判断涨幅 */
+  private childMemory = new Map<number, { pid: number; type: string; rss: number; privateBytes: number }>()
+  /** 子进程上一次上报尖峰的时刻（按 pid），用于各自的冷却窗口 */
+  private childMemorySpikeAt = new Map<number, number>()
 
   constructor(config: PerformanceMonitorConfig) {
     this.config = config
-    this.aggregator = new PerformanceAggregator()
     this.currentLogDate = this.formatDate(new Date())
 
     if (this.config.enabled && this.config.logDir) {
       this.ensureLogDir()
-      // 先回放当天已有日志，再打开追加流——诊断页启动即可看到今日趋势
+      // 先回放当天已有日志，再打开追加流——诊断页启动即可看到今日全部事件
       this.hydrateTodayFromDisk()
       this.initializeLogStream()
     }
@@ -70,11 +86,12 @@ export class PerformanceMonitor {
   }
 
   /**
-   * 从当天 perf jsonl（含归档段）回放历史事件。
+   * 从当天 perf jsonl（含归档段）回放事件。
    *
-   * 只喂图表与启动阶段：ipc.aggregate / memory.snapshot / startup.phase。
-   * 不回放跨天，也不把历史灌进当前窗口的 ipcByChannel（健康度仍表示本进程本次运行）。
-   * 回放后校准 lastFlushedAggregateCount，避免下次 flush 把历史再写一遍。
+   * 只回放慢事件与启动阶段；不认识的 kind（旧版本的 ipc.aggregate / memory.snapshot /
+   * renderer.memory）直接跳过——升级后第一天会同时读到两种格式，跳过比报错合适。
+   *
+   * 回放不清空常规计数：那些是「本进程本次运行」的口径，与历史无关。
    */
   hydrateTodayFromDisk(): void {
     if (!this.config.enabled || !this.config.logDir) return
@@ -84,13 +101,12 @@ export class PerformanceMonitor {
       for (const file of this.listTodayLogFiles()) {
         this.replayLogFile(join(this.config.logDir, file))
       }
-      this.lastFlushedAggregateCount = this.aggregator.getAggregateEvents().length
     } catch {
       // 回放失败不影响性能监控主路径
     }
   }
 
-  /** 逐行解析 jsonl，把可回放事件送入 aggregator */
+  /** 逐行解析 jsonl，把可回放事件放进今日事件列表 */
   private replayLogFile(filePath: string): void {
     if (!existsSync(filePath)) return
     const content = readFileSync(filePath, 'utf-8')
@@ -105,87 +121,9 @@ export class PerformanceMonitor {
       } catch {
         continue
       }
-      const event = this.asHydratableEvent(raw)
-      if (event) this.aggregator.ingestFromHistory(event)
+      const event = asHydratableEvent(raw)
+      if (event) this.pushTodayEvent(event)
     }
-  }
-
-  /**
-   * 把 jsonl 原始对象收窄为可回放事件；字段不齐则丢弃，避免脏行污染内存态。
-   */
-  private asHydratableEvent(
-    raw: unknown,
-  ): IpcAggregateEvent | MemorySnapshotEvent | StartupPhaseEvent | null {
-    if (raw == null || typeof raw !== 'object') return null
-    const e = raw as Record<string, unknown>
-    if (e.kind === 'ipc.aggregate') {
-      if (
-        typeof e.timestamp !== 'number' ||
-        typeof e.windowStart !== 'number' ||
-        typeof e.windowEnd !== 'number' ||
-        typeof e.channel !== 'string' ||
-        typeof e.totalCalls !== 'number' ||
-        typeof e.totalDuration !== 'number' ||
-        typeof e.errors !== 'number' ||
-        typeof e.minDuration !== 'number' ||
-        typeof e.maxDuration !== 'number'
-      ) {
-        return null
-      }
-      return {
-        timestamp: e.timestamp,
-        kind: 'ipc.aggregate',
-        windowStart: e.windowStart,
-        windowEnd: e.windowEnd,
-        channel: e.channel,
-        totalCalls: e.totalCalls,
-        totalDuration: e.totalDuration,
-        errors: e.errors,
-        minDuration: e.minDuration,
-        maxDuration: e.maxDuration,
-      }
-    }
-    if (e.kind === 'memory.snapshot') {
-      const main = e.mainProcess
-      if (main == null || typeof main !== 'object') return null
-      const m = main as Record<string, unknown>
-      if (
-        typeof e.timestamp !== 'number' ||
-        typeof m.heapUsed !== 'number' ||
-        typeof m.heapTotal !== 'number' ||
-        typeof m.external !== 'number' ||
-        typeof m.arrayBuffers !== 'number' ||
-        typeof m.rss !== 'number'
-      ) {
-        return null
-      }
-      return {
-        timestamp: e.timestamp,
-        kind: 'memory.snapshot',
-        mainProcess: {
-          heapUsed: m.heapUsed,
-          heapTotal: m.heapTotal,
-          external: m.external,
-          arrayBuffers: m.arrayBuffers,
-          rss: m.rss,
-        },
-        childProcesses: Array.isArray(e.childProcesses)
-          ? (e.childProcesses as MemorySnapshotEvent['childProcesses'])
-          : [],
-      }
-    }
-    if (e.kind === 'startup.phase') {
-      if (typeof e.timestamp !== 'number' || typeof e.phase !== 'string' || typeof e.duration !== 'number') {
-        return null
-      }
-      return {
-        timestamp: e.timestamp,
-        kind: 'startup.phase',
-        phase: e.phase as StartupPhaseEvent['phase'],
-        duration: e.duration,
-      }
-    }
-    return null
   }
 
   private ensureLogDir() {
@@ -240,23 +178,20 @@ export class PerformanceMonitor {
     if (newDate === this.currentLogDate) return
 
     this.currentLogDate = newDate
+    this.todayEvents = []
     const oldStream = this.currentLogStream
     if (oldStream) {
       oldStream.end()
-      // 等旧文件的描述符真正释放，保证它在磁盘上的内容已完整落盘，
-      // 之后基于 readdirSync 的清理逻辑才能看到准确的文件列表
+      // 等旧文件的描述符真正释放，保证它在磁盘上的内容已完整落盘
       await this.awaitStreamEvent(oldStream, 'close')
     }
 
     this.initializeLogStream()
     if (this.currentLogStream) {
-      // 等新文件真正在磁盘上创建完成，否则 cleanOldLogs() 的 readdirSync
-      // 可能统计不到它，导致清理数量算少（少删了本该淘汰的旧文件）
       await this.awaitStreamEvent(this.currentLogStream, 'open')
     }
 
     // 日期滚动时机会顺带清理过期日志，7 天保留策略无需依赖外部调用方
-    // 记得手动触发 cleanOldLogs()，与 file-logger.ts 的 checkDateRoll() 行为一致
     this.cleanOldLogs()
   }
 
@@ -265,12 +200,10 @@ export class PerformanceMonitor {
    *
    * 把已写满的 perf-{date}.jsonl 归档为 perf-{date}.1.jsonl，为避免覆盖
    * 已存在的历史归档，先从最大编号开始依次把 .N 重命名为 .N+1（从后往前挪位），
-   * 腾出 .1 这个位置后再归档当前文件。归档全部完成后再在基础文件名上
-   * 打开一个新的空文件流，写入才能真正被限制在 MAX_FILE_SIZE 以内。
+   * 腾出 .1 这个位置后再归档当前文件。
    *
    * 归档前必须等旧流的 'close' 事件：Windows 上重命名一个仍被打开写入的
-   * 文件会失败（句柄未释放），且流内部可能还有尚未落盘的缓冲写入，
-   * 过早重命名会丢数据或让归档文件内容不完整。
+   * 文件会失败（句柄未释放），且流内部可能还有尚未落盘的缓冲写入。
    */
   private async rotateFileBySize(): Promise<void> {
     if (!this.config.logDir) return
@@ -284,7 +217,6 @@ export class PerformanceMonitor {
     const baseFile = join(this.config.logDir, `perf-${this.currentLogDate}.jsonl`)
     if (existsSync(baseFile)) {
       try {
-        // 找到当前已存在的最大归档编号
         let maxIndex = 0
         while (
           existsSync(join(this.config.logDir, `perf-${this.currentLogDate}.${maxIndex + 1}.jsonl`))
@@ -292,7 +224,6 @@ export class PerformanceMonitor {
           maxIndex += 1
         }
 
-        // 从最大编号开始往前挪位，避免相互覆盖
         for (let i = maxIndex; i >= 1; i--) {
           const from = join(this.config.logDir, `perf-${this.currentLogDate}.${i}.jsonl`)
           const to = join(this.config.logDir, `perf-${this.currentLogDate}.${i + 1}.jsonl`)
@@ -301,8 +232,7 @@ export class PerformanceMonitor {
 
         renameSync(baseFile, join(this.config.logDir, `perf-${this.currentLogDate}.1.jsonl`))
       } catch {
-        // 归档失败（如权限问题）时忽略，新流仍会在基础文件名上以追加模式打开，
-        // 不影响后续事件正常写入，只是本次未能完成归档
+        // 归档失败（如权限问题）时忽略，新流仍会在基础文件名上以追加模式打开
       }
     }
 
@@ -312,7 +242,7 @@ export class PerformanceMonitor {
     }
   }
 
-  private async writeEvent(event: PerformanceEvent): Promise<void> {
+  private async writeEvent(event: PerfLogEntry): Promise<void> {
     if (!this.config.enabled || !this.config.logDir) return
 
     await this.checkDateRoll()
@@ -321,8 +251,6 @@ export class PerformanceMonitor {
     const lineSize = Buffer.byteLength(line, 'utf8')
 
     if (this.currentFileSize + lineSize > this.MAX_FILE_SIZE) {
-      // 触发按大小轮转：先关闭当前流、把写满的文件归档为编号文件，
-      // 再在基础文件名上打开一个全新的空文件流
       await this.rotateFileBySize()
     }
 
@@ -330,8 +258,7 @@ export class PerformanceMonitor {
       const stream = this.currentLogStream
       await new Promise<void>(resolve => {
         stream.write(line, () => {
-          // 写入失败已经由 stream 的 'error' 监听器静默吞掉，这里不需要再处理，
-          // 只需要保证 flush() 在所有写入真正落盘后才返回
+          // 写入失败已经由 stream 的 'error' 监听器静默吞掉
           resolve()
         })
       })
@@ -339,69 +266,140 @@ export class PerformanceMonitor {
     }
   }
 
-  recordIpcCall(channel: string, durationMs: number, error: boolean) {
+  // ------------------------------------------------------------------
+  // 采集入口
+  // ------------------------------------------------------------------
+
+  /** IPC 调用：只累计计数；超阈值或出错才产生事件 */
+  recordIpcCall(channel: string, durationMs: number, error: boolean): void {
     if (!this.config.enabled) return
 
-    this.aggregator.recordIpcCall(channel, durationMs, error)
-
-    if (durationMs > this.config.ipcSlowThresholdMs && !error) {
-      const event: PerformanceEvent = {
-        timestamp: Date.now(),
-        kind: 'ipc.slow',
-        channel,
-        duration: durationMs,
-        args: [],
-      }
-      this.enqueueEvent(event)
-    }
+    const stat = this.ipcTotals.get(channel) ?? { calls: 0, slowCalls: 0, errors: 0, maxMs: 0 }
+    stat.calls += 1
+    stat.maxMs = Math.max(stat.maxMs, durationMs)
+    this.ipcTotalCalls += 1
 
     if (error) {
-      const event: PerformanceEvent = {
+      stat.errors += 1
+      this.ipcErrors += 1
+      this.recordEvent({
         timestamp: Date.now(),
         kind: 'ipc.error',
-        channel,
-        error: 'IPC call failed',
-        args: [],
-      }
-      this.enqueueEvent(event)
+        name: channel,
+        duration: durationMs,
+      })
+    } else if (durationMs > this.config.ipcSlowThresholdMs) {
+      stat.slowCalls += 1
+      this.ipcSlowCalls += 1
+      this.recordEvent({
+        timestamp: Date.now(),
+        kind: 'ipc.slow',
+        name: channel,
+        duration: durationMs,
+      })
     }
+    this.ipcTotals.set(channel, stat)
   }
 
-  recordStartupPhase(phase: string, durationMs: number) {
+  recordStartupPhase(phase: string, durationMs: number): void {
     if (!this.config.enabled) return
-
-    this.aggregator.recordStartupPhase(phase, durationMs)
-
-    const event: PerformanceEvent = {
+    this.startupPhases.set(phase, durationMs)
+    // 启动阶段只进 summary，不进事件列表——它不是「慢事件」，混在一起会改变筛选口径
+    this.enqueue({
       timestamp: Date.now(),
       kind: 'startup.phase',
-      phase: phase as StartupPhaseEvent['phase'],
+      phase,
       duration: durationMs,
-    }
-    this.enqueueEvent(event)
+    })
   }
 
-  recordMemorySnapshot(snapshot: MemorySnapshotEvent) {
+  /** 通用慢事件入口：IPC / 慢查询 / 主线程阻塞 / 长任务 / 内存尖峰都走这里 */
+  recordEvent(event: PerfEvent): void {
     if (!this.config.enabled) return
-
-    this.aggregator.recordMemorySnapshot(snapshot)
-    this.enqueueEvent(snapshot)
+    this.pushTodayEvent(event)
+    this.enqueue(event)
   }
 
   /**
-   * 渲染进程内存采样入队。
-   *
-   * 不进 aggregator：它服务的是性能诊断页面的趋势图与健康度报告，
-   * 口径是「进程级内存快照」，混入渲染进程的堆级读数会污染那份报告。
-   * 这里只把事件写进 perf jsonl——需要的是留档，不是实时图表。
+   * 内存采样：每 60 秒调用一次，但只在「越过绝对阈值」或「相对上次上报涨幅过大」时
+   * 才产生事件。平时只是更新内存里的当前与峰值读数。
    */
-  recordRendererMemory(event: RendererMemoryEvent) {
+  sampleMemory(snapshot: { rss: number; heapUsed: number }): void {
     if (!this.config.enabled) return
 
-    this.enqueueEvent(event)
+    this.peakRss = Math.max(this.peakRss, snapshot.rss)
+    const prev = this.lastMemory
+    this.lastMemory = { ...snapshot, at: Date.now() }
+
+    if (!prev) return
+
+    const now = Date.now()
+    if (now - this.lastMemoryEventAt < this.config.memorySpikeCooldownMs) return
+
+    const overLimit = snapshot.rss > this.config.memoryRssThresholdBytes
+    const grewFast = snapshot.rss - prev.rss > this.config.memoryGrowthThresholdBytes
+    if (!overLimit && !grewFast) return
+
+    this.lastMemoryEventAt = now
+    this.recordEvent({
+      timestamp: now,
+      kind: 'memory.spike',
+      name: 'main',
+      detail: {
+        rss: snapshot.rss,
+        heapUsed: snapshot.heapUsed,
+        deltaRss: snapshot.rss - prev.rss,
+        reason: overLimit ? 'over-limit' : 'growth',
+      },
+    })
   }
 
-  private enqueueEvent(event: PerformanceEvent) {
+  /**
+   * 子进程（渲染层 / GPU / utility）内存采样：只在越过阈值时才记一条。
+   *
+   * 为什么单独看渲染进程：2026-10-29 实测主窗口渲染进程 1.33GB，主进程才 488MB ——
+   * 只盯主进程会完全漏掉占用大头。每个进程各自判定、各自冷却，互不掩盖。
+   */
+  sampleChildProcesses(
+    processes: ReadonlyArray<{ pid: number; type: string; rss: number; privateBytes: number }>,
+  ): void {
+    if (!this.config.enabled) return
+
+    // 只挑真正占地方的：GPU / utility 进程一般几十 MB，不必逐分钟跟
+    for (const proc of processes) {
+      if (!/renderer|Tab|GPU/i.test(proc.type)) continue
+      const prev = this.childMemory.get(proc.pid)
+      this.childMemory.set(proc.pid, proc)
+      if (!prev) continue
+
+      const overLimit = proc.privateBytes > this.config.memoryRssThresholdBytes
+      const grewFast = proc.privateBytes - prev.privateBytes > this.config.memoryGrowthThresholdBytes
+      const now = Date.now()
+      const lastAt = this.childMemorySpikeAt.get(proc.pid) ?? 0
+      if (!overLimit && !grewFast) continue
+      if (now - lastAt < this.config.memorySpikeCooldownMs) continue
+
+      this.childMemorySpikeAt.set(proc.pid, now)
+      this.recordEvent({
+        timestamp: now,
+        kind: 'memory.spike',
+        name: `child:${proc.type}#${proc.pid}`,
+        detail: {
+          rss: proc.rss,
+          privateBytes: proc.privateBytes,
+          deltaPrivateBytes: proc.privateBytes - prev.privateBytes,
+          reason: overLimit ? 'over-limit' : 'growth',
+        },
+      })
+    }
+  }
+
+  private pushTodayEvent(event: PerfEvent) {
+    this.todayEvents.push(event)
+    if (this.todayEvents.length > MAX_TODAY_EVENTS) this.todayEvents.shift()
+  }
+
+  private enqueue(event: PerfLogEntry) {
     if (this.eventQueue.length >= (this.config.maxQueueSize || 200)) {
       this.eventQueue.shift()
     }
@@ -412,41 +410,81 @@ export class PerformanceMonitor {
     return this.eventQueue.length
   }
 
+  // ------------------------------------------------------------------
+  // 读取
+  // ------------------------------------------------------------------
+
+  /** 今日事件（含重启前从磁盘回放的），按时间升序 */
+  listEvents(since?: number): PerfEvent[] {
+    return since === undefined ? [...this.todayEvents] : this.todayEvents.filter(e => e.timestamp >= since)
+  }
+
+  /** 诊断页顶部摘要 */
+  getSummary(): PerfSummary {
+    const byKind: Record<string, number> = {}
+    let slowestMs = 0
+    for (const e of this.todayEvents) {
+      byKind[e.kind] = (byKind[e.kind] ?? 0) + 1
+      if (e.duration && e.duration > slowestMs) slowestMs = e.duration
+    }
+
+    const byChannel: PerfSummary['ipc']['byChannel'] = {}
+    for (const [channel, stat] of this.ipcTotals) {
+      byChannel[channel] = { ...stat }
+    }
+
+    let startupTotal = 0
+    const phases: Record<string, number> = {}
+    for (const [phase, duration] of this.startupPhases) {
+      phases[phase] = duration
+      startupTotal += duration
+    }
+
+    const errorRate = this.ipcTotalCalls > 0 ? this.ipcErrors / this.ipcTotalCalls : 0
+    const slowRate = this.ipcTotalCalls > 0 ? this.ipcSlowCalls / this.ipcTotalCalls : 0
+    let health: PerfSummary['health'] = 'good'
+    if (errorRate > 0.1 || this.ipcErrors > 10) health = 'critical'
+    else if (slowRate > 0.1 || this.ipcSlowCalls > 5) health = 'warning'
+
+    return {
+      generatedAt: Date.now(),
+      today: {
+        total: this.todayEvents.length,
+        byKind,
+        slowestMs,
+        truncated: this.todayEvents.length >= MAX_TODAY_EVENTS,
+      },
+      ipc: {
+        totalCalls: this.ipcTotalCalls,
+        slowCalls: this.ipcSlowCalls,
+        errors: this.ipcErrors,
+        byChannel,
+      },
+      startupStats: {
+        totalDuration: startupTotal,
+        phases,
+      },
+      memory: {
+        rss: this.lastMemory?.rss ?? 0,
+        heapUsed: this.lastMemory?.heapUsed ?? 0,
+        peakRss: this.peakRss,
+      },
+      logDir: this.config.logDir ?? '',
+      health,
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 落盘
+  // ------------------------------------------------------------------
+
   async flush(): Promise<void> {
-    // 先写入队列中的事件。writeEvent() 内部可能触发日期/大小轮转（均为异步），
-    // 必须逐条 await，保证轮转完成后才继续写下一条，否则并发的轮转会相互踩踏
+    // writeEvent() 内部可能触发日期/大小轮转（均为异步），必须逐条 await，
+    // 保证轮转完成后才继续写下一条，否则并发的轮转会相互踩踏
     for (const event of this.eventQueue) {
       await this.writeEvent(event)
     }
     this.eventQueue = []
-
-    // 写入聚合事件：getAggregateEvents() 每次都返回全量累积数组，
-    // 只截取自上次 flush 以来新增的部分，避免重复写入历史记录
-    const allAggregateEvents = this.aggregator.getAggregateEvents()
-    // 防御性收敛游标：正常情况下该数组只会增长，但若未来 aggregator 的实现
-    // 变化导致数组变短，直接 slice 一个越界游标不会抛错，却会产生错误的
-    // "从头再写一遍" 行为。这里把游标钳制在数组长度以内，此时视为"没有新增"，
-    // 而不是让下游产生未定义行为。
-    const safeCursor = Math.min(this.lastFlushedAggregateCount, allAggregateEvents.length)
-    const newAggregateEvents = allAggregateEvents.slice(safeCursor)
-    for (const event of newAggregateEvents) {
-      await this.writeEvent(event)
-    }
-    this.lastFlushedAggregateCount = allAggregateEvents.length
-  }
-
-  getReport() {
-    return this.aggregator.generateReport()
-  }
-
-  /** IPC 60 秒窗口聚合历史序列，供性能诊断页面画趋势图 */
-  getIpcAggregateHistory(): IpcAggregateEvent[] {
-    return this.aggregator.getAggregateEvents()
-  }
-
-  /** 最近内存快照历史序列，供性能诊断页面画趋势图 */
-  getMemorySnapshotHistory(): MemorySnapshotEvent[] {
-    return this.aggregator.getMemorySnapshots()
   }
 
   cleanOldLogs() {
@@ -458,7 +496,6 @@ export class PerformanceMonitor {
         .sort()
         .reverse()
 
-      // 保留最近的 MAX_LOG_FILES 个文件
       for (let i = this.MAX_LOG_FILES; i < files.length; i++) {
         const filePath = join(this.config.logDir, files[i])
         unlinkSync(filePath)
@@ -472,3 +509,38 @@ export class PerformanceMonitor {
     this.currentLogStream?.end()
   }
 }
+
+/** jsonl 原始行 → 可回放事件；旧格式（聚合/快照）与脏行一律返回 null */
+export function asHydratableEvent(raw: unknown): PerfEvent | null {
+  if (raw == null || typeof raw !== 'object') return null
+  const e = raw as Record<string, unknown>
+  if (typeof e.timestamp !== 'number' || typeof e.kind !== 'string') return null
+  if (e.kind === 'startup.phase') return null // 启动阶段只进 summary，不进事件列表
+  if (!SLOW_KINDS.has(e.kind)) return null
+  if (typeof e.name !== 'string' || !e.name) return null
+
+  const event: PerfEvent = {
+    timestamp: e.timestamp,
+    kind: e.kind as PerfEvent['kind'],
+    name: e.name,
+  }
+  if (typeof e.duration === 'number' && Number.isFinite(e.duration)) event.duration = e.duration
+  if (e.detail != null && typeof e.detail === 'object') {
+    const detail: Record<string, string | number> = {}
+    for (const [k, v] of Object.entries(e.detail as Record<string, unknown>)) {
+      if (typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))) detail[k] = v
+    }
+    event.detail = detail
+  }
+  return event
+}
+
+const SLOW_KINDS = new Set<string>([
+  'ipc.slow',
+  'ipc.error',
+  'db.slow',
+  'main.loop.lag',
+  'renderer.longtask',
+  'renderer.interaction',
+  'memory.spike',
+])

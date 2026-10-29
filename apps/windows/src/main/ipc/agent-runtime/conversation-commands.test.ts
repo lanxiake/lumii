@@ -29,9 +29,11 @@ describe('conversation:list Agent 归属归一化', () => {
           },
         ],
         loadLastMessagesForConversations: () => new Map(),
-        getAgentParticipantId: () => participantId,
+        // 会话列表走批量查询（消灭 N+1），不再逐会话取
+        listAgentParticipantIds: () =>
+          new Map(participantId ? [['cron:seed-morning-briefing', participantId]] : []),
+        listStreamingConversationIds: () => new Set<string>(),
       },
-      hasStreamingMessages: () => false,
       isConversationInterrupted: () => false,
     }) as never
 

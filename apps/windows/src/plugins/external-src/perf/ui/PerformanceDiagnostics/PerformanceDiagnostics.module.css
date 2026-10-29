@@ -173,3 +173,190 @@
   font-size: 12px;
   color: var(--color-text-tertiary);
 }
+
+/* ---- 工具栏：Tab + 筛选 + 复制 ---- */
+
+.perf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.perf-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.perf-tab,
+.perf-tab-active {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background-color: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.perf-tab-active {
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-secondary);
+  font-weight: 600;
+}
+
+.perf-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.perf-select,
+.perf-input {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.perf-input {
+  width: 110px;
+}
+
+/* ---- 明细 / 排行表格 ---- */
+
+.perf-table {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background-color: var(--color-bg-secondary);
+  border-radius: 4px;
+}
+
+.perf-row-head,
+.perf-row {
+  display: grid;
+  grid-template-columns: 72px 84px minmax(0, 1.4fr) 80px minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 4px 0;
+  font-size: 12px;
+  text-align: left;
+}
+
+.perf-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+/* ---- 分页 ---- */
+
+.perf-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 0 2px;
+}
+
+.perf-pager-label {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* ---- 可折叠小节（启动阶段） ---- */
+
+.perf-collapse-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.perf-collapse-head:hover {
+  color: var(--color-text-primary);
+}
+
+.perf-row-head {
+  color: var(--color-text-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.perf-row {
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.perf-row:hover {
+  background-color: var(--color-bg-primary);
+}
+
+.perf-row-wrap:last-child .perf-row {
+  border-bottom: none;
+}
+
+.perf-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.perf-row-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0 12px;
+}
+
+.perf-json {
+  width: 100%;
+  max-height: 240px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  white-space: pre;
+}
+
+.perf-row-head-rank,
+.perf-row-rank {
+  display: grid;
+  grid-template-columns: 84px 1fr 56px 64px 64px 64px 72px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.perf-row-head-rank {
+  color: var(--color-text-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.perf-row-rank {
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+}

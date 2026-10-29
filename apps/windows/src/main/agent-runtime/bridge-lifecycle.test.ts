@@ -57,7 +57,7 @@ function createLifecycle(
     getConversationRepo: () => (opts.conversationRepo ?? null),
     messageBus: { unregister: vi.fn() },
     permissionController: { clearAll: vi.fn() },
-    askUserQuestionController: { clearAll: vi.fn() },
+    askUserQuestionController: { clearAll: vi.fn(() => []) },
     ipcChannel: { forwardIpcEvent },
     getCronScheduler: () => ({ stop: cronStop }),
     getDefinitionStore: () => null,

@@ -17,6 +17,14 @@ export type {
   LocalDatabaseOptions,
 } from "./local-database.js";
 
+export {
+  setSlowQueryListener,
+  getSlowQueryThresholdMs,
+  normalizeSql,
+  MAX_SQL_TEMPLATE_CHARS,
+} from "./slow-query.js";
+export type { SlowQuerySample, SlowQueryListener } from "./slow-query.js";
+
 export { ConversationRepo } from "./conversation-repo.js";
 export type {
   ConversationRow,

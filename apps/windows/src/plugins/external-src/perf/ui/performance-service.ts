@@ -3,27 +3,29 @@
  *
  * 错误向调用方抛出（原调用点负责 setError / toast 提示）。
  */
-import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent } from '@shared/performance'
+import type { PerfEvent, PerfSummary, RendererPerfEvent } from '@shared/performance'
 
-/** 获取性能诊断报告（IPC 耗时 / 启动阶段 / 内存占用 / 健康状态） */
-export async function getPerformanceReport(): Promise<PerformanceReport> {
-  return window.electronAPI.performance.getReport()
+/** 今日慢事件摘要（计数 / 最慢 / 启动阶段 / 内存 / 健康度） */
+export async function getPerformanceSummary(): Promise<PerfSummary> {
+  return window.electronAPI.performance.getSummary()
 }
 
-/** 获取运行时历史趋势（60 秒窗口 IPC 聚合序列 + 内存快照序列） */
-export async function getPerformanceHistory(): Promise<{
-  ipcAggregates: IpcAggregateEvent[]
-  memorySnapshots: MemorySnapshotEvent[]
-}> {
-  return window.electronAPI.performance.getHistory()
+/** 今日全部慢事件（含重启前从磁盘回放的） */
+export async function listPerformanceEvents(since?: number): Promise<PerfEvent[]> {
+  return window.electronAPI.performance.listEvents(since === undefined ? undefined : { since })
 }
 
-/** 手动捕获一次内存快照 */
+/** 手动记录一次内存现场 */
 export async function capturePerformanceSnapshot(): Promise<{ success: boolean; error?: string }> {
   return window.electronAPI.performance.capture()
 }
 
-/** 打开性能日志文件夹 */
+/** 打开性能日志文件夹（跨天历史只能靠它） */
 export async function openPerformanceLogFolder(): Promise<{ success: boolean; error?: string }> {
   return window.electronAPI.performance.openLogFolder()
+}
+
+/** 渲染层上报慢事件（长任务 / 关键交互 / 内存尖峰） */
+export async function recordPerformanceEvent(event: RendererPerfEvent): Promise<{ success: boolean }> {
+  return window.electronAPI.performance.recordEvent(event)
 }

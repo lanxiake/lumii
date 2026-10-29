@@ -860,6 +860,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     closeWorkbench,
     selectWorkbenchView,
     setOnlyArtifacts,
+    openArtifactsWorkbench,
     setPreset,
     selectPath,
     revealInFiles,
@@ -892,6 +893,37 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     () => countDeliverablesSince(runtimeMessages, lastSeenAt),
     [runtimeMessages, lastSeenAt],
   )
+  /**
+   * 用户对话：Agent 产出成品后自动打开「只看产出」工作台（默认网格在面板内）。
+   * 用户本轮主动关掉则不再骚扰，等本轮流式结束后才允许再次自动打开。
+   */
+  const artifactsAutoOpenDismissedRef = useRef(false)
+  useEffect(() => {
+    if (!runtimeIsStreaming) artifactsAutoOpenDismissedRef.current = false
+  }, [runtimeIsStreaming])
+  useEffect(() => {
+    if (workbench.open) return
+    if (artifactsAutoOpenDismissedRef.current) return
+    if (unseenArtifactCount <= 0) return
+    if (activeView && activeView !== 'chat') return
+    openArtifactsWorkbench()
+  }, [unseenArtifactCount, workbench.open, activeView, openArtifactsWorkbench])
+  /** 用户主动关工作台时记 dismiss，避免同轮自动再弹 */
+  const markArtifactsAutoOpenDismissed = useCallback(() => {
+    if (runtimeIsStreaming || unseenArtifactCount > 0) {
+      artifactsAutoOpenDismissedRef.current = true
+    }
+  }, [runtimeIsStreaming, unseenArtifactCount])
+
+  const handleCloseWorkbench = useCallback(() => {
+    markArtifactsAutoOpenDismissed()
+    closeWorkbench()
+  }, [closeWorkbench, markArtifactsAutoOpenDismissed])
+
+  const handleToggleWorkbench = useCallback(() => {
+    if (workbench.open) markArtifactsAutoOpenDismissed()
+    toggleWorkbench()
+  }, [workbench.open, markArtifactsAutoOpenDismissed, toggleWorkbench])
   const [autoApprove, setAutoApprove] = useState<boolean>(() => readAutoApproveEnabled())
   /** 审批在当前会话走时间线卡；仅其它会话才底部弹完整审批卡 */
   const permissionOnOtherSession = Boolean(
@@ -2106,7 +2138,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onResetZoom={resetPageZoom}
             onToggleAutoApprove={handleToggleAutoApprove}
             onToggleReadAloud={handleToggleReadAloud}
-            onToggleWorkbench={toggleWorkbench}
+            onToggleWorkbench={handleToggleWorkbench}
             onOpenWiki={openWikiLibrary}
           />
         </div>
@@ -2257,7 +2289,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         onOnlyArtifactsChange={setOnlyArtifacts}
         onPresetChange={setPreset}
         onSelect={selectPath}
-        onClose={closeWorkbench}
+        onClose={handleCloseWorkbench}
         uncommittedCount={uncommittedDiff.length}
         locateFileTarget={locateFileTarget}
         messages={runtimeMessages}

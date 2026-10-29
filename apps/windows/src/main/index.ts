@@ -158,7 +158,7 @@ import type { SyncSchedulerLike } from './kernel/cloud-sync-contract'
 import { initScriptRuntimes } from './runtime-env'
 import type { VoiceCallService } from '../plugins/builtin/voice/voice-service.js'
 import { setChannelAsrReadyChecker } from './channel/channel-voice-asr-hint.js'
-import { findBuiltInAgent, mapApiRecordToAgentDefinition, reconcilePersonalMemory } from '@mtbot/agent-runtime'
+import { findBuiltInAgent, mapApiRecordToAgentDefinition, reconcilePersonalMemory, setSlowQueryListener } from '@mtbot/agent-runtime'
 import {
   applyCodingDevAcpEnvToProcess,
   defaultWorkspaceFallback,
@@ -166,7 +166,7 @@ import {
 } from './coding-dev-env.js'
 import { resolveClientStateDir } from './paths'
 import { hasHeadlessFlag } from './platform/feature-probe'
-import type { PerfMonitorLike } from '../shared/performance'
+import { recordBlockingSuspect, type PerfMonitorLike } from '../shared/performance'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
 import { getPetService, setPetAccessor } from './agent-runtime/pet-accessor'
 import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
@@ -1190,6 +1190,31 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
  * 外部宿主约 1 秒后才把服务放进容器，所以这里轮询最多 10 秒；其他扩展（如录屏）
  * 自己完成装配，不需要主进程补。
  */
+/**
+ * 慢 SQL 观测的接线（核心侧）。
+ *
+ * 为什么不在 perf 扩展里挂：官方扩展是独立 esbuild bundle，`@mtbot/agent-runtime`
+ * 会被内联成第二份模块实例，`LocalDatabase` 在主进程 bundle 里读的是另一份，
+ * 扩展里注册的监听器写不到主进程那份上 —— 一条都记不到，且日志里什么都看不见。
+ *
+ * 钩子只挂一次、永久驻留，回调每次现取容器里的 perf 服务：扩展被停用时容器里
+ * 已经没有它，自然静默，不需要在停用路径上反向摘钩子。
+ */
+function wireSlowQueryProbe(): void {
+  setSlowQueryListener((sample) => {
+    // 主线程阻塞探针触发时靠这条登记回答「那几百毫秒是谁占的」
+    recordBlockingSuspect(`${sample.op} ${sample.sql.slice(0, 60)}`, sample.durationMs)
+    const monitor = pluginHost?.container.get(S.perf) ?? null
+    monitor?.recordEvent({
+      timestamp: Date.now(),
+      kind: 'db.slow',
+      name: sample.sql,
+      duration: sample.durationMs,
+      detail: { db: sample.db, op: sample.op, rows: sample.rows },
+    })
+  })
+}
+
 async function wireOfficialExtensionInstalled(id: string): Promise<void> {
   if (id !== 'com.lumii.perf' && id !== 'com.lumii.cloud-sync') return
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -1197,6 +1222,7 @@ async function wireOfficialExtensionInstalled(id: string): Promise<void> {
       const monitor = pluginHost?.container.get(S.perf) ?? null
       if (monitor) {
         performanceMonitor = monitor
+        wireSlowQueryProbe()
         log.info('[ext] perf 运行期装配完成')
         return
       }
@@ -1285,6 +1311,8 @@ async function startExtensions(): Promise<void> {
 
   // perf / cloud-sync 可能由官方外部扩展提供：必须在 loadAll 之后读
   performanceMonitor = pluginHost.container.get(S.perf) ?? null
+  // 慢 SQL 钩子挂在核心侧（不能挂在 perf 扩展里，见 wireSlowQueryProbe 注释）
+  wireSlowQueryProbe()
   log.info(`[ext] perf 服务: ${performanceMonitor ? '就绪' : '未提供'}`)
   syncScheduler = pluginHost.container.get(S.syncScheduler) ?? null
   log.info(`[ext] cloud-sync 服务: ${syncScheduler ? '就绪' : '未提供'}`)

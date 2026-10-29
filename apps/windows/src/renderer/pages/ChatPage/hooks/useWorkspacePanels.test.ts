@@ -64,6 +64,18 @@ describe('useWorkspacePanels · 工作台状态', () => {
     expect(result.current.workbench.selectedPath).toBe('docs/a.md')
   })
 
+  it('openArtifactsWorkbench 打开工作区并强制只看产出', () => {
+    const { result } = renderHook(() => useWorkspacePanels('chat', 's1'))
+    act(() => result.current.setOnlyArtifacts(false))
+    act(() => result.current.closeWorkbench())
+    act(() => result.current.openArtifactsWorkbench())
+    expect(result.current.workbench).toMatchObject({
+      open: true,
+      view: 'workspace',
+      onlyArtifacts: true,
+    })
+  })
+
   it('切视图 / 只看产出 / 选中 / 返回列表', () => {
     const { result } = renderHook(() => useWorkspacePanels('chat'))
     act(() => result.current.selectWorkbenchView('vcs'))
