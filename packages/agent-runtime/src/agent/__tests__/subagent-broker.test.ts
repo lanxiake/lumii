@@ -174,3 +174,26 @@ describe("SubagentBroker", () => {
     expect(stale.map((r) => r.childId)).toEqual(["c1"]);
   });
 });
+
+describe("SubagentBroker · 父会话记录", () => {
+  it("registerRun 记下的父会话会随完成载荷带出（父实例被回收后靠它回投）", () => {
+    const broker = new SubagentBroker(() => 1_000);
+    broker.registerRun({
+      childId: "c1",
+      parentId: "p1",
+      name: "worker",
+      mode: "async",
+      parentConversationId: "conv-abc",
+    });
+    broker.finalizeRun("c1", "completed", "done");
+    const payload = broker.buildCompletion("c1");
+    expect(payload?.parentConversationId).toBe("conv-abc");
+  });
+
+  it("没给父会话时载荷里就没有该字段（不伪造）", () => {
+    const broker = new SubagentBroker(() => 1_000);
+    broker.registerRun({ childId: "c2", parentId: "p2", name: "worker", mode: "async" });
+    broker.finalizeRun("c2", "completed", "done");
+    expect(broker.buildCompletion("c2")?.parentConversationId).toBeUndefined();
+  });
+});

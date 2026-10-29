@@ -137,7 +137,13 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
         enabled: 1,
         created_at: now,
         notify_targets: notifyTargets,
-        wake_mode: p.wakeMode === 'active' ? 'active' : 'own',
+        // 护栏：从 cron / evolution 会话里建的任务（链式续建、自主排期）**永远**落回自己的会话。
+        // 那些地方没有「用户正在看」的上下文，落 active 只会把例行产出塞进用户的对话。
+        wake_mode:
+          p.wakeMode === 'active' &&
+          !(sessionKey?.startsWith('cron:') || sessionKey?.startsWith('evolution:'))
+            ? 'active'
+            : 'own',
       } as const
 
       deps.localDb.db.prepare(

@@ -85,7 +85,7 @@ import {
   readSettings,
   drawerPointerId,
 } from '@mtbot/agent-runtime'
-import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
+import type { AgentInstance, ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer } from './context-usage-breakdown.js'
 import { clearAgentRuntimeRepos, setAgentRuntimeRepos, setWikiLibraryMigrate } from './accessors.js'
@@ -548,6 +548,7 @@ export class AgentRuntimeBridge {
       instanceToConversation: this.instanceToConversation,
       instanceToRootSessionKey: this.instanceToRootSessionKey,
       getConversationRepo: () => this._conversationRepo,
+      ensureConversationInstance: (conversationId) => this.ensureConversationInstance(conversationId),
       messageBus: this.messageBus,
       permissionController: this.permissionController,
       askUserQuestionController: this.askUserQuestionController,
@@ -3617,33 +3618,38 @@ export class AgentRuntimeBridge {
    * 找不到实例（比如重启后用户还没打开过那条会话）也返回 null —— 不为它凭空建实例，
    * 否则回复会落进一条用户根本不在看的会话，既没意义又要按它的上下文付费。
    */
+  /**
+   * 取某会话的活实例；没有就**按会话的 Agent 建一个并恢复历史**。
+   *
+   * 为什么必须重建：进程重启后实例是懒建的（要用户发第一条消息才建）。不重建的话，
+   * 所有「异步结果回投」——定时任务唤醒、后台工具完成、子代理完成——都会落空，
+   * 表现就是「任务跑完了但会话毫无反应」，且日志里只有一句 warn。
+   */
+  private async ensureConversationInstance(conversationId: string): Promise<AgentInstance | null> {
+    for (const [id, conv] of this.instanceToConversation) {
+      if (conv !== conversationId) continue
+      const live = this.agentRegistry.get(id)
+      if (live && live.state !== 'destroyed') return live
+    }
+    try {
+      const agentId = this._conversationRepo?.getAgentParticipantId(conversationId) ?? 'assistant'
+      const instanceId = await this.createInstanceById(agentId, conversationId, conversationId)
+      const created = this.agentRegistry.get(instanceId)
+      if (!created) return null
+      // 建完必须恢复历史——否则这次唤醒是脱离上下文的，等于在空白会话里自言自语
+      this.restoreHistoryForInstance(instanceId, conversationId)
+      return created
+    } catch (err) {
+      console.warn(`[ensureConversationInstance] 建实例失败 conversation=${conversationId}:`, err)
+      return null
+    }
+  }
+
   async deliverInternalMessage(conversationId: string, text: string): Promise<string | null> {
     if (this.activeWakeInFlight.has(conversationId)) return null
-    let instanceId: string | undefined
-    for (const [id, conv] of this.instanceToConversation) {
-      if (conv === conversationId) {
-        instanceId = id
-        break
-      }
-    }
-    let instance = instanceId ? this.agentRegistry.get(instanceId) : undefined
-
-    if (!instance) {
-      // 用户正开着这条会话，但进程重启后实例还没建（要等他发第一条消息才会懒建）。
-      // 此刻「唤醒它」就该替他把实例建出来，否则定时任务永远只能在重启后第一次对话前失效。
-      // 建完必须**恢复历史**——不然这条唤醒是脱离上下文的，等于在空白会话里自言自语。
-      try {
-        const agentId = this._conversationRepo?.getAgentParticipantId(conversationId) ?? 'assistant'
-        instanceId = await this.createInstanceById(agentId, conversationId, conversationId)
-        instance = this.agentRegistry.get(instanceId)
-        if (!instance) return null
-        this.restoreHistoryForInstance(instanceId, conversationId)
-      } catch (err) {
-        console.warn(`[deliverInternalMessage] 建实例失败 conversation=${conversationId}:`, err)
-        return null
-      }
-    }
-    if (!instanceId) return null
+    const instance = await this.ensureConversationInstance(conversationId)
+    if (!instance) return null
+    const instanceId = instance.id
 
     this.activeWakeInFlight.add(conversationId)
     try {
@@ -4039,10 +4045,15 @@ export class AgentRuntimeBridge {
 
   /** 后台任务终态时唤醒归属 Agent：运行中 followUp，空闲时 prompt(internal) 起新回合 */
   private async deliverBackgroundTask(task: BackgroundTaskRecord): Promise<void> {
-    const inst = task.instanceId ? this.agentRegistry.get(task.instanceId) : undefined
+    let inst = task.instanceId ? this.agentRegistry.get(task.instanceId) : undefined
     if (!inst || inst.state === 'destroyed') {
+      // 发起它的实例没了（进程重启 / 被回收）→ 按会话重建一个再投，
+      // 否则「后台任务跑完了，会话毫无反应」而且只有一句 warn
+      inst = task.sessionKey ? (await this.ensureConversationInstance(task.sessionKey)) ?? undefined : undefined
+    }
+    if (!inst) {
       log.warn(
-        `[background-task] 归属实例不可达，结果仅保留在任务卡 task=${task.taskId} instance=${task.instanceId ?? '-'}`,
+        `[background-task] 归属实例不可达且无法重建，结果仅保留在任务卡 task=${task.taskId} instance=${task.instanceId ?? '-'} session=${task.sessionKey ?? '-'}`,
       )
       return
     }
@@ -4051,7 +4062,7 @@ export class AgentRuntimeBridge {
       if (inst.state === 'running') {
         inst.followUp(text)
       } else if (inst.state === 'idle') {
-        if (task.instanceId) await this.beginInternalTurn(task.instanceId)
+        await this.beginInternalTurn(inst.id)
         await inst.prompt(text, undefined, 'internal')
       } else {
         log.warn(

@@ -43,10 +43,14 @@ const CronCreateParams = Type.Object({
   wakeMode: Type.Optional(
     Type.Union([Type.Literal("own"), Type.Literal("active")], {
       description:
-        "Where the run's output goes. 'own' (default) = its own 「定时任务」 conversation, isolated and cheap. " +
-        "'active' = wake the conversation the user currently has open (delivered only when that conversation is idle — " +
-        "it never interrupts a running turn; if it stays busy the run falls back to its own conversation). " +
-        "Use 'active' only when the user asks to be reminded *here*, since it is billed against that conversation's context.",
+        "Where the run's output lands.\n" +
+        "• 'own' (DEFAULT) — its own 「定时任务 · <name>」 conversation. Use this for recurring or data-collecting jobs " +
+        "(market watch, news, daily digest, cleanup). Isolated, cheap, never clutters the user's chat.\n" +
+        "• 'active' — wake the conversation the user currently has open. Use this when the user asked to be reminded " +
+        "*in this chat*: 「5 分钟后提醒我」「到点告诉我」「等下叫我」「做完跟我说一声」. Delivered only while that " +
+        "conversation is idle — it never interrupts a running turn, and if the conversation stays busy the run falls " +
+        "back to its own conversation. It is billed against that conversation's context, so do NOT use it for " +
+        "scheduled recurring routines.",
     }),
   ),
   notifyTargets: Type.Optional(

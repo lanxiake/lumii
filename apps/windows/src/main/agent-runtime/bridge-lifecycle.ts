@@ -11,6 +11,7 @@
 
 import {
   type AgentRegistry,
+  type AgentInstance,
   type AgentDefinitionStore,
   type MessageBus,
   type AgentRuntimeEvent,
@@ -36,6 +37,11 @@ export interface BridgeLifecycleDeps {
   instanceToConversation: Map<string, string>
   instanceToRootSessionKey: Map<string, string>
   getConversationRepo: () => ConversationRepo | null
+  /**
+   * 取会话的活实例；没有就按会话重建（并恢复历史）。
+   * 子代理完成时父实例可能已被回收——靠 spawn 记下的父会话重建，否则完成消息只能丢。
+   */
+  ensureConversationInstance?: (conversationId: string) => Promise<AgentInstance | null>
   messageBus: MessageBus
   permissionController: PermissionController
   askUserQuestionController: AskUserQuestionController
@@ -322,7 +328,18 @@ export class BridgeLifecycle {
       return
     }
 
-    const parent = this.deps.agentRegistry.get(payload.parentId)
+    // 父实例可能已被回收（进程重启 / 长时间后完成）。spawn 时记下的父会话还在，
+    // 就按它重建一个再投——否则这条完成消息只能连同子实例一起丢掉。
+    let parent = this.deps.agentRegistry.get(payload.parentId)
+    if (!parent && payload.parentConversationId && this.deps.ensureConversationInstance) {
+      parent =
+        (await this.deps.ensureConversationInstance(payload.parentConversationId)) ?? undefined
+      if (parent) {
+        log.info(
+          `[subagent] parent 已回收，按会话重建后投递 conversation=${payload.parentConversationId} child=${payload.childId}`,
+        )
+      }
+    }
     if (!parent) {
       log.warn(
         `[subagent] parent missing on complete parent=${payload.parentId} child=${payload.childId}, destroy child`,
@@ -337,7 +354,8 @@ export class BridgeLifecycle {
         parent,
         payload,
         format: (p) => orch.broker.formatCompletionMessage(p),
-        beforeInternalPrompt: () => this.deps.beginInternalTurn?.(payload.parentId) ?? Promise.resolve(),
+        // 用 parent.id 而不是 payload.parentId：父实例若已被回收，这里拿到的是**重建后**的实例
+        beforeInternalPrompt: () => this.deps.beginInternalTurn?.(parent.id) ?? Promise.resolve(),
       })
       if (mode === 'deferred') {
         this.ensureDeferredDrainListener(payload.parentId)
@@ -403,7 +421,8 @@ export class BridgeLifecycle {
           parent,
           payload,
           format: (p) => orch.broker.formatCompletionMessage(p),
-          beforeInternalPrompt: () => this.deps.beginInternalTurn?.(payload.parentId) ?? Promise.resolve(),
+          // 用 parent.id 而不是 payload.parentId：父实例若已被回收，这里拿到的是**重建后**的实例
+        beforeInternalPrompt: () => this.deps.beginInternalTurn?.(parent.id) ?? Promise.resolve(),
         })
         if (mode === 'deferred') {
           orch.broker.enqueueCompletion(payload)

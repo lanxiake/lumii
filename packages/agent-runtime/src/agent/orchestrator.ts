@@ -564,6 +564,8 @@ export class AgentOrchestrator {
       parentId: parentKey,
       name: params.name,
       mode,
+      // 记下父会话：父实例被回收后，完成消息还得靠它投回去
+      ...(parentConversationId ? { parentConversationId } : {}),
     });
 
     if (mode === "sync") {

@@ -44,6 +44,11 @@ export interface SubagentRunRecord {
   outputText: string;
   errorMessage?: string;
   spillPath?: string;
+  /**
+   * 父实例所在会话。父实例被销毁（进程重启/回收）后，只有靠它才能把完成消息
+   * 投回原会话——否则只能丢掉。
+   */
+  readonly parentConversationId?: string;
 }
 
 /** 投递给父 Agent 的完成载荷 */
@@ -54,6 +59,8 @@ export interface SubagentCompletionPayload {
   readonly status: Exclude<SubagentRunStatus, "running">;
   readonly summary: string;
   readonly spillPath?: string;
+  /** 见 {@link SubagentRunRecord.parentConversationId} */
+  readonly parentConversationId?: string;
 }
 
 /** registerRun 入参（时间戳可由 broker 填充） */
@@ -62,6 +69,8 @@ export interface RegisterSubagentRunInput {
   readonly parentId: string;
   readonly name: string;
   readonly mode: "sync" | "async";
+  /** 父实例所在会话（spawn 时就有，记下来备用） */
+  readonly parentConversationId?: string;
   readonly startedAt?: number;
 }
 
@@ -180,6 +189,7 @@ export class SubagentBroker {
       startedAt: now,
       lastProgressAt: now,
       outputText: "",
+      ...(input.parentConversationId ? { parentConversationId: input.parentConversationId } : {}),
     };
     this.runs.set(input.childId, record);
     console.log(
@@ -253,6 +263,7 @@ export class SubagentBroker {
       status: run.status,
       summary: run.outputText || run.errorMessage || "",
       spillPath: run.spillPath,
+      ...(run.parentConversationId ? { parentConversationId: run.parentConversationId } : {}),
     };
   }
 
