@@ -37,6 +37,8 @@ export interface StepExpect {
 export interface PipelinePrecondition {
   readonly kind: 'toolOk'
   readonly tool: string
+  /** 预条件也常需要参数（`list_dir` 的 path 必填）；缺省空对象 */
+  readonly params?: Record<string, unknown>
   readonly expect?: StepExpect
   readonly hint?: string
   /** preconditions 也需要 id 参与 journal（Task 1 用例要求缺 id 即拒） */

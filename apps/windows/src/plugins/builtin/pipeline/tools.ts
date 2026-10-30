@@ -19,6 +19,8 @@ export interface PipelineToolConfig {
   readonly label: string
   readonly description: string
   readonly parameters: unknown
+  readonly isReadOnly: boolean
+  readonly needsPermission: boolean
   execute(id: string, params: unknown, ctx: unknown): Promise<{
     content: { type: 'text'; text: string }[]
     details?: unknown
@@ -70,6 +72,8 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
       '回答「有哪些自动化」用这个，别猜。坏掉的 spec 会带 error 字段而不是消失。' +
       WHEN_TO_USE,
     parameters: ListInput,
+    isReadOnly: true,
+    needsPermission: false,
     async execute() {
       try {
         const all = await service.list()
@@ -89,6 +93,11 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
       '先用 rehearsal 彩排（不录、跳过需授权工具、仍验断言），确认选择器都还命中再 record。' +
       WHEN_TO_USE,
     parameters: RunInput,
+    // 执行会触发有副作用的工具，必须过审批（设计 §7.1：审「整条计划」，一次给全，
+    // 内层步骤不再逐步问）。rehearsal 也标 true 是刻意的——它同样会调工具，只是跳过需授权的那批；
+    // 要靠 mode 动态决定 needsPermission 做不到（它是静态字段），所以在描述里如实说明。
+    isReadOnly: false,
+    needsPermission: true,
     async execute(_id, raw) {
       const p = (raw ?? {}) as RunInputT
       const id = typeof p.id === 'string' ? p.id.trim() : ''
@@ -122,6 +131,8 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
       '排「上次为什么失败」用这个——报错文本在 journal 的 failedAt 里，不在别处。' +
       WHEN_TO_USE,
     parameters: InspectInput,
+    isReadOnly: true,
+    needsPermission: false,
     async execute(_id, raw) {
       const p = (raw ?? {}) as InspectInputT
       const id = typeof p.id === 'string' ? p.id.trim() : ''

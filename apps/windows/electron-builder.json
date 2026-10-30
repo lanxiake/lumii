@@ -130,6 +130,13 @@
       ]
     },
     {
+      "from": "bundled-pipelines",
+      "to": "bundled-pipelines",
+      "filter": [
+        "**/*"
+      ]
+    },
+    {
       "from": "resources/live2d",
       "to": "live2d",
       "filter": [
@@ -212,6 +219,7 @@
       "!src{,/**/*}",
       "!assets{,/**/*}",
       "!bundled-skills{,/**/*}",
+      "!bundled-pipelines{,/**/*}",
       "!resources{,/**/*}",
       "!pet-lab{,/**/*}",
       "!docs{,/**/*}",
@@ -292,6 +300,7 @@
       "!src{,/**/*}",
       "!assets{,/**/*}",
       "!bundled-skills{,/**/*}",
+      "!bundled-pipelines{,/**/*}",
       "!resources{,/**/*}",
       "!pet-lab{,/**/*}",
       "!docs{,/**/*}",

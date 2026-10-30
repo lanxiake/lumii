@@ -1,0 +1,41 @@
+{
+  "id": "model-config-tutorial",
+  "name": "模型配置教程",
+  "description": "带旁白走一遍「打开设置 → 进模型配置 → 回对话」。把 record.enabled 改成 true 就会录成带字幕的教程视频。",
+  "record": {
+    "enabled": false,
+    "sourceHint": "auto",
+    "includeMic": false,
+    "narrate": { "dub": true, "subtitleMode": "burn", "exportMp4": true }
+  },
+  "preconditions": [],
+  "steps": [
+    {
+      "id": "open-settings",
+      "label": "打开设置",
+      "narration": "点开左下角的设置。",
+      "tool": "app_goto",
+      "params": { "view": "settings" },
+      "holdMs": 1500,
+      "expect": { "viewState": { "view": "dashboard", "hub.open": true, "hub.tab": "settings" } }
+    },
+    {
+      "id": "open-model-config",
+      "label": "进入模型配置",
+      "narration": "在设置栏里选「模型配置」。这里能选每个用途槽位用哪个模型。",
+      "tool": "app_goto",
+      "params": { "view": "settings", "category": "modelConfig" },
+      "holdMs": 2000
+    },
+    {
+      "id": "back-to-chat",
+      "label": "回到对话",
+      "narration": "配置改完就能回到对话页了。",
+      "tool": "app_goto",
+      "params": { "view": "chat" },
+      "holdMs": 1200,
+      "expect": { "viewState": { "view": "chat" } }
+    }
+  ],
+  "postCleanup": []
+}

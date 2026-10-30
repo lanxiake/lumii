@@ -1,0 +1,48 @@
+{
+  "id": "settings-tour",
+  "name": "设置页巡览",
+  "description": "依次打开设置各分区并停留。三条判据全中：路径可枚举、每步有可断言结果、会重复跑。录屏默认关闭，改成 true 即可出教程视频。",
+  "record": {
+    "enabled": false,
+    "sourceHint": "auto",
+    "includeMic": false,
+    "narrate": { "dub": false, "subtitleMode": "burn", "exportMp4": false }
+  },
+  "steps": [
+    {
+      "id": "open-settings",
+      "label": "打开设置页",
+      "narration": "首先是设置页。",
+      "tool": "app_goto",
+      "params": { "view": "settings" },
+      "holdMs": 1200,
+      "expect": { "viewState": { "view": "dashboard", "hub.open": true, "hub.tab": "settings" } }
+    },
+    {
+      "id": "open-model-config",
+      "label": "打开模型配置分区",
+      "narration": "模型配置在设置里。",
+      "tool": "app_goto",
+      "params": { "view": "settings", "category": "modelConfig" },
+      "holdMs": 1200
+    },
+    {
+      "id": "open-channels",
+      "label": "打开渠道分区",
+      "narration": "渠道设置在同一栏。",
+      "tool": "app_goto",
+      "params": { "view": "settings", "category": "channels" },
+      "holdMs": 1200
+    },
+    {
+      "id": "back-to-chat",
+      "label": "回到对话",
+      "narration": "回到对话页，巡览结束。",
+      "tool": "app_goto",
+      "params": { "view": "chat" },
+      "holdMs": 800,
+      "expect": { "viewState": { "view": "chat" } }
+    }
+  ],
+  "postCleanup": []
+}

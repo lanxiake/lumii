@@ -89,6 +89,22 @@ import {
 import type { AgentInstance, ArchivePalaceMeta, SkillInfo } from '@mtbot/agent-runtime'
 import type { AgentMessage, AgentTool, StreamFn } from '@earendil-works/pi-agent-core'
 import { matchByQuery, toolSearchToolConfig } from '@mtbot/agent-runtime'
+import { assembleTools } from '@mtbot/agent-runtime'
+import { VIEW_STATE_SCRIPT } from '../app-ui-control/controller'
+import { getScreenRecordService } from '../kernel/screen-record-contract'
+
+/** 流水线调工具时借用的一份「定义」——只为过权限闸门，不是真的 Agent */
+const PIPELINE_TOOL_DEF = {
+  id: 'pipeline-runner',
+  name: '确定性流水线执行器',
+  description: '按 spec 逐步执行流水线',
+  sourceType: 'system',
+  version: 1,
+  systemPrompt: '',
+  modelTier: 'balanced',
+  canSpawnSubAgents: false,
+  isActive: true,
+} as unknown as AgentDefinition
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer, type ToolDefinitionLite } from './context-usage-breakdown.js'
 import { clearAgentRuntimeRepos, setAgentRuntimeRepos, setWikiLibraryMigrate } from './accessors.js'
 import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
@@ -3992,8 +4008,121 @@ export class AgentRuntimeBridge {
    * 只在 enabled **真的变了**时才重排调度器：`reloadLocalCronScheduler` 会拆掉并重建
    * 所有任务计时器，而 MCP 断线自动重连也会走到这里——每次重连都重排会无辜打扰别的任务。
    */
-  private syncWechatWatchJob(): void {
+  /**
+   * 给流水线插件的**执行器包**（4 个注入接口 + 一个工具注册口）。
+   *
+   * 方向是**核心注入插件**，不是插件 import 核心（wiring ⑪ 守的就是这条）：
+   * 插件在 `agent:runtime-ready` 之后调这里，拿到 callTool / 录屏 / 视图回读，
+   * 自己建 service 与三个工具，再用返回的 `registerTool` 把工具挂进注册表。
+   *
+   * 各注入点的理由（对应 `RunnerDeps` 的四个接口）：
+   * - `callTool`：**必须走 `assembleTools` 产出的 runner**，不能裸调 `toolRegistry.get(n).execute()`
+   *   ——后者未包 hooks，会绕过权限闸门、审计与 read-before-write（设计 §7.1 / 计划约束 2）。
+   * - `screenRecord`：走 `screen-record-contract`（与 `screen_record_*` 工具同源）。
+   * - `readViewState`：读渲染层 `__LUMII_APP_UI_STATE__`（与 `app_goto` 的视图回读同源）。
+   * - `knownTools` / `needsPermission`：spec 校验与 rehearsal 跳过集都要现取工具表。
+   * - `registerTool`：插件把 config 交过来，这里用**本地的** toolContext 建实例并注册，返回 disposer。
+   */
+  createPipelineExecutor(): {
+    callTool: (name: string, params: Record<string, unknown>) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+    screenRecord: import('../../plugins/builtin/pipeline/types').RunnerDeps['screenRecord']
+    readViewState: () => Promise<{ view: string | null; hub?: { open: boolean } }>
+    knownTools: () => ReadonlySet<string>
+    needsPermission: (tool: string) => boolean
+    registerTool: (config: { name: string }) => () => void
+  } {
+    return {
+      callTool: (name, params) => this.callPipelineTool(name, params),
+      screenRecord: this.buildPipelineScreenRecord(),
+      readViewState: () => this.readAppViewState(),
+      knownTools: () => new Set(this.toolRegistry.getAll().map((t) => t.name)),
+      needsPermission: (tool) => this.toolRegistry.get(tool)?.needsPermission === true,
+      registerTool: (config) => {
+        if (!this.toolContext) return () => {}
+        this.toolRegistry.register(
+          createMtBotTool(config as MtBotToolConfig<any, any>, this.toolContext),
+        )
+        return () => this.toolRegistry.unregister(config.name)
+      },
+    }
+  }
+
+  /** 调一次工具，走完整 hooks（权限闸门在内）。返回扁平化的 `{ok,data,error}`。 */
+  private async callPipelineTool(
+    name: string,
+    params: Record<string, unknown>,
+  ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+    const tool = this.toolRegistry.get(name)
+    if (!tool) return { ok: false, error: `unknown tool: ${name}` }
+    if (!this.toolContext) return { ok: false, error: 'toolContext 未初始化' }
+    // 用一个「流水线」定义装配一遍，拿到带权限闸门/审计/logging 的 runner。
+    // 不复用某实例的 runner：流水线不是那个实例的回合，借用会让权限归属记错会话。
+    const { runner, tools } = assembleTools({
+      tools: [tool],
+      definition: PIPELINE_TOOL_DEF,
+      toolContext: this.toolContext,
+      featureFlags: this.featureFlags,
+      permissionGate: {
+        definition: PIPELINE_TOOL_DEF,
+        instanceId: `pipeline-${Date.now()}`,
+        runContext: { runId: 'pipeline', sessionKey: 'pipeline', rootSessionKey: 'pipeline' },
+        permissionMemory: this.permissionController.memory,
+        // 内层步骤**不再逐步问**：设计 §7.1 规定「审批整条计划，不审批每一步」——
+        // 审批在 `pipeline_run` 工具本身（needsPermission:true）那一次就完成了，
+        // 逐step再问一条 8 步流水线会弹 8 次，用户最后全点允许，比不审批更糟。
+        permission: { requestPermission: async () => 'allow-once' },
+      },
+    })
+    const wrapped = tools[0]
+    if (!wrapped) return { ok: false, error: `工具 ${name} 装配失败` }
+    void runner
     try {
+      const res = (await wrapped.execute(`pipeline-${name}-${Date.now()}`, params)) as {
+        content: { type: string; text?: string }[]
+        isError?: boolean
+      }
+      const text = res.content?.find((c) => c.type === 'text')?.text ?? ''
+      let data: unknown = text
+      try {
+        data = JSON.parse(text)
+      } catch {
+        /* 非 JSON 文本原样返回 */
+      }
+      return res.isError ? { ok: false, data, error: text.slice(0, 400) } : { ok: true, data }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  /** 录屏三件套；服务未就绪时返回 null（runner 会据此跳过录制） */
+  private buildPipelineScreenRecord(): import('../../plugins/builtin/pipeline/types').RunnerDeps['screenRecord'] {
+    const svc = getScreenRecordService()
+    if (!svc) return null
+    return {
+      start: async (p) => svc.start(p as never),
+      stop: async () => svc.stop(),
+      mark: async (p) => {
+        const r = await svc.mark({ label: p.label })
+        return { ok: r.ok, data: r.ok ? { atMs: r.marker.atMs } : undefined }
+      },
+    }
+  }
+
+  /** 读渲染层视图状态（与 app_goto 的视图回读同一脚本） */
+  private async readAppViewState(): Promise<{ view: string | null; hub?: { open: boolean } }> {
+    const win = this.config.getWindow?.()
+    if (!win || win.isDestroyed()) return { view: null }
+    try {
+      const raw = await win.webContents.executeJavaScript(VIEW_STATE_SCRIPT)
+      if (!raw) return { view: null }
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+      return parsed as { view: string | null; hub?: { open: boolean } }
+    } catch {
+      return { view: null }
+    }
+  }
+
+  private syncWechatWatchJob(): void {    try {
       const wechatEnabled = isExtensionActive('com.lumii.pcwechat')
 
 

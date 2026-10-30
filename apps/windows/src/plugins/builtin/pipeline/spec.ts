@@ -148,6 +148,7 @@ export function validateSpec(raw: unknown, knownTools: ReadonlySet<string>): Val
             kind: 'toolOk',
             id,
             tool,
+            params: isObj(p.params) ? p.params : undefined,
             expect: isObj(p.expect) ? (p.expect as PipelinePrecondition['expect']) : undefined,
             hint: typeof p.hint === 'string' ? p.hint : undefined,
           })

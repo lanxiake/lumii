@@ -235,6 +235,18 @@ describe('runner 主循环', () => {
     expect(calls).not.toContain('start')
   })
 
+  it('preconditions 支持 params（list_dir 的 path 必填，空参必失败）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      preconditions: [{ id: 'p1', tool: 'app_act', params: { kind: 'clearInput' } }],
+    })
+    const { d } = deps()
+    await runPipeline({
+      spec, specHash, mode: 'rehearsal', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(d.callTool).toHaveBeenCalledWith('app_act', { kind: 'clearInput' })
+  })
+
   it('{{prev.path}} 取值：传给下一步的参数是解析后的值', async () => {
     const { spec, specHash } = specOf([
       { id: 'a', tool: 'app_goto' },

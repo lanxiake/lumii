@@ -159,7 +159,9 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
 
   // ── preconditions：不满足直接停，且**不 start 录制** ──
   for (const p of spec.preconditions ?? []) {
-    const r = await deps.callTool(p.tool, {})
+    // 预条件也走 resolveParams：它们的参数里同样可以有 {{ref}}（虽然引用只能向后、
+    // 而预条件在主循环之前，实际只有常量——但传不传参不能靠工具恰好零参来保证）。
+    const r = await deps.callTool(p.tool, (resolveParams(p.params ?? {}, outputs) as Record<string, unknown>) ?? {})
     const viewState = await deps.readViewState()
     const a = assertExpect(p.expect, r.data ?? r, viewState)
     if (!r.ok || !a.ok) {
