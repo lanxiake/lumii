@@ -327,8 +327,34 @@ describe('tool-usage-store · 按日维度与时间窗', () => {
     db.close()
   })
 
-  it('覆盖率如实反映按日数据的起止（用来判断「窗口里到底有没有数据」）', async () => {
-    const s = await storeAt('2026-09-16')
+  it('按 (agent, channel) 切片读最后使用时间——跨渠道不互相污染', async () => {
+    const { recordToolUsage, getToolLastUsedByScope } = await store()
+    // evolution Agent 用的工具和「高频工具」几乎不重叠，这正是 §5.6.3(a) 那个
+    // 「拿全局/跨渠道汇总去排，evolution Recall 掉到 32%」的现场。切片必须真的按渠道分开。
+    await recordToolUsage('evolution', 'evolution', 'file_read')
+    await recordToolUsage('evolution', 'ipc', 'bash')
+
+    const evo = await getToolLastUsedByScope('evolution', 'evolution')
+    expect([...evo.keys()]).toEqual(['file_read'])
+    const ipc = await getToolLastUsedByScope('evolution', 'ipc')
+    expect([...ipc.keys()]).toEqual(['bash'])
+    // 取不到的组合返回空 map（调用方据此 fail-open 到全量），而不是退回某个别的渠道
+    expect((await getToolLastUsedByScope('evolution', 'weixin')).size).toBe(0)
+    expect((await getToolLastUsedByScope('未经记录的-agent', 'ipc')).size).toBe(0)
+  })
+
+  it('切片历史起点取最早一条（"数据够老吗"判据），无记录为 null', async () => {
+    const { recordToolUsage, getScopeHistorySince } = await store()
+    expect(await getScopeHistorySince('assistant', 'ipc')).toBeNull()
+    await recordToolUsage('assistant', 'ipc', 'bash')
+    const t1 = await getScopeHistorySince('assistant', 'ipc')
+    expect(typeof t1).toBe('number')
+    await recordToolUsage('assistant', 'ipc', 'file_read')
+    // 起点是「最早一条」，不随后续调用推移——否则渠道永远"不够老"
+    expect(await getScopeHistorySince('assistant', 'ipc')).toBe(t1)
+  })
+
+  it('覆盖率如实反映按日数据的起止（用来判断「窗口里到底有没有数据」）', async () => {    const s = await storeAt('2026-09-16')
     expect(await s.getDailyCoverage()).toMatchObject({ since: null, until: null })
 
     await s.recordToolUsage('assistant', 'ipc', 'bash')

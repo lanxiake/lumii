@@ -46,6 +46,7 @@ import {
   type ContextFile,
 } from '@mtbot/agent-runtime'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
+import type { AgentTool } from '@earendil-works/pi-agent-core'
 
 import { createRunContext } from './event-converter'
 import { resolvePinnedStreamModelRef } from './pinned-stream-model'
@@ -53,6 +54,9 @@ import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-w
 import { forwardPermissionResolved } from './bridge-permission-ipc-forward'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
 import { createToolUsageHook } from './hooks/tool-usage-hook'
+import { applyToolLoadout, resolveToolLoadout } from './tool-loadout'
+import { getScopeHistorySince, getToolLastUsedByScope, UNKNOWN_CHANNEL } from '../tool-usage-store'
+import { TOOL_SEARCH_TOOL_NAME, TASK_COMPLETE_TOOL_NAME, SKILL_SEARCH_TOOL_NAME } from '@mtbot/agent-runtime'
 import {
   createBashCommandLogHook,
   applyToolDefinitionStyle,
@@ -92,6 +96,37 @@ import { resolveChannelIdentity } from '../channel/channel-identity'
 interface MutableRef<T> {
   value: T
 }
+
+/**
+ * 恒在常驻位、不占 limit 名额（计划 C8 / 设计 §5.6.4 规则 2）。
+ * - `tool_search`：折叠工具的唯一入口，它自己被折叠就全盘失效
+ * - `task_complete`：结束回合，任何 Agent 都需要
+ * - `skill_search`：技能侧的发现入口，与技能是否被折叠无关地恒在
+ */
+const PINNED_TOOLS: readonly string[] = [
+  TOOL_SEARCH_TOOL_NAME,
+  TASK_COMPLETE_TOOL_NAME,
+  SKILL_SEARCH_TOOL_NAME,
+]
+
+/** 常驻名额（§5.6.4：N 曲线在 20 附近边际收益变平） */
+const TOOL_LOADOUT_LIMIT = 20
+
+/**
+ * `tool_search` 恒在（见 `PINNED_TOOLS` 的说明）。
+ * 它可能不在 Agent 白名单里，故 `applyToolLoadout` 会用 `ensure` 从全量池补回。
+ */
+const TOOL_LOADOUT_ENSURE: readonly string[] = [TOOL_SEARCH_TOOL_NAME]
+
+/**
+ * 渠道数据至少攒够这么多天才允许裁剪（fail-open 的时间维度）。
+ *
+ * 渠道维度是 V56（2026-10-29）才加的，此前全部落在 `unknown`。刚上线的渠道
+ * 计数天然偏低，此时按 LRU 排是瞎猜：本机实测 `assistant|ipc` 只有 3 条历史，
+ * 而该轮暴露 148 个工具——照排会把 145 个全折掉。**3 天**与计划里 P0→P1 的数据
+ * 沉淀期同量级，够了就能看出「这个渠道平时用哪 20 个」。
+ */
+const MIN_CHANNEL_HISTORY_DAYS = 3
 
 export interface BridgeInstanceFactoryDeps {
   config: AgentRuntimeBridgeConfig
@@ -188,6 +223,52 @@ export interface BridgeInstanceFactoryDeps {
 
 export class BridgeInstanceFactory {
   constructor(private readonly deps: BridgeInstanceFactoryDeps) {}
+
+  /**
+   * P2：算出本实例该折叠哪些工具（冷启动或读失败返回 null = 不裁）。
+   *
+   * 作用域 `(def.id, channel)`，渠道在实例创建时求值（实例与会话 1:1，生命周期内不变）。
+   * **失败一律 fail-open**：读不到用量就返回 null（全量），绝不因为统计故障把能力藏起来（C8）。
+   */
+  private async resolveInitialLoadout<T extends AgentTool>(
+    def: AgentDefinition,
+    conversationId: string | undefined,
+    allTools: readonly T[],
+  ): Promise<T[] | null> {
+    try {
+      const channel = conversationId
+        ? resolveChannelIdentity(
+            conversationId,
+            this.deps.getConversationOwnership?.(conversationId) ?? null,
+          ).ownership
+        : UNKNOWN_CHANNEL
+      const lastUsed = await getToolLastUsedByScope(def.id, channel)
+      // 「数据够老吗」判据：渠道维度是后加的，刚上线的渠道计数天然偏低，
+      // 那时的 LRU 排序是瞎猜（本机实测 `assistant|ipc` 只有 3 条，照排会把 148 个折掉 145 个）。
+      // 攒够观察窗口再裁——这是 C8 冷启动护栏的时间维度，与「一条历史都没有」互补。
+      const since = await getScopeHistorySince(def.id, channel)
+      if (since == null || Date.now() - since < MIN_CHANNEL_HISTORY_DAYS * 86_400_000) {
+        log.info(
+          `[loadout] agent=${def.id} channel=${channel} 渠道历史不足 ${MIN_CHANNEL_HISTORY_DAYS} 天，跳过裁剪`,
+        )
+        return null
+      }
+      const { deferred } = resolveToolLoadout({
+        all: allTools,
+        lastUsed,
+        pinned: PINNED_TOOLS,
+        limit: TOOL_LOADOUT_LIMIT,
+      })
+      if (deferred.length === 0) return null
+      log.info(
+        `[loadout] agent=${def.id} channel=${channel} 常驻=${allTools.length - deferred.length} 折叠=${deferred.length}`,
+      )
+      return [...deferred]
+    } catch (err) {
+      log.warn(`[loadout] 解析失败，回落全量: ${err instanceof Error ? err.message : String(err)}`)
+      return null
+    }
+  }
 
   /**
    * 通过 agentId 创建实例（优先 DefinitionStore：内置 / 缓存 / API）
@@ -404,6 +485,29 @@ export class BridgeInstanceFactory {
       ? this.deps.toolRegistry.getEnabledTools().filter((t) => !isDisabledMcpTool(t.name))
       : this.deps.toolRegistry.getEnabledTools()
 
+    // ── P2 工具装载裁剪（按 (agent, channel) 的 LRU 常驻 20 个）──
+    // 作用域必须是 (agentDefinitionId, channel)，故在**实例创建时**求值一次：
+    // 实例与会话 1:1，渠道在实例生命周期内不变（见 deps.getConversationOwnership 的注释）。
+    //
+    // **必须在 def 过滤之后裁**：`assembleAgent` → `filterToolsByDefinition` 还会按
+    // `def.tools` 白名单二次过滤。拿未过滤的 `allTools` 去裁，会让一个白名单很窄的
+    // Agent（如 chronicler，只认 10 个工具）被折掉它自己要的工具，然后白名单再把它扫掉
+    // —— 工具无声消失。所以先过滤、再裁剪，deferred 存的就是「该实际生效但被折叠」的那批。
+    const loadoutInstanceState = this.deps.instanceStates.get(instanceId)
+    let loadedTools: typeof allTools = allTools
+    if (this.deps.featureFlags.ENABLE_TOOL_LOADOUT_FOR?.includes(def.id)) {
+      const forThisAgent = filterToolsByDefinition(allTools, def)
+      // 顺序与「补 tool_search」的坑都封在 applyToolLoadout 里（有单测），别在这里重写
+      const { loadedTools: lt, deferredTools } = applyToolLoadout({
+        allowedTools: forThisAgent,
+        deferred: await this.resolveInitialLoadout(def, conversationId, forThisAgent),
+        pool: allTools,
+        ensure: TOOL_LOADOUT_ENSURE,
+      })
+      loadedTools = lt
+      if (loadoutInstanceState) loadoutInstanceState.deferredTools = deferredTools
+    }
+
     const tc = this.deps.getToolContext()
     if (!tc) {
       throw new Error('[createInstance] toolContext is not initialized')
@@ -420,12 +524,24 @@ export class BridgeInstanceFactory {
      * 这与 V44 的「不假装能归因」一致：**宁可留空等它自己长出来，也不猜一个 `ipc`。**
      */
     let cachedChannel: string | null = null
+    /**
+     * 会话 → 渠道。**与 tool_usage_stats 的渠道口径同源**（落库值优先 + 前缀回退）。
+     *
+     * 空 conversationId 时**不调** `resolveChannelIdentity`——它对空串会返回 `'ipc'`
+     * （前缀回退的缺省值），而那正是「不猜 ipc」要禁止的（计划 C4）。
+     */
+    const resolveChannelForConversation = (conversationId: string | undefined): string =>
+      conversationId
+        ? resolveChannelIdentity(
+            conversationId,
+            this.deps.getConversationOwnership?.(conversationId) ?? null,
+          ).ownership
+        : UNKNOWN_CHANNEL
     const getChannel = (): string => {
       if (cachedChannel) return cachedChannel
       const conversationId = getConversationId()
       if (!conversationId) return 'unknown'
-      const ownership = this.deps.getConversationOwnership?.(conversationId)
-      const resolved = resolveChannelIdentity(conversationId, ownership).ownership
+      const resolved = resolveChannelForConversation(conversationId)
       cachedChannel = resolved
       return resolved
     }
@@ -799,7 +915,7 @@ export class BridgeInstanceFactory {
         permission,
         promptContext,
         streamFnFactory,
-        tools: allTools,
+        tools: loadedTools,
         toolContext: tc,
         optionalHooks,
         background: this.deps.background,

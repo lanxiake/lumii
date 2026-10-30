@@ -85,6 +85,21 @@ export interface InstanceState {
   originalToolDefs?: readonly AgentTool[]
   /** 已应用到实例的工具定义风格（与 originalToolDefs 配套，避免每轮重复 setTools） */
   appliedToolDefStyle?: PromptStyle
+  /**
+   * P2 工具裁剪（`ENABLE_TOOL_LOADOUT_FOR` 命中时才填）——
+   * 该实例**注册了但未装载**的工具，`tool_search` 的检索源就在这里。
+   *
+   * 为什么是 per-instance：工具对象在 bridge 初始化时创建、被所有实例共享，
+   * 而「折叠了哪些」取决于是哪个 Agent 的 LRU，故状态必须挂在实例上而不是工具里。
+   */
+  deferredTools?: readonly AgentTool[]
+  /** 该实例已通过 `tool_search` 装载的工具名（供每轮重放，避免下一轮样式刷新时又丢掉） */
+  loadedBySearch?: Set<string>
+  /**
+   * 连续 `tool_search` 未命中次数（fail-open 判据，计划 C8）。
+   * 达到 2 就回落全量——只要**命中过**就清零（中间夹着别的工具调用来问没事）。
+   */
+  searchMissStreak?: number
   /** 本实例当前的 skills 快照（用于 ActivationResolver 输入） */
   skillsSnapshot: readonly SkillInfo[]
   /** 技能命中率监控 tracker（P3 监控） */

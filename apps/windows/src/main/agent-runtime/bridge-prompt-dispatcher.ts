@@ -242,12 +242,20 @@ export class BridgePromptDispatcher {
             this.deps.getConversationOwnership?.(sessionKey) ?? null,
           ).ownership
         : UNKNOWN_CHANNEL
+      const allTools = instance.getTools()
+      // 目标实例状态在**本轮结束时**才读——`tool_search` 的加载发生在 `prompt()` 内部，
+      // 此刻 `loadedBySearch` 已是本轮全部命中。先取快照再清零，供下面补记 search 行。
+      const loadedBySearch = new Set(
+        this.deps.instanceStates.get(instanceId)?.loadedBySearch ?? [],
+      )
+      this.deps.instanceStates.get(instanceId)?.loadedBySearch?.clear()
+
       recordToolExposure({
         sessionKey,
         turnId: turnId ?? null,
         agentId: instance.definitionId,
         channel,
-        tools: instance.getTools().map((t) => ({
+        tools: allTools.map((t) => ({
           n: t.name,
           t: estimateToolTokens(
             t as unknown as ToolDefinitionLite,
@@ -255,6 +263,32 @@ export class BridgePromptDispatcher {
           ),
         })),
       })
+
+      // P2：本轮若有 `tool_search` 命中装载，补记一行 `reason='search'`。
+      //
+      // **偏差（如实标注）**：设计 §6 想要「同 turn_id 下先 turn 行、后 search 行」的时序证据。
+      // 这本做不到——P0 刻意把暴露行放在 `instance.prompt()` **之后**（要等 `ctx.resolvedModelId`
+      // 落到 streamFn 才知道该用哪个标定比），而 search 装载发生在 prompt 内部。所以这里的
+      // search 行记的是「本轮被捞回来、且此刻仍在装载集里」的工具名与 token 数，
+      // **不是**装载前/后的差值。它足以回答「模型有没有自己把折叠的工具捞回来」，
+      // 但对不上「turn 行 + search 行 == 轮末全量」这条会计恒等式。
+      const added = allTools.filter((t) => loadedBySearch.has(t.name))
+      if (added.length > 0) {
+        recordToolExposure({
+          sessionKey,
+          turnId: turnId ?? null,
+          agentId: instance.definitionId,
+          channel,
+          reason: 'search',
+          tools: added.map((t) => ({
+            n: t.name,
+            t: estimateToolTokens(
+              t as unknown as ToolDefinitionLite,
+              this.deps.resolveCharsPerToken?.(modelId),
+            ),
+          })),
+        })
+      }
     } catch (err) {
       log.warn(`[prompt] 暴露记录写入失败（已忽略）: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -445,9 +479,20 @@ export class BridgePromptDispatcher {
         ) {
           const targetInstance = this.deps.agentRegistry.get(instanceId)
           if (targetInstance) {
-            targetInstance.setTools([
-              ...applyToolDefinitionStyle(stateForRebuild.originalToolDefs, turnPromptStyle),
-            ])
+            const rebuilt = applyToolDefinitionStyle(stateForRebuild.originalToolDefs, turnPromptStyle)
+            // P2：`originalToolDefs` 是**创建时**的工具集，不含之后 `tool_search` 捞回的工具。
+            // 换风格时若整份替换，会把它们悄悄丢掉——模型下一轮又"看不见"了，
+            // 而它并没有做错任何事。所以把已装载的按名补回（对象取现实例里的那份）。
+            // 无装载时**不碰** `getTools()`：多数实例（与测试替身）没有它，白调会把
+            // 整个重建块拖进 catch。
+            const loaded = state?.loadedBySearch
+            const keep =
+              loaded && loaded.size > 0 && typeof targetInstance.getTools === 'function'
+                ? targetInstance
+                    .getTools()
+                    .filter((t) => loaded.has(t.name) && !rebuilt.some((r) => r.name === t.name))
+                : []
+            targetInstance.setTools([...rebuilt, ...keep])
             stateForRebuild.appliedToolDefStyle = turnPromptStyle
           }
         }

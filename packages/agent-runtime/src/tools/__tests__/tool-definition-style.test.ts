@@ -31,6 +31,8 @@ const HOST_REGISTERED_TOOLS = new Set([
   "a2ui_guide",
   "weixin_send_guide",
   "prompt_guide",
+  // P2 工具折叠出口：由宿主（bridge）按灰度名单决定是否注册，不在 ALL_BUILT_IN_TOOL_CONFIGS 里
+  "tool_search",
 ]);
 
 describe("COMPLEX_TOOL_NAMES 的成员存在性", () => {

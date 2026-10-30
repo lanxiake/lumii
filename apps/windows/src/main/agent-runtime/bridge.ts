@@ -49,6 +49,7 @@ import {
   type AgentRuntimeEvent,
   type AgentDefinition,
   type ToolExecutionContext,
+  type MtBotToolConfig,
   type AgentRuntimeFeatureFlags,
   type BackgroundToolConfig,
   type BackgroundToolRunner,
@@ -86,7 +87,8 @@ import {
   drawerPointerId,
 } from '@mtbot/agent-runtime'
 import type { AgentInstance, ArchivePalaceMeta, SkillInfo } from '@mtbot/agent-runtime'
-import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
+import type { AgentMessage, AgentTool, StreamFn } from '@earendil-works/pi-agent-core'
+import { matchByQuery, toolSearchToolConfig } from '@mtbot/agent-runtime'
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer, type ToolDefinitionLite } from './context-usage-breakdown.js'
 import { clearAgentRuntimeRepos, setAgentRuntimeRepos, setWikiLibraryMigrate } from './accessors.js'
 import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
@@ -1114,6 +1116,18 @@ export class AgentRuntimeBridge {
     return resolveAgentFilePath(filePath, this.config.getCwd(), this.config.getAllowedRoots?.())
   }
 
+  /**
+   * `tool_search` 的执行期上下文：定位「正在执行工具的那个实例」。
+   *
+   * 用 `currentToolExecutorInstanceId`（工具执行前后由 toolLifecycle 维护），
+   * 而不是 `lastActiveConvIdRef`——后者是**最近活跃会话**，在并发/子 Agent 场景下
+   * 会把 A 实例的 tool_search 记到 B 头上（静默给错实例装载工具）。
+   */
+  private getInstanceStateForToolSearch(): import('./bridge-instance-state').InstanceState | undefined {
+    const id = this.currentToolExecutorInstanceIdRef.value
+    return id ? this.instanceStates.get(id) : undefined
+  }
+
   /** initialize() 子块 2/7：构造 toolContext、注册内建工具、构造并调用 BridgeToolRegistrar。必须晚于 initializeDatabaseAndRepos（依赖 Repos 已创建） */
   private initializeToolContextAndRegistry(): void {
     const toolContext: ToolExecutionContext = {
@@ -1205,11 +1219,63 @@ export class AgentRuntimeBridge {
       // 宿主 getSkills 是异步的（从磁盘/IPC 读取），此处以空兜底：同步路径直接返回 []，
       // skill_* 工具列表信息由 skillStore 独立注入，不依赖 toolContext.getSkills 字段。
       getSkills: () => [],
+
+      // ── P2 工具裁剪：tool_search 的检索源与装载器 ──
+      // 状态挂在**实例**上而不是工具里（工具对象被所有实例共享，见 tool-search-tool.ts 头注释）。
+      // 目标实例用执行期的 currentToolExecutorInstanceId 定位——tool_search 由模型在同一轮里调，
+      // 那一刻正在执行工具的就是它自己的实例。
+      searchTools: (query) => {
+        const s = this.getInstanceStateForToolSearch()
+        if (!s?.deferredTools) return []
+        return s.deferredTools
+          .filter((t) => matchByQuery(query, `${t.name} ${t.description ?? ''}`))
+          .map((t) => ({ name: t.name, description: t.description ?? '' }))
+      },      loadTools: (names) => {
+        const pick = this.currentToolExecutorInstanceIdRef.value
+        const s = pick ? this.instanceStates.get(pick) : undefined
+        const instance = pick ? this.agentRegistry.get(pick) : undefined
+        if (!s || !instance) return
+        // fail-open ②：连续两次未命中 → 装载**全量**（C8）。命中过就清零。
+        if (names.length === 0) {
+          s.searchMissStreak = (s.searchMissStreak ?? 0) + 1
+          if (s.searchMissStreak >= 2 && s.deferredTools?.length) {
+            log.warn('[tool_search] 连续两次未命中，回落全量装载（fail-open）')
+            const current = instance.getTools()
+            const have = new Set(current.map((t) => t.name))
+            instance.setTools([...current, ...s.deferredTools.filter((t) => !have.has(t.name))])
+            s.deferredTools = []
+          }
+          return
+        }
+        s.searchMissStreak = 0
+        if (!s.deferredTools?.length) return
+        const byName = new Map(s.deferredTools.map((t) => [t.name, t]))
+        const current = instance.getTools()
+        const have = new Set(current.map((t) => t.name))
+        const add = names.map((n) => byName.get(n)).filter((t): t is AgentTool => !!t && !have.has(t.name))
+        if (add.length === 0) return
+        instance.setTools([...current, ...add])
+        s.loadedBySearch ??= new Set()
+        for (const t of add) s.loadedBySearch.add(t.name)
+      },
     }
     this.toolContext = toolContext
 
     for (const toolConfig of ALL_BUILT_IN_TOOL_CONFIGS) {
       this.toolRegistry.register(createMtBotTool(toolConfig, toolContext))
+    }
+
+    // P2 工具折叠出口：**只在开了灰度名单时才注册**。
+    // 不进 `ALL_BUILT_IN_TOOL_CONFIGS` —— 那会让它在所有 Agent 的工具面里出现，
+    // 即使一个 Agent 都没开裁剪（默认名单为空），等于平白多一个没有 deferred 可搜的工具。
+    // 它会进 `tool_search` 的检索池、但不会被折叠（它自己在 pinned 里），
+    // 且多数 Agent 的白名单没有它 ⇒ 不暴露给模型，只是注册着备用。
+    if (this.featureFlags.ENABLE_TOOL_LOADOUT_FOR?.length) {
+      // 与 ALL_BUILT_IN_TOOL_CONFIGS 同样的泛型擦除（MtBotToolConfig 的参数类型是逆变的，
+      // 带具体 schema 的配置无法直接赋给 MtBotTool<TSchema>）
+      this.toolRegistry.register(
+        createMtBotTool(toolSearchToolConfig as MtBotToolConfig<any, any>, toolContext),
+      )
     }
 
     this.toolRegistrarDeps = {

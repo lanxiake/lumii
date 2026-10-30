@@ -202,6 +202,23 @@ export interface ToolExecutionContext {
    * 平台层未注入时 skill_invoke 静默跳过，不影响正常运行。
    */
   recordSkillExecution?: (skillIdOrName: string) => Promise<void> | void;
+
+  /**
+   * 可选能力：`tool_search` 的检索源 —— 在**已注册但未装载**的工具里找（P2 能力面裁剪）。
+   *
+   * 与 `getSkills` 同风格（同步、由宿主注入、缺省即该工具不可用）。返回 `name + description`，
+   * **不返回参数 schema**：折叠的理由正是省 token，命中后由 `loadTools` 把真对象装回去。
+   * 平台层不注入（或未启用裁剪）时 `tool_search` 如实报「本会话未启用折叠」。
+   */
+  searchTools?: (query: string) => readonly { name: string; description: string }[];
+
+  /**
+   * 可选能力：把 `tool_search` 命中的工具装载进当前实例（下一轮请求即包含它们）。
+   *
+   * 宿主实现负责去重、持久化「本轮已加载」、并按 fail-open 规则（C8）在连续未命中时回落全量。
+   * 未注入时 `tool_search` 只检索不装载——那等于模型捞不回来，故宿主必须成对注入。
+   */
+  loadTools?: (names: readonly string[]) => void;
 }
 
 /**

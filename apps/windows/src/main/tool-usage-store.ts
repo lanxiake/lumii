@@ -619,9 +619,57 @@ export async function getToolUsageByAgent(
   return out
 }
 
+/**
+ * 读某个 `(agent, channel)` 切片的「工具 → 最后使用时刻」。P2 工具装载裁剪的输入。
+ *
+ * **为什么不能拿 `getToolUsageByAgent` 顶替**：那个接口按 Agent **跨渠道相加**
+ * （见它的注释），而裁剪的作用域必须是 (agent, channel)——拿跨渠道汇总去排，
+ * 就是设计 §5.6.3(a) 里 `evolution` Recall 掉到 32% 的那个错误。
+ *
+ * 走**累计表**（`tool_usage_stats`）而不是按日表：这里要的是「最后一次用是什么时候」，
+ * 一个跨天的排序键，按日表只留 90 天且要聚合。与 `getToolUsageByAgent` 的
+ * 「days 走按日、省略走累计」是**同一个语义分叉**，不是两套口径互相兜底。
+ * **不猜渠道**：查不到就是空 map，调用方据此 fail-open 到全量（C4 + C8）。
+ */
+export async function getToolLastUsedByScope(
+  agentId: string,
+  channel: string,
+): Promise<Map<string, number>> {
+  await ensureLoaded()
+  const out = new Map<string, number>()
+  const bucket = cache?.get(scopedKey(agentId, channel))
+  if (!bucket) return out
+  for (const [toolName, s] of Object.entries(bucket)) {
+    if (s.lastUsedAt > 0) out.set(toolName, s.lastUsedAt)
+  }
+  return out
+}
+
+/**
+ * 该 `(agent, channel)` 切片里**最早一条**记录的时刻，无记录返回 null。P2 裁剪的「数据够老吗」判据。
+ *
+ * 为什么不用工具条数当判据（见 `tool-loadout.ts` 的注释）：一个稳定只用 12 个工具的渠道
+ * 恰恰是最好的折叠对象，按条数拦会把它永久关在门外。真信号是**渠道数据够不够老**
+ * ——渠道维度是后加的，刚上线的渠道计数天然偏低，那时排序必然是瞎猜。
+ *
+ * 取 `count > 0`：被清扫到 0 的行不算历史（它不代表「那时在用」）。
+ */
+export async function getScopeHistorySince(
+  agentId: string,
+  channel: string,
+): Promise<number | null> {
+  await ensureLoaded()
+  const bucket = cache?.get(scopedKey(agentId, channel))
+  if (!bucket) return null
+  let oldest = Infinity
+  for (const s of Object.values(bucket)) {
+    if (s.count > 0 && s.lastUsedAt > 0 && s.lastUsedAt < oldest) oldest = s.lastUsedAt
+  }
+  return Number.isFinite(oldest) ? oldest : null
+}
+
 /** 退出前强制落盘，避免丢掉 debounce 窗口内的计数 */
-export async function flushToolUsage(): Promise<void> {
-  if (saveTimer) {
+export async function flushToolUsage(): Promise<void> {  if (saveTimer) {
     clearTimeout(saveTimer)
     saveTimer = null
   }

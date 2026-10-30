@@ -712,6 +712,16 @@ export {
   type AskUserQuestionAnswer,
 } from "./tools/built-in/index.js";
 
+// P2 工具裁剪：pinned 名单与 tool_search 装载需要按名引用这几个常量（别在宿主里硬编码字符串）
+export {
+  TOOL_SEARCH_TOOL_NAME,
+  SKILL_SEARCH_TOOL_NAME,
+  TASK_COMPLETE_TOOL_NAME,
+} from "./tools/built-in/tool-names.js";
+export { toolSearchToolConfig } from "./tools/built-in/tool-search-tool.js";
+// tool_search / skill_search 的多关键词语义共用一份实现（见 query-match.ts 的漂移说明）
+export { matchByQuery } from "./tools/built-in/query-match.js";
+
 // === 安全与权限导出 ===
 export type {
   PermissionMode,

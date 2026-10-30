@@ -15,6 +15,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import type { MtBotToolConfig } from "../tool-adapter.js";
 import type { MtBotToolResult } from "../../types/tool.js";
 import type { SkillInfo } from "../../prompt/system-prompt-builder.js";
+import { matchByQuery } from "./query-match.js";
 
 const MAX_DESC_CHARS = 150;
 
@@ -102,17 +103,10 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
       };
     }
 
-    // 支持逗号分隔的 OR 组，每组内空格分隔为 AND 条件
-    // 例："pr review, code analysis" → (pr AND review) OR (code AND analysis)
-    const orGroups = query
-      .split(",")
-      .map((group) => group.toLowerCase().trim().split(/\s+/).filter(Boolean))
-      .filter((g) => g.length > 0);
-
-    const matched = skills.filter((s) => {
-      const haystack = [s.name, s.description, s.whenToUse ?? ""].join(" ").toLowerCase();
-      return orGroups.some((andTerms) => andTerms.every((t) => haystack.includes(t)));
-    });
+    // 多关键词语义与 tool_search 共用一份实现（见 query-match.ts），避免两处各写一份后漂移
+    const matched = skills.filter((s) =>
+      matchByQuery(query, [s.name, s.description, s.whenToUse ?? ""].join(" ")),
+    );
 
     const result =
       matched.length > 0

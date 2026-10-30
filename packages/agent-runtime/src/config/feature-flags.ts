@@ -28,6 +28,17 @@ export interface AgentRuntimeFeatureFlags {
    */
   readonly ENABLE_SKILL_ACTIVATION_FOR: readonly string[];
 
+  /**
+   * 工具装载裁剪（P2 能力面治理）灰度名单：**只有这些 Agent 定义 id** 走
+   * `resolveToolLoadout`（按 (agent, channel) 的 LRU 常驻 20 个，其余折叠进 `tool_search`）。
+   *
+   * **默认空** = 全量装载，行为与引入前逐字一致。这与 `ENABLE_SKILL_ACTIVATION_FOR`
+   * 同一套路数，但更必要：裁工具会改变**模型可见面**，而回放的 93.5% Recall 是上界
+   * （设计 §5.6.6）——上线前必须先在单个低风险 Agent 上 A/B（计划 C9）。
+   * 名单为空就是那条回滚路径：出问题把它清空即可，不必回滚代码。
+   */
+  readonly ENABLE_TOOL_LOADOUT_FOR: readonly string[];
+
   // === AGENT 多轮对话优化：主题1 文件工具契约层 ===
 
   /** 启用 file_unchanged 去重 stub（主题1 P0-1，默认开启） */
@@ -75,6 +86,8 @@ export const DEFAULT_FEATURE_FLAGS: AgentRuntimeFeatureFlags = {
   ENABLE_SKILL_ACTIVATION: false,
   // 空名单 = 只受上面的全局开关控制，行为与引入前逐字一致
   ENABLE_SKILL_ACTIVATION_FOR: [],
+  // 空名单 = 不裁剪（P2 灰度；见接口注释的 C9 与回滚理由）
+  ENABLE_TOOL_LOADOUT_FOR: [],
   // AGENT 多轮对话优化 flags（当前无用户，无需灰度，全部默认开启）
   ENABLE_FILE_READ_DEDUP: true,
   ENABLE_READ_BEFORE_WRITE: true,

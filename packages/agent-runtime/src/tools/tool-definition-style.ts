@@ -54,6 +54,10 @@ export const COMPLEX_TOOL_NAMES: ReadonlySet<string> = new Set([
   // 渐进式加载引导（描述即「何时调用」）
   "prompt_guide",
   "a2ui_guide",
+  // 工具折叠出口（P2 能力面治理）：它自己也是简单工具（1 个参数），极简档会把描述剥光，
+  // 于是「能力被折叠时该怎么办」这件事在提示词里彻底消失——折叠就等于删除。
+  // 它的描述就是「何时调用」，必须与其它引导类工具同等保留。
+  "tool_search",
 ])
 
 /** 工具定义的最小结构（AgentTool / MtBotTool 均满足） */
