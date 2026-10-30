@@ -202,7 +202,7 @@ export interface CronSchedulerDeps {
    * 契约：**不写 user 消息**（否则用户会看到自己没说过的话）、**不打断**正在跑的回合。
    * 返回本轮助手产出；投不进去（没有实例 / 一直忙）返回 null，由调用方回落自身会话。
    */
-  deliverInternalMessage?: (conversationId: string, text: string) => Promise<string | null>
+  deliverInternalMessage?: (conversationId: string, text: string) => Promise<{ delivered: boolean; output: string }>
   /**
    * 通知渲染层「这条会话刚被定时任务唤醒」——只用于 UI 标记，不影响执行。
    * 注入不写 user 消息，没有这个事件用户只会看到一条凭空出现的回复。
@@ -1365,15 +1365,17 @@ export class CronScheduler {
         if (usable && this.deps.deliverInternalMessage) {
           // **不要** notifyIncomingMessage：那条事件推的是 user 角色的气泡，会在用户会话里
           // 显示一句他从没说过的话（而且不落库，刷新后消失）。注入的痕迹只进模型上下文。
-          const reply = await this.deps.deliverInternalMessage(
+          const res = await this.deps.deliverInternalMessage(
             target,
             this.buildActiveWakeMessage(currentRow, job),
           )
-          if (reply !== null) {
-            output = reply
+          if (res.delivered) {
+            // 空产出也算投递成功（只调工具 / NO_REPLY）：绝不能回落再跑一遍，
+            // 那会让同一条任务出两轮、两份通知
+            output = res.output
             deliveredToActive = true
             this.deps.notifyCronWake?.(target, job.id, currentRow.name?.trim() || job.task_text.slice(0, 20))
-            log.info(`[runLocalCronJob] 已注入活跃会话 ${target} jobId=${job.id}`)
+            log.info(`[runLocalCronJob] 已注入活跃会话 ${target} jobId=${job.id} outputLen=${res.output.length}`)
           } else {
             log.info(`[runLocalCronJob] 活跃会话 ${target} 投不进去，回落自身会话 jobId=${job.id}`)
           }
@@ -1419,6 +1421,12 @@ export class CronScheduler {
           notifyTargets = remaining?.length ? remaining.join(',') : 'silent'
           log.info(`[runLocalCronJob] 本次运行写入 feed，改用 feed 内容作推送正文 jobId=${job.id} items=${snapshot.items.length} targets=${notifyTargets}`)
         }
+      }
+      // 已注入用户会话但本轮没说话（只调工具 / NO_REPLY）：没有正文可推，
+      // 推出去只会是一条空通知——跳过派发，任务照样记 ok
+      if (deliveredToActive && !output.trim()) {
+        log.info(`[runLocalCronJob] 注入成功但无正文，跳过通知派发 jobId=${job.id}`)
+        notifyTargets = 'silent'
       }
       await this.dispatchNotifications(
         { id: job.id, name: currentRow.name, task_text: job.task_text, agent_id: job.agent_id },

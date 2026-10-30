@@ -18,6 +18,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { listTrash, restoreTrash, runCleanup, scanWorkspace, trashPaths } from './workspace-cleanup'
+import { getLocalDateString } from './local-time'
 
 let base = ''
 let root = ''
@@ -221,8 +222,10 @@ describe('trashPaths（显式删除）', () => {
     expect(restored).toMatchObject({ ok: true, restored: 1 })
     expect(await readFile(path.join(root, 'outputs/x/final.png'), 'utf8')).toBe('final')
 
+    // 审计文件名用**本地**日期（生产侧 `getLocalDateString`）；这里也对齐本地，
+    // 否则 UTC+8 的 0–8 点跑测试时 UTC 日期差一天 ⇒ ENOENT
     const audit = await readFile(
-      path.join(logDir, `cleanup-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.jsonl`),
+      path.join(logDir, `cleanup-${getLocalDateString().replace(/-/g, '')}.jsonl`),
       'utf8',
     )
     const line = audit.trim().split('\n')[0]!

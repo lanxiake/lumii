@@ -15,6 +15,19 @@ export interface AgentRuntimeFeatureFlags {
   /** 启用 Skill 激活解析器（when_to_use + pathGlobs 触发） */
   readonly ENABLE_SKILL_ACTIVATION: boolean;
 
+  /**
+   * 灰度名单：只有这些 Agent 定义 id（`chronicler`）走激活解析，其余维持
+   * `ENABLE_SKILL_ACTIVATION` 的全局值。
+   *
+   * **为什么需要它**：`ENABLE_SKILL_ACTIVATION` 从 v12 起默认关闭，理由已查不到记录
+   * （`feature-flags.ts` 只写"保持现网行为不变"）。直接翻成 true 等于一次性
+   * 改动所有 Agent 的技能可见面——那是本仓库最不该做的一种改动。
+   * 有了名单就能先挑一个低风险 Agent 观察一周，再决定要不要全量。
+   *
+   * 空数组（默认）= 只受全局开关控制，行为与引入前逐字一致。
+   */
+  readonly ENABLE_SKILL_ACTIVATION_FOR: readonly string[];
+
   // === AGENT 多轮对话优化：主题1 文件工具契约层 ===
 
   /** 启用 file_unchanged 去重 stub（主题1 P0-1，默认开启） */
@@ -60,6 +73,8 @@ export const DEFAULT_FEATURE_FLAGS: AgentRuntimeFeatureFlags = {
   WEB_TOOLS: true,
   // v12 扩展默认关闭，保持现网行为不变
   ENABLE_SKILL_ACTIVATION: false,
+  // 空名单 = 只受上面的全局开关控制，行为与引入前逐字一致
+  ENABLE_SKILL_ACTIVATION_FOR: [],
   // AGENT 多轮对话优化 flags（当前无用户，无需灰度，全部默认开启）
   ENABLE_FILE_READ_DEDUP: true,
   ENABLE_READ_BEFORE_WRITE: true,

@@ -44,7 +44,7 @@ describe.skipIf(!hasFts5Db)('定时任务唤醒落点 wake_mode', () => {
 
   function scheduler(overrides: Record<string, unknown> = {}) {
     const createInstanceById = vi.fn(async () => 'inst-cron')
-    const deliverInternalMessage = vi.fn(async () => '好，起来走两步')
+    const deliverInternalMessage = vi.fn(async () => ({ delivered: true, output: '好，起来走两步' }))
     const saveMessage = vi.fn()
     const s = new CronScheduler({ isOpen: true, db } as never, {
       showCronNotification: vi.fn(),
@@ -102,16 +102,31 @@ describe.skipIf(!hasFts5Db)('定时任务唤醒落点 wake_mode', () => {
 
   it('投不进活跃会话 → 回落到自己的会话（任务不丢）', async () => {
     // 覆盖后再从覆盖对象上取 spy：scheduler() 返回的是默认那个（没被调用）
-    const deliverNull = vi.fn(async () => null)
-    const { s, createInstanceById } = scheduler({ deliverInternalMessage: deliverNull })
+    const deliverMissed = vi.fn(async () => ({ delivered: false, output: '' }))
+    const { s, createInstanceById } = scheduler({ deliverInternalMessage: deliverMissed })
     await run(s)
 
-    expect(deliverNull).toHaveBeenCalledTimes(1)
+    expect(deliverMissed).toHaveBeenCalledTimes(1)
     expect(createInstanceById).toHaveBeenCalledWith(
       'assistant',
       cronConversationId('喝口水', 'assistant'),
       cronConversationId('喝口水', 'assistant'),
     )
+  })
+
+  it('投递成功但没说话（只调工具 / NO_REPLY）→ 不回落、不再跑第二轮', async () => {
+    const silent = vi.fn(async () => ({ delivered: true, output: '' }))
+    const { s, createInstanceById } = scheduler({ deliverInternalMessage: silent })
+    await run(s)
+
+    expect(silent).toHaveBeenCalledTimes(1)
+    // 关键：空产出**不能**被当成「没投进去」——否则同一条任务会跑两轮、出两份通知
+    expect(createInstanceById).not.toHaveBeenCalled()
+    const runs = db
+      .prepare<{ status: string }>(`SELECT status FROM local_cron_runs WHERE job_id = ?`)
+      .all(JOB_ID)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.status).toBe('ok')
   })
 
   it('活跃会话本身是 cron / evolution 会话时不注入（那些不是「用户在看」的会话）', async () => {

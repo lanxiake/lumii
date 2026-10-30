@@ -22,9 +22,9 @@ beforeEach(() => {
 describe('tool-usage-store', () => {
   it('累加调用次数并区分失败次数', async () => {
     const { recordToolUsage, getToolUsage } = await store()
-    await recordToolUsage('system-keeper', 'file_read')
-    await recordToolUsage('system-keeper', 'file_read')
-    await recordToolUsage('system-keeper', 'file_read', true)
+    await recordToolUsage('system-keeper', 'ipc', 'file_read')
+    await recordToolUsage('system-keeper', 'ipc', 'file_read')
+    await recordToolUsage('system-keeper', 'ipc', 'file_read', true)
 
     const usage = await getToolUsage()
     expect(usage['file_read']?.count).toBe(3)
@@ -34,16 +34,16 @@ describe('tool-usage-store', () => {
 
   it('未调用过的工具不出现在统计中', async () => {
     const { recordToolUsage, getToolUsage } = await store()
-    await recordToolUsage('system-keeper', 'bash')
+    await recordToolUsage('system-keeper', 'ipc', 'bash')
     const usage = await getToolUsage()
     expect(usage['web_search']).toBeUndefined()
   })
 
   it('MCP 工具按全名独立计数', async () => {
     const { recordToolUsage, getToolUsage } = await store()
-    await recordToolUsage('assistant', 'mcp__ynote__createNote')
-    await recordToolUsage('assistant', 'mcp__ynote__listNotes')
-    await recordToolUsage('assistant', 'mcp__ynote__createNote')
+    await recordToolUsage('assistant', 'ipc', 'mcp__ynote__createNote')
+    await recordToolUsage('assistant', 'ipc', 'mcp__ynote__listNotes')
+    await recordToolUsage('assistant', 'ipc', 'mcp__ynote__createNote')
 
     const usage = await getToolUsage()
     expect(usage['mcp__ynote__createNote']?.count).toBe(2)
@@ -52,9 +52,9 @@ describe('tool-usage-store', () => {
 
   it('同一工具按 Agent 分别记账，互不覆盖', async () => {
     const { recordToolUsage, getToolUsageByAgent } = await store()
-    await recordToolUsage('system-keeper', 'wiki_read')
-    await recordToolUsage('system-keeper', 'wiki_read')
-    await recordToolUsage('info-curator', 'wiki_read', true)
+    await recordToolUsage('system-keeper', 'ipc', 'wiki_read')
+    await recordToolUsage('system-keeper', 'ipc', 'wiki_read')
+    await recordToolUsage('info-curator', 'ipc', 'wiki_read', true)
 
     const byAgent = await getToolUsageByAgent()
     expect(byAgent['system-keeper']?.['wiki_read']).toMatchObject({ count: 2, errorCount: 0 })
@@ -63,9 +63,9 @@ describe('tool-usage-store', () => {
 
   it('跨 Agent 汇总保持老口径（高频工具排序仍可用）', async () => {
     const { recordToolUsage, getToolUsage } = await store()
-    await recordToolUsage('system-keeper', 'bash')
-    await recordToolUsage('assistant', 'bash', true)
-    await recordToolUsage('assistant', 'bash')
+    await recordToolUsage('system-keeper', 'ipc', 'bash')
+    await recordToolUsage('assistant', 'ipc', 'bash', true)
+    await recordToolUsage('assistant', 'ipc', 'bash')
 
     const usage = await getToolUsage()
     expect(usage['bash']).toMatchObject({ count: 3, errorCount: 1 })
@@ -73,7 +73,7 @@ describe('tool-usage-store', () => {
 
   it('agentId 为空时落 unknown，不编一个假 Agent', async () => {
     const { recordToolUsage, getToolUsageByAgent, UNKNOWN_AGENT_ID } = await store()
-    await recordToolUsage('', 'grep')
+    await recordToolUsage('', 'ipc', 'grep')
 
     const byAgent = await getToolUsageByAgent()
     expect(byAgent[UNKNOWN_AGENT_ID]?.['grep']?.count).toBe(1)
@@ -81,7 +81,7 @@ describe('tool-usage-store', () => {
 
   it('逐 Agent 读回是深拷贝，改不动内部状态', async () => {
     const { recordToolUsage, getToolUsageByAgent } = await store()
-    await recordToolUsage('assistant', 'glob')
+    await recordToolUsage('assistant', 'ipc', 'glob')
 
     const first = await getToolUsageByAgent()
     first['assistant']['glob'].count = 999
@@ -90,10 +90,31 @@ describe('tool-usage-store', () => {
     expect(second['assistant']?.['glob']?.count).toBe(1)
   })
 
+  it('同 Agent 同工具在不同渠道下分开记账，按 Agent 读回时相加', async () => {
+    const { recordToolUsage, getToolUsageByAgent } = await store()
+    await recordToolUsage('evolution', 'evolution', 'bash')
+    await recordToolUsage('evolution', 'evolution', 'bash')
+    await recordToolUsage('evolution', 'ipc', 'bash')
+
+    // 按 Agent 汇总：3 次（跨渠道相加，老口径不变）
+    const byAgent = await getToolUsageByAgent()
+    expect(byAgent['evolution']?.['bash']?.count).toBe(3)
+  })
+
+  it('渠道为空时落 unknown，不猜 ipc', async () => {
+    const { recordToolUsage, getToolUsageByAgent, UNKNOWN_CHANNEL } = await store()
+    await recordToolUsage('assistant', '', 'grep')
+
+    // 用空渠道调一次、再用 unknown 显式调一次，应当落在同一格子里（1 + 1 = 2）
+    await recordToolUsage('assistant', UNKNOWN_CHANNEL, 'grep')
+    const byAgent = await getToolUsageByAgent()
+    expect(byAgent['assistant']?.['grep']?.count).toBe(2)
+  })
+
   it('flush 后落盘，重新加载能读回计数', async () => {
     const { recordToolUsage, flushToolUsage, dir } = await store()
-    await recordToolUsage('assistant', 'grep')
-    await recordToolUsage('assistant', 'grep')
+    await recordToolUsage('assistant', 'ipc', 'grep')
+    await recordToolUsage('assistant', 'ipc', 'grep')
     await flushToolUsage()
 
     const raw = await fs.readFile(path.join(dir, 'usage', 'tool-usage.json'), 'utf-8')
@@ -115,7 +136,7 @@ describe('tool-usage-store', () => {
 
   it('空工具名不计数', async () => {
     const { recordToolUsage, getToolUsage } = await store()
-    await recordToolUsage('assistant', '')
+    await recordToolUsage('assistant', 'ipc', '')
     expect(await getToolUsage()).toEqual({})
   })
 })
@@ -135,9 +156,9 @@ describe('tool-usage-store · SQLite 路径', () => {
 
   it('逐 Agent 落库，重新加载后按 Agent 读回', async () => {
     const first = await storeWithDb()
-    await first.recordToolUsage('system-keeper', 'asset_checkup')
-    await first.recordToolUsage('system-keeper', 'asset_checkup')
-    await first.recordToolUsage('info-curator', 'dashboard_feed_write')
+    await first.recordToolUsage('system-keeper', 'ipc', 'asset_checkup')
+    await first.recordToolUsage('system-keeper', 'ipc', 'asset_checkup')
+    await first.recordToolUsage('info-curator', 'ipc', 'dashboard_feed_write')
     await first.flushToolUsage()
 
     const rows = first.db
@@ -159,22 +180,22 @@ describe('tool-usage-store · SQLite 路径', () => {
     first.db.close()
   })
 
-  it('V44 之前的老库升上来后读得回，整批归到 unknown', async () => {
+  it('升级前的老库升上来后读得回，整批归到 unknown', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lumii-tool-usage-v44-'))
     vi.doMock('./client-data-root', () => ({ resolveWindowsClientDataRoot: () => dir }))
     vi.resetModules()
     const mod = await import('./tool-usage-store')
     mod.__resetToolUsageCacheForTest()
 
-    // 造一个 V44 之前形态的库：老表结构 + 存量行，再跑 V44
-    const { createPreV44TestDb, runMigration44 } = await import(
+    // 造一个 V56 之前形态的库：老表结构（无 channel 列）+ 存量行，再跑 V56
+    const { createPreV56TestDb, runMigration56 } = await import(
       '../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
     )
-    const db = createPreV44TestDb()
+    const db = createPreV56TestDb()
     db.prepare(
-      'INSERT INTO tool_usage_stats (tool_name, count, error_count, last_used_at) VALUES (?, ?, ?, ?)',
-    ).run('web_search', 472, 181, 1789544009079)
-    runMigration44(db)
+      'INSERT INTO tool_usage_stats (agent_id, tool_name, count, error_count, last_used_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(mod.UNKNOWN_AGENT_ID, 'web_search', 472, 181, 1789544009079)
+    runMigration56(db)
 
     mod.initToolUsageStore(db)
     const byAgent = await mod.getToolUsageByAgent()
@@ -182,6 +203,12 @@ describe('tool-usage-store · SQLite 路径', () => {
       count: 472,
       errorCount: 181,
     })
+
+    // 渠道同样整批归 unknown——V56 之前没有这一维，不猜 'ipc'
+    const rows = db
+      .prepare<{ channel: string }>(`SELECT channel FROM tool_usage_stats WHERE tool_name = 'web_search'`)
+      .all()
+    expect(rows.map((r) => r.channel)).toEqual([mod.UNKNOWN_CHANNEL])
     db.close()
   })
 })
@@ -207,8 +234,8 @@ describe('tool-usage-store · 按日维度与时间窗', () => {
 
   it('同一天多次调用累加到一行，跨天分成两行', async () => {
     const s = await storeAt('2026-09-16')
-    await s.recordToolUsage('assistant', 'bash')
-    await s.recordToolUsage('assistant', 'bash', true)
+    await s.recordToolUsage('assistant', 'ipc', 'bash')
+    await s.recordToolUsage('assistant', 'ipc', 'bash', true)
     await s.flushToolUsage()
 
     const rows = s.db
@@ -222,9 +249,9 @@ describe('tool-usage-store · 按日维度与时间窗', () => {
 
   it('窗口只算窗口内的天数，累计不受影响', async () => {
     const s = await storeAt('2026-09-10')
-    await s.recordToolUsage('assistant', 'bash') // 09-10
+    await s.recordToolUsage('assistant', 'ipc', 'bash') // 09-10
     vi.setSystemTime(new Date('2026-09-16T12:00:00'))
-    await s.recordToolUsage('assistant', 'bash') // 09-16
+    await s.recordToolUsage('assistant', 'ipc', 'bash') // 09-16
     await s.flushToolUsage()
 
     const cumulative = await s.getToolUsageByAgent()
@@ -304,7 +331,7 @@ describe('tool-usage-store · 按日维度与时间窗', () => {
     const s = await storeAt('2026-09-16')
     expect(await s.getDailyCoverage()).toMatchObject({ since: null, until: null })
 
-    await s.recordToolUsage('assistant', 'bash')
+    await s.recordToolUsage('assistant', 'ipc', 'bash')
     const coverage = await s.getDailyCoverage()
     expect(coverage.since).toBe('2026-09-16')
     expect(coverage.until).toBe('2026-09-16')

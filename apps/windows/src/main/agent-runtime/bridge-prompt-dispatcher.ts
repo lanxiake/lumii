@@ -30,6 +30,10 @@ import {
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import { computeContextBudget } from '../../shared/context-budget'
+import { recordToolExposure } from '../tool-exposure-store'
+import { UNKNOWN_CHANNEL } from '../tool-usage-store'
+import { estimateToolTokens, type ToolDefinitionLite } from './context-usage-breakdown'
+import { resolveChannelIdentity } from '../channel/channel-identity'
 import type { AgentRuntimeBridgeConfig } from './bridge'
 import type { InstanceState, InstanceStateStore } from './bridge-instance-state'
 import type { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
@@ -78,6 +82,22 @@ export interface BridgePromptDispatcherDeps {
   /** 工具进化审批回复消费（可选，未装配时跳过） */
   getToolEvolutionEngine?: () => import('./bash-tool-evolution/tool-evolution-engine').ToolEvolutionEngine | null
   getConversationRepo: () => ConversationRepo | null
+  /**
+   * 读会话归属渠道（`conversations.channel_type`，查不到返回 null）。
+   *
+   * 暴露记录的用途是回答「按 (agent, 渠道) 分组后该常驻什么工具」，
+   * 而渠道此前只活在 conversation_id 的字符串前缀里。解析器已有
+   * （`channel-identity.ts` 的 `resolveChannelIdentity`），这里只需拿到落库值。
+   */
+  getConversationOwnership?: (conversationId: string) => string | null
+  /**
+   * 按模型 id 取标定的字符/token 比（由真实回执反推，持久化在 runtime_state）。
+   *
+   * **不传会话 key 而传模型 id**：会话级的 `sessionLastModelId` 是进程内 Map，
+   * 重启后为空——那会让重启后的第一次暴露记录退回权重法，与日志差 2.4 倍
+   * （实测 22498 vs 9191）。按模型 id 取则一直有效（标定值落库）。
+   */
+  resolveCharsPerToken?: (modelId: string | undefined) => number | undefined
   /**
    * 会话整窗用量与分类明细（用于把自动压缩阈值扣掉固定开销后再算）。
    * 无活跃实例时返回的 breakdown 为 undefined，预算计算会退化为整窗口径。
@@ -190,6 +210,54 @@ export class BridgePromptDispatcher {
   /** 标记本轮已通过 message 工具发送微信消息（供 ToolRegistrar 调用） */
   markWeixinMessageSentViaTool(): void {
     this.weixinMessageSentViaTool = true
+  }
+
+  /**
+   * 记一行「本轮模型看到了哪些工具」（`tool_exposure_log`）。
+   *
+   * 三条取舍：
+   * - **取 `instance.getTools()`**：那是送进请求的那一份（已含极简档裁剪），
+   *   不是另算的视图。记别的东西就会出现「日志里说暴露了 A、模型实际没收到 A」。
+   * - **渠道走落库值优先 + 前缀回退**（`resolveChannelIdentity`），与
+   *   `tool_usage_stats` 的渠道口径同源，否则两张表对不上。
+   * - **token 与 `contextUsage` 明细同口径**（都按标定 charsPerToken 换算），
+   *   这样两个数才能对账（实测口径不一致时差 2.4 倍）。
+   * - **失败静默**：调用点在主路径上，统计不能挡住用户发消息。
+   */
+  private recordExposure(
+    instanceId: string,
+    turnId: string | undefined,
+    modelId: string | undefined,
+  ): void {
+    try {
+      const instance = this.deps.agentRegistry.get(instanceId)
+      // `getTools` 在测试替身里可能不存在；没有它就没法回答「暴露了什么」，跳过而不是编
+      if (!instance || typeof instance.getTools !== 'function') return
+      const sessionKey = this.deps.instanceToConversation.get(instanceId) ?? ''
+      // 没有会话 key 时**不调** resolveChannelIdentity：它对空串会返回 'ipc'
+      // （前缀回退的缺省值），而那正是「不猜 ipc」要禁止的事。
+      const channel = sessionKey
+        ? resolveChannelIdentity(
+            sessionKey,
+            this.deps.getConversationOwnership?.(sessionKey) ?? null,
+          ).ownership
+        : UNKNOWN_CHANNEL
+      recordToolExposure({
+        sessionKey,
+        turnId: turnId ?? null,
+        agentId: instance.definitionId,
+        channel,
+        tools: instance.getTools().map((t) => ({
+          n: t.name,
+          t: estimateToolTokens(
+            t as unknown as ToolDefinitionLite,
+            this.deps.resolveCharsPerToken?.(modelId),
+          ),
+        })),
+      })
+    } catch (err) {
+      log.warn(`[prompt] 暴露记录写入失败（已忽略）: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   /**
@@ -344,8 +412,17 @@ export class BridgePromptDispatcher {
         }
 
         // v12 Skill Activation：当 feature flag 开启时，基于用户输入重算 activations
+        // 灰度：`ENABLE_SKILL_ACTIVATION_FOR` 命中本 Agent 定义 id 时也走这条路，
+        // 全局开关保持默认 false（理由见 feature-flags.ts 的字段注释）。
+        // 名单用 `?.` 读：宿主/测试可以只覆盖它关心的那几个 flag，缺字段时不该炸。
+        const skillActivationOn =
+          this.deps.featureFlags.ENABLE_SKILL_ACTIVATION ||
+          (this.deps.featureFlags.ENABLE_SKILL_ACTIVATION_FOR?.includes(
+            instance.definitionId,
+          ) ??
+            false)
         let hints: readonly SkillActivationHint[] = []
-        if (this.deps.featureFlags.ENABLE_SKILL_ACTIVATION) {
+        if (skillActivationOn) {
           const skillsSnap = state?.skillsSnapshot
           if (skillsSnap && skillsSnap.length > 0) {
             hints = resolveSkillActivations({ userInput: message, skills: skillsSnap })
@@ -752,7 +829,20 @@ export class BridgePromptDispatcher {
           log.warn(`[turn-snapshot] start failed: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
+      // ── 暴露记录（能力面设计 §5.7.1 P0）──
+      // 记「这一轮模型看到了哪些工具」。此前只记「被调用」，于是「没用」与
+      // 「没机会用」分不开，任何裁剪都无法证伪。
+      //
+      // 放在 `await instance.prompt()` **之后**，原因只有一条：
+      // 实际用的是哪个模型要等 streamFn 跑完才写进 `ctx.resolvedModelId`
+      // （无显式偏好时它是 undefined，而那个模型决定了 token 估算用哪个
+      // charsPerToken）。提前记会静默退回权重法，与日志差 2.4 倍。
+      // 工具集在单轮内不变，所以"事后记"记到的仍是本轮真实的那一份。
+      //
+      // `instance.prompt()` 抛错时**不记**：那一轮没跑成，记下来会在
+      // 「Recall 掉了吗」的判据里混进一批"根本没发生"的回合。
       await instance.prompt(message, imageContents)
+      this.recordExposure(instanceId, pendingUserMsgId, ctx?.resolvedModelId)
       log.info(`[prompt] completed: instanceId=${instanceId}`)
       this.deps.instanceStates.get(instanceId)?.skillHitRateTracker?.flush(instanceId)
     } catch (err) {

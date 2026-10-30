@@ -333,7 +333,8 @@ describe('WorkspaceArtifactsPanel 作用域 / 视图模式', () => {
       path: 'outputs/all/b.png',
       kind: 'image' as const,
       fileName: 'b.png',
-      createdAt: Date.now() - 26 * 60 * 60 * 1000,
+      // 「昨天」要是**日历上的昨天**：写 26 小时前在本地 0–2 点会落到前天的日期，分节变「更早」
+      createdAt: (() => { const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(12, 0, 0, 0); return d.getTime() })(),
     },
   ]
 

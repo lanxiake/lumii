@@ -433,6 +433,18 @@ async function initAgentRuntime(): Promise<void> {
         whenToUse?: string
         executable?: boolean
         activationScope?: "always" | "contextual" | "on_demand"
+        /**
+         * 执行次数（来自 `SkillIndexEntry.executionCount`）。
+         *
+         * `skills-section.ts:33` 一直按它降序排序并对外宣称"ordered by usage"，
+         * 而这里此前**没映射这个字段**——所有值都是 0，稳定排序下实际顺序
+         * 等于目录扫描序。这句代码里的谎话到此为止。
+         *
+         * 顺带说明：**不指望它带来排序收益**。本机实测 51 个技能只有 15 个有
+         * 执行记录、最高 10 次（能力面设计 §2.1b），在这个量级上按次数排序
+         * 排的是噪声。补它只为"说真话"。
+         */
+        usageCount?: number
       }> = []
 
       const EXECUTABLE_ENTRIES = ['run.ts', 'run.js', 'run.py', 'run.sh', 'run.ps1']
@@ -502,6 +514,8 @@ async function initAgentRuntime(): Promise<void> {
         }
 
         const entry: typeof results[number] = { id: s.id, name: s.name, description, location }
+        // 有记录才带，0 次数不写 0——与 `SkillInfo.usageCount` 的"未提供时视为 0"一致
+        if (s.executionCount) entry.usageCount = s.executionCount
         if (whenToUse) entry.whenToUse = whenToUse
         if (executable) entry.executable = true
         if (effectiveScope) entry.activationScope = effectiveScope

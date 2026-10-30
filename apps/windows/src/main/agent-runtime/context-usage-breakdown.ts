@@ -128,6 +128,30 @@ function toolText(tool: ToolDefinitionLite): string {
 }
 
 /**
+ * 单个工具定义占多少 token。
+ *
+ * **必须与成本明细同口径**，否则两处数字对不上，`tool_exposure_log` 就没法拿去
+ * 和日志里的 `tools:` 聚合值对账。明细有两条路（见 `buildContextUsageBreakdown`）：
+ * - 有标定值：`chars / charsPerToken`
+ * - 没标定值：`estimateTextTokenCount`（0.3/0.6 字符权重）
+ *
+ * 这两条路的差异是**真实的**：实测同一个 150 工具的面，权重法算 22498，
+ * 标定法算 9191（charsPerToken≈8.16），差 2.4 倍。把权重法的值当"成本"存下来，
+ * 后面看到的排名会整体放大同一个倍数——排名不变，但跟日志对不上，也就失去了对账价值。
+ *
+ * @param charsPerToken 标定的字符/token 比；缺省或越界时退回权重法（与明细同样处理）
+ */
+export function estimateToolTokens(tool: ToolDefinitionLite, charsPerToken?: number): number {
+  const calibrated =
+    charsPerToken != null &&
+    Number.isFinite(charsPerToken) &&
+    charsPerToken >= MIN_CHARS_PER_TOKEN &&
+    charsPerToken <= MAX_CHARS_PER_TOKEN
+  const text = toolText(tool)
+  return calibrated ? Math.round(text.length / charsPerToken) : estimateTextTokenCount(text)
+}
+
+/**
  * 统计固定部分各分类的字符数：系统提示词按标签切分，工具定义计入
  * tools / mcp（`mcp__` 前缀的工具归 MCP）。
  */

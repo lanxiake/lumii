@@ -756,32 +756,51 @@ export class LocalDatabase {
         // 靠本守卫按「列是否已存在」区分，避免前一条撞 duplicate column。
         case 53:
           return hasColumn("autonomous_satisfaction_scores", "task_summary");
+        // V56 与 V44 同类：重建表（RENAME → 建新 → 拷 → DROP）。重放不会报错，
+        // 但会把已经归因的 channel 全部压回 'unknown'，且把 tool_exposure_log 里
+        // 已有的暴露记录「接管」到一个空表上——比报错更糟，必须守卫。
+        //
+        // 这里的「列已存在」判定之所以足够，是因为下面的迁移循环**整体在一个事务里**
+        // （见 for 循环外的 `withTransaction`）。没有事务时，进程若死在
+        // `CREATE TABLE … channel` 之后、`INSERT SELECT` 之前，本守卫会看到列存在而
+        // 跳过迁移，把 340 行统计永久留在 `tool_usage_stats_v55` 里且**不报任何错**。
+        case 56:
+          return hasColumn("tool_usage_stats", "channel");
         default:
           return false;
       }
     };
 
     // 按序执行 migration
-    for (const [version, sql] of MIGRATIONS) {
-      if (version > currentVersion) {
-        if (isMigrationAlreadyApplied(version)) {
-          continue;
+    //
+    // **整批在一个事务里**（用已有的 `withTransaction`，它带重入计数）：
+    // 迁移是「RENAME → 建新 → 拷 → DROP」这种多语句序列，半途崩溃会留下一个
+    // 既不是旧形态也不是新形态的库。而 `isMigrationAlreadyApplied` 靠「列是否存在」
+    // 判断是否已应用——半成品恰好带着新列，于是下次启动会**跳过**它，数据永久留在
+    // `*_v55` 临时表里且不报任何错（V56 实测：340 行统计会静默消失）。
+    // SQLite 的 DDL 是事务性的，所以包一层就够。
+    withTransaction(db, () => {
+      for (const [version, sql] of MIGRATIONS) {
+        if (version > currentVersion) {
+          if (isMigrationAlreadyApplied(version)) {
+            continue;
+          }
+          db.exec(sql);
         }
-        db.exec(sql);
       }
-    }
 
-    // 更新版本号
-    const now = new Date().toISOString();
-    if (currentVersion === 0) {
-      db.prepare(
-        "INSERT INTO runtime_state (key, value, updated_at) VALUES ('schemaVersion', ?, ?)",
-      ).run(String(SCHEMA_VERSION), now);
-    } else {
-      db.prepare(
-        "UPDATE runtime_state SET value = ?, updated_at = ? WHERE key = 'schemaVersion'",
-      ).run(String(SCHEMA_VERSION), now);
-    }
+      // 版本号与迁移同一个事务：否则「DDL 成功了、版本没写进去」会让下一轮重放。
+      const now = new Date().toISOString();
+      if (currentVersion === 0) {
+        db.prepare(
+          "INSERT INTO runtime_state (key, value, updated_at) VALUES ('schemaVersion', ?, ?)",
+        ).run(String(SCHEMA_VERSION), now);
+      } else {
+        db.prepare(
+          "UPDATE runtime_state SET value = ?, updated_at = ? WHERE key = 'schemaVersion'",
+        ).run(String(SCHEMA_VERSION), now);
+      }
+    });
   }
 }
 

@@ -176,7 +176,8 @@ describe('schema V46 tool_usage_daily 按日维度', () => {
     const db = createMigratedTestDb()
     const cols = columns(db, 'tool_usage_daily')
     expect(cols).toEqual(
-      expect.arrayContaining(['day', 'agent_id', 'tool_name', 'count', 'error_count', 'last_used_at']),
+      // channel 是 V56 加的，同样进主键（按 (agent, 渠道) 分组才分得开）
+      expect.arrayContaining(['day', 'agent_id', 'channel', 'tool_name', 'count', 'error_count', 'last_used_at']),
     )
     db.close()
   })
@@ -184,12 +185,12 @@ describe('schema V46 tool_usage_daily 按日维度', () => {
   it('同一天同一 Agent 同一工具只能有一行（累加而不是堆行）', () => {
     const db = createMigratedTestDb()
     const stmt = db.prepare(
-      `INSERT INTO tool_usage_daily (day, agent_id, tool_name, count, error_count, last_used_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(day, agent_id, tool_name) DO UPDATE SET count = excluded.count`,
+      `INSERT INTO tool_usage_daily (day, agent_id, channel, tool_name, count, error_count, last_used_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(day, agent_id, channel, tool_name) DO UPDATE SET count = excluded.count`,
     )
-    stmt.run('2026-09-16', 'assistant', 'bash', 3, 0, 1)
-    stmt.run('2026-09-16', 'assistant', 'bash', 9, 1, 2)
+    stmt.run('2026-09-16', 'assistant', 'ipc', 'bash', 3, 0, 1)
+    stmt.run('2026-09-16', 'assistant', 'ipc', 'bash', 9, 1, 2)
 
     const rows = db
       .prepare<{ count: number; error_count: number }>(

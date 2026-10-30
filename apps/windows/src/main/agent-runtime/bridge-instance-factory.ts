@@ -86,6 +86,7 @@ import { getVcsService } from './vcs-accessor'
 import { notifyCloudSyncWorkspaceChanged } from '../kernel/cloud-sync-contract'
 import { getAutonomousService } from './autonomous-accessor'
 import { getSkillEvolutionService } from './skill-evolution-accessor'
+import { resolveChannelIdentity } from '../channel/channel-identity'
 
 /** 引用盒子（mutable reference）— 允许多处共享同一个可变插槽 */
 interface MutableRef<T> {
@@ -140,6 +141,14 @@ export interface BridgeInstanceFactoryDeps {
   getSessionDisabledMcpServers?: (rootSessionKey: string) => readonly string[]
   /** 该会话禁用的技能 id（设置页控制全局启用，这里是会话覆盖） */
   getSessionDisabledSkills?: (rootSessionKey: string) => readonly string[]
+  /**
+   * 读会话归属渠道（`conversations.channel_type` 落库值，查不到返回 null）。
+   *
+   * 工具用量按 (agent, channel) 分组落库（V56）。渠道在这里是**实例级常量**——
+   * 实例与会话 1:1，一个实例生命周期内不会换渠道——所以创建时求值一次即可，
+   * 不必进每轮热路径（`getConversationOwnership` 会读库）。
+   */
+  getConversationOwnership?: (conversationId: string) => string | null
   getFileRepo: () => FileRepo | null
   getMemoryManager: () => MemoryManager | null
   getToolContext: () => ToolExecutionContext | null
@@ -402,6 +411,24 @@ export class BridgeInstanceFactory {
 
     const getCwd = () => this.deps.config.getCwd()
     const getConversationId = () => this.deps.instanceToConversation.get(instanceId)
+    /**
+     * 该实例的渠道（实例级常量，见 deps.getConversationOwnership 的注释）。
+     *
+     * 渠道在实例创建时可能还查不到（`instanceToConversation` 在本函数稍后（:798）才写入），
+     * 所以做成**惰性求值 + 自愈**：第一次读时解析并缓存，解析不出就落 `'unknown'`。
+     * 不缓存 `'unknown'` 的结果——会话可能晚一拍才写进 map，下次读到就补上了。
+     * 这与 V44 的「不假装能归因」一致：**宁可留空等它自己长出来，也不猜一个 `ipc`。**
+     */
+    let cachedChannel: string | null = null
+    const getChannel = (): string => {
+      if (cachedChannel) return cachedChannel
+      const conversationId = getConversationId()
+      if (!conversationId) return 'unknown'
+      const ownership = this.deps.getConversationOwnership?.(conversationId)
+      const resolved = resolveChannelIdentity(conversationId, ownership).ownership
+      cachedChannel = resolved
+      return resolved
+    }
     const logToolAudit = (row: {
       toolName: string
       resultSummary: string
@@ -511,7 +538,7 @@ export class BridgeInstanceFactory {
       skillHitRateTracker.hook,
       // 失败审计与计数同源：两者都要在「所有工具的统一出口」上接线，
       // 分开成两个 hook 只会多一遍遍历，且容易只接其中一个
-      createToolUsageHook({ agentId: def.id, logToolAudit }),
+      createToolUsageHook({ agentId: def.id, getChannel, logToolAudit }),
       // 工具进化 M1：逐条采集 bash 命令原文（模式挖掘数据源），失败静默不影响主链路
       // 挖掘由定时条件检查触发，不再在写日志后实时检查
       createBashCommandLogHook({

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 55;
+export const SCHEMA_VERSION = 56;
 
 /**
  * V1 DDL — 初始 schema
@@ -1867,6 +1867,86 @@ DROP TABLE IF EXISTS wiki_syntheses;
     `
 ALTER TABLE local_cron_jobs ADD COLUMN wake_mode TEXT NOT NULL DEFAULT 'own'
   CHECK (wake_mode IN ('own', 'active'));
+`,
+  ],
+  // V56: 能力面可观察性——「这轮暴露了哪些工具」+ 用量表落渠道
+  //
+  // 两份设计（能力面治理 §5.7）跑回放时四次卡在「数据没有」，其中两次直接要改表：
+  //
+  // ① **没有任何地方记录「本轮暴露了哪些工具」**，只有「被调用」。
+  //    于是「没用」与「没机会用」无法区分——裁剪工具后若 Recall 掉，查不出是
+  //    排错了还是模型换了做法。这张表的设计里唯一的作用就是**让裁剪可证伪**。
+  //
+  // ② **渠道只活在 conversation_id 的字符串前缀里**（`cron:` / `feishu:`）。
+  //    解析器 `channel-identity.ts:126` 早已存在（落库值优先 + 前缀回退），
+  //    但没有任何一张用量表把它存下来。而回放已证明「按 (agent, 渠道) 分组」
+  //    是决定性的：同一个 evolution Agent，组内 LRU 97.4%，拿全局热度排掉到 32.0%。
+  //
+  // 两件事放同一次迁移，是因为它们都动 `tool_usage_*` 的主键——分两次就是两次重建。
+  //
+  // 旧行的 channel 一律回填 'unknown'，**不猜 'ipc'**：与 V44 的「不假装能归因」、
+  // V45 的「实例 id 解不开就留空」同一原则。猜错的代价是让「unknown < 1%」这条
+  // 验收标准失去意义——它会把真实的归因失败藏在默认值里。
+  [
+    56,
+    `
+CREATE TABLE IF NOT EXISTS tool_exposure_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at   INTEGER NOT NULL,
+  session_key  TEXT    NOT NULL,
+  turn_id      TEXT,
+  agent_id     TEXT    NOT NULL,
+  channel      TEXT    NOT NULL,
+  tool_count   INTEGER NOT NULL,
+  total_tokens INTEGER NOT NULL,
+  tools        TEXT    NOT NULL,
+  -- turn = 开轮装配；search = 轮内因 tool_search 命中而追加装载（P2）
+  -- 同 turn_id 下先 turn 后 search，就是「模型自己把工具捞回来了」的证据
+  reason       TEXT    NOT NULL DEFAULT 'turn'
+);
+
+CREATE INDEX IF NOT EXISTS idx_tel_created
+  ON tool_exposure_log (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tel_agent_channel
+  ON tool_exposure_log (agent_id, channel, created_at DESC);
+
+ALTER TABLE tool_usage_stats RENAME TO tool_usage_stats_v55;
+
+CREATE TABLE IF NOT EXISTS tool_usage_stats (
+  agent_id     TEXT NOT NULL,
+  channel      TEXT NOT NULL DEFAULT 'unknown',
+  tool_name    TEXT NOT NULL,
+  count        INTEGER NOT NULL DEFAULT 0,
+  error_count  INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER,
+  PRIMARY KEY (agent_id, channel, tool_name)
+);
+
+INSERT INTO tool_usage_stats (agent_id, channel, tool_name, count, error_count, last_used_at)
+SELECT agent_id, 'unknown', tool_name, count, error_count, last_used_at FROM tool_usage_stats_v55;
+
+DROP TABLE tool_usage_stats_v55;
+
+ALTER TABLE tool_usage_daily RENAME TO tool_usage_daily_v46;
+
+CREATE TABLE IF NOT EXISTS tool_usage_daily (
+  day          TEXT NOT NULL,
+  agent_id     TEXT NOT NULL,
+  channel      TEXT NOT NULL DEFAULT 'unknown',
+  tool_name    TEXT NOT NULL,
+  count        INTEGER NOT NULL DEFAULT 0,
+  error_count  INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER,
+  PRIMARY KEY (day, agent_id, channel, tool_name)
+);
+
+INSERT INTO tool_usage_daily (day, agent_id, channel, tool_name, count, error_count, last_used_at)
+SELECT day, agent_id, 'unknown', tool_name, count, error_count, last_used_at FROM tool_usage_daily_v46;
+
+DROP TABLE tool_usage_daily_v46;
+
+CREATE INDEX IF NOT EXISTS idx_tud_day
+  ON tool_usage_daily (day DESC);
 `,
   ],
 ] as const;

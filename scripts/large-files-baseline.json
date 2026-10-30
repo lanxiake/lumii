@@ -45,7 +45,7 @@
   "packages/agent-runtime/src/memory/memory-repo.ts": 952,
   "packages/agent-runtime/src/memory/palace-repo.ts": 833,
   "packages/agent-runtime/src/storage/conversation-repo.ts": 1386,
-  "packages/agent-runtime/src/storage/schema.ts": 1840,
+  "packages/agent-runtime/src/storage/schema.ts": 1952,
   "packages/agent-runtime/src/wiki/wiki-repo.ts": 1566,
   "packages/pet-core/src/state/notice.ts": 936
 }

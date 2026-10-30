@@ -155,6 +155,11 @@ import { runPetGoal } from './bootstrap/pet-goal-runner'
 import { reportPetGoalReceipt } from './bootstrap/pet-goal-receipt'
 import { withTimeout } from './with-timeout'
 import { initToolUsageStore } from '../tool-usage-store'
+import {
+  EXPOSURE_RETENTION_DAYS,
+  initToolExposureStore,
+  pruneToolExposure,
+} from '../tool-exposure-store'
 import { getDashboardFeedService } from './dashboard-feed-accessor'
 import { BridgePromptComposer } from './bridge-prompt-composer'
 import {
@@ -871,6 +876,17 @@ export class AgentRuntimeBridge {
       initToolUsageStore(db)
     } catch (err) {
       log.warn('[initialize] initToolUsageStore 失败（工具统计将降级为内存态）:', err)
+    }
+
+    // 暴露记录（V56）：与用量统计同一条 fail-open 路径
+    try {
+      initToolExposureStore(db)
+      const pruned = pruneToolExposure()
+      if (pruned > 0) {
+        log.info(`[initialize] 已清理 ${pruned} 行超过 ${EXPOSURE_RETENTION_DAYS} 天的工具暴露记录`)
+      }
+    } catch (err) {
+      log.warn('[initialize] initToolExposureStore 失败（暴露记录将不落库）:', err)
     }
 
     // 创建 Repos
@@ -2740,6 +2756,8 @@ export class AgentRuntimeBridge {
       background: this.buildBackgroundToolConfig(),
       getSessionDisabledMcpServers: (sk) => this.getSessionDisabledMcpServers(sk),
       getSessionDisabledSkills: (sk) => this.getSessionDisabledSkills(sk),
+      // 工具用量按 (agent, channel) 落库（V56）；绑方法而非手写透传，理由同下
+      getConversationOwnership: this.getConversationOwnership.bind(this),
       getMemoryManager: () => this._memoryManager,
       getToolContext: () => this.toolContext,
       pushActivitySnapshot: (k) => this.lifecycle.pushActivitySnapshot(k),
@@ -2774,6 +2792,11 @@ export class AgentRuntimeBridge {
       getSkillEvolutionEngine: () => this.config.skillEvolutionEngine,
       getToolEvolutionEngine: () => this._toolEvolutionEngine,
       getConversationRepo: () => this._conversationRepo,
+      // 暴露记录要按 (agent, 渠道) 分组统计；渠道走与用量表同一个解析器
+      getConversationOwnership: this.getConversationOwnership.bind(this),
+      // 逐工具 token 要与 contextUsage 明细同口径。按**模型 id** 取标定值而不是会话：
+      // 会话→模型的映射是进程内 Map，重启后为空，会让重启后的第一批记录退回权重法。
+      resolveCharsPerToken: (modelId) => this.resolveCharsPerToken(modelId),
       // 绑方法而非手写透传，避免以后加参数时静默漏传（见构造函数里的说明）
       getSessionContextUsage: this.getSessionContextUsage.bind(this),
       routerService: this.createRouterService(),
@@ -3602,35 +3625,24 @@ export class AgentRuntimeBridge {
     if (s) s.presence = presence
   }
 
-  /** 等待 Agent 实例进入 idle 状态 */
   /** 正在被定时任务注入的会话：同一会话同时只允许一条，避免两次触发的回复交错 */
   private readonly activeWakeInFlight = new Set<string>()
 
-  /**
-   * 定时任务唤醒用户当前会话（`wake_mode='active'`）。
-   *
-   * 与 `prompt()` 的三点差别：
-   * - 只投 **internal** 来源，**不写 user 消息**——那条会话里不该出现用户没说过的话；
-   * - **不打断**：实例在跑就先等它空闲（最多 {@link ACTIVE_WAKE_WAIT_MS}），等不到返回 null
-   *   让调用方回落到任务自己的会话；
-   * - 同一会话同时只允许一条注入。
-   *
-   * 找不到实例（比如重启后用户还没打开过那条会话）也返回 null —— 不为它凭空建实例，
-   * 否则回复会落进一条用户根本不在看的会话，既没意义又要按它的上下文付费。
-   */
   /**
    * 取某会话的活实例；没有就**按会话的 Agent 建一个并恢复历史**。
    *
    * 为什么必须重建：进程重启后实例是懒建的（要用户发第一条消息才建）。不重建的话，
    * 所有「异步结果回投」——定时任务唤醒、后台工具完成、子代理完成——都会落空，
    * 表现就是「任务跑完了但会话毫无反应」，且日志里只有一句 warn。
+   *
+   * **复用 bridge 反向查找**（`findInstanceIdForConversation`）：本方法建出来的实例
+   * 不写 IPC 层的 `sessionToInstance`，若各写各的遍历，同一会话可能同时存在两个实例、
+   * 各自持有上下文——那正是「回复分叉」的来路。
    */
   private async ensureConversationInstance(conversationId: string): Promise<AgentInstance | null> {
-    for (const [id, conv] of this.instanceToConversation) {
-      if (conv !== conversationId) continue
-      const live = this.agentRegistry.get(id)
-      if (live && live.state !== 'destroyed') return live
-    }
+    const existingId = this.findInstanceIdForConversation(conversationId)
+    const existing = existingId ? this.agentRegistry.get(existingId) : undefined
+    if (existing && existing.state !== 'destroyed') return existing
     try {
       const agentId = this._conversationRepo?.getAgentParticipantId(conversationId) ?? 'assistant'
       const instanceId = await this.createInstanceById(agentId, conversationId, conversationId)
@@ -3645,30 +3657,61 @@ export class AgentRuntimeBridge {
     }
   }
 
-  async deliverInternalMessage(conversationId: string, text: string): Promise<string | null> {
-    if (this.activeWakeInFlight.has(conversationId)) return null
+  /**
+   * 把一条内部消息投进指定会话并等它跑完。
+   *
+   * 返回值必须区分**三种**结局，不能只用一个 `string | null`：
+   * - `delivered: false` —— 投不进去（实例忙过久 / 注入抛错），调用方该回落自己的会话；
+   * - `delivered: true, output: ''` —— **跑完了但没说话**（只调了工具，或回 NO_REPLY）。
+   *   这种情况算成功，绝不能当成「没投进去」——否则调用方会再跑一遍，同一条任务出两轮、
+   *   两份通知，而且用户会话里已经出现过一次回复了。
+   */
+  async deliverInternalMessage(
+    conversationId: string,
+    text: string,
+  ): Promise<{ delivered: boolean; output: string }> {
+    if (this.activeWakeInFlight.has(conversationId)) return { delivered: false, output: '' }
     const instance = await this.ensureConversationInstance(conversationId)
-    if (!instance) return null
+    if (!instance) return { delivered: false, output: '' }
     const instanceId = instance.id
 
     this.activeWakeInFlight.add(conversationId)
     try {
       if (instance.state !== 'idle') {
-        const idle = await Promise.race([
-          instance.waitForIdle().then(() => true),
-          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ACTIVE_WAKE_WAIT_MS)),
-        ])
-        if (!idle) return null
+        const idle = await this.waitIdleOrTimeout(instance)
+        if (!idle) return { delivered: false, output: '' }
       }
       await instance.prompt(text, undefined, 'internal')
       await instance.waitForIdle()
-      return this.getAssistantOutputFromInstance(instanceId)
+      return { delivered: true, output: this.getAssistantOutputFromInstance(instanceId) ?? '' }
     } catch (err) {
       console.warn(`[deliverInternalMessage] 注入失败 conversation=${conversationId}:`, err)
-      return null
+      return { delivered: false, output: '' }
     } finally {
       this.activeWakeInFlight.delete(conversationId)
     }
+  }
+
+  /**
+   * 等实例空闲，超时返回 false。
+   *
+   * 定时器必须显式清掉：`Promise.race` 只丢弃结果、不会取消 `setTimeout`，
+   * 留着它会让事件循环多挂 2 分钟（测试里表现为「摘要全绿但 Errors 行」的拆尾 flaky）。
+   */
+  private waitIdleOrTimeout(instance: AgentInstance): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), ACTIVE_WAKE_WAIT_MS)
+      instance
+        .waitForIdle()
+        .then(() => {
+          clearTimeout(timer)
+          resolve(true)
+        })
+        .catch(() => {
+          clearTimeout(timer)
+          resolve(false)
+        })
+    })
   }
 
   async waitForInstanceIdle(instanceId: string): Promise<void> {

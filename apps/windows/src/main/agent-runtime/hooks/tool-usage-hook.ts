@@ -45,6 +45,17 @@ export interface ToolUsageHookDeps {
    * 而那正是 V44 之前「查不出谁在用」的老毛病，不该有第二次机会。
    */
   readonly agentId: string
+  /**
+   * 这次调用发生在哪个渠道（`ipc` / `weixin` / `cron` / `evolution`…）。
+   *
+   * 做成**回调而不是值**：渠道是会话属性，实例创建时求值一次即可，但此刻
+   * （hook 构造时）`instanceToConversation` 可能还没写完，读到的会是 undefined。
+   * 回调让它延后到真正调用工具时再读。
+   *
+   * 刻意**必填**：渠道分组的价值已被回放证实（evolution 组内 97.4% vs 全局 32.0%），
+   * 漏传会让这笔账静默落进 'unknown'，而 'unknown' 是我们用来判定「归因失败」的哨兵。
+   */
+  readonly getChannel: () => string
   readonly logToolAudit?: ToolFailureAudit
 }
 
@@ -75,11 +86,11 @@ function summaryFromError(ctx: ToolHookErrorContext): string {
 }
 
 export function createToolUsageHook(deps: ToolUsageHookDeps): ToolHook {
-  const { agentId } = deps
+  const { agentId, getChannel } = deps
   return {
     name: 'tool-usage-and-failure-audit',
     afterExecute(ctx) {
-      void recordToolUsage(agentId, ctx.toolName, ctx.isError)
+      void recordToolUsage(agentId, getChannel(), ctx.toolName, ctx.isError)
       if (ctx.isError) {
         deps.logToolAudit?.({
           toolName: ctx.toolName,
@@ -90,7 +101,7 @@ export function createToolUsageHook(deps: ToolUsageHookDeps): ToolHook {
       }
     },
     onError(ctx) {
-      void recordToolUsage(agentId, ctx.toolName, true)
+      void recordToolUsage(agentId, getChannel(), ctx.toolName, true)
       deps.logToolAudit?.({
         toolName: ctx.toolName,
         resultSummary: summaryFromError(ctx),
