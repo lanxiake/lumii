@@ -43,7 +43,7 @@ const WINDOW_OPTIONS = [
 ] as const
 
 /** 紧凑时间：同年只显示月-日 时:分，免得一列全是重复的年份 */
-function formatLastUsed(ts: number): string {
+export function formatLastUsed(ts: number): string {
   if (!ts) return '—'
   const d = new Date(ts)
   const mm = String(d.getMonth() + 1).padStart(2, '0')

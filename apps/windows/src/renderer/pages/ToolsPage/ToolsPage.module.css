@@ -246,3 +246,65 @@
   min-width: 84px;
   text-align: right;
 }
+
+/* ---- 常驻成本 tab ---- */
+.costHead,
+.usageRow.costRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 120px 96px;
+  align-items: center;
+  gap: 12px;
+}
+
+.costHead {
+  padding: 0 12px 6px;
+  font-size: 12px;
+  color: var(--mt-fg-3, var(--color-text-tertiary));
+  border-bottom: 1px solid var(--mt-border, var(--color-border));
+}
+
+.costCol {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.costColActive {
+  color: var(--mt-fg-1, var(--color-text-primary));
+  font-weight: 600;
+}
+
+.costNum {
+  text-align: right;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.costName {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 「从未使用」是 P2 裁剪的头号候选，得在 200 行里一眼挑出来 */
+.costNeverUsed {
+  color: var(--mt-warning);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.costName .usageToolLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

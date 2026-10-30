@@ -7,7 +7,9 @@
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { getToolUsage, getToolUsageByAgent, UNKNOWN_AGENT_ID } from '../../tool-usage-store'
-import { BUILT_IN_AGENTS } from '@mtbot/agent-runtime'
+import { buildCapabilityInventory } from '../../capability-inventory'
+import { getPromptStyleSettings } from '../../agent-runtime/prompt-style-accessor'
+import { applyToolDefinitionStyle, BUILT_IN_AGENTS } from '@mtbot/agent-runtime'
 import { buildToolUsageExportPayload } from './tool-usage-export'
 
 const log = {
@@ -82,6 +84,30 @@ export async function handleToolsUsageByAgent(days = 0): Promise<unknown> {
       }
     })
     .sort((a, b) => b.totalCalls - a.totalCalls)
+}
+
+/**
+ * 能力面清单：常驻成本 × 用量。
+ *
+ * 技能侧的用量口径与工具**不同源**（skill-store 累计值 vs tool_usage_daily 日表），
+ * 这条约束落在 `capability-inventory.ts` 的文件头，改之前先读它。
+ */
+export async function handleCapabilityInventory(
+  bridge: AgentRuntimeBridge,
+  days = 30,
+): Promise<unknown> {
+  const [source, usageByAgent, styleSettings] = await Promise.all([
+    bridge.getCapabilityInventorySource(),
+    getToolUsageByAgent({ days }),
+    getPromptStyleSettings(),
+  ])
+  // 必须按当前风格裁剪后再算成本：`toolRegistry.getEnabledTools()` 是**原始**定义，
+  // 而真正发给模型的是裁剪后的那一份（极简档会清空简单工具的 description 与 schema 描述）。
+  // 不裁就会把"详细档下才会付的钱"当成"现在付的钱"——实测 minimal 档下 150 个工具
+  // 原始 14838 vs 实际 11235，偏差 32%，且逐工具比值 0.91~7.77 完全散开。
+  const promptStyle = styleSettings.style
+  const tools = applyToolDefinitionStyle(source.tools, promptStyle)
+  return buildCapabilityInventory({ ...source, tools, usageByAgent, promptStyle })
 }
 
 /**

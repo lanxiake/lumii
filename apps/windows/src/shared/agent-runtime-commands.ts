@@ -1009,6 +1009,19 @@ interface ToolsUsageByAgentCommand {
 }
 
 /**
+ * 能力面清单：常驻成本 × 用量，供成本页排序裁剪候选。
+ *
+ * 与 `tools:usage-by-agent` 的区别：那个按 Agent 切，这个按能力切（工具+技能一表）。
+ * `days` 只作用于工具——技能侧只有累计计数（skill-store 的 `executionCount`），
+ * **没有日维度**，两者不可互相兜底。
+ */
+interface CapabilityInventoryCommand {
+  readonly type: 'capability:inventory'
+  /** 工具用量的统计窗口，默认 30 天 */
+  readonly days?: number
+}
+
+/**
  * 检视资讯偏好：每条规则会命中哪些已推条目 + 冲突裁决顺序。
  *
  * 「预览」与「规则日志」是**同一个计算的两个视图**——都回答
@@ -1802,6 +1815,7 @@ export type AgentRuntimeCommand =
   | ToolsListCommand
   | ToolsToggleCommand
   | ToolsUsageByAgentCommand
+  | CapabilityInventoryCommand
   | ToolsUsageExportCommand
   | NewsPreferencePreviewCommand
   | McpStatusCommand
@@ -2287,6 +2301,14 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       }[]
     }[]
   : T extends 'tools:usage:export' ? { json: string }
+  : T extends 'capability:inventory' ? readonly {
+      kind: 'tool' | 'skill'
+      id: string
+      whenToUse: string
+      residentTokens: number
+      usage30d: number
+      lastUsed: number | null
+    }[]
   : T extends 'news-preference:preview' ? {
       /** 参与匹配的已推条目总数——「命中 0 篇」要靠它区分「规则没用」和「没数据」 */
       itemCount: number

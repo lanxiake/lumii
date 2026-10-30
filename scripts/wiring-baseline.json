@@ -1,6 +1,6 @@
 {
   "_comment": "接线守卫基线（棘轮）：这里的断线是已知存量，守卫只报新增。清理后跑 node scripts/check-wiring.mjs --update 收紧。",
-  "_updated": "2026-10-23",
+  "_updated": "2026-10-30",
   "orphanHandlers": [],
   "danglingRefs": [],
   "orphanSends": [],
@@ -17,6 +17,7 @@
     "apps/windows/src/plugins/builtin/skill-evolution/user-dialog.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/impl/git-http.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/impl/git-network.ts",
+    "apps/windows/src/plugins/external-src/cloud-sync/impl/git-progress.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/impl/git-provider.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/impl/gitcode-provider.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/impl/memory-merge-decision.ts",
@@ -32,7 +33,6 @@
     "apps/windows/src/plugins/external-src/cloud-sync/impl/sync-scope.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/impl/sync-watcher.ts",
     "apps/windows/src/plugins/external-src/cloud-sync/index.ts",
-    "apps/windows/src/plugins/external-src/perf/impl/performance-aggregator.ts",
     "apps/windows/src/plugins/external-src/perf/impl/performance-monitor.ts",
     "apps/windows/src/plugins/external-src/perf/index.ts",
     "apps/windows/src/plugins/external-src/perf/ipc.ts",

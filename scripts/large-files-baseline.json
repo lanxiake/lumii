@@ -38,7 +38,7 @@
   "apps/windows/src/renderer/pet/orchestrator/PetOrchestrator.ts": 1952,
   "apps/windows/src/renderer/pet/PetModeShell.tsx": 1773,
   "apps/windows/src/renderer/pet/renderer/sprite/SpritePetRenderer.ts": 1092,
-  "apps/windows/src/shared/agent-runtime-commands.ts": 2434,
+  "apps/windows/src/shared/agent-runtime-commands.ts": 2486,
   "packages/agent-runtime/src/agent/agent-instance.ts": 994,
   "packages/agent-runtime/src/agent/orchestrator.ts": 841,
   "packages/agent-runtime/src/index.ts": 1027,

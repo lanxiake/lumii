@@ -182,6 +182,7 @@ import {
   handleToolsToggle,
   handleToolsUsageByAgent,
   handleToolsUsageExport,
+  handleCapabilityInventory,
   handleMcpStatus,
   handleMcpUpsert,
   handleMcpImport,
@@ -1045,6 +1046,9 @@ export async function handleCommand(
 
       case 'tools:usage:export':
         return handleToolsUsageExport()
+
+      case 'capability:inventory':
+        return handleCapabilityInventory(bridge, command.days ?? 30)
 
       case 'news-preference:preview':
         return handleNewsPreferencePreview()

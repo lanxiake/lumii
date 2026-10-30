@@ -6,7 +6,7 @@
 
 import React, { useCallback, useState } from 'react'
 import clsx from 'clsx'
-import { Wrench, FlaskConical, Search, Download } from 'lucide-react'
+import { Wrench, FlaskConical, Search, Download, Coins } from 'lucide-react'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
 import { Card } from '../../components/ui/Card/Card'
 import { Input } from '../../components/ui/Input/Input'
@@ -17,6 +17,7 @@ import { useToast } from '../../components/ui/Toast/useToast'
 import { ToolCard } from '../SkillsPage/components/ToolCard'
 import { ToolEvolutionPanel } from './ToolEvolutionPanel'
 import { AgentUsageView } from './AgentUsageView'
+import { CostView } from './CostView'
 import { SearchToolsSection } from '../SettingsPage/components/SearchToolsSection'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
 import { saveFile } from '../../services/dialog-service'
@@ -24,7 +25,7 @@ import { writeFile } from '../../services/file-service'
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '../SkillsPage/SkillsPage.const'
 import styles from './ToolsPage.module.css'
 
-type ToolsTabType = 'builtin' | 'evolution' | 'search'
+type ToolsTabType = 'builtin' | 'cost' | 'evolution' | 'search'
 
 /** 内建工具 tab 的两种看法：全量清单（可开关） / 逐 Agent 用量（只读） */
 type UsageMode = 'all' | 'byAgent'
@@ -103,6 +104,13 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
           <Wrench size={14} />
           <span>内建工具</span>
           <span className={styles.badge}>{toolStats.total - (groupedTools.get('channel')?.length ?? 0)}</span>
+        </button>
+        <button
+          className={clsx(styles.tab, activeTab === 'cost' && styles.active)}
+          onClick={() => setActiveTab('cost')}
+        >
+          <Coins size={14} />
+          <span>常驻成本</span>
         </button>
         <button
           className={clsx(styles.tab, activeTab === 'evolution' && styles.active)}
@@ -201,6 +209,8 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
           </Card>
         </>
       )}
+
+      {activeTab === 'cost' && <CostView />}
 
       {activeTab === 'evolution' && <ToolEvolutionPanel />}
 

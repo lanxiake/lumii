@@ -24,6 +24,11 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'tools:list', 'tools:toggle',
   // 逐 Agent 工具用量 / 导出：只读聚合计数，与 tools:list 同风险级（不含参数、不含结果）
   'tools:usage-by-agent', 'tools:usage:export',
+  // 能力面清单（常驻成本 × 用量）：同样只读聚合，返回工具名 + 描述首句 + token 估算，
+  // **不含参数 schema 与调用结果**，与 tools:usage-by-agent 同风险级。
+  // 放行它是因为 P1 退出标准（页面 residentTokens 之和 ↔ 日志 tools+mcp）只能靠这条口
+  // 复现——截图读不出数字，控制口也开不了 CDP。
+  'capability:inventory',
   // 资讯偏好检视：只读（读 user-memory.md 的偏好章节 + 已推条目做子串匹配），不写任何东西
   'news-preference:preview',
   // 会话偏好

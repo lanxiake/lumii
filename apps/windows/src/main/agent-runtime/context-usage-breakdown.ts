@@ -142,12 +142,22 @@ function toolText(tool: ToolDefinitionLite): string {
  * @param charsPerToken 标定的字符/token 比；缺省或越界时退回权重法（与明细同样处理）
  */
 export function estimateToolTokens(tool: ToolDefinitionLite, charsPerToken?: number): number {
+  return estimateFixedTextTokens(toolText(tool), charsPerToken)
+}
+
+/**
+ * 固定部分文本（工具定义、技能索引行等）的 token 估算：口径与 {@link estimateToolTokens}
+ * 完全一致——有标定值走标定比，否则走 0.3/0.6 字符权重。
+ *
+ * 单独开一个口子是因为技能索引行不是工具定义，但必须跟工具用**同一把尺**：
+ * 两处各算各的，页面上两个数字就不可比了。
+ */
+export function estimateFixedTextTokens(text: string, charsPerToken?: number): number {
   const calibrated =
     charsPerToken != null &&
     Number.isFinite(charsPerToken) &&
     charsPerToken >= MIN_CHARS_PER_TOKEN &&
     charsPerToken <= MAX_CHARS_PER_TOKEN
-  const text = toolText(tool)
   return calibrated ? Math.round(text.length / charsPerToken) : estimateTextTokenCount(text)
 }
 

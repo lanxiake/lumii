@@ -85,9 +85,9 @@ import {
   readSettings,
   drawerPointerId,
 } from '@mtbot/agent-runtime'
-import type { AgentInstance, ArchivePalaceMeta } from '@mtbot/agent-runtime'
+import type { AgentInstance, ArchivePalaceMeta, SkillInfo } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
-import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer } from './context-usage-breakdown.js'
+import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer, type ToolDefinitionLite } from './context-usage-breakdown.js'
 import { clearAgentRuntimeRepos, setAgentRuntimeRepos, setWikiLibraryMigrate } from './accessors.js'
 import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import { buildBudgetSnapshot, computeContextBudget, shouldCompactByBudget } from '../../shared/context-budget'
@@ -3581,6 +3581,33 @@ export class AgentRuntimeBridge {
    */
   getMcpServerTokenCosts(): readonly { name: string; toolCount: number; tokens: number }[] {
     return aggregateMcpTokensByServer(this.toolRegistry.getEnabledTools())
+  }
+
+  /**
+   * 能力面清单的取数口：已启用工具的**完整定义**（含参数 schema）与技能快照。
+   *
+   * 不能用 `listTools()`：那是 `getToolStatus()`，**不含 `parameters`**，
+   * 拿它估常驻成本会漏掉占大头的 schema 部分。
+   * 标定比按当前聊天模型取，取不到返回 undefined —— 由 `estimateToolTokens` 退回权重法。
+   */
+  async getCapabilityInventorySource(): Promise<{
+    tools: ToolDefinitionLite[]
+    skills: readonly SkillInfo[]
+    charsPerToken?: number
+  }> {
+    const tools: ToolDefinitionLite[] = this.toolRegistry.getEnabledTools().map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    }))
+    let skills: readonly SkillInfo[] = []
+    try {
+      skills = (await this.config.getSkills?.()) ?? []
+    } catch (err) {
+      log.error('[capability-inventory] 取技能快照失败:', err)
+    }
+    const modelId = this.config.getProviderConfig?.()?.modelId?.trim() || undefined
+    return { tools, skills, charsPerToken: this.resolveCharsPerToken(modelId) }
   }
 
   /** 从 DB 加载历史消息注入到 Agent 实例 */
