@@ -80,6 +80,29 @@ export function seedBundledPipelines(
   return { seeded, skipped: false }
 }
 
+/**
+ * 老工作区的 `.gitignore` 迁移：补一行「pipelines 下的 runs 目录」忽略规则。
+ *
+ * `buildDefaultGitignore()` 只在**新建**工作区时生效，老库的 `.gitignore` 早已写好且
+ * 不会重建——不补的话老用户的运行记录会被 git 跟踪。**追加而非重写**（用户可能加了别的规则），
+ * 已经有这行就不动；读失败跳过并 warn。
+ * （注意：本注释刻意不写那条 glob 字面量——它含 `星号斜杠`，会提前闭合块注释。）
+ */
+export function migrateGitignoreForPipelines(workspaceDir: string): boolean {
+  const gi = path.join(workspaceDir, '.gitignore')
+  const line = 'pipelines/**/runs/'
+  try {
+    if (!fs.existsSync(gi)) return false
+    const cur = fs.readFileSync(gi, 'utf8')
+    if (cur.split('\n').some((l) => l.trim() === line)) return false
+    const sep = cur.endsWith('\n') || cur === '' ? '' : '\n'
+    fs.appendFileSync(gi, `${sep}${line}\n`, 'utf8')
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** 引擎未就绪时的兜底（插件已加载但 bridge 还没建好） */
 function notReady(): { ok: false; runId: string; journalPath: string; steps: never[]; error: string } {
   return { ok: false, runId: '', journalPath: '', steps: [], error: '流水线引擎尚未就绪' }
@@ -103,6 +126,15 @@ export const pipelineExtension = {
         if (seeded.seeded > 0) ctx.log.info(`已播种 ${seeded.seeded} 条内置流水线`)
       } catch (err) {
         ctx.log.warn(`播种内置流水线失败（已忽略）: ${err instanceof Error ? err.message : err}`)
+      }
+
+      // 老工作区的 .gitignore 补迁移（新建工作区由 buildDefaultGitignore 覆盖）
+      try {
+        if (migrateGitignoreForPipelines(path.dirname(resolvePipelinesDir()))) {
+          ctx.log.info('已为老工作区补上 pipelines/**/runs/ 忽略规则')
+        }
+      } catch {
+        /* 迁移失败不影响功能 */
       }
 
       // service 的真实现由 bridge 提供（它才有 callTool / 录屏 / 视图回读）。

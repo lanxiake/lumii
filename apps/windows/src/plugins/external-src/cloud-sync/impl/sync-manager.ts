@@ -1572,6 +1572,7 @@ export class CloudSyncManager extends EventEmitter {
       { prefix: 'profile/', base: this.dataDir },
       { prefix: 'workspace/files/', base: path.join(this.workspaceDir, 'files') },
       { prefix: 'workspace/outputs/', base: path.join(this.workspaceDir, 'outputs') },
+      { prefix: 'workspace/pipelines/', base: path.join(this.workspaceDir, 'pipelines') },
     ]
     for (const { prefix, base } of mappings) {
       if (repoPath.startsWith(prefix)) return path.join(base, repoPath.slice(prefix.length))

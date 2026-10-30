@@ -200,8 +200,9 @@ export class SyncExporter {
       logger.info('[export] 5. 导出用户文件...')
       try {
         const fileErrors = await this.exportUserFiles()
-        exportedFiles.push('workspace/files/**')
-        errors.push(...fileErrors)
+        const pipeErrors = await this.exportPipelines()
+        exportedFiles.push('workspace/files/**', 'workspace/pipelines/**')
+        errors.push(...fileErrors, ...pipeErrors)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error('[export] 用户文件导出失败:', msg)
@@ -256,8 +257,9 @@ export class SyncExporter {
 
     try {
       const fileErrors = await this.exportUserFiles()
-      exportedFiles.push('workspace/files/**', 'workspace/outputs/**')
-      errors.push(...fileErrors)
+      const pipeErrors = await this.exportPipelines()
+      exportedFiles.push('workspace/files/**', 'workspace/outputs/**', 'workspace/pipelines/**')
+      errors.push(...fileErrors, ...pipeErrors)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       logger.error('[exportLocalEdits] 用户文件导出失败:', msg)
@@ -288,6 +290,7 @@ export class SyncExporter {
       path.join(this.options.syncDir, 'autonomous'),
       path.join(this.options.syncDir, 'workspace/files'),
       path.join(this.options.syncDir, 'workspace/outputs'),
+      path.join(this.options.syncDir, 'workspace/pipelines'),
     ]
 
     for (const dir of dirs) {
@@ -523,8 +526,35 @@ export class SyncExporter {
    * 删除既进不了 commit，下次 import 还会把残留文件复制回本地（「删了又回来」）。
    * 镜像删除自带安全阀（见 sync-copy），源目录异常时整批放弃而非误删。
    */
-  private async exportUserFiles(): Promise<string[]> {
+  /**
+   * 导出确定性流水线：**只同步 spec，不同步运行记录**。
+   *
+   * 运行记录目录（`<id>/runs/`）是每次执行的产物与 journal（本机几十~几千条），
+   * 既没有跨设备价值、又会把同步体积撑爆。所以 `shouldSkipFile` 按相对路径过滤掉它。
+   * 这与 vcs-ignore 的忽略规则是同一条边界，两处必须一致。
+   * （本注释不写那条 glob 字面量——它含 `星号斜杠`，会提前闭合块注释。）
+   */
+  private async exportPipelines(): Promise<string[]> {
     const errors: string[] = []
+    const src = path.join(this.options.workspaceDir, 'pipelines')
+    const dst = path.join(this.options.syncDir, 'workspace/pipelines')
+    if (!fs.existsSync(src)) return errors
+    const copyOpts = this.options.confirmedMassDeleteFingerprint
+      ? { confirmedFingerprint: this.options.confirmedMassDeleteFingerprint }
+      : {}
+    const r = copySyncDirectory(src, dst, {
+      mirror: true,
+      skipUnchanged: true,
+      ...copyOpts,
+      // 相对路径是相对 src 的（`<id>/runs/...`），用 includes 覆盖多层嵌套
+      shouldSkipFile: (rel: string) => rel.split(path.sep).includes('runs'),
+    })
+    errors.push(...r.errors)
+    this.logMirrorResult('workspace/pipelines', r)
+    return errors
+  }
+
+  private async exportUserFiles(): Promise<string[]> {    const errors: string[] = []
     const copyOpts = this.options.confirmedMassDeleteFingerprint
       ? { confirmedFingerprint: this.options.confirmedMassDeleteFingerprint }
       : {}
