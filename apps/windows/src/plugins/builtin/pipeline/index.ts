@@ -15,12 +15,14 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { shell } from 'electron'
 import { definePlugin } from '@mtbot/plugin-core'
 import { S } from '../../../main/kernel/services'
 import type { MainEvents } from '../../../main/kernel/events'
 import { resolvePipelinesDir } from '../../../main/workspace-paths'
 import { createPipelineToolConfigs } from './tools'
 import { createPipelineService } from './runtime'
+import { registerPipelineIpcHandlers } from './ipc'
 import type { PipelineService } from './service-api'
 
 const BUNDLED_DIR_NAME = 'bundled-pipelines'
@@ -139,6 +141,20 @@ export const pipelineExtension = {
           wire()
         })
       }
+
+      // IPC：挂在插件作用域上，停用即摘（rerender 页会看到表不见了）
+      registerPipelineIpcHandlers(
+        {
+          getService: () => impl,
+          openPath: (p) => shell.openPath(p),
+          resolvePath: (target, id) => {
+            const base = path.join(resolvePipelinesDir(), id)
+            return target === 'run' ? path.join(base, 'runs') : base
+          },
+        },
+        { handle: (channel, listener) => ctx.registerIpc?.(channel, listener) },
+      )
+
       ctx.log.info('确定性流水线插件已加载')
     },
   }),

@@ -50,6 +50,7 @@ import {
   screenRecordApi,
   userGuidesApi,
   selectionApi,
+  pipelineApi,
   autonomousApi,
   cloudSyncApi,
   netApi,
@@ -374,6 +375,18 @@ export interface ElectronAPI {
   selection: {
     run: (request: SelectionLlmRequest) => Promise<SelectionLlmResult>
     abort: (requestId: string) => Promise<boolean>
+  }
+  /** 确定性流水线（`com.lumii.pipeline` 插件提供；停用后表消失） */
+  pipeline: {
+    list: () => Promise<unknown[]>
+    detail: (id: string) => Promise<unknown | null>
+    run: (args: { id: string; mode: 'record' | 'rehearsal'; resumeRunId?: string }) => Promise<unknown>
+    cancel: (runId: string) => Promise<{ ok: boolean }>
+    openDir: (args: { target: 'spec' | 'run'; id: string }) => Promise<{ ok: boolean; error?: string }>
+    /** 每步进度（运行中卡片用）；返回取消订阅函数 */
+    onProgress: (cb: (e: unknown) => void) => () => void
+    /** 一次 run 结束 */
+    onFinished: (cb: (e: unknown) => void) => () => void
   }
   /**
    * HTML 预览 `<webview>` 取词用的 preload 绝对 file: URL。
@@ -1415,6 +1428,8 @@ const electronAPI: ElectronAPI = {
   userGuides: userGuidesApi,
 
   selection: selectionApi,
+
+  pipeline: pipelineApi,
 
   webviewSelectionPreload,
 
