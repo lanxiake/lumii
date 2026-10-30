@@ -23,6 +23,16 @@ export interface RunOptions {
   readonly isRehearsalBlocked: (tool: string) => boolean
   /** 续跑：已 ok 的 step id 直接跳过 */
   readonly resumeSkip?: ReadonlySet<string>
+  /** 取消信号：透传给 callTool 与 sleep，让 cancel 能真的中断（而不是跑完剩下的步）。 */
+  readonly signal?: AbortSignal
+  /** 每步结束回调（UI 进度条用）；失败不阻断执行 */
+  readonly onProgress?: (e: {
+    i: number
+    total: number
+    stepId: string
+    label?: string
+    status: 'ok' | 'failed'
+  }) => void
 }
 
 export interface StepResult {
@@ -159,9 +169,19 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
 
   // ── preconditions：不满足直接停，且**不 start 录制** ──
   for (const p of spec.preconditions ?? []) {
-    // 预条件也走 resolveParams：它们的参数里同样可以有 {{ref}}（虽然引用只能向后、
-    // 而预条件在主循环之前，实际只有常量——但传不传参不能靠工具恰好零参来保证）。
-    const r = await deps.callTool(p.tool, (resolveParams(p.params ?? {}, outputs) as Record<string, unknown>) ?? {})
+    // 预条件参数同样走 resolveParams，但**包在 try 里**：spec.ts 已在加载期拒掉坏引用，
+    // 这里兜底是为防万一——抛出去会让整条 run reject，而那时 meta 还停在 running。
+    let preParams: Record<string, unknown>
+    try {
+      preParams = (resolveParams(p.params ?? {}, outputs) as Record<string, unknown>) ?? {}
+    } catch (err) {
+      return finish({
+        ok: false,
+        failedAt: { i: -1, id: p.id },
+        error: `precondition "${p.id}" 参数解析失败: ${err instanceof Error ? err.message : err}`,
+      })
+    }
+    const r = await deps.callTool(p.tool, preParams, opts.signal)
     const viewState = await deps.readViewState()
     const a = assertExpect(p.expect, r.data ?? r, viewState)
     if (!r.ok || !a.ok) {
@@ -179,7 +199,24 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     if (!deps.screenRecord) {
       return finish({ ok: false, error: 'record.enabled 但屏幕录制服务不可用' })
     }
-    const started = await deps.screenRecord.start({ sourceHint: spec.record?.sourceHint ?? 'auto' })
+    // `start` 要的是 `sourceId`（list_sources 的产物），不是 spec 里的 `sourceHint`（人话）。
+    // 先列源、挑「本应用窗口」优先的那个——录教程就是要录自己。
+    let sources: readonly { sourceId: string; name?: string; kind?: string }[] = []
+    try {
+      sources = await deps.screenRecord.listSources()
+    } catch (err) {
+      return finish({ ok: false, error: `列出录制源失败: ${err instanceof Error ? err.message : err}` })
+    }
+    const hint = spec.record?.sourceHint ?? 'auto'
+    const pick =
+      sources.find((s) => s.sourceId === hint) ??
+      sources.find((s) => /lumii|本应用|灵栖/i.test(`${s.name ?? ''}${s.sourceId}`)) ??
+      sources[0]
+    if (!pick) return finish({ ok: false, error: '没有可用的录制源（listSources 返回空）' })
+    const started = await deps.screenRecord.start({
+      sourceId: pick.sourceId,
+      includeMic: spec.record?.includeMic,
+    })
     if (!started.ok) {
       return finish({ ok: false, error: `录制启动失败，整条拒绝: ${started.error ?? ''}` })
     }
@@ -188,6 +225,11 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
   // ── 主循环 ──
   for (let i = 0; i < spec.steps.length; i++) {
     const step = spec.steps[i]!
+    // 取消：在每步开头检查一次就够——工具本身接不接 signal 是各宿主的事，
+    // 但「不再往下跑」这条必须由 runner 保证（否则 cancel 后还会点/发/写）。
+    if (opts.signal?.aborted) {
+      return finish({ ok: false, error: '已取消（cancelled）' })
+    }
     const startedAt = deps.now()
 
     if (opts.resumeSkip?.has(step.id)) {
@@ -217,7 +259,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
 
     let r: { ok: boolean; data?: unknown; error?: string }
     try {
-      r = await deps.callTool(step.tool, params)
+      r = await deps.callTool(step.tool, params, opts.signal)
     } catch (err) {
       // 异常 → step 失败（不让它逃逸成工具级 isError，否则模型只看到"工具炸了"）
       r = { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -249,6 +291,14 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     }
     appendJournal(runDir, line)
     steps.push({ id: step.id, ok: line.ok, ms, observed: line.observed })
+
+    opts.onProgress?.({
+      i,
+      total: spec.steps.length,
+      stepId: step.id,
+      label: step.label,
+      status: line.ok ? 'ok' : 'failed',
+    })
 
     if (!line.ok) {
       return finish({

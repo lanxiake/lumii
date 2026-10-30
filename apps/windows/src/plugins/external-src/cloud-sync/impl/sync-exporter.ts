@@ -546,8 +546,9 @@ export class SyncExporter {
       mirror: true,
       skipUnchanged: true,
       ...copyOpts,
-      // 相对路径是相对 src 的（`<id>/runs/...`），用 includes 覆盖多层嵌套
-      shouldSkipFile: (rel: string) => rel.split(path.sep).includes('runs'),
+      // `sync-copy` 已把 rel 归一化成 `/` 分隔（不是 path.sep）——在 Windows 上用
+      // path.sep 切会得到单元素、`.includes('runs')` 恒 false，runs/ 根本不会被跳过。
+      shouldSkipFile: (rel: string) => rel.split('/').includes('runs'),
     })
     errors.push(...r.errors)
     this.logMirrorResult('workspace/pipelines', r)

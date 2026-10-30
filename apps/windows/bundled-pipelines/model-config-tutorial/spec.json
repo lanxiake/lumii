@@ -6,25 +6,54 @@
     "enabled": false,
     "sourceHint": "auto",
     "includeMic": false,
-    "narrate": { "dub": true, "subtitleMode": "burn", "exportMp4": true }
+    "narrate": {
+      "dub": true,
+      "subtitleMode": "burn",
+      "exportMp4": true
+    }
   },
   "preconditions": [],
   "steps": [
+    {
+      "id": "goto-dashboard",
+      "label": "回到主视图",
+      "narration": "先回到主视图，保证每次从同一处开始。",
+      "tool": "app_goto",
+      "params": {
+        "view": "dashboard"
+      },
+      "holdMs": 600,
+      "expect": {
+        "viewState": {
+          "view": "dashboard"
+        }
+      }
+    },
     {
       "id": "open-settings",
       "label": "打开设置",
       "narration": "点开左下角的设置。",
       "tool": "app_goto",
-      "params": { "view": "settings" },
+      "params": {
+        "view": "settings"
+      },
       "holdMs": 1500,
-      "expect": { "viewState": { "view": "dashboard", "hub.open": true, "hub.tab": "settings" } }
+      "expect": {
+        "viewState": {
+          "hub.open": true,
+          "hub.tab": "settings"
+        }
+      }
     },
     {
       "id": "open-model-config",
       "label": "进入模型配置",
       "narration": "在设置栏里选「模型配置」。这里能选每个用途槽位用哪个模型。",
       "tool": "app_goto",
-      "params": { "view": "settings", "category": "modelConfig" },
+      "params": {
+        "view": "settings",
+        "category": "modelConfig"
+      },
       "holdMs": 2000
     },
     {
@@ -32,9 +61,15 @@
       "label": "回到对话",
       "narration": "配置改完就能回到对话页了。",
       "tool": "app_goto",
-      "params": { "view": "chat" },
+      "params": {
+        "view": "chat"
+      },
       "holdMs": 1200,
-      "expect": { "viewState": { "view": "chat" } }
+      "expect": {
+        "viewState": {
+          "view": "chat"
+        }
+      }
     }
   ],
   "postCleanup": []

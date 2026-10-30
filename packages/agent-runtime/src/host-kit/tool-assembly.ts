@@ -106,6 +106,14 @@ export interface AssembleToolsOptions {
   }) => void;
   /** 长耗时工具后台化策略 + 执行器（宿主注入；缺省则全部同步执行） */
   readonly background?: BackgroundToolConfig;
+  /**
+   * 跳过 read-before-write 校验。
+   *
+   * 只给**确定性执行器**（流水线 runner）用：那条 hook 的前提是「模型可能不了解文件现状，
+   * 所以覆盖前必须先读」。而流水线的参数是人写死在 spec 里的、每步确定性执行——
+   * 不存在「不了解」，硬套只会让「幂等覆盖某个文件」这类步骤在第二次运行时被判失败。
+   */
+  readonly skipReadBeforeWrite?: boolean;
 }
 
 /** 工具装配产物 */
@@ -145,7 +153,7 @@ export function assembleTools(opts: AssembleToolsOptions): AssembledTools {
   // 1) 权限闸门（critical）
   runner.addHook(createPermissionGateHook(opts.permissionGate));
   // 2) Read-before-Write（灰度 flag）
-  if (opts.featureFlags.ENABLE_READ_BEFORE_WRITE) {
+  if (opts.featureFlags.ENABLE_READ_BEFORE_WRITE && !opts.skipReadBeforeWrite) {
     runner.addHook(
       createReadBeforeWriteHook({
         enableMtimeHashFallback: opts.featureFlags.ENABLE_MTIME_HASH_FALLBACK,

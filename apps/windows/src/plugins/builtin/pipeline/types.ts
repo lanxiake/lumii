@@ -104,11 +104,17 @@ export interface RunMeta {
   callTool(
     name: string,
     params: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<{ ok: boolean; data?: unknown; error?: string }>
   screenRecord: {
-    start(p: unknown): Promise<{ ok: boolean; error?: string }>
+    start(p: { sourceId: string; includeMic?: boolean }): Promise<{ ok: boolean; error?: string }>
     stop(): Promise<{ ok: boolean; data?: unknown }>
     mark(p: { label: string }): Promise<{ ok: boolean; data?: { atMs: number } }>
+    /**
+     * 列出可录源。runner 用它挑默认源——`start` 要的是 `sourceId`，
+     * 而 spec 只写 `sourceHint`（人话），两者不是一个东西。
+     */
+    listSources(): Promise<readonly { sourceId: string; name?: string; kind?: string }[]>
   } | null
   readViewState(): Promise<{
     view: string | null

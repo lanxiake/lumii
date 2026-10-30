@@ -58,6 +58,7 @@ function deps(opts: {
         marks.push(p)
         return { ok: true, data: { atMs: 9000 } }
       }),
+      listSources: vi.fn(async () => [{ sourceId: 'lumii-id', name: 'Lumii' }]),
     },
     readViewState: vi.fn(async () => opts.viewState ?? { view: 'chat' }),
     // 注入 fake clock：holdMs 直接推进，不真 sleep（单测里 1.2 秒 × N 步会拖死套件）
@@ -99,7 +100,7 @@ describe('runner 主循环', () => {
     })
     expect(res.ok).toBe(false)
     expect(res.failedAt?.id).toBe('b')
-    expect(d.callTool).not.toHaveBeenCalledWith('wechat_read_history', expect.anything())
+    expect(d.callTool).not.toHaveBeenCalledWith('wechat_read_history', undefined)
   })
 
   it('第 2 步断言失败 → 返回 {failedAt:{i,id}, expected, observed}', async () => {
@@ -186,6 +187,35 @@ describe('runner 主循环', () => {
     expect(marks.map((m) => m.label)).toEqual(['有旁白'])
   })
 
+  it('record：start 用 listSources 挑出的 sourceId（不是 spec 的 sourceHint）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      record: { enabled: true, sourceHint: 'auto' },
+    })
+    const { d } = deps()
+    await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    // 契约要的是 sourceId（list_sources 的产物），传 sourceHint 会永远 source_unavailable
+    expect(d.screenRecord!.start).toHaveBeenCalledWith({ sourceId: 'lumii-id', includeMic: undefined })
+  })
+
+  it('cancel：signal 已 abort 时停在当步，不再往下执行', async () => {
+    const { spec, specHash } = specOf([
+      { id: 'a', tool: 'app_goto' },
+      { id: 'b', tool: 'app_act' },
+    ])
+    const { d } = deps()
+    const ac = new AbortController()
+    ac.abort()
+    const res = await runPipeline({
+      spec, specHash, mode: 'rehearsal', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false, signal: ac.signal,
+    })
+    expect(res.ok).toBe(false)
+    expect(d.callTool).not.toHaveBeenCalled()
+  })
+
   it('postCleanup 在失败时仍执行，且在 record.stop 之前', async () => {
     const { spec, specHash } = specOf(
       [{ id: 'a', tool: 'app_act' }],
@@ -244,7 +274,7 @@ describe('runner 主循环', () => {
       spec, specHash, mode: 'rehearsal', runDir: path.join(dir, 'r'),
       deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
     })
-    expect(d.callTool).toHaveBeenCalledWith('app_act', { kind: 'clearInput' })
+    expect(d.callTool).toHaveBeenCalledWith('app_act', { kind: 'clearInput' }, undefined)
   })
 
   it('{{prev.path}} 取值：传给下一步的参数是解析后的值', async () => {
@@ -257,7 +287,7 @@ describe('runner 主循环', () => {
       spec, specHash, mode: 'rehearsal', runDir: path.join(dir, 'r'),
       deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
     })
-    expect(d.callTool).toHaveBeenCalledWith('app_act', { who: 'wxid_x' })
+    expect(d.callTool).toHaveBeenCalledWith('app_act', { who: 'wxid_x' }, undefined)
   })
 
   it('引用路径解析失败 → 该步判失败，报 bad_reference', async () => {

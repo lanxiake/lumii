@@ -3997,18 +3997,6 @@ export class AgentRuntimeBridge {
   }
 
   /**
-   * MCP 配置变化后，同步盯梢任务的启停（`wechat-watch`）并按需重排调度器。
-   *
-   * 为什么挂在 `notifyToolsChanged` 这个**唯一汇聚点**上，而不是每个 MCP 写入口各挂一次：
-   * 改写 MCP 配置的路径有六条（load / upsert / import / remove / setEnabled / 手改 JSON），
-   * 盯梢任务的启停判据是「`wechat-chat` 配了且启用」。漏一条的症状就是
-   * **装了助手、打开了开关，盯梢却要等下次重启才活**——2026-10-25 现场就是它：
-   * 14:04 启用 MCP 后 `wechat-watch` 仍是 `enabled=0`，当天一拍都没跑。
-   *
-   * 只在 enabled **真的变了**时才重排调度器：`reloadLocalCronScheduler` 会拆掉并重建
-   * 所有任务计时器，而 MCP 断线自动重连也会走到这里——每次重连都重排会无辜打扰别的任务。
-   */
-  /**
    * 给流水线插件的**执行器包**（4 个注入接口 + 一个工具注册口）。
    *
    * 方向是**核心注入插件**，不是插件 import 核心（wiring ⑪ 守的就是这条）：
@@ -4030,6 +4018,9 @@ export class AgentRuntimeBridge {
     knownTools: () => ReadonlySet<string>
     needsPermission: (tool: string) => boolean
     registerTool: (config: { name: string }) => () => void
+    /** 进度/结束事件推给渲染层（插件不直连 ipcMain，走这里） */
+    emitProgress: (e: { runId: string; i: number; total: number; stepId: string; label?: string; status: string }) => void
+    emitFinished: (e: { runId: string; ok: boolean; failedAt?: unknown }) => void
   } {
     return {
       callTool: (name, params) => this.callPipelineTool(name, params),
@@ -4037,12 +4028,20 @@ export class AgentRuntimeBridge {
       readViewState: () => this.readAppViewState(),
       knownTools: () => new Set(this.toolRegistry.getAll().map((t) => t.name)),
       needsPermission: (tool) => this.toolRegistry.get(tool)?.needsPermission === true,
+      emitProgress: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:progress', ...e } as never),
+      emitFinished: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:finished', ...e } as never),
       registerTool: (config) => {
         if (!this.toolContext) return () => {}
         this.toolRegistry.register(
           createMtBotTool(config as MtBotToolConfig<any, any>, this.toolContext),
         )
-        return () => this.toolRegistry.unregister(config.name)
+        // 实例在创建时按 getEnabledTools() 快照工具表 —— 只 register 不刷新，已在跑的会话
+        // 到下次重启前都看不见 pipeline_*（与 installWechatTools 同一个坑，见其注释）。
+        this.refreshAllInstanceTools()
+        return () => {
+          this.toolRegistry.unregister(config.name)
+          this.refreshAllInstanceTools()
+        }
       },
     }
   }
@@ -4051,6 +4050,7 @@ export class AgentRuntimeBridge {
   private async callPipelineTool(
     name: string,
     params: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
     const tool = this.toolRegistry.get(name)
     if (!tool) return { ok: false, error: `unknown tool: ${name}` }
@@ -4072,12 +4072,15 @@ export class AgentRuntimeBridge {
         // 逐step再问一条 8 步流水线会弹 8 次，用户最后全点允许，比不审批更糟。
         permission: { requestPermission: async () => 'allow-once' },
       },
+      // 流水线是确定性执行：参数写死在 spec 里，不存在「模型不了解文件现状」，
+      // read-before-write 只会让幂等覆盖在第二次运行时被判失败。
+      skipReadBeforeWrite: true,
     })
     const wrapped = tools[0]
     if (!wrapped) return { ok: false, error: `工具 ${name} 装配失败` }
     void runner
     try {
-      const res = (await wrapped.execute(`pipeline-${name}-${Date.now()}`, params)) as {
+      const res = (await wrapped.execute(`pipeline-${name}-${Date.now()}`, params, signal)) as {
         content: { type: string; text?: string }[]
         isError?: boolean
       }
@@ -4094,16 +4097,26 @@ export class AgentRuntimeBridge {
     }
   }
 
-  /** 录屏三件套；服务未就绪时返回 null（runner 会据此跳过录制） */
+  /** 录屏三件套。**惰性取服务**：这个包在插件 wire 时建一次，若那一刻录屏扩展还没激活，
+   *  一次性快照会把 `screenRecord` 永久钉成 null（此后即使用户打开录屏也永远报「不可用」）。
+   *  所以每次调用现取；服务真的不在时返回 null，runner 据此跳过录制。 */
   private buildPipelineScreenRecord(): import('../../plugins/builtin/pipeline/types').RunnerDeps['screenRecord'] {
-    const svc = getScreenRecordService()
-    if (!svc) return null
+    const svc = () => getScreenRecordService()
+    if (!svc()) return null
     return {
-      start: async (p) => svc.start(p as never),
-      stop: async () => svc.stop(),
+      start: async (p) => svc()?.start(p) ?? { ok: false, error: 'screen-record unavailable' },
+      stop: async () => svc()?.stop() ?? { ok: false },
       mark: async (p) => {
-        const r = await svc.mark({ label: p.label })
+        const s = svc()
+        if (!s) return { ok: false }
+        const r = await s.mark({ label: p.label })
         return { ok: r.ok, data: r.ok ? { atMs: r.marker.atMs } : undefined }
+      },
+      listSources: async () => {
+        const s = svc()
+        if (!s) return []
+        const r = await s.listSources(false)
+        return r.ok ? (r.sources ?? []) : []
       },
     }
   }
@@ -4122,7 +4135,17 @@ export class AgentRuntimeBridge {
     }
   }
 
-  private syncWechatWatchJob(): void {    try {
+  /**
+   * MCP 配置变化后，同步盯梢任务的启停（`wechat-watch`）并按需重排调度器。
+   *
+   * 为什么挂在 `notifyToolsChanged` 这个**唯一汇聚点**上，而不是每个 MCP 写入口各挂一次：
+   * 改写 MCP 配置的路径有六条（load / upsert / import / remove / setEnabled / 手改 JSON），
+   * 盯梢任务的启停判据是「`wechat-chat` 配了且启用」。
+   * 只在 enabled **真的变了**时才重排调度器：`reloadLocalCronScheduler` 会拆掉并重建
+   * 所有任务计时器，而 MCP 断线自动重连也会走到这里——每次重连都重排会无辜打扰别的任务。
+   */
+  private syncWechatWatchJob(): void {
+    try {
       const wechatEnabled = isExtensionActive('com.lumii.pcwechat')
 
 

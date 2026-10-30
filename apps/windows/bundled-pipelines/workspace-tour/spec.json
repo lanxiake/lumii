@@ -1,0 +1,42 @@
+{
+  "id": "workspace-file-tour",
+  "name": "工作区巡览",
+  "description": "纯只读巡览：列根目录 → 列 wiki 库 → 回对话。刻意不含写操作——rehearsal 会跳过所有需授权的工具（设计 §4.4），依赖它们产物的 spec 在 rehearsal 下必然失败，不能用来彩排。",
+  "record": { "enabled": false },
+  "preconditions": [
+    {
+      "id": "pre-read-dir",
+      "tool": "list_dir",
+      "params": { "path": "." },
+      "hint": "先确认工作区根目录可读——读不到就没必要往下走"
+    }
+  ],
+  "steps": [
+    {
+      "id": "list-root",
+      "label": "列出工作区根目录",
+      "narration": "先看看工作区根目录里有什么。",
+      "tool": "list_dir",
+      "params": { "path": "." },
+      "holdMs": 1000
+    },
+    {
+      "id": "list-wiki",
+      "label": "列出 wiki 库",
+      "narration": "再进 wiki 资料库看一眼。",
+      "tool": "list_dir",
+      "params": { "path": "wiki" },
+      "holdMs": 1000
+    },
+    {
+      "id": "back-to-chat",
+      "label": "回到对话",
+      "narration": "回到对话页，巡览结束。",
+      "tool": "app_goto",
+      "params": { "view": "chat" },
+      "holdMs": 800,
+      "expect": { "viewState": { "view": "chat" } }
+    }
+  ],
+  "postCleanup": []
+}

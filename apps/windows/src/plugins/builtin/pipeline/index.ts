@@ -161,6 +161,8 @@ export const pipelineExtension = {
           knownTools: ex.knownTools,
           needsPermission: ex.needsPermission,
           pipelinesRoot: () => resolvePipelinesDir(),
+          onProgress: (e) => ex.emitProgress(e),
+          onFinished: (e) => ex.emitFinished(e),
         })
         // 三个工具：插件造 config，核心用它的 toolContext 建实例并注册
         for (const c of createPipelineToolConfigs(impl)) {

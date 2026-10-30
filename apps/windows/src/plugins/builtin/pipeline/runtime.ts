@@ -32,8 +32,11 @@ export interface PipelineServiceDeps {
     i: number
     total: number
     stepId: string
+    label?: string
     status: string
   }) => void
+  /** 一次 run 结束（成功或失败），供 UI 收尾卡片 */
+  readonly onFinished?: (e: { runId: string; ok: boolean; failedAt?: unknown }) => void
 }
 
 export function createPipelineService(deps: PipelineServiceDeps): PipelineService {
@@ -101,7 +104,8 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
       }
 
       const runId = path.basename(runDir)
-      running.set(runId, new AbortController())
+      const ac = new AbortController()
+      running.set(runId, ac)
       try {
         const out = await runPipeline({
           spec: r.spec,
@@ -111,7 +115,10 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
           deps: { ...deps, now },
           isRehearsalBlocked: (tool) => needsPermission(tool),
           resumeSkip,
+          signal: ac.signal,
+          onProgress: (e) => deps.onProgress?.({ runId, ...e }),
         })
+        deps.onFinished?.({ runId, ok: out.ok, failedAt: out.failedAt })
         return { ...out, runId, journalPath: path.join(runDir, 'journal.jsonl') }
       } finally {
         running.delete(runId)

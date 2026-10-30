@@ -119,17 +119,18 @@ export function validateSpec(raw: unknown, knownTools: ReadonlySet<string>): Val
   })
 
   // ── 引用完整性：只能向后 + 无环 ──
-  const order = new Map(steps.map((s, i) => [s.id, i]))
+  const order = new Map(steps.map((s, i) => [s.id, s]))
   steps.forEach((s, i) => {
     for (const ref of refsIn(s.params)) {
-      const at = order.get(ref)
-      if (at === undefined) {
+      if (!order.has(ref)) {
         errors.push(`steps[${i}] (${s.id}) 引用了不存在的 step "${ref}"`)
-      } else if (at >= i) {
+      } else if (steps.findIndex((x) => x.id === ref) >= i) {
         errors.push(`steps[${i}] (${s.id}) 前向引用 "${ref}"（引用只能向后，循环在加载期就拒）`)
       }
     }
   })
+
+  // postCleanup / preconditions 的引用校验放在它们声明之后（见下方 checkRefs）
 
   // ── preconditions / postCleanup：同样要 id 与已知工具 ──
   const preconditions: PipelinePrecondition[] = []
@@ -173,8 +174,18 @@ export function validateSpec(raw: unknown, knownTools: ReadonlySet<string>): Val
       })
   }
 
-  if (errors.length > 0) return { ok: false, errors }
+  // postCleanup / preconditions 的引用同样要校验 —— 一个坏引用会在收尾或预条件阶段抛，
+  // 那时 run 已经跑过、异常会盖住原本的失败原因（preconditions 抛出去更糟：
+  // 整条 run reject，而非干净的 precondition 失败）。
+  const checkRefs = (where: string, id: string, params: Record<string, unknown> | undefined) => {
+    for (const ref of refsIn(params)) {
+      if (!order.has(ref)) errors.push(`${where} (${id}) 引用了不存在的 step "${ref}"`)
+    }
+  }
+  postCleanup.forEach((c) => checkRefs('postCleanup', c.id, c.params))
+  preconditions.forEach((p) => checkRefs('preconditions', p.id, p.params))
 
+  if (errors.length > 0) return { ok: false, errors }
   const spec: PipelineSpec = {
     id: String(raw.id),
     name: typeof raw.name === 'string' ? raw.name : undefined,
