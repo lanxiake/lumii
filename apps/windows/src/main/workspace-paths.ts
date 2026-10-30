@@ -83,6 +83,18 @@ export function resolveWorkspaceTempDir(): string {
   return ensureDirExists(path.join(resolveActiveWorkspaceDir(), WORKSPACE_TEMP_DIRNAME))
 }
 
+/** 工作空间下确定性流水线根目录名 */
+const WORKSPACE_PIPELINES_DIRNAME = 'pipelines'
+
+/**
+ * `{workspace}/pipelines` — 确定性流水线的 spec 与 run 记录（与 `resolveWikiDir` 同形）。
+ * spec 随 git + 云同步；`<id>/runs/` 走 vcs-ignore（见 Task 8 的迁移）。
+ */
+export function resolvePipelinesDir(workspaceRoot?: string): string {
+  const root = path.resolve(workspaceRoot ?? resolveActiveWorkspaceDir())
+  return ensureDirExists(path.join(root, WORKSPACE_PIPELINES_DIRNAME))
+}
+
 /**
  * `{workspace}/temp/recordings` — 录屏成片与旁白临时文件。
  */

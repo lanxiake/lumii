@@ -77,4 +77,6 @@ export const S = {
   config: createServiceKey<LateRef<import('../config-manager').ConfigManager>>('config'),
   /** 录屏服务（扩展提供；窗口就绪后才创建） */
   screenRecord: createServiceKey<ScreenRecordService>('screenRecord'),
+  /** 确定性流水线（插件提供；停用后 `pipeline_*` 工具不注册、IPC 表为 no-op） */
+  pipeline: createServiceKey<import('../../plugins/builtin/pipeline/service-api').PipelineService>('pipeline'),
 } as const

@@ -22,6 +22,8 @@ const DEFAULT_VCS_IGNORE_RULES: readonly string[] = [
   'tmp/',
   'temp/',
   '.cache/',
+  // 确定性流水线的运行记录（spec 要版本管理，runs/ 是每次执行的产物，不进 git）
+  'pipelines/**/runs/',
   // 上传的大文件/二进制（按需调整）；outputs/ 生成物不在此列，需纳入版本管理
   'uploads/**/*.zip',
   'uploads/**/*.mp4',
