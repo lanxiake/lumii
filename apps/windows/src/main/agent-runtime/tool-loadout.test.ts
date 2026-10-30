@@ -114,12 +114,9 @@ describe('applyToolLoadout', () => {
     expect(out.deferredTools.map((t) => t.name)).toEqual(['rare_tool'])
   })
 
-  it('deferred 为 null（未裁 / fail-open）时不移出任何工具，但 ensure 仍生效', () => {
-    // ensure 无条件生效：只要该 Agent 开了裁剪特性，tool_search 就恒在——
-    // 这时的 deferred 为空、搜不到东西，但保持「开了就有出口」的一致性，避免
-    // 后续某轮突然开始裁时模型手里没有出口。
+  it('deferred 为 null（未裁 / fail-open）时不补 ensure：空的 deferred 让 tool_search 无从搜起', () => {
     const out = applyToolLoadout({ allowedTools: [tool('bash')], deferred: null, pool, ensure: ['tool_search'] })
-    expect(out.loadedTools.map((t) => t.name)).toEqual(['bash', 'tool_search'])
+    expect(out.loadedTools.map((t) => t.name)).toEqual(['bash'])
     expect(out.deferredTools).toEqual([])
   })
 

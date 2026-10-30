@@ -99,14 +99,25 @@ interface MutableRef<T> {
 
 /**
  * 恒在常驻位、不占 limit 名额（计划 C8 / 设计 §5.6.4 规则 2）。
+ *
+ * **判据是「缺了它这个 Agent 就没法完成回合，或者没法把结论交出去」**，不是「常用」。
+ * 后者交给 LRU 就够了；把常用工具也塞进来只会稀释名额。
  * - `tool_search`：折叠工具的唯一入口，它自己被折叠就全盘失效
  * - `task_complete`：结束回合，任何 Agent 都需要
+ * - `spawn_agent`：主助手的委派能力，被折掉就只能自己硬做
+ * - `ask_user_question`：要把歧义交回用户，被折掉就只能猜
  * - `skill_search`：技能侧的发现入口，与技能是否被折叠无关地恒在
+ *
+ * 后两个是**实测补的**：本机 `assistant|ipc` 的历史只有 3 个工具，其余 17 个名额
+ * 当时是靠「无历史按字母序」凑上的——历史长起来之后，`ask_user_question`（字母靠前）
+ * 与 `spawn_agent` 这类未必挤得进前 20，而它们不是「常用工具」而是「回合必需」。
  */
 const PINNED_TOOLS: readonly string[] = [
   TOOL_SEARCH_TOOL_NAME,
   TASK_COMPLETE_TOOL_NAME,
   SKILL_SEARCH_TOOL_NAME,
+  'spawn_agent',
+  'ask_user_question',
 ]
 
 /** 常驻名额（§5.6.4：N 曲线在 20 附近边际收益变平） */

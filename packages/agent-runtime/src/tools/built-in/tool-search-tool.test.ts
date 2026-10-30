@@ -55,6 +55,13 @@ describe('tool_search', () => {
     expect(String(out.hint)).toContain('different terms')
   })
 
+  it('未命中也要调 loadTools([]) —— 宿主的 fail-open 靠这个空数组计数，不调安全网就是假的', async () => {
+    const loadTools = vi.fn()
+    const out = await run({ query: '不存在的工具' }, ctx({ loadTools }))
+    expect(out.total).toBe(0)
+    expect(loadTools).toHaveBeenCalledWith([])
+  })
+
   it('searchTools 缺失（未启用折叠）时如实报错，不假装搜过了', async () => {
     const out = await run({ query: 'file' }, { } as never)
     expect(String(out.error)).toContain('not enabled')

@@ -71,6 +71,14 @@ export const toolSearchToolConfig: MtBotToolConfig<typeof ToolSearchInput> = { /
     const matched = query ? context.searchTools(query) : [];
 
     if (matched.length === 0) {
+      // **必须调 loadTools([])**：宿主的 fail-open（连续两次未命中 → 回落全量，C8）
+      // 就是靠这个空数组计数的。不调的话那个计数器永远是 0，安全网是假的。
+      // 顺带让宿主能补记一行 `reason='search'` 的空结果，用于算命中率。
+      try {
+        context.loadTools?.([]);
+      } catch {
+        /* 宿主负责 fail-open，抛错不影响本次返回 */
+      }
       return {
         content: [
           {

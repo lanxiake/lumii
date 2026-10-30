@@ -102,13 +102,15 @@ export function applyToolLoadout<T extends { name: string }>(opts: {
   /** 必须恒在的名字（`tool_search`）。缺了就折叠等于删除 */
   readonly ensure?: readonly string[]
 }): { loadedTools: T[]; deferredTools: T[] } {
+  // 什么都没折时**不补 ensure**：`tool_search` 的检索源就是 deferred，
+  // 空的 deferred 意味着它永远搜不到东西——那是 19 token 的死重量（fail-open 是当前常态）。
+  if (!opts.deferred?.length) return { loadedTools: [...opts.allowedTools], deferredTools: [] }
   const loaded = [...opts.allowedTools]
   for (const name of opts.ensure ?? []) {
     if (loaded.some((t) => t.name === name)) continue
     const found = opts.pool.find((t) => t.name === name)
     if (found) loaded.push(found)
   }
-  if (!opts.deferred?.length) return { loadedTools: loaded, deferredTools: [] }
   const folded = new Set(opts.deferred.map((t) => t.name))
   return {
     loadedTools: loaded.filter((t) => !folded.has(t.name)),
