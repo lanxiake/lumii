@@ -121,6 +121,16 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
 
     const callerOnPayload = options?.onPayload;
     const reasoningLevel = options?.reasoning;
+    // sessionId（会话 key）会经 pi-ai 的 session-affinity 写进 **HTTP header**
+    // （x-client-request-id / session_id）与 prompt_cache_key，而 header 值必须是
+    // ByteString（0-255）。定时任务会话 key 含中文任务名（如 `cron:assistant:资源监测`），
+    // 中文码点 > 255 → undici 抛 "Cannot convert argument to a ByteString"，回合成
+    // stopReason=error，任务每分钟触发却永远没产出。纯 ASCII 原样保留（不破坏缓存亲和），
+    // 含非 ASCII 做确定性百分号编码——同一会话每轮同值，缓存亲和照旧。
+    const safeSessionId =
+      typeof options?.sessionId === "string" && /[^\x20-\x7e]/.test(options.sessionId)
+        ? encodeURIComponent(options.sessionId)
+        : options?.sessionId
     // 预算压缩：anthropic/google 等按 token 预算控思考，且要求 max_tokens > 思考预算，
     // 否则 pi-ai 会把预算压回 0（simple-options.adjustMaxTokensForThinking）。
     const baseMaxTokens = options?.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
@@ -129,6 +139,7 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
       : 0;
     const mergedOptions = {
       ...options,
+      sessionId: safeSessionId,
       // 本地 OpenAI 兼容端点（Ollama 等）通常免鉴权，但 pi-ai 的 openai-completions
       // provider 强制校验 apiKey 存在性。无 key 时填占位符让校验通过（端点会忽略它）。
       apiKey: apiKey || options?.apiKey || "local-no-key",

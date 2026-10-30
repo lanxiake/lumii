@@ -2162,6 +2162,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           onContinue={handleContinueInterrupted}
           onDismiss={handleDismissInterrupt}
           cronWake={runtimeCronWake}
+          cronSessionKey={runtimeCurrentSessionKey}
           onDismissCronWake={() => {
             if (runtimeCurrentSessionKey) clearCronWake(runtimeCurrentSessionKey)
           }}

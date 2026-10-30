@@ -84,6 +84,34 @@ describe("createDirectStreamFn", () => {
     expect(impl.mock.calls[0][2]?.apiKey).toBe("local-no-key");
   });
 
+  it("含中文的 sessionId 做 percent-encode（HTTP header 只收 ByteString）", () => {
+    const impl = vi.fn(() => ({}) as never);
+    const fn = createDirectStreamFn({
+      credentials: { baseUrl: "http://localhost:11434/v1" },
+      streamImpl: impl,
+    });
+
+    fn(fakeModel(), fakeContext, { sessionId: "cron:assistant:资源监测" } as never);
+
+    const sid = impl.mock.calls[0][2]?.sessionId as string;
+    expect(sid).toBe(encodeURIComponent("cron:assistant:资源监测"));
+    // 编出来的值必须全是 ByteString 可接受的码点
+    // eslint-disable-next-line no-control-regex
+    expect(/^[\x20-\x7e]*$/.test(sid)).toBe(true);
+  });
+
+  it("纯 ASCII sessionId 原样保留（不破坏 prompt cache 亲和）", () => {
+    const impl = vi.fn(() => ({}) as never);
+    const fn = createDirectStreamFn({
+      credentials: { baseUrl: "http://localhost:11434/v1" },
+      streamImpl: impl,
+    });
+
+    fn(fakeModel(), fakeContext, { sessionId: "27b0357fcebb3201e2021fac6cbef40c" } as never);
+
+    expect(impl.mock.calls[0][2]?.sessionId).toBe("27b0357fcebb3201e2021fac6cbef40c");
+  });
+
   it("api='openai' 默认规范化为 openai-completions（中转兼容）", () => {
     const impl = vi.fn(() => ({}) as never);
     const fn = createDirectStreamFn({
