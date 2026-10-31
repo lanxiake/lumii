@@ -51,7 +51,7 @@ function makeService(submitted: string[]) {
   const svc = new VoiceCallService(null, async (_sk, content) => {
     submitted.push(content)
   }, stubModelManager())
-  svc.setConfig({ vad: { commitWindowMs: 50 } })
+  svc.setConfig({ vad: { threshold: 0.5, minSpeechMs: 250, minSilenceMs: 500, energyGateMultiplier: 1.5, commitWindowMs: 50 } })
 
   // 绕过 ensureInitialized：直接注入桩引擎并模拟 startCall 之后的内部状态
   const internals = svc as unknown as Record<string, unknown>
