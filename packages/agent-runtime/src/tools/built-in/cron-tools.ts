@@ -43,14 +43,17 @@ const CronCreateParams = Type.Object({
   wakeMode: Type.Optional(
     Type.Union([Type.Literal("own"), Type.Literal("active")], {
       description:
-        "Where the run's output lands.\n" +
-        "• 'own' (DEFAULT) — its own 「定时任务 · <name>」 conversation. Use this for recurring or data-collecting jobs " +
-        "(market watch, news, daily digest, cleanup). Isolated, cheap, never clutters the user's chat.\n" +
-        "• 'active' — wake the conversation the user currently has open. Use this when the user asked to be reminded " +
-        "*in this chat*: 「5 分钟后提醒我」「到点告诉我」「等下叫我」「做完跟我说一声」. Delivered only while that " +
-        "conversation is idle — it never interrupts a running turn, and if the conversation stays busy the run falls " +
-        "back to its own conversation. It is billed against that conversation's context, so do NOT use it for " +
-        "scheduled recurring routines.",
+        "Where the run's output lands. Defaults to returning to THIS conversation (where the task was created).\n" +
+        "• (default) — output returns to the conversation you are in right now. If the user asked for this here " +
+        "(「每分钟报告一次」「到点告诉我」「盯着 XX 有变化说一声」), that is correct: they will see each run's " +
+        "result in this very chat. Tasks created from a background/system session (cron:/evolution:/pet:) instead " +
+        "fall back to their own 「定时任务 · <name>」 conversation.\n" +
+        "• 'active' — wake whichever conversation the user currently has open (not necessarily this one). Delivered " +
+        "only while that conversation is idle — it never interrupts a running turn, and if it stays busy the run " +
+        "falls back to its own conversation. Billed against that conversation's context. Use only when the user " +
+        "explicitly wants the result wherever they happen to be.\n" +
+        "• 'own' — force it into its own isolated 「定时任务 · <name>」 conversation. Use when the user wants a " +
+        "background routine that should NOT post into their chat.",
     }),
   ),
   notifyTargets: Type.Optional(
@@ -63,7 +66,9 @@ const CronCreateParams = Type.Object({
         "pcwechat = 本机微信 (desktop WeChat on this PC, can push anytime; without a peer it goes to the user's own 文件传输助手). " +
         "When the user names a delivery channel (e.g. \"到点用微信通知我\" → pcwechat, \"飞书通知我\" → feishu), " +
         "you MUST set it here — the default below is only the origin channel, and silently notifying elsewhere is wrong. " +
-        "If omitted, defaults to the channel this conversation is happening in.",
+        "If omitted, defaults to the channel this conversation is happening in. " +
+        "Note: when a run's output returns to this conversation (the default), no desktop notification is sent — " +
+        "the result is already in front of the user.",
     }),
   ),
 });

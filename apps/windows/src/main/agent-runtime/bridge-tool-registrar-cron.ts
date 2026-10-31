@@ -31,6 +31,22 @@ export function resolveChannelFromSessionKey(sessionKey: string | undefined): st
 }
 
 /**
+ * 该会话 key 是否代表「用户在场的会话」——只有这类才记 origin，产出才回投。
+ *
+ * 排除系统自有会话：`cron:`（链式续建）、`evolution:`（自主进化）、`pet:`（宠物）。
+ * 在那些地方建的任务没有「用户正在看」的上下文，回投只会把例行产出塞进一个
+ * 用户从没打开的会话（与 wake_mode 护栏同一条理由）。
+ */
+function isUserFacingConversation(sessionKey: string | undefined): sessionKey is string {
+  if (!sessionKey) return false
+  return !(
+    sessionKey.startsWith('cron:') ||
+    sessionKey.startsWith('evolution:') ||
+    sessionKey.startsWith('pet:')
+  )
+}
+
+/**
  * 注册本地定时任务工具（cron_create / cron_list / cron_delete），完全不依赖 Gateway。
  */
 export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
@@ -144,12 +160,17 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
           !(sessionKey?.startsWith('cron:') || sessionKey?.startsWith('evolution:'))
             ? 'active'
             : 'own',
+        // 发起会话：任务回到**派它出去的那条会话**（用户在哪儿说的，汇报就回哪儿）。
+        // 显式指定 wakeMode='own' 是「别投进我的对话」的明确要求，此时不记 origin；
+        // 系统自有会话（cron:/evolution:/pet:）同理不记（见 isUserFacingConversation）。
+        origin_conversation_id:
+          p.wakeMode === 'own' || !isUserFacingConversation(sessionKey) ? null : sessionKey,
       } as const
 
       deps.localDb.db.prepare(
         `INSERT INTO local_cron_jobs
-         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets, wake_mode)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets, wake_mode, origin_conversation_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         row.id,
         row.name,
@@ -163,6 +184,7 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
         row.created_at,
         row.notify_targets,
         row.wake_mode,
+        row.origin_conversation_id,
       )
 
       deps.getCronScheduler().scheduleJob(row)

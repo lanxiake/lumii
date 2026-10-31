@@ -46,6 +46,11 @@ export interface CronJob {
   notifyTargets?: string | null
   /** 唤醒落点：own=自己的定时任务会话（默认）；active=注入当前活跃会话 */
   wakeMode?: 'own' | 'active'
+  /**
+   * 发起会话 id：任务在哪个会话里被派出去，产出就回投那里。
+   * 非空时该会话里会显示这条任务的状态条（主会话 id 不是 cron: 前缀，靠本字段关联）。
+   */
+  originConversationId?: string
   source: CronJobSource
   managedBy?: CronJobManagedBy | null
   /** 删除后下次启动会重建（系统种子）；UI 隐藏删除入口 */

@@ -2242,6 +2242,8 @@ export class AgentRuntimeBridge {
       waitForInstanceIdle: (instanceId) => this.waitForInstanceIdle(instanceId),
       getAssistantOutputFromInstance: (instanceId) => this.getAssistantOutputFromInstance(instanceId),
       destroy: (instanceId) => this.destroy(instanceId),
+      // 用户从会话里「中断」定时任务当前轮：打断的是 cron 实例，级联中止其子 Agent
+      abortInstance: (instanceId) => this.promptDispatcher.abortWithChildren(instanceId),
       ensureConversationExists: (conversationId, title) => this.ensureConversationExists(conversationId, title),
       setConversationAgent: (conversationId, agentId) => {
         // 归属已一致时不写库：syncConversationAgents 每次启动都会全量调一遍
@@ -4673,6 +4675,11 @@ export class AgentRuntimeBridge {
 
   getLocalCronJobRecordById(id: string): ReturnType<CronScheduler['getLocalCronJobRecordById']> {
     return this.cronScheduler.getLocalCronJobRecordById(id)
+  }
+
+  /** 中断某个定时任务**当前正在跑的轮次**（任务本身继续按计划触发）。 */
+  abortRunningCronJob(id: string): boolean {
+    return this.cronScheduler.abortRunningJob(id)
   }
 
   deleteLocalCronJobRecord(id: string): number {

@@ -147,4 +147,71 @@ describe.skipIf(!hasFts5Db)('定时任务唤醒落点 wake_mode', () => {
     expect(deliverInternalMessage).not.toHaveBeenCalled()
     expect(createInstanceById).toHaveBeenCalled()
   })
+
+  it('有 origin 会话 → 回投发起它的那条会话（不是当前打开的）', async () => {
+    // wake_mode 仍是 'own'，origin 优先——「谁派的回谁那」比「用户此刻开着谁」更稳
+    db.prepare(`UPDATE local_cron_jobs SET origin_conversation_id = ? WHERE id = ?`).run(
+      'conv-origin',
+      JOB_ID,
+    )
+    const { s, deliverInternalMessage } = scheduler()
+    await run(s)
+
+    expect(deliverInternalMessage).toHaveBeenCalledTimes(1)
+    expect((deliverInternalMessage.mock.calls[0] as unknown as [string])[0]).toBe('conv-origin')
+  })
+
+  it('origin 回投成功 → 不弹通知（汇报已在用户眼前）', async () => {
+    db.prepare(`UPDATE local_cron_jobs SET origin_conversation_id = ? WHERE id = ?`).run(
+      'conv-origin',
+      JOB_ID,
+    )
+    const showCronNotification = vi.fn()
+    const { s } = scheduler({ showCronNotification })
+    await run(s)
+
+    expect(showCronNotification).not.toHaveBeenCalled()
+  })
+
+  it('origin 会话投不进去 → 回落自己的会话（任务不丢）', async () => {
+    db.prepare(`UPDATE local_cron_jobs SET origin_conversation_id = ? WHERE id = ?`).run(
+      'conv-origin',
+      JOB_ID,
+    )
+    const missed = vi.fn(async () => ({ delivered: false, output: '' }))
+    const { s, createInstanceById } = scheduler({ deliverInternalMessage: missed })
+    await run(s)
+
+    expect(createInstanceById).toHaveBeenCalledWith(
+      'assistant',
+      cronConversationId('喝口水', 'assistant'),
+      cronConversationId('喝口水', 'assistant'),
+    )
+  })
+
+  it('abortRunningJob：没在跑时返回 false；跑动中能打到实例', async () => {
+    const abortInstance = vi.fn()
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const { s } = scheduler({
+      abortInstance,
+      // prompt 挂住，让 runLocalCronJob 停在「实例已在跑」的窗口里
+      prompt: () => gate,
+    })
+    db.prepare(`UPDATE local_cron_jobs SET wake_mode = 'own' WHERE id = ?`).run(JOB_ID)
+
+    const running = run(s)
+    // 等 driveAgent 建完实例、记进 localCronRunningInstances
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(s.abortRunningJob(JOB_ID)).toBe(true)
+    expect(abortInstance).toHaveBeenCalledWith('inst-cron')
+
+    release?.()
+    await running
+    // 跑完清掉映射：再中断就是 false
+    expect(s.abortRunningJob(JOB_ID)).toBe(false)
+  })
 })

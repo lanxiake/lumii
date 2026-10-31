@@ -136,7 +136,7 @@ export function handleCronCreate(
 export function handleCronList(
   bridge: AgentRuntimeBridge,
   includeDisabled: boolean,
-): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string; source: 'system' | 'agent' | 'user'; managedBy: 'autonomous' | 'companion' | 'pet' | null; reseeded: boolean }>; total: number } {
+): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string; source: 'system' | 'agent' | 'user'; managedBy: 'autonomous' | 'companion' | 'pet' | null; reseeded: boolean; originConversationId?: string }>; total: number } {
   const rows = bridge.listLocalCronJobRecords(includeDisabled)
   return {
     status: 'ok',
@@ -162,6 +162,8 @@ export function handleCronList(
       ...(r.notify_targets != null ? { notifyTargets: r.notify_targets } : {}),
       // 老库没有这一列时保守报 own（与它们的实际行为一致）
       wakeMode: r.wake_mode === 'active' ? 'active' : 'own',
+      // 发起会话：渲染层据此把「本会话派的任务」显示在会话里（主会话不是 cron: 前缀，靠这个字段）
+      ...(r.origin_conversation_id ? { originConversationId: r.origin_conversation_id } : {}),
     })),
     total: rows.length,
   }
@@ -260,6 +262,20 @@ export async function handleCronRun(
     log.error(`[cron:run] 执行失败: id=${id}`, err)
     return { status: 'error', id, message: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/**
+ * 中断某个定时任务**当前正在跑的轮次**。与 cron:update(enabled=false) 不同：
+ * 那个是关任务（不再触发），这个是打断当前这一轮（任务照旧按计划继续）。
+ * 返回 aborted=false 表示「此刻没有在跑的一轮」（可能是回投分支——没有实例可打断）。
+ */
+export function handleCronAbort(
+  bridge: AgentRuntimeBridge,
+  id: string,
+): { status: 'ok'; id: string; aborted: boolean } {
+  const aborted = bridge.abortRunningCronJob(id)
+  log.info(`[cron:abort] 中断定时任务当前轮: id=${id} aborted=${aborted}`)
+  return { status: 'ok', id, aborted }
 }
 
 export function handleCronRuns(

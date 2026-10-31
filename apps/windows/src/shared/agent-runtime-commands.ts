@@ -357,6 +357,11 @@ interface CronRunCommand {
   readonly id: string
 }
 
+interface CronAbortCommand {
+  readonly type: 'cron:abort'
+  readonly id: string
+}
+
 interface CronRunsCommand {
   readonly type: 'cron:runs'
   readonly id: string
@@ -1738,6 +1743,7 @@ export type AgentRuntimeCommand =
   | CronDeleteCommand
   | CronUpdateCommand
   | CronRunCommand
+  | CronAbortCommand
   | CronRunsCommand
   | AgentDefinitionsListCommand
   | AgentMemoriesListCommand
@@ -1987,6 +1993,7 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'cron:delete' ? { status: 'ok' | 'not_found' | 'error'; id: string; message?: string }
   : T extends 'cron:update' ? { status: 'ok' | 'not_found' | 'error'; id: string; message?: string }
   : T extends 'cron:run' ? { status: 'ok' | 'not_found' | 'error'; id: string; message?: string }
+  : T extends 'cron:abort' ? { status: 'ok'; id: string; aborted: boolean }
   : T extends 'cron:runs' ? {
       status: 'ok'
       entries: readonly {

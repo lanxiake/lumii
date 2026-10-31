@@ -169,6 +169,18 @@ export function useCronJobs() {
     return updateJob(id, { enabled } as Partial<CronJob>)
   }, [updateJob])
 
+  /** 中断当前正在跑的这一轮（任务本身继续按计划触发）；aborted=false 表示此刻没有在跑的一轮 */
+  const abortJob = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      const res = await window.electronAPI.agentRuntime.sendCommand({ type: 'cron:abort', id }) as { aborted?: boolean }
+      return res?.aborted === true
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '中断失败'
+      setError(msg)
+      return false
+    }
+  }, [])
+
   // 初始加载
   useEffect(() => {
     void fetchJobs()
@@ -203,5 +215,6 @@ export function useCronJobs() {
     removeJobs,
     runJob,
     toggleJob,
+    abortJob,
   }
 }

@@ -54,6 +54,11 @@ export type LocalCronJobRow = {
   notify_targets: string | null
   /** 唤醒落点：own=自己的定时任务会话；active=用户当前活跃会话（空闲才投） */
   wake_mode: 'own' | 'active'
+  /**
+   * 发起会话 id：任务在哪个会话里被派出去。非空时产出回投该会话（见 runLocalCronJob），
+   * 投不进去回落自己的会话。NULL = 老数据/无来源，行为不变。
+   */
+  origin_conversation_id: string | null
 }
 
 /**
@@ -160,7 +165,8 @@ function buildNotifyToolsPrompt(notifyTargets: string | null): string {
 /** LocalCronJobRow 的完整列清单，避免多处 SELECT 漂移 */
 const CRON_JOB_COLUMNS = `id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms,
         enabled, created_at, last_run_at, last_status,
-        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode`
+        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode,
+        origin_conversation_id`
 
 /** 任务在 at 时刻是否落在生效窗口内。窗口未配置时恒为 true。 */
 export function isWithinActiveWindow(
@@ -222,6 +228,11 @@ export interface CronSchedulerDeps {
   getAssistantOutputFromInstance?: (instanceId: string) => string | null
   /** 销毁 Agent 实例 */
   destroy: (instanceId: string) => void
+  /**
+   * 中止一个正在跑的 Agent 实例（用于用户从会话里「中断」定时任务的当前轮）。
+   * 未提供时 abortRun 只标记、不真正打断（兼容旧装配与测试）。
+   */
+  abortInstance?: (instanceId: string) => void
   /** 确保对话记录存在（cron 任务用固定 sessionKey，让每个任务在会话列表里有专属可查看的记录） */
   ensureConversationExists: (conversationId: string, title?: string) => boolean
   /**
@@ -287,6 +298,13 @@ export interface CronSchedulerDeps {
 export class CronScheduler {
   private readonly localCronTimers = new Map<string, ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>>()
   private readonly localCronRunningJobs = new Set<string>()
+  /**
+   * jobId → 本轮正在跑的 Agent 实例 id（仅 driveAgent 分支记）。
+   *
+   * 供用户从会话里「中断」当前轮（abortRun）：打断实例即可让 driveAgent 的
+   * prompt 提前返回、本轮收尾。跑完/失败时清掉。
+   */
+  private readonly localCronRunningInstances = new Map<string, string>()
   /** 正在跑的**会话**（按 `cronConversationId`）：同名任务共用一条会话，不能两轮并发 */
   private readonly localCronRunningConversations = new Set<string>()
   private readonly cronInstances = new Map<string, Cron>()
@@ -371,12 +389,15 @@ export class CronScheduler {
     systemPrompt?: string | null
     notifyTargets?: string | null
     wakeMode?: 'own' | 'active'
+    /** 发起该任务的会话 id；非空则产出回投该会话 */
+    originConversationId?: string | null
   }): void {
     this.localDb.db.prepare(
       `INSERT INTO local_cron_jobs
        (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at,
-        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode,
+        origin_conversation_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       params.id,
       params.name,
@@ -394,7 +415,23 @@ export class CronScheduler {
       params.systemPrompt?.trim() || null,
       params.notifyTargets?.trim() || null,
       params.wakeMode === 'active' ? 'active' : 'own',
+      params.originConversationId?.trim() || null,
     )
+  }
+
+  /**
+   * 中断某个任务**正在跑的这一轮**（不是关任务——那走 enabled=false）。
+   *
+   * 只对走 driveAgent 分支的任务有效（有实例才拦得住）；回投/companion 分支
+   * 没有实例可 abort，返回 false。中断后本轮以「提前收尾」的方式结束，
+   * 任务本身照旧按计划继续触发（每轮是独立的）。
+   */
+  abortRunningJob(jobId: string): boolean {
+    const instanceId = this.localCronRunningInstances.get(jobId)
+    if (!instanceId) return false
+    this.deps.abortInstance?.(instanceId)
+    log.info(`[abortRunningJob] 已中断运行中实例 instanceId=${instanceId} jobId=${jobId}`)
+    return true
   }
 
   /**
@@ -1192,6 +1229,8 @@ export class CronScheduler {
         : this.deps.createScheduledInstanceById
           ? await this.deps.createScheduledInstanceById(resolvedAgentId, convId, convId)
           : await this.deps.createInstanceById(resolvedAgentId, convId, convId)
+    // 记下本轮实例：用户「中断」时按 jobId 找到它并 abort（跑完在 finally 清）。
+    this.localCronRunningInstances.set(job.id, instanceId)
     try {
       // 构建完整消息：system_prompt + 通知工具指导 + 「自述」+ task_text
       const notifyPrompt = buildNotifyToolsPrompt(currentRow.notify_targets)
@@ -1250,6 +1289,7 @@ export class CronScheduler {
       }
       return output
     } finally {
+      this.localCronRunningInstances.delete(job.id)
       this.deps.destroy(instanceId)
     }
   }
@@ -1280,8 +1320,9 @@ export class CronScheduler {
       system_prompt: string | null
       notify_targets: string | null
       wake_mode: 'own' | 'active' | null
+      origin_conversation_id: string | null
     }>(
-      `SELECT name, enabled, active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode
+      `SELECT name, enabled, active_days, active_hour_start, active_hour_end, system_prompt, notify_targets, wake_mode, origin_conversation_id
        FROM local_cron_jobs WHERE id = ?`
     ).get(job.id)
     if (!currentRow) {
@@ -1355,13 +1396,23 @@ export class CronScheduler {
       // 而不是把任务指令原文当结果推出去。
       const feedVersionBefore = getDashboardFeedService()?.readVersion() ?? 0
       let output = job.task_text
-      // 唤醒落点：'active' = 注进用户当前打开的会话。投不进去（没有实例 / 一直忙）就回落
-      // 自己的定时任务会话——任务不能因为「用户当时在忙」而丢掉。
-      let deliveredToActive = false
-      if (currentRow.wake_mode === 'active') {
-        const target = this.deps.getLastActiveConvId?.() ?? null
+      // 唤醒落点（两种「注入用户会话」，无来源的任务仍是自己的会话）：
+      // - 'active' = 注进用户**当前打开**的会话（空闲才投）；
+      // - origin   = 注进**派发这条任务的那个会话**——用户在哪说的，汇报就回哪
+      //              （Claude Code 的口径：任务归属发起它的会话）。
+      // 投不进去（没有实例 / 一直忙 / 会话已删）就回落自己的定时任务会话——任务不能
+      // 因为「用户当时在忙」而丢掉。
+      let deliveredToSession = false
+      // 落点优先级：origin 是任务的固有归属（谁派的回谁那），比「用户此刻恰好开着谁」更稳；
+      // 只有没记 origin 的任务才按 active 投当前会话。
+      const originConv = currentRow.origin_conversation_id?.trim() || null
+      const wakeTarget =
+        originConv ?? (currentRow.wake_mode === 'active' ? (this.deps.getLastActiveConvId?.() ?? null) : null)
+      const wakeKind = originConv ? 'origin' : 'active'
+      if (wakeTarget) {
+        const target = wakeTarget
         const usable =
-          !!target && target !== convId && !target.startsWith('cron:') && !target.startsWith('evolution:')
+          target !== convId && !target.startsWith('cron:') && !target.startsWith('evolution:')
         if (usable && this.deps.deliverInternalMessage) {
           // **不要** notifyIncomingMessage：那条事件推的是 user 角色的气泡，会在用户会话里
           // 显示一句他从没说过的话（而且不落库，刷新后消失）。注入的痕迹只进模型上下文。
@@ -1373,21 +1424,26 @@ export class CronScheduler {
             // 空产出也算投递成功（只调工具 / NO_REPLY）：绝不能回落再跑一遍，
             // 那会让同一条任务出两轮、两份通知
             output = res.output
-            deliveredToActive = true
+            deliveredToSession = true
             this.deps.notifyCronWake?.(target, job.id, currentRow.name?.trim() || job.task_text.slice(0, 20))
-            log.info(`[runLocalCronJob] 已注入活跃会话 ${target} jobId=${job.id} outputLen=${res.output.length}`)
+            log.info(
+              `[runLocalCronJob] 已注入${wakeKind === 'origin' ? '发起' : '活跃'}会话 ${target} ` +
+                `jobId=${job.id} outputLen=${res.output.length}`,
+            )
           } else {
-            log.info(`[runLocalCronJob] 活跃会话 ${target} 投不进去，回落自身会话 jobId=${job.id}`)
+            log.info(
+              `[runLocalCronJob] ${wakeKind === 'origin' ? '发起' : '活跃'}会话 ${target} 投不进去，回落自身会话 jobId=${job.id}`,
+            )
           }
         } else {
-          // 落点是 active 却没注入：把三个判据写出来，否则只会看到「莫名其妙跑了自己的会话」
+          // 该投却没注入：把判据写出来，否则只会看到「莫名其妙跑了自己的会话」
           log.info(
-            `[runLocalCronJob] 未注入活跃会话 jobId=${job.id} target=${target ?? 'null'} ` +
-              `usable=${usable} hasDeliverer=${Boolean(this.deps.deliverInternalMessage)}`,
+            `[runLocalCronJob] 未注入${wakeKind === 'origin' ? '发起' : '活跃'}会话 jobId=${job.id} ` +
+              `target=${target ?? 'null'} usable=${usable} hasDeliverer=${Boolean(this.deps.deliverInternalMessage)}`,
           )
         }
       }
-      if (deliveredToActive) {
+      if (deliveredToSession) {
         // 已注入用户会话：不建实例、不落 user 消息（那条会话里不该出现用户没说过的话）
       } else if (job.agent_id) {
         output = await this.driveAgent(job, currentRow, job.agent_id, startedAt, convId)
@@ -1424,8 +1480,13 @@ export class CronScheduler {
       }
       // 已注入用户会话但本轮没说话（只调工具 / NO_REPLY）：没有正文可推，
       // 推出去只会是一条空通知——跳过派发，任务照样记 ok
-      if (deliveredToActive && !output.trim()) {
+      if (deliveredToSession && !output.trim()) {
         log.info(`[runLocalCronJob] 注入成功但无正文，跳过通知派发 jobId=${job.id}`)
+        notifyTargets = 'silent'
+      }
+      // origin 回投：汇报已经落在用户眼前的那条会话里，再弹桌面通知是重复打扰。
+      // 用户 2026-10-30 明确要求「不弹通知避免打扰」——只进会话。
+      if (deliveredToSession && wakeKind === 'origin') {
         notifyTargets = 'silent'
       }
       await this.dispatchNotifications(

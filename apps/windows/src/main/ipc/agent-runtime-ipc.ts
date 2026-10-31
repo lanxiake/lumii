@@ -30,6 +30,7 @@ import {
   handleCronDelete,
   handleCronUpdate,
   handleCronRun,
+  handleCronAbort,
   handleCronRuns,
 } from './agent-runtime/cron-commands'
 import {
@@ -842,6 +843,9 @@ export async function handleCommand(
 
       case 'cron:run':
         return handleCronRun(bridge, command.id)
+
+      case 'cron:abort':
+        return handleCronAbort(bridge, command.id)
 
       case 'cron:runs':
         return handleCronRuns(bridge, command.id, command.limit ?? 50)

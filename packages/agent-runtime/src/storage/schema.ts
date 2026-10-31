@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 56;
+export const SCHEMA_VERSION = 57;
 
 /**
  * V1 DDL — 初始 schema
@@ -1947,6 +1947,25 @@ DROP TABLE tool_usage_daily_v46;
 
 CREATE INDEX IF NOT EXISTS idx_tud_day
   ON tool_usage_daily (day DESC);
+`,
+  ],
+  // V57: 定时任务的「发起会话」——任务在哪个会话里被派出去，产出就回投哪里
+  //
+  // 此前 cron 的产出固定写进 `cron:<执行者>:<任务名>` 独立会话（wake_mode 默认 'own'），
+  // 而用户是在**主会话**里说「每 5 分钟报告一次」——任务记得自己的名字，却不记得
+  // 是谁派它去的。结果：主会话里只留下派单那句话，汇报全跑到另一条会话，用户看不到
+  // （2026-10-30 实测：主会话「并行派单与资源监测」派的任务，产出落在
+  // `cron:assistant:资源监测`，两边零关联——库里连一个能 join 的字段都没有）。
+  //
+  // 记下发起会话后，调度器可把产出回投回去（照 Claude Code：任务归属发起它的会话）。
+  // 老行 NULL = 无来源，行为不变（仍写自己的会话），无需数据迁移。
+  //
+  // **不复用 wake_mode 加取值**：那个列有 CHECK(own,active)，加 'origin' 要重建表
+  // （SQLite 改 CHECK 的代价），而这一列是纯新增、语义独立，单加一列最省。
+  [
+    57,
+    `
+ALTER TABLE local_cron_jobs ADD COLUMN origin_conversation_id TEXT;
 `,
   ],
 ] as const;
