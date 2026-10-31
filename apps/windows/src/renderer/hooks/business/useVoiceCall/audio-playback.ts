@@ -9,6 +9,10 @@ export class AudioPlaybackEngine {
   private activeSources: AudioBufferSourceNode[] = []
   private idleCallback: (() => void) | null = null
   private gainNode: GainNode
+  /** 用户设定的音量（duck 期间 gainNode 实际值与之解耦） */
+  private baseVolume = 1.0
+  /** 是否处于"疑似用户开口"的压音态 */
+  private ducked = false
   /** 口型分析节点（懒创建，挂在 gainNode 后，只读不影响播放） */
   private analyserNode: AnalyserNode | null = null
   /**
@@ -32,7 +36,37 @@ export class AudioPlaybackEngine {
 
   /** 设置播放音量（0.0 ~ 2.0，>1 为增益增强） */
   setVolume(value: number): void {
-    this.gainNode.gain.value = Math.max(0, Math.min(2, value))
+    this.baseVolume = Math.max(0, Math.min(2, value))
+    if (this.ducked) return
+    this.gainNode.gain.value = this.baseVolume
+  }
+
+  /**
+   * 两段式打断的第一阶段：用户似乎开口了，先压低回放音量而不是直接掐断。
+   * 误触代价只是一瞬间变轻，几乎无感；主进程确认是真语音后再由 flush() 真正打断。
+   */
+  duck(level = 0.15): void {
+    if (this.ducked) return
+    this.ducked = true
+    // 短斜坡避免"啪"的突兀感
+    const now = this.audioCtx.currentTime
+    this.gainNode.gain.cancelScheduledValues(now)
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now)
+    this.gainNode.gain.linearRampToValueAtTime(this.baseVolume * level, now + 0.08)
+  }
+
+  /** 确认是误触（或打断结束）：恢复原音量 */
+  unduck(): void {
+    if (!this.ducked) return
+    this.ducked = false
+    const now = this.audioCtx.currentTime
+    this.gainNode.gain.cancelScheduledValues(now)
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now)
+    this.gainNode.gain.linearRampToValueAtTime(this.baseVolume, now + 0.12)
+  }
+
+  get isDucked(): boolean {
+    return this.ducked
   }
 
   get volume(): number {
@@ -146,6 +180,10 @@ export class AudioPlaybackEngine {
     this.firstScheduleTime = 0
     this.totalScheduledDuration = 0
     this.totalScheduledChars = 0
+    // 整段被打断：压音态一并解除，否则下一轮 TTS 会以 15% 音量开口
+    this.ducked = false
+    this.gainNode.gain.cancelScheduledValues(this.audioCtx.currentTime)
+    this.gainNode.gain.value = this.baseVolume
     for (const source of this.activeSources) {
       try { source.stop() } catch { /* 已停止 */ }
       try { source.disconnect() } catch { /* 已断开 */ }

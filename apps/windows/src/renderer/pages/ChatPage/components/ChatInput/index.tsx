@@ -16,6 +16,7 @@ import Switch from '../../../../components/ui/Switch/Switch'
 import { formatContextUsageCompact, formatTokenCount } from '../../../../utils/format-token-count'
 import ContextUsageCard from './ContextUsageCard'
 import { useRotatingTip } from '../TipsBanner/useRotatingTip'
+import { WaveformVisualizer } from '../VoiceCallPanel/WaveformVisualizer'
 import { ComposerPlusMenu } from './ComposerPlusMenu'
 import { useComposerDraft } from './useComposerDraft'
 import { openWikiLibrary } from '../../../../utils/open-wiki-library'
@@ -104,8 +105,19 @@ interface ChatInputProps {
   onStopCompactContext?: () => void
   /** 直接以指定值发送（用于命令自动填充后立即发送，绕过 React 状态批处理） */
   onSendWithValue?: (value: string) => void
-  /** 开始语音通话回调 */
+  /** 开始语音通话回调（idle 时） */
   onVoiceCallStart?: () => void
+  /** 挂断语音通话（通话中再点按钮） */
+  onVoiceCallHangup?: () => void
+  /**
+   * 通话中状态。非 idle 时保留输入框，仅把「通话」键切成波纹态；
+   * 不再用 VoiceCallPanel 盖住整块输入区。
+   */
+  voiceCallState?: 'idle' | 'initializing' | 'listening' | 'recognizing' | 'thinking' | 'speaking' | 'ending' | 'error'
+  /** 通话中的实时转写（partial=待定稿，final=已识别待发送） */
+  voicePartialTranscript?: string
+  /** 麦克风波形分析节点（通话中用于状态条） */
+  voiceAnalyserNode?: AnalyserNode | null
   /** 工作空间文件被拖入输入框（用于在工作空间面板定位） */
   fileReferences?: FileReference[]
   onFileReferenceAdd?: (ref: FileReference) => void
@@ -218,6 +230,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onStopCompactContext,
   onSendWithValue,
   onVoiceCallStart,
+  onVoiceCallHangup,
+  voiceCallState = 'idle',
+  voicePartialTranscript = '',
+  voiceAnalyserNode = null,
   fileReferences = [],
   onFileReferenceAdd,
   onFileReferenceRemove,
@@ -637,6 +653,25 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const tipsEnabled = Boolean(showTips && isConnected && !isStreaming && !innerValue.trim())
   const rotatingTip = useRotatingTip(tipsEnabled)
 
+  /** 通话状态条文案：只说用户关心的"现在轮到我吗" */
+  const voiceStatusLabel =
+    voiceCallState === 'listening'
+      ? '在听，请说'
+      : voiceCallState === 'recognizing'
+        ? '正在识别…'
+        : voiceCallState === 'thinking'
+          ? 'AI 思考中（可以继续说，会一起发出）'
+          : voiceCallState === 'speaking'
+            ? 'AI 播报中，开口可直接打断'
+            : voiceCallState === 'initializing'
+              ? '接通中…'
+              : voiceCallState === 'ending'
+                ? '正在结束通话…'
+                : voiceCallState === 'error'
+                  ? '语音出错'
+                  : ''
+  const showVoiceBar = voiceCallState !== 'idle' && voiceCallState !== 'error'
+
   /** 有输入内容或附件时，输入卡片改为不透明，避免与透出的消息文字重叠 */
   const hasInputContent =
     innerValue.trim().length > 0 ||
@@ -739,6 +774,30 @@ const ChatInput: React.FC<ChatInputProps> = ({
               </div>
             ))
           })()}
+        </div>
+      )}
+
+      {/* 通话状态条：波形 + 状态词 + 未定稿转写（定稿前不写进输入框） */}
+      {showVoiceBar && (
+        <div
+          className={clsx(
+            styles['voice-status-bar'],
+            voiceCallState === 'speaking' && styles['voice-status-bar--speaking'],
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          <span className={styles['voice-status-dot']} aria-hidden />
+          <span className={styles['voice-status-label']}>{voiceStatusLabel}</span>
+          {voicePartialTranscript && (
+            <span className={styles['voice-status-transcript']} title={voicePartialTranscript}>
+              {voicePartialTranscript}
+            </span>
+          )}
+          {/* 波形：只在真的采到声音时挂 analyser，其余态留空避免空 canvas 闪烁 */}
+          {voiceAnalyserNode && (voiceCallState === 'listening' || voiceCallState === 'recognizing') && (
+            <WaveformVisualizer state={voiceCallState} analyserNode={voiceAnalyserNode} />
+          )}
         </div>
       )}
 
@@ -1177,19 +1236,42 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 </div>
               )}
             </div>
-            {/* 发送/停止按钮：streaming 时始终可点击（中断），非 streaming 时需有输入内容 */}
-            {onVoiceCallStart && !isStreaming && (
+            {/* 通话键：通话中保留可见（流式时也不卸），再点挂断；波纹表示通话态 */}
+            {(onVoiceCallStart || voiceCallState !== 'idle') && (
               <button
                 type="button"
-                onClick={onVoiceCallStart}
-                className={styles['voice-btn']}
-                title="语音通话"
+                onClick={() => {
+                  if (voiceCallState !== 'idle') onVoiceCallHangup?.()
+                  else onVoiceCallStart?.()
+                }}
+                className={clsx(
+                  styles['voice-btn'],
+                  voiceCallState !== 'idle' && styles['voice-btn--active'],
+                  (voiceCallState === 'listening' || voiceCallState === 'recognizing') && styles['voice-btn--ripple'],
+                  voiceCallState === 'speaking' && styles['voice-btn--speaking'],
+                  voiceCallState === 'error' && styles['voice-btn--error'],
+                )}
+                title={voiceCallState !== 'idle' ? '结束通话' : '语音通话'}
+                aria-label={voiceCallState !== 'idle' ? '结束通话' : '语音通话'}
+                aria-pressed={voiceCallState !== 'idle'}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z" />
                 </svg>
-                通话
+                {voiceCallState === 'idle' || voiceCallState === 'ending'
+                  ? '通话'
+                  : voiceCallState === 'initializing'
+                    ? '接通中'
+                    : voiceCallState === 'recognizing'
+                      ? '聆听中'
+                      : voiceCallState === 'thinking'
+                        ? '思考中'
+                        : voiceCallState === 'speaking'
+                          ? '播报中'
+                          : voiceCallState === 'error'
+                            ? '出错'
+                            : '通话中'}
               </button>
             )}
             <button

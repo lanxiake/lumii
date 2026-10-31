@@ -536,6 +536,51 @@
   transform: scale(0.94);
 }
 
+/* 通话进行中：实心底 + 强调描边 */
+.voice-btn--active {
+  border-color: color-mix(in srgb, var(--mt-violet) 80%, transparent);
+  background: color-mix(in srgb, var(--mt-violet) 28%, transparent);
+  color: var(--mt-violet);
+}
+
+/* 聆听/识别：波纹，提示麦正在工作 */
+.voice-btn--ripple {
+  animation: voice-call-ripple 1.4s ease-in-out infinite;
+}
+
+/* AI 播报中：略偏成功色波纹，区分「在听你」与「在说」 */
+.voice-btn--speaking {
+  border-color: color-mix(in srgb, var(--mt-success) 66%, transparent);
+  background: color-mix(in srgb, var(--mt-success) 18%, transparent);
+  color: var(--mt-success);
+  animation: voice-call-speaking-ripple 1.4s ease-in-out infinite;
+}
+
+.voice-btn--error {
+  border-color: color-mix(in srgb, var(--mt-error) 66%, transparent);
+  background: color-mix(in srgb, var(--mt-error) 16%, transparent);
+  color: var(--mt-error);
+  animation: none;
+}
+
+@keyframes voice-call-ripple {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-violet) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--mt-violet) 0%, transparent);
+  }
+}
+
+@keyframes voice-call-speaking-ripple {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-success) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--mt-success) 0%, transparent);
+  }
+}
+
 @keyframes pulse-stop {
   0%, 100% {
     box-shadow: 0 0 0 0 rgba(var(--mt-error-rgb), 0.4);
@@ -1174,4 +1219,65 @@
 
 .hint-count {
   margin-left: auto;
+}
+
+/* ── 通话状态条 ─────────────────────────────────────────────────────────────
+   通话中出现在输入卡上方：波形 + 状态词 + 未定稿转写。
+   转写用斜体 + 弱色，明确区别于"已定稿并发出"的内容（对应 Cursor 的
+   voice-pending 待定区，这里简化成一行文本）。 */
+.voice-status-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  padding: 6px var(--mt-space-3);
+  margin-bottom: var(--mt-space-2);
+  border: 1px solid color-mix(in srgb, var(--mt-violet) 28%, transparent);
+  border-radius: var(--mt-radius-lg);
+  background: color-mix(in srgb, var(--mt-violet) 8%, transparent);
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-3);
+  user-select: none;
+}
+
+.voice-status-bar--speaking {
+  border-color: color-mix(in srgb, var(--mt-success) 30%, transparent);
+  background: color-mix(in srgb, var(--mt-success) 8%, transparent);
+}
+
+.voice-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mt-violet);
+  flex-shrink: 0;
+  animation: voice-status-blink 1.2s ease-in-out infinite;
+}
+
+.voice-status-bar--speaking .voice-status-dot {
+  background: var(--mt-success);
+}
+
+.voice-status-label {
+  font-weight: var(--mt-fw-medium);
+  color: var(--mt-fg-2);
+  white-space: nowrap;
+}
+
+.voice-status-transcript {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: italic;
+  color: var(--mt-fg-3);
+}
+
+@keyframes voice-status-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-status-dot { animation: none; }
 }

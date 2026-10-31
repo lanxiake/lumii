@@ -25,9 +25,14 @@ const VALID_TRANSITIONS: StateTransition[] = [
   { from: 'recognizing', to: 'listening' },
   { from: 'recognizing', to: 'thinking' },
   { from: 'thinking', to: 'speaking' },
+  // 回合被用户中断（没有任何 delta、TTS 队列也是空的）→ 只能直接回聆听。
+  // 缺这条边时，用户点「停止生成」会让状态永久停在 thinking：
+  // handleAudioChunk 只在 listening/recognizing 里跑 ASR，后续语音全被静默丢弃。
   { from: 'thinking', to: 'listening' },
   { from: 'speaking', to: 'listening' },
   { from: 'speaking', to: 'recognizing' },
+  { from: 'speaking', to: 'thinking' },
+  { from: 'listening', to: 'thinking' },
   {
     from: ['listening', 'recognizing', 'thinking', 'speaking', 'initializing'],
     to: 'ending',

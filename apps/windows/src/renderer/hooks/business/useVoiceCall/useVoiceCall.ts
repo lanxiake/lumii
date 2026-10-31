@@ -57,8 +57,14 @@ export interface VoiceCallHookState {
 }
 
 export interface VoiceCallActions {
-  startCall: (sessionKey: string, agentId?: string, opts?: { micless?: boolean; persistent?: boolean; silent?: boolean }) => Promise<void>
+  startCall: (
+    sessionKey: string,
+    agentId?: string,
+    opts?: { micless?: boolean; persistent?: boolean; silent?: boolean; composerOwned?: boolean },
+  ) => Promise<void>
   stopCall: () => Promise<void>
+  /** 消费最终转写（composer 自动发送后清空，避免 effect 重入） */
+  clearFinalTranscript: () => void
   getModelsStatus: () => Promise<unknown>
   downloadModel: (modelId: string) => Promise<void>
   /** 实时调整播放音量（0.0 ~ 1.0，仅渲染侧，不持久化） */
@@ -124,6 +130,48 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       })
       .catch(() => {})
   }, [])
+
+  // ── 两段式打断：speaking 期间监听麦克风能量，疑似开口先压音 ──────────────
+  //
+  // 为什么不直接掐断：本地没有服务端 VAD，误判一次就是"AI 说到一半被打断"。
+  // 压音只损失几百毫秒的音量，确认是真语音后主进程会推 interrupted 事件，
+  // 那时才 flush() 真正停播并提交转写。
+  useEffect(() => {
+    if (state.state !== 'speaking') {
+      playbackRef.current?.unduck()
+      return
+    }
+    const analyser = analyserRef.current
+    const playback = playbackRef.current
+    if (!analyser || !playback) return
+
+    const buf = new Uint8Array(analyser.fftSize)
+    let quietTicks = 0
+    const timer = window.setInterval(() => {
+      analyser.getByteTimeDomainData(buf)
+      let sum = 0
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i]! - 128) / 128
+        sum += v * v
+      }
+      const rms = Math.sqrt(sum / buf.length)
+      // 阈值取固定经验值：echoCancellation 已压掉大部分回采，说话时 RMS 通常 > 0.02。
+      // 环境嘈杂时可能误触 → 代价只是声音变轻，主进程 ASR 确认失败会自动恢复。
+      if (rms > 0.02) {
+        quietTicks = 0
+        playback.duck()
+      } else if (playback.isDucked && ++quietTicks >= 5) {
+        // 连续 500ms 安静：判定为误触，恢复原音量
+        playback.unduck()
+        quietTicks = 0
+      }
+    }, 100)
+
+    return () => {
+      window.clearInterval(timer)
+      playback.unduck()
+    }
+  }, [state.state])
 
   // ── 订阅主进程语音事件 ──────────────────────────────────────────────────
 
@@ -278,10 +326,15 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
 
   // ── 开始通话 ──────────────────────────────────────────────────────────
 
-  const startCall = useCallback(async (sessionKey: string, agentId?: string, opts?: { micless?: boolean; persistent?: boolean; silent?: boolean }) => {
+  const startCall = useCallback(async (
+    sessionKey: string,
+    agentId?: string,
+    opts?: { micless?: boolean; persistent?: boolean; silent?: boolean; composerOwned?: boolean },
+  ) => {
     const micless = opts?.micless === true
     const persistent = opts?.persistent === true
     const silent = opts?.silent === true
+    const composerOwned = opts?.composerOwned === true
     silentRef.current = silent
     const electronAPI = (window as any).electronAPI
     if (!electronAPI?.voice) {
@@ -358,6 +411,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
         agentId,
         micless,
         persistent,
+        ...(composerOwned ? { composerOwned: true } : {}),
       })
 
       if (result?.error === 'models_not_ready') {
@@ -464,9 +518,14 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     }))
   }, [])
 
+  const clearFinalTranscript = useCallback(() => {
+    setState((s) => (s.finalTranscript ? { ...s, finalTranscript: '' } : s))
+  }, [])
+
   const actions: VoiceCallActions = {
     startCall,
     stopCall,
+    clearFinalTranscript,
     getModelsStatus: () => {
       const electronAPI = (window as any).electronAPI
       return electronAPI?.voice?.sendCommand({ type: 'voice:models:get' }) ?? Promise.resolve([])

@@ -1749,12 +1749,74 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [runtimeCurrentSessionKey, refreshDevContext])
 
   /**
-   * 从输入框发起语音通话。
+   * 从输入框发起语音通话（composer 托管：转写进输入框并自动发送）。
    */
   const handleVoiceCallStart = useCallback(() => {
     if (!runtimeCurrentSessionKey) return
-    void voiceCallActions.startCall(runtimeCurrentSessionKey, activeAgent?.id)
+    void voiceCallActions.startCall(runtimeCurrentSessionKey, activeAgent?.id, {
+      composerOwned: true,
+    })
   }, [runtimeCurrentSessionKey, voiceCallActions, activeAgent?.id])
+
+  /** 挂断：再点通话键 */
+  const handleVoiceCallHangup = useCallback(() => {
+    void voiceCallActions.stopCall()
+  }, [voiceCallActions])
+
+  /**
+   * 通话中：partial 实时写入输入框；final 走普通发送并清空，避免与主进程双发。
+   *
+   * 用 ref 记录"这次输入框里的内容来自语音"，只有内容仍是我们写进去的才覆盖，
+   * 否则用户手打的东西会被识别结果冲掉。
+   */
+  const voiceFinalSentRef = useRef<string | null>(null)
+  const voicePartialOwnedRef = useRef<string>('')
+  const inputValueRef = useRef(inputValue)
+  inputValueRef.current = inputValue
+  useEffect(() => {
+    if (voiceCallState.state === 'idle') {
+      voiceFinalSentRef.current = null
+      voicePartialOwnedRef.current = ''
+      return
+    }
+    const partial = voiceCallState.partialTranscript
+    if (!partial) return
+    const current = inputValueRef.current
+    // 输入框为空、或内容还停在是我们上次写的 partial → 可以接管；
+    // 用户改了字就放弃，别把他打的字冲掉。
+    if (current.trim() && current !== voicePartialOwnedRef.current) return
+    voicePartialOwnedRef.current = partial
+    setInputValue(partial)
+  }, [voiceCallState.state, voiceCallState.partialTranscript, setInputValue])
+
+  useEffect(() => {
+    if (voiceCallState.state === 'idle') return
+    const finalText = voiceCallState.finalTranscript.trim()
+    if (!finalText) return
+    if (voiceFinalSentRef.current === finalText) return
+    // 上一轮还在发：别静默吞掉——把话留在输入框里，等闲下来用户可以直接回车，
+    // 也避免主进程那边以为已经提交、用户却什么都没看到。
+    if (isSending) {
+      logger.info('[voice] 上一条仍在发送，转写保留在输入框')
+      setInputValue(`${finalText}（语音输入）`)
+      voiceCallActions.clearFinalTranscript()
+      return
+    }
+    voiceFinalSentRef.current = finalText
+    voicePartialOwnedRef.current = ''
+    const content = `${finalText}（语音输入）`
+    setInputValue(content)
+    void handleSend(content)
+    voiceCallActions.clearFinalTranscript()
+    setInputValue('')
+  }, [
+    voiceCallState.state,
+    voiceCallState.finalTranscript,
+    isSending,
+    handleSend,
+    setInputValue,
+    voiceCallActions,
+  ])
 
   // Handle suggestion click from empty state
   const handleSuggestionClick = useCallback((suggestion: string) => {
@@ -2166,14 +2228,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           onDismissCronWake={() => {
             if (runtimeCurrentSessionKey) clearCronWake(runtimeCurrentSessionKey)
           }}
-          voice={voiceCallState.state !== 'idle' ? {
-            state: voiceCallState.state,
-            partialTranscript: voiceCallState.partialTranscript,
-            finalTranscript: voiceCallState.finalTranscript,
-            error: voiceCallState.error,
-            onHangup: () => void voiceCallActions.stopCall(),
-            analyserNode: voiceCallState.analyserNode,
-          } : undefined}
           input={
           <ChatInput
             value={inputValue}
@@ -2215,6 +2269,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onFileReferenceAdd={handleFileReferenceAdd}
             onFileReferenceRemove={handleFileReferenceRemove}
             onVoiceCallStart={runtimeCurrentSessionKey ? handleVoiceCallStart : undefined}
+            onVoiceCallHangup={handleVoiceCallHangup}
+            voiceCallState={voiceCallState.state}
+            voicePartialTranscript={voiceCallState.partialTranscript}
+            voiceAnalyserNode={voiceCallState.analyserNode}
             onLocateFile={handleLocateFile}
             showTips={showInputTips}
           />

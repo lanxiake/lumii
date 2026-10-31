@@ -384,3 +384,45 @@ describe('拖入工作空间文件后发送', () => {
     expect(composer.getAttribute('data-empty')).toBe('true')
   })
 })
+
+describe('通话按钮：不挡输入框，通话中波纹态', () => {
+  it('idle 显示「通话」，点击触发 onVoiceCallStart', () => {
+    const onVoiceCallStart = vi.fn()
+    render(
+      <ChatInput
+        value=""
+        onChange={vi.fn()}
+        onSend={vi.fn()}
+        isConnected
+        onVoiceCallStart={onVoiceCallStart}
+        voiceCallState="idle"
+      />,
+    )
+    const btn = screen.getByRole('button', { name: '语音通话' })
+    expect(btn).toHaveTextContent('通话')
+    fireEvent.click(btn)
+    expect(onVoiceCallStart).toHaveBeenCalledTimes(1)
+  })
+
+  it('listening 显示波纹态，再点触发挂断', () => {
+    const onVoiceCallHangup = vi.fn()
+    const { container } = render(
+      <ChatInput
+        value="正在说"
+        onChange={vi.fn()}
+        onSend={vi.fn()}
+        isConnected
+        isStreaming
+        onVoiceCallStart={vi.fn()}
+        onVoiceCallHangup={onVoiceCallHangup}
+        voiceCallState="listening"
+      />,
+    )
+    // 流式中仍保留通话键，输入框不被卸掉
+    expect(container.querySelector('.chat-textarea')).toBeInTheDocument()
+    const btn = screen.getByRole('button', { name: '结束通话' })
+    expect(btn.className).toMatch(/voice-btn--ripple/)
+    fireEvent.click(btn)
+    expect(onVoiceCallHangup).toHaveBeenCalledTimes(1)
+  })
+})

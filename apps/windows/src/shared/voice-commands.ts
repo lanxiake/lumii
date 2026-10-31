@@ -14,6 +14,11 @@ type VoiceStartCallCommand = {
    * 用于「实时朗读」开关常驻；省略时为旧行为（一轮即停）。
    */
   persistent?: boolean
+  /**
+   * 对话页 composer 托管发送：主进程只推转写 + 切 thinking 等 TTS，
+   * 由渲染层把文字写入输入框并走普通发送，避免双发。
+   */
+  composerOwned?: boolean
 }
 
 type VoiceStopCallCommand = {

@@ -128,10 +128,12 @@ export function registerVoiceIpc(
             }
           }
           const persistent = (command as { persistent?: boolean }).persistent === true
+          const composerOwned = (command as { composerOwned?: boolean }).composerOwned === true
           return {
             callId: await voiceService.startCall(command.sessionKey, command.agentId, {
               micless,
               persistent,
+              composerOwned,
             }),
           }
         }

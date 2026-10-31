@@ -318,6 +318,12 @@ export type VoiceVadConfig = {
    * 用于过滤背景噪声与 TTS 回声。越大越严格（更难被环境音触发）。
    */
   energyGateMultiplier: number
+  /**
+   * 提交窗口（毫秒）：识别出的整句先进缓冲，窗口内再开口就继续拼接，
+   * 静默满窗口才真正发给 Agent。解决"话没说完就被切走"。
+   * 0 = 立即提交（旧行为）。
+   */
+  commitWindowMs?: number
 }
 
 export type VoiceEngineConfig = {
@@ -325,8 +331,10 @@ export type VoiceEngineConfig = {
   tts: VoiceTtsConfig
   vad: VoiceVadConfig
   /**
-   * AI 朗读（speaking）期间自动闭麦：暂停麦克风采集/ASR，朗读结束回 listening 时自动恢复。
-   * 默认开启，避免 TTS 声音被回采成用户输入触发误打断。
+   * AI 朗读（speaking）期间**完全闭麦**：既不采集也不做语音打断。
+   * 默认关闭 —— 关闭时走两段式打断：渲染侧检测到疑似开口先把回放音量压低，
+   * 主进程用 ASR 确认是真语音后才真正打断（误触代价只是一瞬间变轻）。
+   * 打开后等同于"朗读期间用户说什么都不打断"。
    */
   autoMuteMicWhileSpeaking: boolean
 }
@@ -354,6 +362,7 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
     minSpeechMs: 250,
     minSilenceMs: 500,
     energyGateMultiplier: 1.5,
+    commitWindowMs: 1200,
   },
-  autoMuteMicWhileSpeaking: true,
+  autoMuteMicWhileSpeaking: false,
 }

@@ -3,10 +3,7 @@ import { ConfirmationDialog } from '../../../components/ConfirmationDialog'
 import { InterruptBanner } from '../components/InterruptBanner'
 import { CronWakeBanner } from '../components/CronWakeBanner'
 import { CronStatusBar } from '../components/CronStatusBar'
-import { VoiceCallPanel } from '../components/VoiceCallPanel'
 import styles from '../ChatPage.module.css'
-
-type VoiceCallPanelProps = React.ComponentProps<typeof VoiceCallPanel>
 
 export interface ChatBottomOverlayProps {
   permission?: {
@@ -34,7 +31,6 @@ export interface ChatBottomOverlayProps {
   onDismissCronWake?: () => void
   /** 当前会话对应的定时任务（cron 会话才非空）：常驻显示等待触发/运行中/已暂停/报错 */
   cronSessionKey?: string | null
-  voice?: VoiceCallPanelProps
   input: React.ReactNode
 }
 
@@ -52,7 +48,6 @@ export const ChatBottomOverlay: React.FC<ChatBottomOverlayProps> = ({
   cronWake,
   onDismissCronWake,
   cronSessionKey,
-  voice,
   input,
 }) => (
   <div className={styles['chat-overlay-bottom']}>
@@ -86,6 +81,7 @@ export const ChatBottomOverlay: React.FC<ChatBottomOverlayProps> = ({
       />
     ) : null}
     {cronSessionKey ? <CronStatusBar sessionKey={cronSessionKey} /> : null}
-    {voice ? <VoiceCallPanel {...voice} /> : input}
+    {/* 通话不再替换输入区：转写写入输入框并由 ChatInput 通话键展示波纹态 */}
+    {input}
   </div>
 )

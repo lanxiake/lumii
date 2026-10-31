@@ -90,10 +90,31 @@ export class VoiceCallService {
   private readonly POST_SPEECH_COOLDOWN_MS = 2500
   /** 最近一次 ASR 识别所用的原始语音段（PCM Float32, 16kHz），用于回放 */
   private _lastSpeechSegment: Float32Array | null = null
+  /**
+   * 提交窗口：已识别但还没发出去的句子 + 定时器。
+   * `commitWindowMs` 内用户再开口，新句子会拼进来；到期才真正提交。
+   * 这样"喘口气"不会被当成说完（对应 vad.commitWindowMs，0 = 旧行为）。
+   */
+  private pendingUtterance: string[] = []
+  /** 与 pendingUtterance 同步累积的原始语音段，合并后用于一次回放 */
+  private pendingUtteranceSegments: Float32Array[] = []
+  private pendingCommitTimer: NodeJS.Timeout | null = null
+  /**
+   * thinking（AI 处理中）期间用户补说的话。此状态下不能直接提交（会打断在跑的回合），
+   * 先攒着；状态回到 listening 时一次性发出。
+   * 没有这个缓冲时，用户在 AI 思考期间开口说的话会被完全丢弃。
+   */
+  private heldUtterance: string[] = []
+  private heldUtteranceSegments: Float32Array[] = []
   /** micless 模式：文字回复出声（不采麦），仅做 TTS 播放，结束回 idle 而非 listening */
   private micless = false
   /** 持续朗读模式（仅 micless）：一轮 TTS 结束不 stopCall，回 thinking 等下一轮回复 */
   private persistent = false
+  /**
+   * 对话页 composer 托管：只推转写 + 进 thinking，由渲染层写入输入框并发送。
+   * 宠物等无 composer 场景保持 false，仍由本服务 submitAgentMessage。
+   */
+  private composerOwned = false
   private profileStore = new VoiceProfileStore()
 
   constructor(
@@ -121,9 +142,10 @@ export class VoiceCallService {
         minSpeechMs: 300,
         minSilenceMs: 500,
         energyGateMultiplier: 1.5,
+        commitWindowMs: 1200,
         ...config?.vad,
       },
-      autoMuteMicWhileSpeaking: config?.autoMuteMicWhileSpeaking ?? true,
+      autoMuteMicWhileSpeaking: config?.autoMuteMicWhileSpeaking ?? false,
     }
 
     this.stateMachine.on('state', ({ to }: { from: string; to: string }) => {
@@ -133,6 +155,12 @@ export class VoiceCallService {
         state: to as any,
         timestamp: Date.now(),
       })
+      // 回到聆听 = 上一轮彻底收尾：把 thinking 期间攒下的补话放出去
+      if (to === 'listening') {
+        void this.flushHeldUtterance().catch((e) => {
+          log.error(`[state→listening] 放暂存补话失败: ${(e as Error).message}`)
+        })
+      }
     })
 
     // 将 Qwen3 安装/加载等长耗时步骤推到设置页等 UI
@@ -364,13 +392,15 @@ export class VoiceCallService {
   async startCall(
     sessionKey: string,
     agentId?: string,
-    opts?: { micless?: boolean; persistent?: boolean },
+    opts?: { micless?: boolean; persistent?: boolean; composerOwned?: boolean },
   ): Promise<string> {
     const micless = opts?.micless === true
     this.micless = micless
     // 持续朗读仅在 micless 下有意义
     this.persistent = micless && opts?.persistent === true
-    log.info(`[startCall] sessionKey=${sessionKey}, agentId=${agentId}, micless=${micless}, persistent=${this.persistent}`)
+    // micless 无 ASR 转写，composer 托管无意义
+    this.composerOwned = !micless && opts?.composerOwned === true
+    log.info(`[startCall] sessionKey=${sessionKey}, agentId=${agentId}, micless=${micless}, persistent=${this.persistent}, composerOwned=${this.composerOwned}`)
 
     // 文字回复出声（micless）仅需 TTS；完整语音通话需要 VAD + ASR + TTS
     if (micless) {
@@ -392,6 +422,7 @@ export class VoiceCallService {
     this.lastInterruptTime = 0
     this.postSpeechCooldownUntil = 0
     this._lastPartial = ''
+    this.discardPendingUtterance()
 
     this.stateMachine.reset()
     // micless 起始即 thinking（等待文字回复 TTS），普通通话进 listening 等用户说话
@@ -559,13 +590,7 @@ export class VoiceCallService {
 
       if (finalText.trim().length > 0) {
         this._lastSpeechSegment = segment  // 保存原始语音段用于回放
-        this.pushVoiceEvent({
-          type: 'voice:transcript',
-          callId: this.callId,
-          text: finalText,
-          isFinal: true,
-        })
-        await this.submitToAgent(finalText)
+        await this.queueOrSubmitUtterance(finalText, segment)
       } else {
         if (this.stateMachine.is('recognizing')) {
           this.stateMachine.transition('listening')
@@ -585,6 +610,103 @@ export class VoiceCallService {
 
   // ── 提交 ASR 结果给 Agent ──────────────────────────────────────────────
 
+  /**
+   * 提交窗口：整句先入缓冲，静默满 `commitWindowMs` 才真正发送。
+   *
+   * 为什么不在识别到段落时直接发：VAD 的静音判据只有几百毫秒，用户句中换气
+   * 就会被切成两段分别发给 Agent，表现为"还没说完就发出去了"；而且第一段一发
+   * 状态就进 thinking，后半句全被丢弃（"再补充说话没反应"）。
+   * 窗口期内状态保持 listening/recognizing，ASR 继续跑，后续句子拼进来。
+   */
+  private async queueOrSubmitUtterance(text: string, segment?: Float32Array): Promise<void> {
+    // 转写先推给渲染层：窗口期内 UI 也能看到识别结果（带定稿标记由渲染侧决定）
+    if (this.callId) {
+      this.pushVoiceEvent({
+        type: 'voice:transcript',
+        callId: this.callId,
+        text,
+        isFinal: true,
+      })
+    }
+
+    // thinking 期间：Agent 还在跑，直接提交会撞上"正在发送"或打断当前回合，
+    // 先攒起来，等状态机回到 listening 再放（见 flushHeldUtterance）。
+    if (this.stateMachine.is('thinking')) {
+      this.heldUtterance.push(text)
+      if (segment) this.heldUtteranceSegments.push(segment)
+      log.info(`[queueOrSubmitUtterance] thinking 期间补话，暂存: "${text}"`)
+      return
+    }
+
+    const windowMs = this.config.vad.commitWindowMs ?? 0
+    if (windowMs <= 0) {
+      await this.submitToAgent(text)
+      return
+    }
+
+    this.pendingUtterance.push(text)
+    if (segment) this.pendingUtteranceSegments.push(segment)
+    if (this.pendingCommitTimer) clearTimeout(this.pendingCommitTimer)
+    this.pendingCommitTimer = setTimeout(() => {
+      this.pendingCommitTimer = null
+      void this.flushPendingUtterance()
+    }, windowMs)
+    log.debug(`[queueOrSubmitUtterance] 入缓冲 "${text}"（窗口 ${windowMs}ms，积压 ${this.pendingUtterance.length} 段）`)
+  }
+
+  /** 把 thinking 期间攒下的补话一次性发出（状态回到 listening 时调用） */
+  private async flushHeldUtterance(): Promise<void> {
+    if (this.heldUtterance.length === 0) return
+    const text = this.heldUtterance.join('')
+    const segments = this.heldUtteranceSegments
+    this.heldUtterance = []
+    this.heldUtteranceSegments = []
+    if (segments.length > 0) {
+      const total = segments.reduce((n, s) => n + s.length, 0)
+      const merged = new Float32Array(total)
+      let offset = 0
+      for (const s of segments) { merged.set(s, offset); offset += s.length }
+      this._lastSpeechSegment = merged
+    }
+    log.info(`[flushHeldUtterance] 发出暂存补话: "${text}"`)
+    await this.submitToAgent(text)
+  }
+
+  /** 窗口到期：把缓冲的句子合并提交 */
+  private async flushPendingUtterance(): Promise<void> {
+    if (this.pendingUtterance.length === 0) return
+    const text = this.pendingUtterance.join('')
+    const segments = this.pendingUtteranceSegments
+    this.pendingUtterance = []
+    this.pendingUtteranceSegments = []
+    if (this.pendingCommitTimer) {
+      clearTimeout(this.pendingCommitTimer)
+      this.pendingCommitTimer = null
+    }
+    // 合并回放音频：多段拼成一整条，避免只回放最后一句
+    if (segments.length > 0) {
+      const total = segments.reduce((n, s) => n + s.length, 0)
+      const merged = new Float32Array(total)
+      let offset = 0
+      for (const s of segments) { merged.set(s, offset); offset += s.length }
+      this._lastSpeechSegment = merged
+    }
+    log.info(`[flushPendingUtterance] 提交合并结果: "${text}"`)
+    await this.submitToAgent(text)
+  }
+
+  /** 丢弃待提交缓冲（打断 / 挂断 / 新一轮开始时调用） */
+  private discardPendingUtterance(): void {
+    if (this.pendingCommitTimer) {
+      clearTimeout(this.pendingCommitTimer)
+      this.pendingCommitTimer = null
+    }
+    this.pendingUtterance = []
+    this.pendingUtteranceSegments = []
+    this.heldUtterance = []
+    this.heldUtteranceSegments = []
+  }
+
   private async submitToAgent(text: string): Promise<void> {
     if (!this.sessionKey) {
       log.warn('[submitToAgent] sessionKey 为空，语音识别结果已丢弃，请确保宠物模式已绑定会话')
@@ -594,6 +716,14 @@ export class VoiceCallService {
       return
     }
     this.stateMachine.transition('thinking')
+
+    // composer 托管：转写已通过 voice:transcript 推给渲染层，由其写入输入框并发送；
+    // 这里只推进 thinking，好让后续 agent delta 驱动 TTS，避免与 handleSend 双发。
+    if (this.composerOwned) {
+      this._lastSpeechSegment = null
+      log.info(`[submitToAgent] composerOwned，交由输入框发送: "${text}"`)
+      return
+    }
 
     // 每条语音消息末尾追加上下文注释，让 Agent 感知当前是语音输入
     // 使用括号格式避免 Agent 将其误判为链接或附件
@@ -676,10 +806,41 @@ export class VoiceCallService {
       if (!this.eventMatchesSession(event)) return
       if (!this.callId) return
 
+      // 用户中断（点「停止生成」）：丢掉还没播的合成内容，直接回聆听。
+      // 关键点是**这个分支必须自己把状态推回去**——中断发生时往往一个 delta 都还没来，
+      // 状态停在 thinking 从未进入 speaking，而 processTtsQueue 只在 speaking 时才回 listening。
+      // 不处理的话通话就悬在 thinking：handleAudioChunk 只在 listening/recognizing 跑 ASR，
+      // 之后用户再说话全部静默丢弃（"中断后再也无法语音对话"）。
+      if (event.stopReason === 'aborted') {
+        log.info('[onEnd] 回合被中断，丢弃 TTS 队列并回到聆听')
+        this.ttsGeneration++
+        this.ttsAbort?.abort()
+        this.ttsAbort = null
+        this.ttsQueue = []
+        this.isTtsBusy = false
+        this.splitter.reset()
+        this.postSpeechCooldownUntil = 0
+        if (this.stateMachine.isOneOf('thinking', 'speaking')) {
+          this.stateMachine.transition('listening')
+        }
+        return
+      }
+
       const remaining = this.splitter.flush()
       log.info(`[onEnd] agent:message:end, 剩余文本="${remaining.slice(0, 40)}"`)
       if (remaining.length > 0) {
         this.enqueueTts(remaining)
+      }
+
+      // 空回复兜底：没有 delta 就没有 TTS，也没人会 transition 回 listening。
+      // micless 例外——它起呼即 thinking，收尾由 processTtsQueue / stopCall 负责。
+      if (
+        !this.micless
+        && this.stateMachine.is('thinking')
+        && !this.isTtsBusy
+        && this.ttsQueue.length === 0
+      ) {
+        this.stateMachine.transition('listening')
       }
     }
 
@@ -931,6 +1092,8 @@ export class VoiceCallService {
     this.ttsQueue = []
     this.isTtsBusy = false
     this.splitter.reset()
+    // 待提交的旧话作废：用户已经开口打断，接着说的才是新的意图
+    this.discardPendingUtterance()
     this.postSpeechCooldownUntil = 0 // 用户主动说话，立即解除冷却
     // 推送打断事件，通知渲染进程清空播放缓冲
     if (this.callId) {
@@ -959,6 +1122,7 @@ export class VoiceCallService {
     this.isTtsBusy = false
     this.agentEventUnsubscribe?.()
     this.agentEventUnsubscribe = null
+    this.discardPendingUtterance()
     this.asrStream?.destroy()
     this.asrStream = null
     this.splitter.flush()
@@ -972,6 +1136,7 @@ export class VoiceCallService {
     this.sessionKey = null
     this.micless = false
     this.persistent = false
+    this.composerOwned = false
     this.ttsLanguageSticky = null
     this.ttsProvider?.setLanguageOverride?.(null)
 
