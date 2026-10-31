@@ -108,13 +108,26 @@ export interface RunMeta {
   ): Promise<{ ok: boolean; data?: unknown; error?: string }>
   screenRecord: {
     start(p: { sourceId: string; includeMic?: boolean }): Promise<{ ok: boolean; error?: string }>
-    stop(): Promise<{ ok: boolean; data?: unknown }>
-    mark(p: { label: string }): Promise<{ ok: boolean; data?: { atMs: number } }>
+    stop(): Promise<{ ok: boolean; data?: unknown; error?: string }>
+    mark(p: { label: string }): Promise<{ ok: boolean; data?: { atMs: number }; error?: string }>
     /**
      * 列出可录源。runner 用它挑默认源——`start` 要的是 `sourceId`，
      * 而 spec 只写 `sourceHint`（人话），两者不是一个东西。
      */
     listSources(): Promise<readonly { sourceId: string; name?: string; kind?: string }[]>
+    /**
+     * 旁白合成。cues 的 `startMs` 必须来自**同一步的 markAtMs**（设计 §4.6 的
+     * 「同源」保证）——执行器不重算融合规则，`endMs` 交给 narrate 自己按
+     * 「下一段起点 − 200ms」算（narrate-service 已有逻辑）。
+     */
+    narrate(p: {
+      path: string
+      cues: { startMs: number; text: string }[]
+      dub?: boolean
+      writeSrt?: boolean
+      subtitleMode?: 'soft' | 'burn'
+      exportMp4?: boolean
+    }): Promise<{ ok: boolean; data?: { mp4Path?: string; burned?: boolean; dubbed?: boolean; cueCount?: number }; error?: string }>
   } | null
   readViewState(): Promise<{
     view: string | null

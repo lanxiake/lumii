@@ -136,6 +136,8 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
   const record = mode === 'record' && spec.record?.enabled === true
   const steps: StepResult[] = []
   const outputs = new Map<string, unknown>()
+  /** step id → 打点时刻（来自 mark）；收尾组 cues 用 */
+  const markAtById = new Map<string, number>()
   const journalPath = `${runDir}/journal.jsonl`
 
   const meta: RunMeta = {
@@ -161,7 +163,47 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     let artifact: RunMeta['artifact'] | undefined
     if (record && deps.screenRecord) {
       const stop = await deps.screenRecord.stop()
-      if (stop.ok && stop.data) artifact = stop.data as RunMeta['artifact']
+      if (stop.ok && stop.data) {
+        const data = stop.data as { path?: string; durationMs?: number; mp4Path?: string }
+        artifact = { durationMs: data.durationMs, mp4Path: data.mp4Path } as RunMeta['artifact']
+
+        // 旁白：cues 由**每一步的 markAtMs + narration** 组成（设计 §4.6）。
+        // 这是「字幕与操作同源」的唯一实现点：mark 是 execute 返回后立刻打的，
+        // text 是同一个 step 对象的 narration，二者不可能错位。
+        // endMs 交给 narrate 自己算，执行器不重算融合规则。
+        const cues = spec.steps
+          .filter((s) => s.narration)
+          .map((s) => {
+            const mark = markAtById.get(s.id)
+            return mark != null ? { startMs: mark, text: s.narration! } : null
+          })
+          .filter((c): c is { startMs: number; text: string } => c !== null)
+        const narrateCfg = spec.record?.narrate
+        if (cues.length > 0 && data.path && narrateCfg) {
+          try {
+            const n = await deps.screenRecord.narrate({
+              path: data.path,
+              cues,
+              dub: narrateCfg.dub,
+              writeSrt: true,
+              subtitleMode: narrateCfg.subtitleMode as 'soft' | 'burn' | undefined,
+              exportMp4: narrateCfg.exportMp4,
+            })
+            if (n.ok && n.data) {
+              artifact = {
+                ...artifact,
+                mp4Path: n.data.mp4Path ?? artifact?.mp4Path,
+                burned: n.data.burned,
+                dubbed: n.data.dubbed,
+                cueCount: n.data.cueCount,
+              }
+            }
+          } catch (err) {
+            // 旁白失败不推翻「步骤全过」的结论——成片已在，用户可以选择不带字幕。
+            console.warn('[pipeline] 旁白合成失败（成片保留）:', err instanceof Error ? err.message : err)
+          }
+        }
+      }
     }
     writeMeta(runDir, { ...meta, endedAt: deps.now(), status: result.ok ? 'ok' : 'failed', artifact })
     return { ...result, steps, journalPath, artifact }
@@ -266,11 +308,19 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     }
     outputs.set(step.id, r.data ?? {})
 
-    // mark：callTool 之后、hold 之前
+    // mark：callTool 之后、hold 之前。
+    // **mark 失败视为该步失败**：有旁白却没有打点，成片里这一段就没有字幕，
+    // 而「字幕与操作同源」正是这个特性的立身之本（设计 §4.6）。
     let markAtMs: number | undefined
+    let markError: string | undefined
     if (record && step.narration && deps.screenRecord) {
       const m = await deps.screenRecord.mark({ label: step.narration })
-      if (m.ok) markAtMs = m.data?.atMs
+      if (m.ok && m.data) {
+        markAtMs = m.data.atMs
+        markAtById.set(step.id, markAtMs)
+      } else {
+        markError = `打点失败: ${m.error ?? 'unknown'}`
+      }
     }
 
     if (step.holdMs > 0) await sleep(step.holdMs)
@@ -281,12 +331,13 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
 
     const line: JournalLine = {
       i, id: step.id, tool: step.tool, startedAt, ms,
-      ok: r.ok && a.ok,
+      ok: r.ok && a.ok && !markError,
       markAtMs,
       observed: r.data ?? r,
       assertOk: a.ok,
       holdMs: step.holdMs,
       ...(r.ok ? {} : { error: r.error ?? 'tool returned ok:false' }),
+      ...(markError ? { error: markError } : {}),
       ...(a.ok ? {} : { expected: 'expected' in a ? a.expected : undefined, observed: 'observed' in a ? a.observed : undefined }),
     }
     appendJournal(runDir, line)
@@ -308,7 +359,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
           expected: 'expected' in a ? a.expected : step.expect,
           observed: 'observed' in a ? a.observed : r,
         },
-        error: r.ok ? `断言失败（expected ${JSON.stringify(step.expect)}）` : r.error,
+        error: markError ?? (r.ok ? `断言失败（expected ${JSON.stringify(step.expect)}）` : r.error),
       })
     }
   }

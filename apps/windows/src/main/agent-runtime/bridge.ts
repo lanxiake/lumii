@@ -91,7 +91,7 @@ import type { AgentMessage, AgentTool, StreamFn } from '@earendil-works/pi-agent
 import { matchByQuery, toolSearchToolConfig } from '@mtbot/agent-runtime'
 import { assembleTools } from '@mtbot/agent-runtime'
 import { VIEW_STATE_SCRIPT } from '../app-ui-control/controller'
-import { getScreenRecordService } from '../kernel/screen-record-contract'
+import { getNarrateService, getScreenRecordService } from '../kernel/screen-record-contract'
 
 /** 流水线调工具时借用的一份「定义」——只为过权限闸门，不是真的 Agent */
 const PIPELINE_TOOL_DEF = {
@@ -4107,7 +4107,23 @@ export class AgentRuntimeBridge {
     if (!svc()) return null
     return {
       start: async (p) => svc()?.start(p) ?? { ok: false, error: 'screen-record unavailable' },
-      stop: async () => svc()?.stop() ?? { ok: false },
+      // **必须归一化**：真实 stop 返回 `{ok, path, durationMs, bytes, timeline, mp4Path?}`
+      // （path 在顶层），而 runner 读 `stop.data.path`。裸透传会让 artifact 永远为空
+      // ——录了、journal 的 markAtMs 也有值，但成片路径丢了（2026-10-31 真机就是这么发现的）。
+      stop: async () => {
+        const s = svc()
+        if (!s) return { ok: false, error: 'screen-record unavailable' }
+        const r = await s.stop()
+        if (!r.ok) return { ok: false, error: r.error }
+        return {
+          ok: true,
+          data: {
+            path: r.path,
+            durationMs: r.durationMs,
+            mp4Path: r.mp4Path,
+          },
+        }
+      },
       mark: async (p) => {
         const s = svc()
         if (!s) return { ok: false }
@@ -4119,6 +4135,26 @@ export class AgentRuntimeBridge {
         if (!s) return []
         const r = await s.listSources(false)
         return r.ok ? (r.sources ?? []) : []
+      },
+      narrate: async (p) => {
+        const n = getNarrateService()
+        if (!n) return { ok: false, error: '旁白服务不可用（录屏扩展未启用）' }
+        try {
+          const r = await n.narrate(p)
+          return r.ok
+            ? {
+                ok: true,
+                data: {
+                  mp4Path: r.path,
+                  burned: r.burned,
+                  dubbed: r.dubbed,
+                  cueCount: p.cues.length,
+                },
+              }
+            : { ok: false, error: r.error }
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) }
+        }
       },
     }
   }

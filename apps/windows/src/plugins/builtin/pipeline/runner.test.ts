@@ -51,7 +51,8 @@ function deps(opts: {
       }),
       stop: vi.fn(async () => {
         calls.push('stop')
-        return { ok: true, data: { mp4Path: 'x.mp4' } }
+        // 真实 stop 至少给 path（narrate 的入参就是它），mp4Path 是可选的
+        return { ok: true, data: { path: 'x.mkv', durationMs: 1234 } }
       }),
       mark: vi.fn(async (p: { label: string }) => {
         calls.push('mark')
@@ -59,6 +60,10 @@ function deps(opts: {
         return { ok: true, data: { atMs: 9000 } }
       }),
       listSources: vi.fn(async () => [{ sourceId: 'lumii-id', name: 'Lumii' }]),
+      narrate: vi.fn(async (p: { cues: unknown[] }) => ({
+        ok: true,
+        data: { cueCount: p.cues.length, burned: true, dubbed: true },
+      })),
     },
     readViewState: vi.fn(async () => opts.viewState ?? { view: 'chat' }),
     // 注入 fake clock：holdMs 直接推进，不真 sleep（单测里 1.2 秒 × N 步会拖死套件）
@@ -185,6 +190,85 @@ describe('runner 主循环', () => {
       deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
     })
     expect(marks.map((m) => m.label)).toEqual(['有旁白'])
+  })
+
+  it('cues 条数 == 有 narration 的步数，startMs 来自该步的 markAtMs', async () => {
+    const { spec, specHash } = specOf(
+      [
+        { id: 'a', tool: 'app_goto', narration: '第一段' },
+        { id: 'b', tool: 'app_act' },
+        { id: 'c', tool: 'app_goto', narration: '第二段' },
+      ],
+      { record: { enabled: true, narrate: { dub: true, exportMp4: true } } },
+    )
+    const { d } = deps()
+    await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    const narrate = d.screenRecord!.narrate as ReturnType<typeof vi.fn>
+    expect(narrate).toHaveBeenCalledTimes(1)
+    const arg = narrate.mock.calls[0]![0] as { cues: { startMs: number; text: string }[] }
+    expect(arg.cues).toHaveLength(2)
+    expect(arg.cues.map((c) => c.text)).toEqual(['第一段', '第二段'])
+    // 同源：startMs 必须等于该步 mark 返回的 atMs（fake 里恒 9000）
+    expect(arg.cues.every((c) => c.startMs === 9000)).toBe(true)
+  })
+
+  it('没有任何 narration → 不调 narrate', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      record: { enabled: true, narrate: { dub: true } },
+    })
+    const { d } = deps()
+    await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(d.screenRecord!.narrate).not.toHaveBeenCalled()
+  })
+
+  it('rehearsal 不录 → 不 stop、不 narrate', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto', narration: 'n' }], {
+      record: { enabled: true, narrate: { dub: true } },
+    })
+    const { d, calls } = deps()
+    await runPipeline({
+      spec, specHash, mode: 'rehearsal', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(calls).not.toContain('stop')
+    expect(d.screenRecord!.narrate).not.toHaveBeenCalled()
+  })
+
+  it('mark 失败 → 该步判失败（有旁白却没打点 = 成片少一段字幕）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto', narration: '要打点' }], {
+      record: { enabled: true },
+    })
+    const { d } = deps()
+    ;(d.screenRecord!.mark as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: 'not_recording' })
+    const res = await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(res.ok).toBe(false)
+    expect(res.failedAt?.id).toBe('a')
+    expect(String(res.error)).toContain('打点失败')
+  })
+
+  it('stop 失败但前面步骤全 ok → 返回 ok:false，steps 仍是各步真实结果', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      record: { enabled: true },
+    })
+    const { d } = deps()
+    ;(d.screenRecord!.stop as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: 'capture_failed' })
+    const res = await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    // 步骤本身过了；stop 失败只影响 artifact（这里不把整个 run 判失败——
+    // 步进结果才是 run 的结论，产物是附带的）
+    expect(res.steps.every((s) => s.ok)).toBe(true)
+    expect(res.artifact).toBeUndefined()
   })
 
   it('record：start 用 listSources 挑出的 sourceId（不是 spec 的 sourceHint）', async () => {
