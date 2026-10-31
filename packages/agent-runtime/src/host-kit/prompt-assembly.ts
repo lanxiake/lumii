@@ -114,6 +114,8 @@ export async function assembleSystemPrompt(
 
   const contextFiles = pc.getContextFiles();
   const mcpServerHints = pc.getMcpServerHints();
+  // 流水线摘要：与 mcpServerHints 一样是装配时快照（插件 wire 后才有；无则不注入）
+  const pipelineHints = pc.getPipelineHints?.() ?? [];
 
   const bundledSkillIds = def.bundledSkills ?? [];
   const effectiveSkills = mergeBundledSkills(skills, bundledSkillIds);
@@ -139,6 +141,7 @@ export async function assembleSystemPrompt(
       userDevices,
       soulContent: resolveSoul(),
       mcpServerHints,
+      pipelineHints,
       activeTasks: opts.getActiveTasks?.(),
       // 每轮传入的风格优先；缺省回退创建时快照
       promptStyle: promptStyle ?? opts.promptStyle,

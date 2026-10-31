@@ -1,13 +1,13 @@
 {
   "id": "model-config-tutorial",
   "name": "模型配置教程",
-  "description": "带旁白走一遍「打开设置 → 进模型配置 → 回对话」。把 record.enabled 改成 true 就会录成带字幕的教程视频。",
+  "description": "带旁白走一遍「打开设置 → 进模型配置 → 回对话」，录制并烧录字幕导出 MP4。",
   "record": {
-    "enabled": false,
+    "enabled": true,
     "sourceHint": "auto",
     "includeMic": false,
     "narrate": {
-      "dub": true,
+      "dub": false,
       "subtitleMode": "burn",
       "exportMp4": true
     }

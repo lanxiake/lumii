@@ -116,7 +116,15 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
             steps: res.steps,
           })
         }
-        return ok({ status: 'ok', runId: res.runId, journalPath: res.journalPath, steps: res.steps })
+        // artifact 必须透出：模型要能把「视频在哪」告诉用户。缺了它，
+        // 录制模式下 run 报成功而用户拿不到产物（2026-10-31 真机现场）。
+        return ok({
+          status: 'ok',
+          runId: res.runId,
+          journalPath: res.journalPath,
+          steps: res.steps,
+          ...(res.artifact ? { artifact: res.artifact } : {}),
+        })
       } catch (err) {
         return fail(err instanceof Error ? err.message : String(err))
       }

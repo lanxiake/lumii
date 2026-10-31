@@ -33,6 +33,7 @@ export type PromptSectionId =
   | "progressiveLoading"
   | "mcp"
   | "skills"
+  | "pipelines"
   | "selfLearning"
   | "taskOrchestration"
   | "subagentRole"

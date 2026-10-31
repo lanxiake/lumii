@@ -43,6 +43,7 @@ import {
   type CustomAgentInfo,
   type UserDeviceInfo,
   type McpServerHint,
+  type PipelineHint,
   type ContextFile,
 } from '@mtbot/agent-runtime'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
@@ -198,6 +199,8 @@ export interface BridgeInstanceFactoryDeps {
   getFileRepo: () => FileRepo | null
   getMemoryManager: () => MemoryManager | null
   getToolContext: () => ToolExecutionContext | null
+  /** 确定性流水线摘要（插件 wire 后写入 bridge；未启用则空数组） */
+  getPipelineHints?: () => readonly PipelineHint[]
   /** 长耗时工具后台化配置（策略 + 执行器），由 bridge 注入 */
   background?: BackgroundToolConfig
   /** 推送活动快照（委派到 lifecycle.pushActivitySnapshot） */
@@ -759,6 +762,8 @@ export class BridgeInstanceFactory {
         }
       },
       getContextFiles: (): readonly ContextFile[] => this.deps.promptComposer.loadContextFiles(),
+      // 确定性流水线摘要：由插件 wire 后写入 bridge；未启用插件时为空 → 不注入该节
+      getPipelineHints: () => this.deps.getPipelineHints?.() ?? [],
       getMcpServerHints: (): readonly McpServerHint[] => {
         const hints: McpServerHint[] = []
         for (const [name, client] of this.deps.mcpClients) {

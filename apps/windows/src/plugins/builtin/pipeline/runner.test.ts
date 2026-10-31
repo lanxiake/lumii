@@ -192,6 +192,45 @@ describe('runner 主循环', () => {
     expect(marks.map((m) => m.label)).toEqual(['有旁白'])
   })
 
+  it('record.enabled=false 时 mode=record → 判失败并说明原因（不再静默成功）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      record: { enabled: false },
+    })
+    const { d, calls } = deps()
+    const res = await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(res.ok).toBe(false)
+    expect(String(res.error)).toContain('record.enabled=false')
+    expect(calls).not.toContain('start')
+    expect(res.artifact).toBeUndefined()
+  })
+
+  it('mode=record 无 record 块 → 仍然录（mode 是用户意图，缺省即录）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }])
+    const { d, calls } = deps()
+    const res = await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(calls).toContain('start')
+    expect(res.ok).toBe(true)
+    expect(res.artifact).toBeDefined()
+  })
+
+  it('录了却没产物 → 判失败（页面上「成功但没视频」比报错更糟）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }])
+    const { d } = deps()
+    ;(d.screenRecord!.stop as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: 'capture_failed' })
+    const res = await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(res.ok).toBe(false)
+    expect(String(res.error)).toContain('没有拿到产物')
+  })
+
   it('start 失败 → 绝不调 stop（否则会误停用户正开着的手动录屏）', async () => {
     const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
       record: { enabled: true },
@@ -240,6 +279,27 @@ describe('runner 主循环', () => {
     expect(arg.cues.map((c) => c.text)).toEqual(['第一段', '第二段'])
     // 同源：startMs 必须等于该步 mark 返回的 atMs（fake 里恒 9000）
     expect(arg.cues.every((c) => c.startMs === 9000)).toBe(true)
+  })
+
+  it('配音失败 → 降级纯字幕重试一次（TTS 403 不能连累成片）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto', narration: '旁白' }], {
+      record: { enabled: true, narrate: { dub: true } },
+    })
+    const { d } = deps()
+    ;(d.screenRecord!.narrate as ReturnType<typeof vi.fn>).mockImplementation(
+      async (p: { dub?: boolean; cues: unknown[] }) =>
+        p.dub ? { ok: false, error: 'tts_unavailable' } : { ok: true, data: { cueCount: p.cues.length } },
+    )
+    const res = await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    const narrate = d.screenRecord!.narrate as ReturnType<typeof vi.fn>
+    expect(narrate).toHaveBeenCalledTimes(2)
+    expect((narrate.mock.calls[0]![0] as { dub: boolean }).dub).toBe(true)
+    expect((narrate.mock.calls[1]![0] as { dub: boolean }).dub).toBe(false)
+    expect(res.ok).toBe(true)
+    expect(res.artifact).toBeDefined()
   })
 
   it('没有任何 narration → 不调 narrate', async () => {

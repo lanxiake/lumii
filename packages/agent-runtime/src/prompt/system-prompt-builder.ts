@@ -50,6 +50,7 @@ import {
   buildMessagingSection,
   buildBrowserSection,
   buildMcpSection,
+  buildPipelineSection,
   buildA2UISection,
   buildFileOutputSection,
   buildSilentRepliesSection,
@@ -325,6 +326,13 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   // === 3.4. MCP Server Instructions ===
   if (params.mcpServerHints && params.mcpServerHints.length > 0) {
     emit("static", "mcp", [...tagged("mcp_servers", buildMcpSection(params.mcpServerHints, style))])
+  }
+
+  // === 3.4b. 确定性流水线（有才注入）===
+  if (params.pipelineHints && params.pipelineHints.length > 0) {
+    // 不入 tag：tag 只用于「需要单独计量的分区」，流水线这一节很小，加 tag 要连带改
+    // PromptSectionTag 联合与下游计量，不划算。
+    emit("static", "pipelines", [...buildPipelineSection(params.pipelineHints, style)])
   }
 
   // === 3.5. Skills（按白名单过滤）===

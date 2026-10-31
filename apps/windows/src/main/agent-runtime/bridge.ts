@@ -50,6 +50,7 @@ import {
   type AgentDefinition,
   type ToolExecutionContext,
   type MtBotToolConfig,
+  type PipelineHint,
   type AgentRuntimeFeatureFlags,
   type BackgroundToolConfig,
   type BackgroundToolRunner,
@@ -2844,6 +2845,8 @@ export class AgentRuntimeBridge {
       getConversationOwnership: this.getConversationOwnership.bind(this),
       getMemoryManager: () => this._memoryManager,
       getToolContext: () => this.toolContext,
+      // 流水线摘要由插件写入（见 setPipelineHints）；未启用插件时为空 → 提示词不注入该节
+      getPipelineHints: () => this.pipelineHints,
       pushActivitySnapshot: (k) => this.lifecycle.pushActivitySnapshot(k),
       prompt: (id, msg) => this.prompt(id, msg),
       createSummaryGenerator: (innerStream, model) => createLlmSummaryGenerator(innerStream, model),
@@ -4013,6 +4016,19 @@ export class AgentRuntimeBridge {
    * - `knownTools` / `needsPermission`：spec 校验与 rehearsal 跳过集都要现取工具表。
    * - `registerTool`：插件把 config 交过来，这里用**本地的** toolContext 建实例并注册，返回 disposer。
    */
+  /** 流水线摘要（插件 wire 时写进来；提示词据此注入 Pipelines 一节） */
+  private pipelineHints: readonly PipelineHint[] = []
+
+  /**
+   * 由流水线插件调用：更新「有哪些流水线」的快照。
+   *
+   * 方向是**插件 → 核心**（插件知道工作区里的 spec，核心不该 import 插件的 store）。
+   * 不刷实例：builder 每轮重建提示词时现读 `this.pipelineHints`，下一次发言即生效。
+   */
+  setPipelineHints(hints: readonly PipelineHint[]): void {
+    this.pipelineHints = hints
+  }
+
   createPipelineExecutor(): {
     callTool: (name: string, params: Record<string, unknown>) => Promise<{ ok: boolean; data?: unknown; error?: string }>
     screenRecord: import('../../plugins/builtin/pipeline/types').RunnerDeps['screenRecord']

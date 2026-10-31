@@ -5,7 +5,7 @@
  * Browser、Device、MCP、A2UI、File Output、Silent Replies、Project Context
  */
 
-import { isLeanStyle, type PromptStyle, type ContextFile, type UserDeviceInfo, type McpServerHint } from "../system-prompt.types.js"
+import { isLeanStyle, type PromptStyle, type ContextFile, type UserDeviceInfo, type McpServerHint, type PipelineHint } from "../system-prompt.types.js"
 import { MEMORY_GUIDE_CONTENT } from "../guides/index.js"
 import { PCWECHAT_SELF_PEER_ID } from "../../tools/built-in/channel-tools.js"
 
@@ -397,6 +397,58 @@ export function buildBrowserSection(toolNames: readonly string[], style: PromptS
  * Build the MCP Server section.
  * Injects MCP server tool lists and usage instructions.
  */
+export function buildPipelineSection(
+  hints?: readonly PipelineHint[],
+  style: PromptStyle = "detailed",
+): string[] {
+  if (!hints || hints.length === 0) return []
+
+  // 模型只读提示词，不读目录。没有这一节，现成的流水线形同不存在
+  // （2026-10-31 真机：用户要录教程，Agent 手工调了一路 screen_record_*）。
+  const CRITERIA =
+    "三条全中才该用流水线：① 路径能预先枚举；② 每步有可断言的结果；③ 会重复跑。" +
+    "不满足就照常自己做——硬套会变成「写死的不够用的脚本」，比自己做更糟。"
+
+  if (isLeanStyle(style)) {
+    // **lean 档也必须带一句「这条是干什么的」**：只列 id 的话，模型知道有三条、
+    // 却判断不出哪条适配当前任务（2026-10-31 实测：它回答「三条，但不知道几步/用途」，
+    // 于是宁可手工做）。这里省略步数（要步数可 `pipeline_inspect`），但保留描述。
+    const SHORT = 60
+    return [
+      "## Pipelines",
+      "",
+      ...hints.map((h) => {
+        const d = h.description ? ` — ${h.description.slice(0, SHORT)}${h.description.length > SHORT ? '…' : ''}` : ''
+        return `- \`${h.id}\`（${h.name}）${d}`
+      }),
+      "",
+      `When a task matches a pipeline (or the user asks to record a tutorial/demo), MUST use \`pipeline_run(id, mode)\` instead of driving the UI by hand. ${CRITERIA}`,
+      "",
+    ]
+  }
+
+  const lines: string[] = [
+    "## Pipelines（确定性流水线）",
+    "",
+    "已固化的可枚举步骤。**命中时优先用 `pipeline_run`，不要手工一步步点**——",
+    "手工路径每步都靠模型判断，既慢又飘；流水线是同一份 spec 每次跑出同样的结果。",
+    "",
+  ]
+  for (const h of hints) {
+    const desc = h.description ? ` — ${h.description}` : ""
+    lines.push(`- \`${h.id}\`（${h.name}，${h.stepCount} 步）${desc}`)
+  }
+  lines.push(
+    "",
+    "用法：`pipeline_run(id, mode)`；`mode=rehearsal` 先彩排（不录屏、跳过需授权工具，但仍校验断言），",
+    "绿了再用 `mode=record` 出成片。想知道细节用 `pipeline_inspect(id)`。",
+    "",
+    CRITERIA,
+    "",
+  )
+  return lines
+}
+
 export function buildMcpSection(hints?: readonly McpServerHint[], style: PromptStyle = "detailed"): string[] {
   if (!hints?.length) return []
 

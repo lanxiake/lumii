@@ -1,15 +1,15 @@
 {
   "id": "settings-tour",
   "name": "设置页巡览",
-  "description": "依次打开设置各分区并停留。三条判据全中：路径可枚举、每步有可断言结果、会重复跑。录屏默认关闭，改成 true 即可出教程视频。",
+  "description": "依次打开设置各分区并停留，录制并导出 MP4。三条判据全中：路径可枚举、每步有可断言结果、会重复跑。",
   "record": {
-    "enabled": false,
+    "enabled": true,
     "sourceHint": "auto",
     "includeMic": false,
     "narrate": {
       "dub": false,
       "subtitleMode": "burn",
-      "exportMp4": false
+      "exportMp4": true
     }
   },
   "steps": [

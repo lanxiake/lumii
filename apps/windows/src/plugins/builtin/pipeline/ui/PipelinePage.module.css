@@ -463,3 +463,48 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── 产物行（录制成功后的闭环出口） ── */
+.artifact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md);
+  background: var(--mt-bg-secondary);
+  font-size: 12px;
+}
+
+.artifactLabel {
+  font-weight: 600;
+  color: var(--mt-success);
+  white-space: nowrap;
+}
+
+.artifactPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-2);
+}
+
+.artifactMeta {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--mt-fg-3);
+  font-size: 11.5px;
+}
+
+.warn {
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: var(--mt-radius-md);
+  background: var(--mt-bg-tertiary);
+  color: var(--mt-fg-2);
+  font-size: 12px;
+}

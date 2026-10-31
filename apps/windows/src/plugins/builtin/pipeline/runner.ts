@@ -133,7 +133,12 @@ function assertExpect(
 export async function runPipeline(opts: RunOptions): Promise<RunResult> {
   const { spec, specHash, mode, runDir, deps } = opts
   const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
-  const record = mode === 'record' && spec.record?.enabled === true
+  // `mode:'record'` 是**用户的明确意图**（点了「录制运行」/ 模型调 pipeline_run record）。
+  // `spec.record.enabled` 只能**否决**它（作者刻意声明「这条永远不录」），不能静默把它变成
+  // 一次不录的普通运行 —— 那样 run 会报成功、却没有任何产物，用户拿到的是一句空话。
+  const recordRequested = mode === 'record'
+  const recordVetoed = spec.record?.enabled === false
+  const record = recordRequested && !recordVetoed
   /**
    * 录制**真的起来了**才允许 stop。
    *
@@ -187,15 +192,24 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
           .filter((c): c is { startMs: number; text: string } => c !== null)
         const narrateCfg = spec.record?.narrate
         if (cues.length > 0 && data.path && narrateCfg) {
-          try {
-            const n = await deps.screenRecord.narrate({
-              path: data.path,
+          const runNarrate = (dub: boolean) =>
+            deps.screenRecord!.narrate({
+              path: data.path!,
               cues,
-              dub: narrateCfg.dub,
+              dub,
               writeSrt: true,
               subtitleMode: narrateCfg.subtitleMode as 'soft' | 'burn' | undefined,
               exportMp4: narrateCfg.exportMp4,
             })
+          try {
+            let n = await runNarrate(narrateCfg.dub === true)
+            // **配音失败降级重试一次（不要配音）**：TTS 依赖网络（实测 Edge TTS 会回 403），
+            // 而录屏本身已经成功。因为一段旁白合成不了就把整条成片判失败，是把
+            // 「可选增强」当成了「必需步骤」——用户要的是视频，字幕可以先不带声音。
+            if (!n.ok && narrateCfg.dub === true) {
+              console.warn(`[pipeline] 配音失败（${n.error ?? 'unknown'}），降级为纯字幕重试`)
+              n = await runNarrate(false)
+            }
             if (n.ok && n.data) {
               artifact = {
                 ...artifact,
@@ -204,6 +218,8 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
                 dubbed: n.data.dubbed,
                 cueCount: n.data.cueCount,
               }
+            } else {
+              console.warn('[pipeline] 旁白合成失败（成片保留）:', n.error)
             }
           } catch (err) {
             // 旁白失败不推翻「步骤全过」的结论——成片已在，用户可以选择不带字幕。
@@ -212,8 +228,20 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
         }
       }
     }
-    writeMeta(runDir, { ...meta, endedAt: deps.now(), status: result.ok ? 'ok' : 'failed', artifact })
-    return { ...result, steps, journalPath, artifact }
+    // **闭环兜底**：明确要求录制、步骤也全过了，却没有任何产物 → 这不能算成功。
+    // 典型来路：spec 写着 `record.enabled: false`（作者否决）、或录屏服务中途不可用。
+    // 不判失败的话，用户在页面上看到「成功」，却找不到视频——比直接报错更糟。
+    let finalOk = result.ok
+    let finalError = result.error
+    if (recordRequested && result.ok && !artifact) {
+      finalOk = false
+      finalError = recordVetoed
+        ? '该 spec 明确禁用了录制（record.enabled=false），本次没有产物。把它改成 true，或用彩排模式。'
+        : '要求录制但没有拿到产物（录屏服务不可用或启动后异常退出）。'
+    }
+
+    writeMeta(runDir, { ...meta, endedAt: deps.now(), status: finalOk ? 'ok' : 'failed', artifact })
+    return { ...result, ok: finalOk, error: finalError, steps, journalPath, artifact }
   }
 
   // ── preconditions：不满足直接停，且**不 start 录制** ──

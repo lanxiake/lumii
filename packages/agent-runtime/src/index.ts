@@ -177,6 +177,7 @@ export {
   agentRemoveToolConfig,
 } from "./tools/built-in/index.js";
 
+export type { PipelineHint } from "./prompt/system-prompt.types.js";
 export { normalizeCacheKey, DEFAULT_CACHE_TTL_MINUTES } from "./tools/built-in/web-shared.js";
 
 // === LLM 代理层导出 ===

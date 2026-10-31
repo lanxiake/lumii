@@ -33,7 +33,12 @@ function stepOf(detail: { spec: { steps: StepView[] } } | null, id: string): Ste
 export function PipelinePage() {
   const { items, selectedId, select, detail, error, progress, run } = usePipelines()
   const [busy, setBusy] = useState<string | null>(null)
-  const [lastResult, setLastResult] = useState<{ id: string; ok: boolean; error?: string } | null>(null)
+  const [lastResult, setLastResult] = useState<{
+    id: string
+    ok: boolean
+    error?: string
+    artifact?: { mp4Path?: string; durationMs?: number; cueCount?: number; burned?: boolean; dubbed?: boolean }
+  } | null>(null)
 
   const selected: PipelineSummary | undefined = useMemo(
     () => items?.find((p) => p.id === selectedId),
@@ -48,8 +53,12 @@ export function PipelinePage() {
     setBusy(id)
     setLastResult(null)
     try {
-      const r = (await run(id, mode)) as { ok?: boolean; error?: string }
-      setLastResult({ id, ok: Boolean(r?.ok), error: r?.error })
+      const r = (await run(id, mode)) as {
+        ok?: boolean
+        error?: string
+        artifact?: { mp4Path?: string; durationMs?: number; cueCount?: number; burned?: boolean; dubbed?: boolean }
+      }
+      setLastResult({ id, ok: Boolean(r?.ok), error: r?.error, artifact: r?.artifact })
     } catch (err) {
       setLastResult({ id, ok: false, error: err instanceof Error ? err.message : String(err) })
     } finally {
@@ -161,6 +170,27 @@ export function PipelinePage() {
               )}
               {lastResult && lastResult.id === selected.id && !lastResult.ok && (
                 <div className={styles.failed}>{lastResult.error ?? '运行失败'}</div>
+              )}
+              {lastResult && lastResult.id === selected.id && lastResult.ok && lastResult.artifact && (
+                <div className={styles.artifact}>
+                  <span className={styles.artifactLabel}>产物</span>
+                  <span className={styles.artifactPath} title={lastResult.artifact.mp4Path}>
+                    {lastResult.artifact.mp4Path ?? '(已录制)'}
+                  </span>
+                  <span className={styles.artifactMeta}>
+                    {lastResult.artifact.cueCount != null ? `${lastResult.artifact.cueCount} 段字幕` : ''}
+                    {lastResult.artifact.durationMs != null
+                      ? ` · ${(lastResult.artifact.durationMs / 1000).toFixed(1)}s`
+                      : ''}
+                    {lastResult.artifact.burned ? ' · 已烧录' : ''}
+                  </span>
+                  <button className={styles.btnGhost} onClick={() => openDir('run')}>
+                    打开目录
+                  </button>
+                </div>
+              )}
+              {lastResult && lastResult.id === selected.id && lastResult.ok && !lastResult.artifact && (
+                <div className={styles.warn}>这次运行没有产物（彩排不录屏）</div>
               )}
             </div>
 

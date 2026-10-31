@@ -168,7 +168,32 @@ export const pipelineExtension = {
         for (const c of createPipelineToolConfigs(impl)) {
           ctx.effect(ex.registerTool(c as unknown as { name: string }))
         }
+        // 把「有哪些流水线」写进提示词。**这是闭环的关键**：引擎建好但模型不知道它存在，
+        // 就会绕过它手工调底层工具（2026-10-31 真机：让它录教程，它直接调 screen_record_*）。
+        void refreshHints(bridge, impl)
         return true
+      }
+
+      /** 把当前流水线清单推给 bridge（提示词据此注入 Pipelines 一节） */
+      const refreshHints = async (
+        bridge: { setPipelineHints(h: readonly { id: string; name: string; description?: string; stepCount: number }[]): void },
+        svc: PipelineService,
+      ) => {
+        try {
+          const list = await svc.list()
+          bridge.setPipelineHints(
+            list
+              .filter((p) => !p.error)
+              .map((p) => ({
+                id: p.id,
+                name: p.name ?? p.id,
+                description: p.description,
+                stepCount: p.stepCount,
+              })),
+          )
+        } catch (err) {
+          ctx.log.warn(`刷新流水线提示失败（已忽略）: ${err instanceof Error ? err.message : err}`)
+        }
       }
       if (!wire()) {
         ctx.on('agent:runtime-ready', () => {

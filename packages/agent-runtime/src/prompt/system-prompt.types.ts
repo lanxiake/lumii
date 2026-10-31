@@ -155,6 +155,22 @@ export interface McpServerHint {
   readonly instructions?: string
 }
 
+/**
+ * 确定性流水线的提示词摘要（只四个字段——设计 §3.3「统一描述符」）。
+ *
+ * **为什么必须进提示词**：引擎建好了不等于 Agent 会用。2026-10-31 真机：
+ * 用户说「给我录制一个模型配置教程」，Agent 直接手工调 `screen_record_*`，
+ * 完全没意识到有一条现成的 `model-config-tutorial` 流水线。工具存在但不可见 =
+ * 能力不存在。与技能索引同一套路：模型只读提示词，不读目录。
+ */
+export interface PipelineHint {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  /** 步数；让模型能判断规模是否可枚举 */
+  readonly stepCount: number
+}
+
 /** 当前活跃任务信息（注入系统提示词动态部分，防止目标偏移） */
 export interface ActiveTaskInfo {
   /** 任务 ID */
@@ -269,6 +285,14 @@ export interface ClientSystemPromptParams {
 
   /** MCP Server 提示词提示（工具归属与使用说明） */
   readonly mcpServerHints?: readonly McpServerHint[]
+
+  /**
+   * 确定性流水线摘要（`{workspace}/pipelines/*`）。
+   *
+   * 有流水线时才注入一节：列出「有什么 + 什么时候优先用它」。没有它，模型只会
+   * 手工调底层工具，现成的流水线形同不存在。
+   */
+  readonly pipelineHints?: readonly PipelineHint[]
 
   // === 系统提示词优化 ===
 

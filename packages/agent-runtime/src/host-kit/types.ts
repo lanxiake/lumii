@@ -16,6 +16,7 @@ import type { AgentRuntimeEvent } from "../types/events.js";
 import type { AgentRuntimeFeatureFlags } from "../config/index.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import type { MtBotTool, ToolExecutionContext } from "../types/tool.js";
+import type { PipelineHint } from "../prompt/system-prompt.types.js";
 import type { ToolHook } from "../tools/tool-hooks.js";
 import type { BackgroundToolConfig } from "../tools/background-tool.js";
 import type { MemoryManager } from "../memory/manager.js";
@@ -167,6 +168,8 @@ export interface PromptContextProvider {
   getSoulContentLive?: () => string | undefined;
   getContextFiles(): readonly ContextFile[];
   getMcpServerHints(): readonly McpServerHint[];
+  /** 可选：确定性流水线摘要（插件提供；未提供 = 不注入这一节） */
+  getPipelineHints?(): readonly PipelineHint[];
 }
 
 // ============================================================
