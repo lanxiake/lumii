@@ -1,0 +1,465 @@
+/**
+ * 流水线页样式（对照原型 §一）。**只用 --mt-* 令牌**，不写死色值——
+ * 三个主题块（浅色/深色/暗黑）才能同时成立。
+ */
+
+.layout {
+  display: grid;
+  grid-template-columns: 288px 1fr;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  overflow: hidden;
+  background: var(--mt-bg-primary);
+}
+
+/* ── 左：清单 ── */
+.list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--mt-border);
+  background: var(--mt-bg-secondary);
+}
+
+.listHead {
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid var(--mt-border);
+}
+
+.row1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row1 b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mt-fg-1);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  color: var(--mt-fg-2);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--mt-bg-tertiary);
+  color: var(--mt-fg-1);
+}
+
+.items {
+  flex: 1;
+  overflow: auto;
+  padding: 6px;
+  min-height: 0;
+}
+
+.item {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--mt-fg-1);
+}
+
+.item:hover {
+  background: var(--mt-bg-tertiary);
+}
+
+.itemActive {
+  background: var(--mt-bg-tertiary);
+  border-color: var(--mt-border);
+}
+
+.itemTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.itemMeta {
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--mt-fg-3);
+}
+
+.listFoot {
+  padding: 9px 12px;
+  border-top: 1px solid var(--mt-border);
+  font-size: 11.5px;
+  color: var(--mt-fg-3);
+}
+
+/* ── 徽标 ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 500;
+  background: var(--mt-bg-tertiary);
+  color: var(--mt-fg-2);
+  white-space: nowrap;
+}
+
+.badgeGreen {
+  background: var(--mt-success-light);
+  color: var(--mt-success);
+}
+
+.badgeRed {
+  background: var(--mt-error-light);
+  color: var(--mt-error);
+}
+
+/* ── 右：详情 ── */
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.head {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--mt-border);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.titleRow h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--mt-fg-1);
+}
+
+.desc {
+  margin-top: 5px;
+  font-size: 12.5px;
+  color: var(--mt-fg-2);
+  line-height: 1.5;
+}
+
+.meta {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--mt-fg-3);
+  flex-wrap: wrap;
+}
+
+.progress {
+  margin-top: 10px;
+  padding: 7px 10px;
+  border-radius: var(--mt-radius-md);
+  background: var(--mt-bg-tertiary);
+  font-size: 12px;
+  color: var(--mt-fg-2);
+}
+
+.failed {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--mt-radius-md);
+  background: var(--mt-error-light);
+  color: var(--mt-error);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  padding: 16px 20px 24px;
+  align-items: start;
+}
+
+.col {
+  min-width: 0;
+}
+
+.colTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mt-fg-3);
+}
+
+/* ── 步骤表 ── */
+.steps {
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  overflow: hidden;
+  background: var(--mt-bg-primary);
+}
+
+.stepRow {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 132px 46px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--mt-border);
+  font-size: 12.5px;
+}
+
+.stepRow:last-child {
+  border-bottom: 0;
+}
+
+.stepNo {
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-3);
+  text-align: center;
+}
+
+.stepLbl {
+  min-width: 0;
+}
+
+.stepName {
+  display: block;
+  font-weight: 500;
+  color: var(--mt-fg-1);
+}
+
+.stepErr {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--mt-error);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stepTool {
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-2);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stepHold {
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-3);
+  text-align: right;
+}
+
+.stepNoNarr {
+  opacity: 0.62;
+}
+
+.stepFailed {
+  background: var(--mt-error-light);
+}
+
+/* ── 断言摘要 ── */
+.assertBox {
+  margin-top: 12px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  padding: 11px 12px;
+  background: var(--mt-bg-secondary);
+}
+
+.assertTitle {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mt-fg-3);
+  margin-bottom: 6px;
+}
+
+.assertLine {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: var(--mt-fg-2);
+}
+
+.assertKey {
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-3);
+  min-width: 26px;
+}
+
+/* ── 动作区 ── */
+.actionsCard {
+  margin-bottom: 18px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  padding: 12px;
+  background: var(--mt-bg-secondary);
+}
+
+.btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btnPrimary,
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--mt-radius-md);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.btnPrimary {
+  /* 令牌名照 Button.module.css 的 .btn-primary：--mt-accent-500 + --mt-fg-on-accent。
+     （`--mt-accent` / `--mt-accent-contrast` 都不存在，用它们会静默无样式——
+     文字落在 accent 背景上，深色主题下几乎看不见。） */
+  border: 1px solid var(--mt-accent-500);
+  background: var(--mt-accent-500);
+  color: var(--mt-fg-on-accent);
+  font-weight: 500;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--mt-accent-600);
+  border-color: var(--mt-accent-600);
+}
+
+.btnPrimary:disabled,
+.btnGhost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btnGhost {
+  border: 1px solid var(--mt-border);
+  background: transparent;
+  color: var(--mt-fg-2);
+}
+
+.btnGhost:hover:not(:disabled) {
+  background: var(--mt-bg-tertiary);
+  color: var(--mt-fg-1);
+}
+
+.hint {
+  margin-top: 9px;
+  font-size: 11.5px;
+  color: var(--mt-fg-3);
+  line-height: 1.5;
+}
+
+/* ── 历史 run ── */
+.runs {
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  overflow: hidden;
+  background: var(--mt-bg-primary);
+}
+
+.runRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--mt-border);
+  font-size: 12px;
+}
+
+.runRow:last-child {
+  border-bottom: 0;
+}
+
+.runWhen {
+  color: var(--mt-fg-2);
+}
+
+.runStatus {
+  color: var(--mt-fg-3);
+  font-size: 11.5px;
+}
+
+.runEmpty {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--mt-fg-3);
+  text-align: center;
+}
+
+/* ── spec 坏了 ── */
+.broken {
+  display: flex;
+  gap: 12px;
+  padding: 24px;
+  color: var(--mt-warning);
+}
+
+.broken h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: var(--mt-fg-1);
+}
+
+.broken p {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--mt-fg-2);
+}
+
+.broken pre {
+  margin: 0;
+  padding: 10px;
+  border-radius: var(--mt-radius-md);
+  background: var(--mt-bg-secondary);
+  font-family: var(--mt-font-mono);
+  font-size: 11.5px;
+  color: var(--mt-error);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

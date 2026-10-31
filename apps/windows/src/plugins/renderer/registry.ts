@@ -7,6 +7,7 @@ import { channelFeishuRenderer } from '../builtin/channel-feishu/renderer'
 import { channelQbotRenderer } from '../builtin/channel-qbot/renderer'
 import { pcwechatRenderer } from '../builtin/pcwechat/renderer'
 import { autonomousRenderer } from '../builtin/autonomous/renderer'
+import { pipelineRenderer } from '../builtin/pipeline/renderer'
 import { screenRecordRenderer } from '../external-src/screen-record/renderer'
 import { cloudSyncRenderer } from '../external-src/cloud-sync/renderer'
 import { perfRenderer } from '../external-src/perf/renderer'
@@ -39,6 +40,7 @@ export const RENDERER_PLUGINS: readonly RendererPlugin[] = [
   vcsRenderer,
   petRenderer,
   autonomousRenderer,
+  pipelineRenderer,
   screenRecordRenderer,
   cloudSyncRenderer,
   perfRenderer,
