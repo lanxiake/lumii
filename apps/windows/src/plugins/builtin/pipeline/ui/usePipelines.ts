@@ -54,7 +54,14 @@ export interface StepView {
 }
 
 export interface PipelineDetail {
-  spec: { id: string; name?: string; description?: string; steps: StepView[] }
+  spec: {
+    id: string
+    name?: string
+    description?: string
+    steps: StepView[]
+    /** 页面据此决定「录制运行」能不能点（enabled === false 时禁用并说明原因） */
+    record?: { enabled?: boolean; narrate?: { dub?: boolean; exportMp4?: boolean } }
+  }
   specHash: string
   runs: RunMeta[]
   lastJournal?: JournalLine[]

@@ -44,6 +44,8 @@ export function PipelinePage() {
     () => items?.find((p) => p.id === selectedId),
     [items, selectedId],
   )
+  /** spec 明确禁录时禁用「录制运行」（与 runner 的「mode=record 但 spec 否决」同一判据） */
+  const recordDisabled = detail?.spec.record?.enabled === false
   const runningEntry = useMemo(() => {
     if (!selectedId) return undefined
     return Object.values(progress).find((e) => e.stepId && busy === selectedId)
@@ -245,7 +247,10 @@ export function PipelinePage() {
                   <div className={styles.btns}>
                     <button
                       className={styles.btnPrimary}
-                      disabled={busy === selected.id}
+                      // spec 明确禁录时**提前禁用**，而不是点下去才报错：
+                      // 点了「录制运行」却拿不到视频，是最容易让人以为「功能坏了」的一种失败。
+                      disabled={busy === selected.id || recordDisabled}
+                      title={recordDisabled ? '这份 spec 设置了 record.enabled=false' : undefined}
                       onClick={() => void doRun(selected.id, 'record')}
                     >
                       <Play size={14} /> 录制运行
@@ -259,7 +264,9 @@ export function PipelinePage() {
                     </button>
                   </div>
                   <div className={styles.hint}>
-                    彩排不录屏、跳过需授权的工具，但仍会逐步校验断言——先彩排，绿了再录制。
+                    {recordDisabled
+                      ? '这份 spec 声明了 record.enabled=false（作者不让录）。要录制就把它改成 true；彩排仍可用。'
+                      : '彩排不录屏、跳过需授权的工具，但仍会逐步校验断言——先彩排，绿了再录制。'}
                   </div>
                 </div>
 

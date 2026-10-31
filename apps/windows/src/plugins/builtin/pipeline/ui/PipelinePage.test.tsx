@@ -86,6 +86,29 @@ describe('PipelinePage', () => {
     expect(b.detail).toHaveBeenCalledWith('demo')
   })
 
+  it('spec 声明 record.enabled=false → 「录制运行」提前禁用并说明原因', async () => {
+    installBridge({
+      list: vi.fn(async () => [{ id: 'demo', stepCount: 1, narrationCount: 1 }]),
+      detail: vi.fn(async () => ({
+        spec: {
+          id: 'demo',
+          steps: [{ id: 'a', tool: 'app_goto', holdMs: 800 }],
+          record: { enabled: false },
+        },
+        specHash: 'h',
+        runs: [],
+      })),
+    })
+    render(<PipelinePage />)
+    await waitFor(() => expect(screen.getByText(/录制运行/)).toBeTruthy())
+    const btn = screen.getByText(/录制运行/).closest('button')!
+    expect(btn.disabled).toBe(true)
+    expect(screen.getByText(/record.enabled=false/)).toBeTruthy()
+    // 彩排仍可用
+    const rehearsal = screen.getByText('彩排（不录）').closest('button')!
+    expect(rehearsal.disabled).toBe(false)
+  })
+
   it('点「彩排」→ 用 rehearsal 调 run（不是 record）', async () => {
     const b = installBridge({
       list: vi.fn(async () => [{ id: 'demo', stepCount: 1, narrationCount: 0 }]),
