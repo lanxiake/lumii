@@ -766,6 +766,10 @@ export class LocalDatabase {
         // 跳过迁移，把 340 行统计永久留在 `tool_usage_stats_v55` 里且**不报任何错**。
         case 56:
           return hasColumn("tool_usage_stats", "channel");
+        // 纯新增列，重放会撞 duplicate column 直接抛错。本库历史上不缺
+        // 「版本号没跟上、列却早就在」的先例（见 V53 注释），所以照样守卫。
+        case 57:
+          return hasColumn("local_cron_jobs", "origin_conversation_id");
         default:
           return false;
       }

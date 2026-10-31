@@ -28,14 +28,6 @@ export function findCronJobsForSession(
   })
 }
 
-/** @deprecated 用 findCronJobsForSession（支持 origin + 多任务） */
-export function findCronJobForSession(
-  sessionKey: string | null | undefined,
-  jobs: readonly CronJob[],
-): CronJob | undefined {
-  return findCronJobsForSession(sessionKey, jobs)[0]
-}
-
 function formatNext(atIso: string | null | undefined, now: number): string {
   if (!atIso) return ''
   const at = Date.parse(atIso)
@@ -92,9 +84,12 @@ interface CronStatusBarProps {
 export const CronStatusBar: React.FC<CronStatusBarProps> = ({ sessionKey }) => {
   const { jobs, toggleJob, abortJob, removeJob, removeJobs } = useCronJobs()
   const mine = findCronJobsForSession(sessionKey, jobs)
-  // 用户显式选择过就照办；没选过才按「有需注意的任务」自动决定
-  const [open, setOpen] = useState<boolean>(() => readStoredOpen() ?? mine.some(needsAttention))
+  // 用户显式选择过就照办；没选过才按「有需注意的任务」自动决定。
+  // 用户没选过时摘要**跟着任务变化**（首次出现 running/报错会自动展开）；
+  // 用户选过就以用户为准，不再自动弹开。
+  const [userOpen, setUserOpen] = useState<boolean | null>(readStoredOpen)
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
+  const open = userOpen ?? mine.some(needsAttention)
   if (mine.length === 0) return null
 
   const now = Date.now()
@@ -112,7 +107,7 @@ export const CronStatusBar: React.FC<CronStatusBarProps> = ({ sessionKey }) => {
 
   const toggleOpen = () => {
     const next = !open
-    setOpen(next)
+    setUserOpen(next)
     writeStoredOpen(next)
   }
 

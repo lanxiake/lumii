@@ -1230,6 +1230,8 @@ export class CronScheduler {
           ? await this.deps.createScheduledInstanceById(resolvedAgentId, convId, convId)
           : await this.deps.createInstanceById(resolvedAgentId, convId, convId)
     // 记下本轮实例：用户「中断」时按 jobId 找到它并 abort（跑完在 finally 清）。
+    // 只有这条 driveAgent 路径的实例是任务专属的、可以安全打断；回投分支（deliverInternalMessage）
+    // 用的是用户会话的常驻实例，打断它就等于打断用户自己的回合——所以那边刻意不记。
     this.localCronRunningInstances.set(job.id, instanceId)
     try {
       // 构建完整消息：system_prompt + 通知工具指导 + 「自述」+ task_text
