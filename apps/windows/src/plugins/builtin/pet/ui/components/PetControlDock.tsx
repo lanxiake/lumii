@@ -711,7 +711,7 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
                 cursor: 'pointer',
               }}
             >
-              <span>AI 朗读时自动闭麦</span>
+              <span title="开启后 AI 朗读期间完全不听你说话；关闭时你开口会先压低 AI 音量，确认是真语音才打断">AI 朗读时完全闭麦</span>
               <input
                 type="checkbox"
                 checked={autoMuteMicWhileSpeaking}
