@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { SelfHealController, type SelfHealDeps } from "../self-heal.js";
+import { classifyLlmError } from "../message-repair.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 function errorMsg(text: string): AgentMessage {
@@ -56,6 +57,22 @@ describe("SelfHealController", () => {
     const { deps } = makeDeps([{ role: "assistant", stopReason: "stop" } as unknown as AgentMessage]);
     const c = new SelfHealController(deps);
     expect(c.attemptSelfHeal()).toBe(false);
+  });
+
+  it("传输层抖动与 responses 配对报错都能归类为可自愈（实测 llm-link 中转的高频两种）", () => {
+    expect(classifyLlmError("OpenAI Responses stream ended before a terminal response event")).toBe(
+      "server_error",
+    );
+    expect(classifyLlmError("Request timed out.")).toBe("server_error");
+    expect(classifyLlmError("No tool output found for tool call call_79cab9b5. (request_id: x)")).toBe(
+      "tool_pairing",
+    );
+    expect(
+      classifyLlmError(
+        "`tool_use` ids were found without `tool_result` blocks immediately after: call_a",
+      ),
+    ).toBe("tool_pairing");
+    expect(classifyLlmError("some random fatal error")).toBe("unrecoverable");
   });
 
   it("不可恢复错误返回 false", () => {

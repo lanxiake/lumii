@@ -69,7 +69,10 @@ function isRetryableNetworkMessage(raw: string): boolean {
     lower.includes("econnrefused") ||
     lower.includes("etimedout") ||
     lower.includes("socket hang up") ||
-    lower.includes("timeout")
+    lower.includes("timeout") ||
+    // 流在终态事件前被对端掐断（responses 端点实测高频）
+    lower.includes("stream ended before a terminal response event") ||
+    lower.includes("ended without")
   );
 }
 

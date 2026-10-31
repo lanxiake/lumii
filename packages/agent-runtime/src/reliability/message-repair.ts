@@ -131,6 +131,11 @@ const TOOL_PAIRING_PATTERNS = [
   "tool_use ids were not found",
   "tool_call_id",
   "invalid tool_use block",
+  // responses / anthropic 兼容端点的两种配对报错。实测来自 llm-link 中转：
+  //   "No tool output found for tool call call_xxx"
+  //   "`tool_use` ids were found without `tool_result` blocks immediately after: ..."
+  "no tool output found for tool call",
+  "were found without",
 ];
 
 const PROMPT_TOO_LONG_PATTERNS = [
@@ -151,6 +156,21 @@ const OUTPUT_TRUNCATED_PATTERNS = [
   "unexpected end of json",
   "unexpected end of input",
   "unexpected token",
+];
+
+/**
+ * 传输层抖动 —— 连接被对端提前掐断 / 等响应头超时。与 HTTP 5xx 同类，隔一下重来即可。
+ *
+ * 这两条是 llm-link 中转的实测高频形态（一次会话里 8 次 stream-ended、4 次 timed out，
+ * 而同期 75 次请求成功）：repair 无关，重放原请求就能过。
+ * - responses 端点中途断流时 pi-ai 抛 "OpenAI Responses stream ended before a terminal response event"
+ * - openai SDK 等响应头超时抛 "Request timed out."
+ */
+const TRANSIENT_TRANSPORT_PATTERNS = [
+  "stream ended before a terminal response event",
+  "request timed out",
+  "ended without",
+  "socket hang up",
 ];
 
 export function classifyLlmError(errorText: string): LlmErrorCategory {
@@ -174,6 +194,9 @@ export function classifyLlmError(errorText: string): LlmErrorCategory {
   }
   if (/\b50[23]\b/.test(lower) || lower.includes("overloaded") || lower.includes("server error")) {
     return "server_error";
+  }
+  for (const p of TRANSIENT_TRANSPORT_PATTERNS) {
+    if (lower.includes(p)) return "server_error";
   }
   // DeepSeek 思考模式：reasoning_content 必须回传
   if (lower.includes("reasoning_content") && lower.includes("thinking mode")) {

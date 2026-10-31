@@ -1485,6 +1485,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:permission:request': {
+      // 主进程已自动放行：request 与 granted 是两个独立的 IPC 消息，中间必有至少一帧
+      // 渲染——卡片就会闪一下。这里直接不落 pendingPermission，等 granted 也无事可做。
+      if (event.autoApproved) break
       const receivedAt = Date.now()
       updateSessionState(sessionKey, (prev) => ({
         ...prev,

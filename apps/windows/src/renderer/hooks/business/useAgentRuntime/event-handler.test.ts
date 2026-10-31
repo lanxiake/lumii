@@ -391,6 +391,24 @@ describe('agent:permission:granted / denied 收起审批卡', () => {
     )
   }
 
+  it('自动放行的 request（autoApproved）不落卡片，避免闪一下', () => {
+    emitTurn([
+      {
+        type: 'agent:permission:request',
+        requestId: REQUEST_ID,
+        runId: RUN_ID,
+        toolName: 'bash',
+        toolArgs: { command: 'node -e "1"' },
+        riskLevel: 'high',
+        description: '自动放行',
+        timeoutMs: 0,
+        rootSessionKey: SESSION_KEY,
+        autoApproved: true,
+      },
+    ])
+    expect(pendingRequestId()).toBeNull()
+  })
+
   it('request 之后收到 granted → 卡片收起（自动放行不再留一张卡）', () => {
     emitRequest()
     expect(pendingRequestId()).toBe(REQUEST_ID)
