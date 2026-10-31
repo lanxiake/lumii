@@ -136,6 +136,10 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
   // 为什么不直接掐断：本地没有服务端 VAD，误判一次就是"AI 说到一半被打断"。
   // 压音只损失几百毫秒的音量，确认是真语音后主进程会推 interrupted 事件，
   // 那时才 flush() 真正停播并提交转写。
+  //
+  // 时长参考（2026-10 核对）：LiveKit interruption min_duration=500ms、
+  // sherpa min_speech_duration=250ms、Pipecat start_secs=200ms。
+  // 取 300ms 在中间——短于它的多半是"嗯/咳"这类语气或回声残留。
   useEffect(() => {
     if (state.state !== 'speaking') {
       playbackRef.current?.unduck()
@@ -145,7 +149,13 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     const playback = playbackRef.current
     if (!analyser || !playback) return
 
+    const TICK_MS = 100
+    const RMS_THRESHOLD = 0.02
+    const SPEECH_TICKS_TO_DUCK = 3 // 300ms
+    const QUIET_TICKS_TO_UNDUCK = 5 // 500ms
+
     const buf = new Uint8Array(analyser.fftSize)
+    let loudTicks = 0
     let quietTicks = 0
     const timer = window.setInterval(() => {
       analyser.getByteTimeDomainData(buf)
@@ -155,17 +165,18 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
         sum += v * v
       }
       const rms = Math.sqrt(sum / buf.length)
-      // 阈值取固定经验值：echoCancellation 已压掉大部分回采，说话时 RMS 通常 > 0.02。
-      // 环境嘈杂时可能误触 → 代价只是声音变轻，主进程 ASR 确认失败会自动恢复。
-      if (rms > 0.02) {
+      if (rms > RMS_THRESHOLD) {
+        loudTicks++
         quietTicks = 0
-        playback.duck()
-      } else if (playback.isDucked && ++quietTicks >= 5) {
-        // 连续 500ms 安静：判定为误触，恢复原音量
-        playback.unduck()
-        quietTicks = 0
+        if (loudTicks >= SPEECH_TICKS_TO_DUCK) playback.duck()
+      } else {
+        loudTicks = 0
+        if (playback.isDucked && ++quietTicks >= QUIET_TICKS_TO_UNDUCK) {
+          playback.unduck()
+          quietTicks = 0
+        }
       }
-    }, 100)
+    }, TICK_MS)
 
     return () => {
       window.clearInterval(timer)

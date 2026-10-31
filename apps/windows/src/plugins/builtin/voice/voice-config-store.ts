@@ -31,6 +31,26 @@ function resolveAutoMute(saved: Partial<VoiceEngineConfig>): boolean {
     : DEFAULT_VOICE_ENGINE_CONFIG.autoMuteMicWhileSpeaking
 }
 
+/**
+ * 提交窗口：旧版只有单值 `commitWindowMs`，新版拆成 min/max 两端。
+ * 老配置读到旧值时映射成 min = 旧值、max = 旧值 × 2（保留原来的等待体感），
+ * 之后写回磁盘时会自然落成新字段。
+ */
+function migrateCommitWindow(
+  savedVad: Partial<VoiceEngineConfig['vad']> | undefined,
+): Partial<VoiceEngineConfig['vad']> {
+  const vad = { ...(savedVad ?? {}) } as VoiceEngineConfig['vad'] & { commitWindowMs?: number }
+  const legacy = vad.commitWindowMs
+  // 必须在**合并默认值之前**迁移：默认值里已有 commitMinMs，合并后就分不清
+  // "用户没配" 和 "用户配的是旧字段" 了。
+  if (vad.commitMinMs === undefined && typeof legacy === 'number' && legacy > 0) {
+    vad.commitMinMs = legacy
+    vad.commitMaxMs = vad.commitMaxMs ?? legacy * 2
+  }
+  delete vad.commitWindowMs
+  return vad
+}
+
 /** 深合并，只合并已知字段，忽略未知字段；并迁移旧「用 Base 变体表示克隆」配置 */
 function mergeWithDefaults(saved: Partial<VoiceEngineConfig>): VoiceEngineConfig {
   const ttsSaved = { ...(saved.tts ?? {}) } as VoiceEngineConfig['tts'] & {
@@ -46,7 +66,7 @@ function mergeWithDefaults(saved: Partial<VoiceEngineConfig>): VoiceEngineConfig
   return {
     asr: { ...DEFAULT_VOICE_ENGINE_CONFIG.asr, ...saved.asr },
     tts: { ...DEFAULT_VOICE_ENGINE_CONFIG.tts, ...ttsSaved },
-    vad: { ...DEFAULT_VOICE_ENGINE_CONFIG.vad, ...saved.vad },
+    vad: { ...DEFAULT_VOICE_ENGINE_CONFIG.vad, ...migrateCommitWindow(saved.vad) },
     autoMuteMicWhileSpeaking: resolveAutoMute(saved),
   }
 }

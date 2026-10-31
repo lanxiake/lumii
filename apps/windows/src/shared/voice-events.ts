@@ -319,9 +319,18 @@ export type VoiceVadConfig = {
    */
   energyGateMultiplier: number
   /**
-   * 提交窗口（毫秒）：识别出的整句先进缓冲，窗口内再开口就继续拼接，
-   * 静默满窗口才真正发给 Agent。解决"话没说完就被切走"。
+   * 提交窗口下限（毫秒）：识别出的整句先进缓冲，至少静默这么久才发给 Agent。
+   * 窗口期内用户再开口，计时器重置（相当于"你还在说就继续等"）。
    * 0 = 立即提交（旧行为）。
+   */
+  commitMinMs?: number
+  /**
+   * 提交窗口上限（毫秒）：从第一段入缓冲算起，最多等这么久就强制提交。
+   * 兜住"一直有环境音、永远续期"导致的话说不出去。
+   */
+  commitMaxMs?: number
+  /**
+   * @deprecated 旧版单值窗口。读到它（且没有 commitMinMs）时按 min = 该值、max = 该值 × 2 映射。
    */
   commitWindowMs?: number
 }
@@ -362,7 +371,12 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
     minSpeechMs: 250,
     minSilenceMs: 500,
     energyGateMultiplier: 1.5,
-    commitWindowMs: 1200,
+    // 参数量级参考（2026-10 核对）：
+    //   OpenAI server_vad silence_duration_ms=500；LiveKit min_silence=550
+    //   LiveKit endpointing fixed min_delay=500 / max_delay=3000
+    // 我们取 800/2500：短句不至于等太久，长停顿也兜得住。
+    commitMinMs: 800,
+    commitMaxMs: 2500,
   },
   autoMuteMicWhileSpeaking: false,
 }

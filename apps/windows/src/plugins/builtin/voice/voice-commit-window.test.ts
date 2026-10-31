@@ -51,7 +51,7 @@ function makeService(submitted: string[]) {
   const svc = new VoiceCallService(null, async (_sk, content) => {
     submitted.push(content)
   }, stubModelManager())
-  svc.setConfig({ vad: { threshold: 0.5, minSpeechMs: 250, minSilenceMs: 500, energyGateMultiplier: 1.5, commitWindowMs: 50 } })
+  svc.setConfig({ vad: { threshold: 0.5, minSpeechMs: 250, minSilenceMs: 500, energyGateMultiplier: 1.5, commitMinMs: 50, commitMaxMs: 500 } })
 
   // 绕过 ensureInitialized：直接注入桩引擎并模拟 startCall 之后的内部状态
   const internals = svc as unknown as Record<string, unknown>
@@ -96,9 +96,26 @@ describe('语音提交窗口', () => {
     await p.queueOrSubmitUtterance('第二句。')
     expect(submitted).toHaveLength(0)
 
+    // 两段都在每次入缓冲时重排计时器（min=50ms），所以推进 60ms 会触发
     await vi.advanceTimersByTimeAsync(60)
     // submitToAgent 会给每条语音消息加「（语音输入）」后缀，让 Agent 知道输入来源
     expect(submitted).toEqual(['第一句。第二句。（语音输入）'])
+  })
+
+  it('maxMs 上限：持续续期也不会无限等待', async () => {
+    const submitted: string[] = []
+    const { svc } = makeService(submitted)
+    const p = svc as unknown as Privates & { onSpeechResumed: () => void }
+
+    await p.queueOrSubmitUtterance('一直说，')
+    // 每 40ms 续期一次（模拟用户不停顿地说话），累计到 maxMs=500 必须提交
+    for (let i = 0; i < 14; i++) {
+      await vi.advanceTimersByTimeAsync(40)
+      if (submitted.length > 0) break
+      p.onSpeechResumed()
+    }
+    expect(submitted).toHaveLength(1)
+    expect(submitted[0]).toContain('一直说，')
   })
 
   it('thinking 期间的补话被暂存，回到 listening 才放出去', async () => {

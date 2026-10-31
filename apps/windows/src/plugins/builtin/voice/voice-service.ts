@@ -36,6 +36,8 @@ import {
 } from './qwen3-tts-client.js'
 import { transcribePcm, transcribeAudioBuffer } from './voice-transcription.js'
 import { sherpaFirst, sherpaDone } from '../../../main/onnx-runtime-gate'
+import { NoiseProfiler } from './noise-profiler.js'
+
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceService]', ...args),
@@ -74,6 +76,8 @@ export class VoiceCallService {
   private noiseBaseline = 0.01
   private noiseFrameCount = 0
   private readonly NOISE_ESTIMATE_FRAMES = 30 // 约 1s 的静音帧估算噪声基线
+  /** 环境画像：安静/普通/嘈杂 → 能量门修正系数（见 noise-profiler.ts） */
+  private noiseProfiler = new NoiseProfiler()
   /** 打断冷却 */
   private lastInterruptTime = 0
   private readonly INTERRUPT_COOLDOWN_MS = 600
@@ -99,6 +103,8 @@ export class VoiceCallService {
   /** 与 pendingUtterance 同步累积的原始语音段，合并后用于一次回放 */
   private pendingUtteranceSegments: Float32Array[] = []
   private pendingCommitTimer: NodeJS.Timeout | null = null
+  /** 首段入缓冲的时间戳，用于 maxMs 上限判定 */
+  private pendingSince = 0
   /**
    * thinking（AI 处理中）期间用户补说的话。此状态下不能直接提交（会打断在跑的回合），
    * 先攒着；状态回到 listening 时一次性发出。
@@ -142,7 +148,8 @@ export class VoiceCallService {
         minSpeechMs: 300,
         minSilenceMs: 500,
         energyGateMultiplier: 1.5,
-        commitWindowMs: 1200,
+        commitMinMs: 800,
+        commitMaxMs: 2500,
         ...config?.vad,
       },
       autoMuteMicWhileSpeaking: config?.autoMuteMicWhileSpeaking ?? false,
@@ -419,6 +426,7 @@ export class VoiceCallService {
     this.splitter.reset()
     this.noiseBaseline = 0.01
     this.noiseFrameCount = 0
+    this.noiseProfiler.reset()
     this.lastInterruptTime = 0
     this.postSpeechCooldownUntil = 0
     this._lastPartial = ''
@@ -479,6 +487,8 @@ export class VoiceCallService {
     // 噪声基线：初始阶段前 N 帧做均值估算，之后在 listening 时持续 EMA 更新
     if (!isSpeaking) {
       const rms = this._calcRms(samples)
+      // 环境画像只吃静音帧，避免用户说话本身把噪声底拉高
+      this.noiseProfiler.push(rms)
       if (this.noiseFrameCount < this.NOISE_ESTIMATE_FRAMES) {
         this.noiseBaseline = (this.noiseBaseline * this.noiseFrameCount + rms) / (this.noiseFrameCount + 1)
         this.noiseFrameCount++
@@ -549,13 +559,14 @@ export class VoiceCallService {
       return
     }
 
-    // 检测到语音 → 切换到 recognizing
+    // 检测到语音 → 切换到 recognizing（先续期提交窗口：用户还在说，别急着发）
     if (isSpeaking && this.stateMachine.is('listening')) {
       this.stateMachine.transition('recognizing')
     }
+    if (isSpeaking) this.onSpeechResumed()
 
     // 流式 partial ASR：VAD 检测到语音时，实时推送中间识别结果（仅 Streaming 引擎有效）
-    if (isSpeaking && this.asrStream && this.stateMachine.isOneOf('listening', 'recognizing')) {
+    if (isSpeaking && this.asrStream && this.stateMachine.isOneOf('listening', 'recognizing', 'thinking')) {
       const partial = this.asrStream.getPartialText()
       if (partial && partial !== this._lastPartial) {
         this._lastPartial = partial
@@ -570,13 +581,17 @@ export class VoiceCallService {
 
     // 处理 VAD 返回的完整语音段（离线 ASR 模式）
     for (const segment of speechSegments) {
-      if (!this.stateMachine.isOneOf('listening', 'recognizing')) break
+      // thinking 也要处理：用户在 Agent 思考期间补话，句子进 heldUtterance 缓冲，
+      // 等状态回到 listening 再一起发出（否则这些话会被静默丢弃）。
+      if (!this.stateMachine.isOneOf('listening', 'recognizing', 'thinking')) break
 
       // 轻量能量门槛（"负面语音阈值"）：过滤低能量噪音段，避免背景噪声/回声误触发 ASR。
-      // 倍率可配（energyGateMultiplier），越大越严格。
+      // 倍率可配（energyGateMultiplier），越大越严格；再按环境画像修正——
+      // 安静房间放松一点（别把轻声说话吞掉），嘈杂环境收紧一点（键盘/马路声别当语音）。
       const segRms = this._calcSegmentRms(segment)
-      if (segRms < this.noiseBaseline * this.config.vad.energyGateMultiplier) {
-        log.debug(`[handleAudioChunk] listening 阶段能量不足 (rms=${segRms.toFixed(4)}, baseline=${this.noiseBaseline.toFixed(4)})，跳过`)
+      const effectiveGate = this.config.vad.energyGateMultiplier * this.noiseProfiler.gateScale()
+      if (segRms < this.noiseBaseline * effectiveGate) {
+        log.debug(`[handleAudioChunk] listening 阶段能量不足 (rms=${segRms.toFixed(4)}, baseline=${this.noiseBaseline.toFixed(4)}, gate=${effectiveGate.toFixed(2)}, scene=${this.noiseProfiler.scene()})，跳过`)
         if (this.stateMachine.is('recognizing')) {
           this.stateMachine.transition('listening')
         }
@@ -611,7 +626,7 @@ export class VoiceCallService {
   // ── 提交 ASR 结果给 Agent ──────────────────────────────────────────────
 
   /**
-   * 提交窗口：整句先入缓冲，静默满 `commitWindowMs` 才真正发送。
+   * 提交窗口：整句先入缓冲，静默满 `commitMinMs` 才真正发送，最多等 `commitMaxMs`。
    *
    * 为什么不在识别到段落时直接发：VAD 的静音判据只有几百毫秒，用户句中换气
    * 就会被切成两段分别发给 Agent，表现为"还没说完就发出去了"；而且第一段一发
@@ -619,39 +634,81 @@ export class VoiceCallService {
    * 窗口期内状态保持 listening/recognizing，ASR 继续跑，后续句子拼进来。
    */
   private async queueOrSubmitUtterance(text: string, segment?: Float32Array): Promise<void> {
-    // 转写先推给渲染层：窗口期内 UI 也能看到识别结果（带定稿标记由渲染侧决定）
-    if (this.callId) {
-      this.pushVoiceEvent({
-        type: 'voice:transcript',
-        callId: this.callId,
-        text,
-        isFinal: true,
-      })
-    }
-
     // thinking 期间：Agent 还在跑，直接提交会撞上"正在发送"或打断当前回合，
     // 先攒起来，等状态机回到 listening 再放（见 flushHeldUtterance）。
+    // 此期间**不推 final**：渲染层收到 final 会立即发送，那正是要避免的。
     if (this.stateMachine.is('thinking')) {
       this.heldUtterance.push(text)
       if (segment) this.heldUtteranceSegments.push(segment)
+      this.pushTranscript(this.heldUtterance.join(''), false)
       log.info(`[queueOrSubmitUtterance] thinking 期间补话，暂存: "${text}"`)
       return
     }
 
-    const windowMs = this.config.vad.commitWindowMs ?? 0
-    if (windowMs <= 0) {
+    const { minMs, maxMs } = this.resolveCommitWindow()
+    if (minMs <= 0) {
+      this.pushTranscript(text, true)
       await this.submitToAgent(text)
       return
     }
 
+    if (this.pendingUtterance.length === 0) {
+      this.pendingSince = Date.now()
+    }
     this.pendingUtterance.push(text)
     if (segment) this.pendingUtteranceSegments.push(segment)
+    // 窗口期内以"未定稿"推给 UI（状态条的斜体转写），定稿才发 final：
+    // composerOwned 模式下 final 由渲染层负责发送，提前发就等于没有窗口。
+    this.pushTranscript(this.pendingUtterance.join(''), false)
+    this.scheduleCommit(minMs, maxMs)
+    log.debug(
+      `[queueOrSubmitUtterance] 入缓冲 "${text}"（min=${minMs}ms max=${maxMs}ms，积压 ${this.pendingUtterance.length} 段）`,
+    )
+  }
+
+  /** 解析出实际生效的提交窗口（兼容老的单值配置） */
+  private resolveCommitWindow(): { minMs: number; maxMs: number } {
+    const vad = this.config.vad
+    const legacy = vad.commitWindowMs ?? 0
+    const minMs = vad.commitMinMs ?? legacy
+    const maxMs = vad.commitMaxMs ?? (legacy > 0 ? legacy * 2 : 0)
+    return { minMs: Math.max(0, minMs), maxMs: Math.max(minMs, maxMs) }
+  }
+
+  /**
+   * 排定时器：静默下限到点提交；但超过上限强制提交。
+   *
+   * `pendingSince` 是首段入缓冲的时间。没有它的话，持续有语音段进来会不停重置
+   * 计时器，"一直有环境音就永远发不出去"。
+   */
+  private scheduleCommit(minMs: number, maxMs: number): void {
     if (this.pendingCommitTimer) clearTimeout(this.pendingCommitTimer)
+    const elapsed = Date.now() - this.pendingSince
+    const wait = maxMs > 0 ? Math.min(minMs, maxMs - elapsed) : minMs
     this.pendingCommitTimer = setTimeout(() => {
       this.pendingCommitTimer = null
       void this.flushPendingUtterance()
-    }, windowMs)
-    log.debug(`[queueOrSubmitUtterance] 入缓冲 "${text}"（窗口 ${windowMs}ms，积压 ${this.pendingUtterance.length} 段）`)
+    }, Math.max(0, wait))
+  }
+
+  /**
+   * 用户又开口了：确认说话时重置静默计时（相当于"你还在说就继续等"），
+   * 但不会突破 maxMs 上限。
+   */
+  private onSpeechResumed(): void {
+    if (this.pendingUtterance.length === 0) return
+    const { minMs, maxMs } = this.resolveCommitWindow()
+    this.scheduleCommit(minMs, maxMs)
+  }
+
+  private pushTranscript(text: string, isFinal: boolean): void {
+    if (!this.callId || !text) return
+    this.pushVoiceEvent({
+      type: 'voice:transcript',
+      callId: this.callId,
+      text,
+      isFinal,
+    })
   }
 
   /** 把 thinking 期间攒下的补话一次性发出（状态回到 listening 时调用） */
@@ -669,6 +726,7 @@ export class VoiceCallService {
       this._lastSpeechSegment = merged
     }
     log.info(`[flushHeldUtterance] 发出暂存补话: "${text}"`)
+    this.pushTranscript(text, true)
     await this.submitToAgent(text)
   }
 
@@ -679,6 +737,7 @@ export class VoiceCallService {
     const segments = this.pendingUtteranceSegments
     this.pendingUtterance = []
     this.pendingUtteranceSegments = []
+    this.pendingSince = 0
     if (this.pendingCommitTimer) {
       clearTimeout(this.pendingCommitTimer)
       this.pendingCommitTimer = null
@@ -692,6 +751,7 @@ export class VoiceCallService {
       this._lastSpeechSegment = merged
     }
     log.info(`[flushPendingUtterance] 提交合并结果: "${text}"`)
+    this.pushTranscript(text, true)
     await this.submitToAgent(text)
   }
 
@@ -703,6 +763,7 @@ export class VoiceCallService {
     }
     this.pendingUtterance = []
     this.pendingUtteranceSegments = []
+    this.pendingSince = 0
     this.heldUtterance = []
     this.heldUtteranceSegments = []
   }
@@ -1590,7 +1651,12 @@ export class VoiceCallService {
     const vadKeys = partial.vad ? Object.keys(partial.vad) : []
     const isRuntimeOnlyUpdate =
       changedKeys.every((k) => k === 'autoMuteMicWhileSpeaking' || k === 'vad') &&
-      (vadKeys.length === 0 || vadKeys.every((k) => k === 'energyGateMultiplier'))
+      (vadKeys.length === 0
+        || vadKeys.every((k) =>
+          k === 'energyGateMultiplier'
+          || k === 'commitMinMs'
+          || k === 'commitMaxMs'
+          || k === 'commitWindowMs'))
     if (isRuntimeOnlyUpdate) {
       log.info('[setConfig] 能量门/自动闭麦热更新，引擎保持运行')
       return
