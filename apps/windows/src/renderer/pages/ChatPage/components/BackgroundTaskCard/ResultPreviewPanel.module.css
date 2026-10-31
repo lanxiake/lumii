@@ -37,6 +37,9 @@
   display: block;
   background: #000;
   border-radius: 4px;
+  /* 竖屏成片按宽度铺满会撑出很高一屏，限高后按原比例留黑边 */
+  max-height: 320px;
+  object-fit: contain;
 }
 
 .code {

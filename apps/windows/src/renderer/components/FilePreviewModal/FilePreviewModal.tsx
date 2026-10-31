@@ -87,16 +87,39 @@ function resolveWebviewSelectionPreload(): string | undefined {
   return window.electronAPI?.webviewSelectionPreload
 }
 
-const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => {
+/**
+ * 给 HTML 注入 `<base href>`。
+ *
+ * 预览把正文塞进 blob/webview，文档 URL 不再是原文件位置，`images/a.png`
+ * 这类相对引用的基准就丢了，图片/样式全成破图。主进程已按文件所在目录给出
+ * 目录式 lumii-local URL，这里插到最前面即可（`<base>` 必须早于任何引用）。
+ */
+function withBaseHref(content: string, baseUrl: string | undefined): string {
+  if (!baseUrl) return content
+  const tag = `<base href="${baseUrl.replace(/"/g, '&quot;')}">`
+  const headMatch = /<head\b[^>]*>/i.exec(content)
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length
+    return content.slice(0, at) + tag + content.slice(at)
+  }
+  return tag + content
+}
+
+const HtmlActiveSandboxFrame: React.FC<{
+  content: string
+  fileName: string
+  zoom: number
+  baseUrl?: string
+}> = ({ content, fileName, zoom, baseUrl }) => {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const webviewRef = useRef<WebviewZoomApi | null>(null)
 
   useEffect(() => {
-    const blob = new Blob([content], { type: 'text/html' })
+    const blob = new Blob([withBaseHref(content, baseUrl)], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     setBlobUrl(url)
     return () => { URL.revokeObjectURL(url) }
-  }, [content])
+  }, [content, baseUrl])
 
   useEffect(() => {
     const wv = webviewRef.current
@@ -296,6 +319,8 @@ interface PreviewResult {
   endLine?: number
   /** 大文件走 lumii-local fileUrl，优先于 base64 content */
   fileUrl?: string
+  /** HTML 预览的 `<base href>`：让产物里的相对路径资源落到真实目录 */
+  baseUrl?: string
 }
 
 /**
@@ -1232,7 +1257,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           )}
 
           {!loading && !error && result && !result.truncated && route === 'html-active' && (
-            <HtmlActiveSandboxFrame content={result.content ?? ''} fileName={fileName} zoom={zoom} />
+            <HtmlActiveSandboxFrame
+              content={result.content ?? ''}
+              fileName={fileName}
+              zoom={zoom}
+              {...(result.baseUrl ? { baseUrl: result.baseUrl } : {})}
+            />
           )}
 
           {!loading && !error && result && !result.truncated && route === 'html-static' && (

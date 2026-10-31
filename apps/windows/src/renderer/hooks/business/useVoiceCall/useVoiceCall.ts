@@ -1,4 +1,9 @@
 // @refresh reset
+// 自定义 hook 的 hook 数量变化时，Fast Refresh 会保留调用方（ChatPage）的 hook 单元，
+// 于是报 "Should have a queue"。hook 无法让调用方重挂载，只能整页重载。
+if (import.meta.hot) {
+  import.meta.hot.accept(() => window.location.reload())
+}
 /**
  * useVoiceCall Hook
  * 管理语音通话完整生命周期：麦克风采集 → IPC → 状态管理 → 播放

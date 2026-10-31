@@ -10,7 +10,7 @@ import { shell } from 'electron'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { resolveRecordingsDir } from '../../workspace-paths'
-import { buildLocalMediaUrl, allowLocalMediaPreviewPath } from '../../local-media-protocol'
+import { buildLocalMediaUrl, buildLocalMediaDirUrl, allowLocalMediaPreviewPath } from '../../local-media-protocol'
 import { extractDocumentText } from '../../vendor/document-parser.js'
 import { resolveWikiRefPreviewTarget } from './resolve-wiki-ref-preview'
 import { isVaultRefPath } from '@mtbot/agent-runtime'
@@ -41,6 +41,17 @@ function shouldStreamPreviewViaFileUrl(
   if (mime.startsWith('video/') || mime.startsWith('audio/') || inRecordings) return true
   if (deps!.shouldReadPreviewAsUtf8(mime, fileName)) return false
   return size > INLINE_BASE64_MAX_BYTES
+}
+
+/**
+ * HTML 预览的 `<base href>`：预览把正文塞进 blob/webview，文档 URL 不再是文件位置，
+ * `images/a.png` 这类相对引用会全部落空（满屏破图）。给渲染层一个目录式
+ * lumii-local URL，由它注入 `<base>`；同目录一并登记进 ACL，好让相对资源读得到。
+ */
+function htmlPreviewBase(absPath: string): { baseUrl: string } {
+  const dir = path.dirname(absPath)
+  allowLocalMediaPreviewPath(dir)
+  return { baseUrl: buildLocalMediaDirUrl(dir) }
 }
 
 /**
@@ -235,6 +246,7 @@ export async function handleFilesReadPreviewContent(
       size: stat.size,
       mimeType: effectiveMime,
       encoding: 'utf-8',
+      ...(effectiveMime === 'text/html' ? htmlPreviewBase(absPath) : {}),
     }
   }
   const buf = await fs.promises.readFile(absPath)
@@ -336,6 +348,7 @@ export async function handleFilesReadPreviewByPath(
       fileName,
       ranged: false,
       encoding: 'utf-8',
+      ...(effectiveMime === 'text/html' ? htmlPreviewBase(resolvedAbs) : {}),
     }
   }
 

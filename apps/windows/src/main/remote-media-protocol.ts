@@ -98,9 +98,12 @@ export function registerRemoteMediaProtocolHandler(): void {
     }
 
     try {
-      return await net.fetch(target.href, {
-        headers: rule.header ? { [rule.header]: rule.value } : {},
-      })
+      // Range 必须透传：<video> 的续缓冲与 seek 靠 206 分片，丢了就只在整段
+      // 200 上从头往下读，界面上表现为播到某秒卡死。
+      const range = request.headers.get('range')
+      const headers: Record<string, string> = rule.header ? { [rule.header]: rule.value } : {}
+      if (range) headers.Range = range
+      return await net.fetch(target.href, { headers })
     } catch (err) {
       return new Response(err instanceof Error ? err.message : String(err), { status: 502 })
     }
