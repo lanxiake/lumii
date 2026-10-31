@@ -134,6 +134,13 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
   const { spec, specHash, mode, runDir, deps } = opts
   const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   const record = mode === 'record' && spec.record?.enabled === true
+  /**
+   * 录制**真的起来了**才允许 stop。
+   *
+   * 不能用 `record` 判：start 失败 / 预条件失败 / 列出录制源失败时 `record` 仍是 true，
+   * 那时去 `stop()` 会停掉一个从未启动的会话——若用户此刻正手动录屏，会**误停别人的录制**。
+   */
+  let recordingStarted = false
   const steps: StepResult[] = []
   const outputs = new Map<string, unknown>()
   /** step id → 打点时刻（来自 mark）；收尾组 cues 用 */
@@ -161,7 +168,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
       }
     }
     let artifact: RunMeta['artifact'] | undefined
-    if (record && deps.screenRecord) {
+    if (recordingStarted && deps.screenRecord) {
       const stop = await deps.screenRecord.stop()
       if (stop.ok && stop.data) {
         const data = stop.data as { path?: string; durationMs?: number; mp4Path?: string }
@@ -262,6 +269,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     if (!started.ok) {
       return finish({ ok: false, error: `录制启动失败，整条拒绝: ${started.error ?? ''}` })
     }
+    recordingStarted = true
   }
 
   // ── 主循环 ──

@@ -192,6 +192,33 @@ describe('runner 主循环', () => {
     expect(marks.map((m) => m.label)).toEqual(['有旁白'])
   })
 
+  it('start 失败 → 绝不调 stop（否则会误停用户正开着的手动录屏）', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      record: { enabled: true },
+    })
+    const { d, calls } = deps({ startOk: false })
+    await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(calls).toContain('start')
+    expect(calls).not.toContain('stop')
+  })
+
+  it('预条件失败 → 不 start、不 stop', async () => {
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      record: { enabled: true },
+      preconditions: [{ id: 'p', tool: 'wechat_check_env', expect: { fields: { ok: true } } }],
+    })
+    const { d, calls } = deps({ results: { wechat_check_env: { ok: true, data: { ok: false } } } })
+    await runPipeline({
+      spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    expect(calls).not.toContain('start')
+    expect(calls).not.toContain('stop')
+  })
+
   it('cues 条数 == 有 narration 的步数，startMs 来自该步的 markAtMs', async () => {
     const { spec, specHash } = specOf(
       [

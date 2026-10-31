@@ -9,14 +9,17 @@
  * `ipcRenderer.on('pipeline:progress')`——那条通道没人发，会静默订阅到空气。
  */
 import { ipcRenderer } from 'electron'
+import { agentRuntimeApi } from './agent-runtime-api'
 
-/** 复用通道上的订阅（与 agent-runtime-api 的 onEventType 同形） */
+/**
+ * 复用通道上的订阅。
+ *
+ * **不自己再写一份**：`agent-runtime-api.onEventType` 已经实现了「同一通道按 type 分派」，
+ * 它还被事件监听登记表统一管理（个数上限、注销日志）。各写一份的后果是两处行为漂移，
+ * 且登记表看不见第二个订阅者——排查「谁在监听这个通道」时会漏。
+ */
 function onRuntimeEvent(type: string, cb: (e: unknown) => void): () => void {
-  const listener = (_ipcEvt: Electron.IpcRendererEvent, evt: unknown) => {
-    if (evt && typeof evt === 'object' && (evt as { type?: string }).type === type) cb(evt)
-  }
-  ipcRenderer.on('agent-runtime:event', listener)
-  return () => ipcRenderer.removeListener('agent-runtime:event', listener)
+  return agentRuntimeApi.onEventType(type, cb)
 }
 
 export const pipelineApi = {
