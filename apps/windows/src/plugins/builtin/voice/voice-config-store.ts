@@ -18,6 +18,19 @@ function getConfigPath(): string {
   return path.join(resolveSharedConfigDir(), 'voice-engine-config.json')
 }
 
+/**
+ * 是否"朗读期间完全闭麦"。
+ *
+ * 默认值从 true 改成了 false（改成两段式打断：疑似开口先压音，ASR 确认才真打断）。
+ * 但**老配置里显式存下的 true 必须保留** —— 那时默认就是 true，用户以为自己处在
+ * 默认态，改成 false 等于替他们改了行为。所以：存过就听存的，没存过用新默认。
+ */
+function resolveAutoMute(saved: Partial<VoiceEngineConfig>): boolean {
+  return typeof saved.autoMuteMicWhileSpeaking === 'boolean'
+    ? saved.autoMuteMicWhileSpeaking
+    : DEFAULT_VOICE_ENGINE_CONFIG.autoMuteMicWhileSpeaking
+}
+
 /** 深合并，只合并已知字段，忽略未知字段；并迁移旧「用 Base 变体表示克隆」配置 */
 function mergeWithDefaults(saved: Partial<VoiceEngineConfig>): VoiceEngineConfig {
   const ttsSaved = { ...(saved.tts ?? {}) } as VoiceEngineConfig['tts'] & {
@@ -34,8 +47,7 @@ function mergeWithDefaults(saved: Partial<VoiceEngineConfig>): VoiceEngineConfig
     asr: { ...DEFAULT_VOICE_ENGINE_CONFIG.asr, ...saved.asr },
     tts: { ...DEFAULT_VOICE_ENGINE_CONFIG.tts, ...ttsSaved },
     vad: { ...DEFAULT_VOICE_ENGINE_CONFIG.vad, ...saved.vad },
-    autoMuteMicWhileSpeaking:
-      saved.autoMuteMicWhileSpeaking ?? DEFAULT_VOICE_ENGINE_CONFIG.autoMuteMicWhileSpeaking,
+    autoMuteMicWhileSpeaking: resolveAutoMute(saved),
   }
 }
 
