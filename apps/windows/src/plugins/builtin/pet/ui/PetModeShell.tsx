@@ -626,7 +626,8 @@ export const PetModeShell: React.FC = () => {
   /** 当前正在累积的 assistant 消息 id（流式 delta 累加目标） */
   const streamingIdRef = useRef<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
-  const [autoMuteMicWhileSpeaking, setAutoMuteMicWhileSpeaking] = useState(true)
+  // 默认跟随引擎默认（false = 两段式打断），真实值由下面的 config:get 覆盖
+  const [autoMuteMicWhileSpeaking, setAutoMuteMicWhileSpeaking] = useState(false)
   const [vadThreshold, setVadThreshold] = useState(0.5)
   const [energyGateMultiplier, setEnergyGateMultiplier] = useState(1.5)
 
