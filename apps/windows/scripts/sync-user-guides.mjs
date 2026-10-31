@@ -77,16 +77,45 @@ function syncAssets() {
   }).length
 }
 
+/**
+ * 读现有 manifest 里**内容没变时可以沿用**的 generatedAt。
+ *
+ * 为什么不是每次都写 `new Date()`：这个字段运行时**没有任何消费方**（`user-guides-service`
+ * 只读 `guides`），但每构建一次就会在 git 里制造一处假改动，多个会话并行构建时还会
+ * 在 rebase 里撞冲突（2026-10-31 实撞过一次）。改成「内容变才更新」后，字段语义也
+ * 更准确：它记的是最后一次**内容变更**，而不是最后一次构建。
+ */
+function readPreviousManifest() {
+  const file = path.join(TARGET_DIR, 'manifest.json')
+  try {
+    const raw = fs.readFileSync(file, 'utf8')
+    return { raw, data: JSON.parse(raw) }
+  } catch {
+    return { raw: null, data: null }
+  }
+}
+
 function main() {
   fs.mkdirSync(TARGET_DIR, { recursive: true })
   const guides = GUIDE_CATALOG.map(syncGuide)
   const assetCount = syncAssets()
-  const manifest = {
-    version: 1,
-    generatedAt: new Date().toISOString(),
-    guides,
-  }
-  fs.writeFileSync(path.join(TARGET_DIR, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  const prev = readPreviousManifest()
+
+  // generatedAt 记「最后一次**内容**变更」，不是「最后一次构建」：
+  // 它运行时没有任何消费方（user-guides-service 只读 guides），每构建一次都变
+  // 只会在 git 里制造假改动、并在并行会话的 rebase 里撞冲突（2026-10-31 实撞过）。
+  const generatedAt =
+    prev.data && JSON.stringify(prev.data.guides) === JSON.stringify(guides) && typeof prev.data.generatedAt === 'string'
+      ? prev.data.generatedAt
+      : new Date().toISOString()
+
+  const manifest = { version: 1, generatedAt, guides }
+  const json = `${JSON.stringify(manifest, null, 2)}\n`
+  // **沿用现有文件的行尾**。本仓库 core.autocrlf=true：检出是 CRLF，而脚本若固定写 LF，
+  // `git status` 会一直显示「已修改」但 `git diff` 是空的（纯行尾差异），
+  // 每次构建后都要手动 add 一次才消失。首次生成时按平台默认（Windows → CRLF）。
+  const eol = prev.raw ? (prev.raw.includes('\r\n') ? '\r\n' : '\n') : process.platform === 'win32' ? '\r\n' : '\n'
+  fs.writeFileSync(path.join(TARGET_DIR, 'manifest.json'), eol === '\n' ? json : json.replace(/\n/g, eol), 'utf8')
   console.log(
     `[sync-user-guides] 已同步 ${guides.length} 份指南、${assetCount} 个资源 → ${TARGET_DIR}`,
   )
