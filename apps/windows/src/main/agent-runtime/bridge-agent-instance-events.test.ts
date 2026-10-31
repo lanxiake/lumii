@@ -693,6 +693,111 @@ describe("中止标记落盘（历史回放要能区分「已完成」与「已�
 
     expect(lastContentJson(repo)).not.toHaveProperty("aborted");
   });
+
+  it("中断收尾：未成功 tool:end 的写工具产物仍进入 fileChanges", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-abort-artifacts-"));
+    try {
+      fs.mkdirSync(path.join(workspaceDir, "outputs"), { recursive: true });
+      fs.writeFileSync(path.join(workspaceDir, "outputs/article.md"), "# draft");
+
+      const ctx = createRunContext("session", "instance", "session");
+      const instanceStates = new InstanceStateStore();
+      const state = createInstanceState(ctx, {
+        definitionId: "agent",
+        runningStartedAt: null,
+        completedTurns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      });
+      state.streamingAssistantMsgId = "message-1";
+      state.lastAborted = true;
+      state.pendingParts = [
+        {
+          type: "tool",
+          id: "t1",
+          name: "file_write",
+          args: { filePath: "outputs/article.md" },
+          status: "running",
+        },
+      ];
+      instanceStates.set("instance", state);
+      clearTurnTouchedPaths("instance");
+
+      const updateMessageContent = vi.fn();
+      const forwardIpcEvent = vi.fn();
+      const handler = createAgentInstanceRuntimeEventHandler({
+        instanceId: "instance",
+        ctx,
+        ipcChannel: {
+          forwardIpcEvent,
+          forwardToRenderer: vi.fn(),
+        } as never,
+        conversationRepo: { updateMessageContent } as never,
+        fileRepo: null,
+        fileMemoryHandler: {} as never,
+        getWikiIngestHook: () => null,
+        resolveWikiAgentId: () => "assistant",
+        instanceStates,
+        instanceToConversation: new Map([["instance", "conversation-1"]]),
+        toolCallInstanceMap: new Map(),
+        toolStartTimeMap: new Map(),
+        nodeStreamCallbacks: new Map(),
+        getCompactionForRootSession: () => ({
+          contextWindow: 128_000,
+          outputReserveTokens: 8_000,
+          summaryReserveTokens: 4_000,
+        }),
+        getSessionContextUsage: () => ({
+          usedTokens: 0,
+          contextWindow: 128_000,
+          triggerThreshold: 102_400,
+        }),
+        setSessionProviderInputTokens: vi.fn(),
+        calibrateSessionCharsPerToken: vi.fn(),
+        clearSessionProviderInputTokens: vi.fn(),
+        setCurrentToolExecutorInstanceId: vi.fn(),
+        getCwd: () => workspaceDir,
+      });
+
+      await handler({ type: "agent:end" } as never);
+      await vi.waitFor(() => {
+        expect(updateMessageContent).toHaveBeenCalled();
+      });
+
+      expect(updateMessageContent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contentJson: expect.objectContaining({
+            aborted: true,
+            fileChanges: [
+              expect.objectContaining({
+                path: "outputs/article.md",
+                status: "added",
+                confidence: "exact",
+                sourceTool: "file_write",
+              }),
+            ],
+            parts: [
+              expect.objectContaining({
+                type: "tool",
+                status: "interrupted",
+              }),
+            ],
+          }),
+        }),
+      );
+      expect(forwardIpcEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent:turn:file-changes",
+          fileChanges: [
+            expect.objectContaining({ path: "outputs/article.md" }),
+          ],
+        }),
+      );
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+      clearTurnTouchedPaths("instance");
+    }
+  });
 });
 
 describe("上下文占用推送（逐往返刷新 + 触发线）", () => {

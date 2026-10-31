@@ -11,6 +11,8 @@ import {
   beginStandaloneTurn,
   collectResultTouchedPaths,
   collectToolEvidence,
+  harvestTurnTouchedFromParts,
+  recordNewlyCreatedWriteTargets,
   resolveTurnFileChanges,
 } from "./turn-touched-paths";
 
@@ -402,5 +404,59 @@ describe("turn-touched-paths", () => {
         },
       }),
     ).toEqual(["outputs/a.png"]);
+  });
+
+  it("harvestTurnTouchedFromParts：中断/进行中的写工具入参仍登记，供 abort 后台账收产物", async () => {
+    const cwd = makeWorkspace();
+    fs.mkdirSync(path.join(cwd, "outputs"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, "outputs/article.md"), "# 已写出");
+    fs.writeFileSync(path.join(cwd, "outputs/clip.mp4"), "fake-video");
+
+    harvestTurnTouchedFromParts(
+      "A",
+      [
+        {
+          type: "tool",
+          name: "file_write",
+          args: { filePath: "outputs/article.md" },
+          status: "running",
+        },
+        {
+          type: "tool",
+          name: "mcp__comfyui__enqueue_workflow",
+          args: {},
+          status: "interrupted",
+          result: {
+            details: { artifacts: [{ kind: "video", path: "outputs/clip.mp4" }] },
+          },
+        },
+        {
+          type: "tool",
+          name: "file_write",
+          args: { filePath: "outputs/failed.md" },
+          status: "error",
+        },
+      ],
+      cwd,
+    );
+
+    const resolved = await resolveTurnFileChanges("A", [], cwd);
+    expect(resolved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "outputs/article.md", status: "added", confidence: "exact" }),
+        expect.objectContaining({ path: "outputs/clip.mp4", status: "added", confidence: "exact" }),
+      ]),
+    );
+    expect(resolved.find((entry) => entry.path === "outputs/failed.md")).toBeUndefined();
+  });
+
+  it("recordNewlyCreatedWriteTargets：写入前已存在的路径即使仍在盘上也不登记", async () => {
+    const cwd = makeWorkspace();
+    const rel = "outputs/old.md";
+    fs.mkdirSync(path.join(cwd, "outputs"), { recursive: true });
+    fs.writeFileSync(path.join(cwd, rel), "old");
+    recordTurnPreState("A", "file_write", { filePath: rel }, cwd);
+    recordNewlyCreatedWriteTargets("A", "file_write", { filePath: rel }, cwd);
+    expect(await resolveTurnFileChanges("A", [], cwd)).toEqual([]);
   });
 });

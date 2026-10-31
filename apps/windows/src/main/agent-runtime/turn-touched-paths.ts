@@ -301,6 +301,72 @@ export function recordTurnTouchedFilePath(
   map.set(rel, sourceTool ? { sourceTool } : {})
 }
 
+/**
+ * 仅登记「写入前不存在、现在已落盘」的写目标。
+ *
+ * 失败 / 中断路径用这个，避免把未改动的旧文件记成 `modified`
+ * （尤其是快照忽略的 uploads/ 等目录，resolve 无法靠 hash 否定）。
+ */
+export function recordNewlyCreatedWriteTargets(
+  instanceId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  cwd: string,
+): void {
+  const paths = collectWritePaths(toolName, args)
+  if (paths.length === 0) return
+  const pre = preExistsByInstance.get(instanceId)
+  for (const filePath of paths) {
+    const rel = toWorkspaceRelative(filePath, cwd)
+    if (!rel) continue
+    if (pre?.get(rel) === true) continue
+    try {
+      if (!fs.statSync(path.resolve(cwd, rel)).isFile()) continue
+    } catch {
+      continue
+    }
+    recordTurnTouchedFilePath(instanceId, rel, cwd, toolName)
+  }
+}
+
+/**
+ * 从本轮工具 part 补登写入路径（abort 收尾用）。
+ *
+ * 用户中断时工具常来不及发成功的 `tool:end`，但入参写目标 / 结果里的 artifacts
+ * 可能已经落盘。不补登则 `resolveTurnFileChanges` 会丢掉这些路径，
+ * 「只看产出」台账表现为空。
+ *
+ * - `done`：完整登记（与成功 tool:end 幂等）
+ * - `running` / `interrupted` / `error`：只收新落盘文件 + 结果声明，避免假 modified
+ */
+export function harvestTurnTouchedFromParts(
+  instanceId: string,
+  parts: readonly {
+    type: string
+    name?: string
+    args?: unknown
+    result?: unknown
+    status?: string
+  }[],
+  cwd: string,
+): void {
+  for (const part of parts) {
+    if (part.type !== 'tool' || !part.name) continue
+    const args =
+      part.args && typeof part.args === 'object' && !Array.isArray(part.args)
+        ? (part.args as Record<string, unknown>)
+        : {}
+    if (part.status === 'done') {
+      recordTurnTouchedPath(instanceId, part.name, args, cwd)
+    } else {
+      recordNewlyCreatedWriteTargets(instanceId, part.name, args, cwd)
+    }
+    for (const outputPath of collectResultTouchedPaths(part.name, part.result)) {
+      recordTurnTouchedFilePath(instanceId, outputPath, cwd, part.name)
+    }
+  }
+}
+
 /** 回合开始与实例销毁时清空归属记录 */
 export function clearTurnTouchedPaths(instanceId: string): void {
   touchedByInstance.delete(instanceId)

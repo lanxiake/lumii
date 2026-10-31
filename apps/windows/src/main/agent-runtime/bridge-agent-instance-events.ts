@@ -40,6 +40,8 @@ import { captureTurnTextVersions } from '../turn-version-store'
 import {
   collectResultTouchedPaths,
   collectToolEvidence,
+  harvestTurnTouchedFromParts,
+  recordNewlyCreatedWriteTargets,
   recordTurnPreState,
   recordTurnTouchedFilePath,
   recordTurnTouchedPath,
@@ -770,11 +772,16 @@ export function createAgentInstanceRuntimeEventHandler(
       // source+destination，file_copy 只收 destination）；非写工具内部直接返回。
       // 生图 / 语音 / 截图等工具自身写盘但不走写文件工具，从结果里补登产出路径，
       // 否则这些产物会从变更卡片漏掉。
+      //
+      // 失败/中断：只收「新落盘」写目标 + 结果声明，避免把未改动旧文件记成 modified；
+      // Wiki / 文件记忆等副作用仍只在成功路径触发（见下方 !isError 守卫）。
       if (!event.isError) {
         recordTurnTouchedPath(instanceId, event.toolName, args, getCwd())
-        for (const outputPath of collectResultTouchedPaths(event.toolName, event.result)) {
-          recordTurnTouchedFilePath(instanceId, outputPath, getCwd(), event.toolName)
-        }
+      } else {
+        recordNewlyCreatedWriteTargets(instanceId, event.toolName, args, getCwd())
+      }
+      for (const outputPath of collectResultTouchedPaths(event.toolName, event.result)) {
+        recordTurnTouchedFilePath(instanceId, outputPath, getCwd(), event.toolName)
       }
       const writtenPath =
         typeof args['filePath'] === 'string'
@@ -1027,6 +1034,10 @@ export function createAgentInstanceRuntimeEventHandler(
         // bash / 技能这类命令型工具的入参与输出作为证据，点名过的路径/目录仍算本会话产物。
         // 本实例登记过的路径即使在 diff 外（被快照忽略的 uploads/ 等）也会用 stat 合成，
         // 快照失败时同样靠已登记路径兜底，不再整卡消失。
+        //
+        // 用户中断：进行中的工具往往没有成功的 tool:end，先从 part 入参/声明补登，
+        // 否则已写出的文章/视频等不会进入「只看产出」台账。
+        harvestTurnTouchedFromParts(instanceId, partsSnapshot, cwd)
         const evidence: TurnToolEvidence[] = []
         let evidenceBudget = 500_000
         for (const part of partsSnapshot) {
@@ -1046,7 +1057,11 @@ export function createAgentInstanceRuntimeEventHandler(
       } catch (err) {
         log.warn(`[turn-snapshot] resolve failed: ${err instanceof Error ? err.message : String(err)}`)
       }
-      const contentJson = createAssistantPartsContent(partsSnapshot, {
+      // 中止收场：把仍 running 的工具标成 interrupted，避免落库后永久「执行中」
+      const partsForContent = state?.lastAborted
+        ? finalizeAssistantParts(partsSnapshot, { interrupted: true })
+        : partsSnapshot
+      const contentJson = createAssistantPartsContent(partsForContent, {
         usage,
         sourceAgent: sourceAgentInfo,
         fileChanges,
