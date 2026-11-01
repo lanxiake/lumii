@@ -25,6 +25,7 @@ const KNOWN_TOOLS = new Set([
   'bash',
   'list_dir',
   'app_goto',
+  'file_write',
 ])
 
 /** 内置 spec 引用的 Agent；取 bridge 侧 knownAgents 的同名集合 */
