@@ -55,6 +55,15 @@ type VoiceTranscriptEvent = {
   callId: string
   text: string
   isFinal: boolean
+  /**
+   * 识别阶段（P0-4 识别可见性）：
+   * - `partial`  正在识别（流式引擎才会有）
+   * - `pending`  认出来了，但还在提交窗口里等用户说完
+   * - `final`    定稿，即将/已经发送
+   *
+   * 兼容：老消费方只读 `isFinal` 也照常工作（`isFinal === (phase === 'final')`）。
+   */
+  phase?: 'partial' | 'pending' | 'final'
 }
 
 type VoiceTtsChunkEvent = {
@@ -161,6 +170,24 @@ type VoiceConfigUpdatedEvent = {
   config: VoiceEngineConfig
 }
 
+/** 唤醒监听的当前状态（渲染层据此决定要不要继续推流） */
+type VoiceWakeStateEvent = {
+  readonly type: 'voice:wake:state'
+  active: boolean
+  /** 未激活的原因（模型没下 / 用户关了 / 通话中） */
+  reason?: string
+}
+
+/** 唤醒命中：通知渲染层（宠物窗口是新页面，收不到这次推送，所以另有 consume 查询） */
+type VoiceWakeDetectedEvent = {
+  readonly type: 'voice:wake:detected'
+  /** 命中的规范化口令 */
+  matched: string
+  /** 命中的 ASR 原文（排查误触发用） */
+  rawText: string
+  timestamp: number
+}
+
 type VoiceEvent =
   | VoiceCallStateEvent
   | VoiceTranscriptEvent
@@ -174,6 +201,8 @@ type VoiceEvent =
   | VoiceTtsPreviewEndedEvent
   | VoiceErrorEvent
   | VoiceConfigUpdatedEvent
+  | VoiceWakeStateEvent
+  | VoiceWakeDetectedEvent
 
 // ─── 错误码 ──────────────────────────────────────────────────────────────────
 
@@ -310,6 +339,11 @@ export type VoiceVadConfig = {
   threshold: number
   /** 最短语音段（毫秒） */
   minSpeechMs: number
+  /**
+   * 灵敏度档位：只修正能量门系数（标准 = 1，与旧行为逐位相同）。
+   * **不要拿它去动 `threshold`**——那个要重建 VAD 引擎，装了也热更不了。
+   */
+  sensitivity?: 'sensitive' | 'standard' | 'strict'
   /** 静音判定时长（毫秒） */
   minSilenceMs: number
   /**
@@ -335,17 +369,51 @@ export type VoiceVadConfig = {
   commitWindowMs?: number
 }
 
+/**
+ * AI 朗读（speaking）期间允许用户怎么打断。
+ *
+ * - `mute`：完全闭麦，说什么都不打断（老字段 `autoMuteMicWhileSpeaking=true` 的等价物）
+ * - `two-stage`（默认）：渲染侧疑似开口先压低回放音量，主进程 ASR 确认才真打断
+ * - `direct`：不压音，主进程用更低能量门槛直接判定，反应最快也最容易被环境噪声误触
+ */
+export type VoiceInterruptMode = 'mute' | 'two-stage' | 'direct'
+
+export type VoiceCaptureConfig = {
+  /** 系统回声消除（浏览器 AEC） */
+  echoCancellation: boolean
+  /** 系统降噪（Web 标准只有布尔，**没有强度档**） */
+  noiseSuppression: boolean
+  /** 系统自动增益（小声说话靠它拉起来；关掉后靠拾音灵敏度档） */
+  autoGainControl: boolean
+}
+
 export type VoiceEngineConfig = {
   asr: VoiceAsrConfig
   tts: VoiceTtsConfig
   vad: VoiceVadConfig
+  /** 朗读期间的打断策略，见 {@link VoiceInterruptMode} */
+  interruptMode: VoiceInterruptMode
   /**
-   * AI 朗读（speaking）期间**完全闭麦**：既不采集也不做语音打断。
-   * 默认关闭 —— 关闭时走两段式打断：渲染侧检测到疑似开口先把回放音量压低，
-   * 主进程用 ASR 确认是真语音后才真正打断（误触代价只是一瞬间变轻）。
-   * 打开后等同于"朗读期间用户说什么都不打断"。
+   * 采麦前端开关（`getUserMedia` 约束）。**改动需要重开通话**——
+   * constraints 只能在建流时给，改不了已开的流。
    */
-  autoMuteMicWhileSpeaking: boolean
+  capture: VoiceCaptureConfig
+  /**
+   * 调试开关（默认全关）。能量门/打断门槛都是经验值，真机手测时
+   * 没有 `segRms / baseline / gate` 就只能猜"是不是被门挡了"。
+   */
+  debug?: {
+    /** 每次能量门拒绝打一条结构化日志（500ms 限流） */
+    gateLog?: boolean
+  }
+  /**
+   * 语音唤醒（默认关）。开启后空闲时持续听麦克风，听到唤醒词（默认「灵栖灵栖」）
+   * 就进宠物模式并开始对话。`wakeWord` 允许更换口令，但**必须能被离线 ASR 认出来**，
+   * 生僻词/单字长口令识别率很低——这一版不做声学级关键词唤醒。
+   */
+  wakeWord: {
+    enabled: boolean
+  }
 }
 
 export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
@@ -368,6 +436,7 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
   },
   vad: {
     threshold: 0.5,
+    sensitivity: 'standard',
     minSpeechMs: 250,
     minSilenceMs: 500,
     energyGateMultiplier: 1.5,
@@ -378,5 +447,7 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
     commitMinMs: 800,
     commitMaxMs: 2500,
   },
-  autoMuteMicWhileSpeaking: false,
+  interruptMode: 'two-stage',
+  capture: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  wakeWord: { enabled: false },
 }

@@ -626,19 +626,21 @@ export const PetModeShell: React.FC = () => {
   /** 当前正在累积的 assistant 消息 id（流式 delta 累加目标） */
   const streamingIdRef = useRef<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
-  // 默认跟随引擎默认（false = 两段式打断），真实值由下面的 config:get 覆盖
-  const [autoMuteMicWhileSpeaking, setAutoMuteMicWhileSpeaking] = useState(false)
+  // 默认跟随引擎默认（two-stage = 两段式打断），真实值由下面的 config:get 覆盖
+  const [interruptMode, setInterruptMode] = useState<'mute' | 'two-stage' | 'direct'>('two-stage')
   const [vadThreshold, setVadThreshold] = useState(0.5)
   const [energyGateMultiplier, setEnergyGateMultiplier] = useState(1.5)
+  const [sensitivity, setSensitivity] = useState<'sensitive' | 'standard' | 'strict'>('standard')
 
-  /** 加载语音引擎配置，同步闭麦/阈值到控制坞 */
+  /** 加载语音引擎配置，同步打断档位/阈值到控制坞 */
   useEffect(() => {
     const api = (window as any).electronAPI
     if (!api?.voice?.sendCommand) return
     api.voice.sendCommand({ type: 'voice:config:get' }).then((cfg: any) => {
-      if (cfg?.autoMuteMicWhileSpeaking !== undefined) setAutoMuteMicWhileSpeaking(cfg.autoMuteMicWhileSpeaking)
+      if (cfg?.interruptMode !== undefined) setInterruptMode(cfg.interruptMode)
       if (cfg?.vad?.threshold !== undefined) setVadThreshold(cfg.vad.threshold)
       if (cfg?.vad?.energyGateMultiplier !== undefined) setEnergyGateMultiplier(cfg.vad.energyGateMultiplier)
+      if (cfg?.vad?.sensitivity !== undefined) setSensitivity(cfg.vad.sensitivity)
     }).catch(() => {
       console.warn('[PetModeShell] 获取语音配置失败')
     })
@@ -646,13 +648,14 @@ export const PetModeShell: React.FC = () => {
 
   /** 修改语音引擎配置（合并持久化，主进程广播热更新） */
   const handleChangeVoiceSetting = useCallback(
-    (patch: { autoMuteMicWhileSpeaking?: boolean; vad?: { threshold?: number; energyGateMultiplier?: number } }) => {
+    (patch: { interruptMode?: 'mute' | 'two-stage' | 'direct'; vad?: { threshold?: number; energyGateMultiplier?: number; sensitivity?: 'sensitive' | 'standard' | 'strict' } }) => {
       const api = (window as any).electronAPI
       if (!api?.voice?.sendCommand) return
       api.voice.sendCommand({ type: 'voice:config:set', config: patch })
-      if (patch.autoMuteMicWhileSpeaking !== undefined) setAutoMuteMicWhileSpeaking(patch.autoMuteMicWhileSpeaking)
+      if (patch.interruptMode !== undefined) setInterruptMode(patch.interruptMode)
       if (patch.vad?.threshold !== undefined) setVadThreshold(patch.vad.threshold)
       if (patch.vad?.energyGateMultiplier !== undefined) setEnergyGateMultiplier(patch.vad.energyGateMultiplier)
+      if (patch.vad?.sensitivity !== undefined) setSensitivity(patch.vad.sensitivity)
     },
     [],
   )
@@ -955,6 +958,62 @@ export const PetModeShell: React.FC = () => {
       .catch((err) => {
         log.warn(`[mount] 会话预绑定失败: ${err instanceof Error ? err.message : String(err)}`)
       })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /**
+   * 语音唤醒进来的：直接开口对话。
+   *
+   * 为什么要在宠物窗口里补问一次：唤醒时主进程推的 `voice:wake:detected`
+   * 是发给**当时已存在**的窗口的，而宠物窗口是切模式时才新建并加载的页面，
+   * 那条推送它根本收不到。所以主进程留了个一次性标记，这里挂载后主动取。
+   */
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const hit = (await window.electronAPI?.voice?.sendCommand({
+          type: 'voice:wake:consume',
+        })) as { matched?: string; rawText?: string } | null
+        if (!alive || !hit) return
+        log.info(`[wake] 由唤醒词进入宠物模式：${hit.matched}（ASR="${hit.rawText ?? ''}"）`)
+        // 等预绑定会话那一轮跑完再起呼，否则 sessionKeyRef 还是空的
+        await new Promise((r) => setTimeout(r, 300))
+        if (!alive) return
+        await handleStartVoice()
+      } catch (err) {
+        log.warn(`[wake] 唤醒后起呼失败: ${(err as Error).message}`)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // 只跑一次（handleStartVoice 是稳定 useCallback）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /**
+   * 已经在宠物模式时又被唤醒一次：直接再开一轮对话。
+   *
+   * 与上面那条不同——那时宠物窗口还没加载（收不到推送），只能靠 consume 补问；
+   * 这条是窗口已经在跑，主进程会直接推给它（见 voice-wake-hub.pushToPetWindow）。
+   */
+  const voiceStateNameRef = useRef<string>('idle')
+  voiceStateNameRef.current = voiceState.state
+  useEffect(() => {
+    const api = (window as any).electronAPI?.voice
+    if (!api?.onEvent) return
+    const off = api.onEvent((event: any) => {
+      if (event?.type !== 'voice:wake:detected') return
+      if (voiceStateNameRef.current !== 'idle') {
+        log.info('[wake] 已在通话中，忽略再次唤醒')
+        return
+      }
+      log.info(`[wake] 宠物模式下再次唤醒：${event.matched}`)
+      void handleStartVoice()
+    })
+    return () => off?.()
+    // 只订阅一次；当前通话态走 ref 读最新值（闭包里的 voiceState 永远停在挂载那一刻）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1701,8 +1760,9 @@ export const PetModeShell: React.FC = () => {
         onChangeModel={handleChangeModel}
         onClose={() => setDockOpen(false)}
         onSendText={handleSendText}
-        autoMuteMicWhileSpeaking={autoMuteMicWhileSpeaking}
+        interruptMode={interruptMode}
         vadThreshold={vadThreshold}
+        sensitivity={sensitivity}
         energyGateMultiplier={energyGateMultiplier}
         onChangeVoiceSetting={handleChangeVoiceSetting}
         />

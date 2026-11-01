@@ -114,8 +114,12 @@ interface ChatInputProps {
    * 不再用 VoiceCallPanel 盖住整块输入区。
    */
   voiceCallState?: 'idle' | 'initializing' | 'listening' | 'recognizing' | 'thinking' | 'speaking' | 'ending' | 'error'
-  /** 通话中的实时转写（partial=待定稿，final=已识别待发送） */
+  /** 通话中的实时转写（partial=流式中间结果，pending=已认出等定稿，final=已发送） */
   voicePartialTranscript?: string
+  /** 已认出、还在提交窗里等用户说完 */
+  voicePendingTranscript?: string
+  /** 最近一次定稿的时间戳（>0 时状态条闪一下"已定稿"） */
+  voiceFinalAt?: number
   /** 麦克风波形分析节点（通话中用于状态条） */
   voiceAnalyserNode?: AnalyserNode | null
   /** 工作空间文件被拖入输入框（用于在工作空间面板定位） */
@@ -233,6 +237,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onVoiceCallHangup,
   voiceCallState = 'idle',
   voicePartialTranscript = '',
+  voicePendingTranscript = '',
+  voiceFinalAt = 0,
   voiceAnalyserNode = null,
   fileReferences = [],
   onFileReferenceAdd,
@@ -653,12 +659,24 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const tipsEnabled = Boolean(showTips && isConnected && !isStreaming && !innerValue.trim())
   const rotatingTip = useRotatingTip(tipsEnabled)
 
+  /** 定稿闪光：finalAt 变化后 200ms 内显示「已定稿」 */
+  const [voiceJustFinalized, setVoiceJustFinalized] = useState(false)
+  useEffect(() => {
+    if (!voiceFinalAt) return
+    setVoiceJustFinalized(true)
+    const timer = window.setTimeout(() => setVoiceJustFinalized(false), 200)
+    return () => window.clearTimeout(timer)
+  }, [voiceFinalAt])
+
   /** 通话状态条文案：只说用户关心的"现在轮到我吗" */
-  const voiceStatusLabel =
-    voiceCallState === 'listening'
+  const voiceStatusLabel = voiceJustFinalized
+    ? '已定稿，发出去了'
+    : voiceCallState === 'listening'
       ? '在听，请说'
       : voiceCallState === 'recognizing'
-        ? '正在识别…'
+        ? voicePendingTranscript
+          ? '记下了，继续补充…'
+          : '正在识别…'
         : voiceCallState === 'thinking'
           ? 'AI 思考中（可以继续说，会一起发出）'
           : voiceCallState === 'speaking'
@@ -670,6 +688,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 : voiceCallState === 'error'
                   ? '语音出错'
                   : ''
+  const voiceBarTranscript = voicePendingTranscript || voicePartialTranscript
   const showVoiceBar = voiceCallState !== 'idle' && voiceCallState !== 'error'
 
   /** 有输入内容或附件时，输入卡片改为不透明，避免与透出的消息文字重叠 */
@@ -783,15 +802,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
           className={clsx(
             styles['voice-status-bar'],
             voiceCallState === 'speaking' && styles['voice-status-bar--speaking'],
+            voiceJustFinalized && styles['voice-status-bar--final'],
           )}
           role="status"
           aria-live="polite"
         >
           <span className={styles['voice-status-dot']} aria-hidden />
           <span className={styles['voice-status-label']}>{voiceStatusLabel}</span>
-          {voicePartialTranscript && (
-            <span className={styles['voice-status-transcript']} title={voicePartialTranscript}>
-              {voicePartialTranscript}
+          {voiceBarTranscript && !voiceJustFinalized && (
+            <span className={styles['voice-status-transcript']} title={voiceBarTranscript}>
+              {voiceBarTranscript}
             </span>
           )}
           {/* 波形：只在真的采到声音时挂 analyser，其余态留空避免空 canvas 闪烁 */}

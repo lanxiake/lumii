@@ -22,6 +22,7 @@ import { useToast } from './components/ui/Toast/useToast'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
 import { getAppVersion } from './services/app-service'
 import { PetSessionSync } from './components/PetSessionSync'
+import { VoiceWakeListener } from './components/VoiceWakeListener'
 import { PluginRuntime } from '@/plugins/renderer/runtime'
 import { useAgentRuntimeActions } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { subscribeMainEvent } from './services/event-bus-service'
@@ -313,6 +314,8 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
         version={appVersion ? `v${appVersion}` : undefined}
       >
         <PetSessionSync />
+        {/* 语音唤醒「灵栖灵栖」：只监听，不起任何 UI（命中后由主进程切宠物模式） */}
+        <VoiceWakeListener />
         {/* 插件启停的前端半边：按主进程状态 setup / teardown 插件 UI */}
         <PluginRuntime />
         <Router activeView={activeView} onViewChange={handleViewChange} />

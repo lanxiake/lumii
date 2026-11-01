@@ -5,7 +5,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { resolveSharedConfigDir } from '../../../main/paths.js'
-import type { VoiceEngineConfig } from '../../../shared/voice-events.js'
+import type { VoiceEngineConfig, VoiceInterruptMode } from '../../../shared/voice-events.js'
 import { DEFAULT_VOICE_ENGINE_CONFIG, isQwen3CloneVariant } from '../../../shared/voice-events.js'
 
 const log = {
@@ -19,16 +19,15 @@ function getConfigPath(): string {
 }
 
 /**
- * 是否"朗读期间完全闭麦"。
- *
- * 默认值从 true 改成了 false（改成两段式打断：疑似开口先压音，ASR 确认才真打断）。
- * 但**老配置里显式存下的 true 必须保留** —— 那时默认就是 true，用户以为自己处在
- * 默认态，改成 false 等于替他们改了行为。所以：存过就听存的，没存过用新默认。
+ * 朗读打断策略迁移：老配置只有布尔 `autoMuteMicWhileSpeaking`（true = 完全闭麦）。
+ * 现在拆成三档，旧值映射 `true → 'mute'`、`false → 'two-stage'`。
+ * 老版默认值就是 false（两段式），所以没存过就落新默认，行为不变。
  */
-function resolveAutoMute(saved: Partial<VoiceEngineConfig>): boolean {
-  return typeof saved.autoMuteMicWhileSpeaking === 'boolean'
-    ? saved.autoMuteMicWhileSpeaking
-    : DEFAULT_VOICE_ENGINE_CONFIG.autoMuteMicWhileSpeaking
+export function resolveInterruptMode(saved: Partial<VoiceEngineConfig> & { autoMuteMicWhileSpeaking?: boolean }): VoiceInterruptMode {
+  const savedMode = saved.interruptMode
+  if (savedMode === 'mute' || savedMode === 'two-stage' || savedMode === 'direct') return savedMode
+  if (saved.autoMuteMicWhileSpeaking === true) return 'mute'
+  return DEFAULT_VOICE_ENGINE_CONFIG.interruptMode
 }
 
 /**
@@ -67,7 +66,10 @@ function mergeWithDefaults(saved: Partial<VoiceEngineConfig>): VoiceEngineConfig
     asr: { ...DEFAULT_VOICE_ENGINE_CONFIG.asr, ...saved.asr },
     tts: { ...DEFAULT_VOICE_ENGINE_CONFIG.tts, ...ttsSaved },
     vad: { ...DEFAULT_VOICE_ENGINE_CONFIG.vad, ...migrateCommitWindow(saved.vad) },
-    autoMuteMicWhileSpeaking: resolveAutoMute(saved),
+    interruptMode: resolveInterruptMode(saved),
+    capture: { ...DEFAULT_VOICE_ENGINE_CONFIG.capture, ...saved.capture },
+    ...(saved.debug ? { debug: { ...saved.debug } } : {}),
+    wakeWord: { ...DEFAULT_VOICE_ENGINE_CONFIG.wakeWord, ...saved.wakeWord },
   }
 }
 

@@ -63,7 +63,10 @@ type VoiceSetConfigCommand = {
     asr?: Partial<import('./voice-events.js').VoiceAsrConfig>
     tts?: Partial<import('./voice-events.js').VoiceTtsConfig>
     vad?: Partial<import('./voice-events.js').VoiceVadConfig>
-    autoMuteMicWhileSpeaking?: boolean
+    interruptMode?: import('./voice-events.js').VoiceInterruptMode
+    capture?: Partial<import('./voice-events.js').VoiceCaptureConfig>
+    debug?: import('./voice-events.js').VoiceEngineConfig['debug']
+    wakeWord?: import('./voice-events.js').VoiceEngineConfig['wakeWord']
   }
 }
 
@@ -71,6 +74,36 @@ type VoiceSetConfigCommand = {
 type VoicePlaybackFinishedCommand = {
   readonly type: 'voice:playback:finished'
   callId: string
+}
+
+/**
+ * 唤醒监听的开关。
+ *
+ * 麦克风在**渲染进程**（`getUserMedia` + AudioWorklet），主进程拿不到；
+ * 所以判定在主进程、采集在渲染层，这组命令是二者之间的握手：
+ * `wake:attach` 让主进程准备引擎，`wake:audio` 是帧流，`wake:detach` 收尾。
+ */
+type VoiceWakeAttachCommand = {
+  readonly type: 'voice:wake:attach'
+}
+
+type VoiceWakeDetachCommand = {
+  readonly type: 'voice:wake:detach'
+}
+
+/** 唤醒检测状态（渲染层据此显示"正在等唤醒"或"唤醒已关闭"） */
+type VoiceWakeStatusCommand = {
+  readonly type: 'voice:wake:status'
+}
+
+/**
+ * 渲染层问一次「刚刚是不是被唤醒的」。
+ *
+ * 宠物窗口是新加载的页面，主进程那次 `voice:event` 唤醒推送它**收不到**
+ * （页面还没挂载）。所以命中先落一个一次性标记，宠物挂载后主动来取。
+ */
+type VoiceWakeConsumeCommand = {
+  readonly type: 'voice:wake:consume'
 }
 
 /**
@@ -190,6 +223,10 @@ export type VoiceCommand =
   | VoiceGetConfigCommand
   | VoiceSetConfigCommand
   | VoicePlaybackFinishedCommand
+  | VoiceWakeAttachCommand
+  | VoiceWakeDetachCommand
+  | VoiceWakeStatusCommand
+  | VoiceWakeConsumeCommand
   | VoiceTtsPreviewCommand
   | VoiceTtsStopPreviewCommand
   | VoiceTtsGenerateFileCommand

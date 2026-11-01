@@ -30,6 +30,7 @@ import {
 import styles from './ChatPage.module.css'
 import { processFilesWithStrategies, appendAttachmentsToMessage, parseMediaAttachments } from './utils/file-attachment-strategy'
 import { planAbort } from './utils/abort-plan'
+import { decideVoiceFinalAction } from './utils/voice-final-routing'
 import { isMainAgentSession } from './utils/main-agent-session'
 import { useVoiceCall } from '../../hooks/business/useVoiceCall'
 import { useConversationReplay } from '../../hooks/business/useConversationReplay'
@@ -1764,41 +1765,104 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [voiceCallActions])
 
   /**
-   * 通话中：转写走状态条（partialTranscript），**不接管输入框**。
+   * 通话中：转写走状态条（partialTranscript / pendingTranscript），**不接管输入框**。
    *
-   * 之前 partial 直接 setInputValue 覆盖输入框，用户正打的字会被识别结果冲掉；
-   * 改成只在状态条里显示，定稿后的 final 才作为一条消息发出。
+   * 定稿后走语义分流（`decideVoiceFinalAction`）：
+   * - 上一轮还在跑 → 插话（当场纠偏，不新建消息）
+   * - 只是本地发送中 → 短队列，空闲即冲刷
+   * - 否则 → 直接发送
+   *
+   * 旧实现在 isSending 时只塞输入框就 return，但主进程 `submitToAgent` 早已把状态
+   * 推成 thinking，渲染层又从不 handleSend —— AI 永远"思考中"，用户接着说全被
+   * 攒进 heldUtterance 等不到放行（G1 死局）。
    */
   const voiceFinalSentRef = useRef<string | null>(null)
+  const voiceSendQueueRef = useRef<string[]>([])
+  /**
+   * 冲刷锁：handleSend 的 `setSendingSessionIds` 要下一次渲染才生效，
+   * 这期间队列再来一条会把第二条也发出去（用户看到重复两条）。用锁挡掉。
+   */
+  const voiceFlushLockRef = useRef(false)
+  // 入队回调里要读"此刻"的 isSending，而不是闭包里可能过期的值
+  const isSendingRef = useRef(isSending)
+  isSendingRef.current = isSending
   useEffect(() => {
     if (voiceCallState.state === 'idle') {
       voiceFinalSentRef.current = null
+      voiceSendQueueRef.current = []
     }
   }, [voiceCallState.state])
+
+  const flushVoiceSendQueue = useCallback(() => {
+    if (isSendingRef.current || voiceFlushLockRef.current) return
+    const next = voiceSendQueueRef.current.shift()
+    if (!next) return
+    voiceFlushLockRef.current = true
+    logger.info(`[voice] 队列出队发送（剩 ${voiceSendQueueRef.current.length} 条）`)
+    void handleSend(next)
+  }, [handleSend])
+
+  /** 入队；若此刻其实空闲（steer 刚好落空 / isSending 已翻回），立刻冲刷 */
+  const enqueueVoiceSend = useCallback((text: string) => {
+    voiceSendQueueRef.current.push(text)
+    logger.info(`[voice] 语音定稿入队（待发 ${voiceSendQueueRef.current.length} 条）`)
+    if (!isSendingRef.current) flushVoiceSendQueue()
+  }, [flushVoiceSendQueue])
 
   useEffect(() => {
     if (voiceCallState.state === 'idle') return
     const finalText = voiceCallState.finalTranscript.trim()
     if (!finalText) return
     if (voiceFinalSentRef.current === finalText) return
-    // 上一轮还在发：别静默吞掉——把话留在输入框里，等闲下来用户可以直接回车。
-    if (isSending) {
-      logger.info('[voice] 上一条仍在发送，转写保留在输入框')
-      setInputValue(`${finalText}（语音输入）`)
-      voiceCallActions.clearFinalTranscript()
+    voiceFinalSentRef.current = finalText
+    voiceCallActions.clearFinalTranscript()
+
+    const sessionKey = runtimeCurrentSessionKey
+    const hasActiveRun = sessionKey
+      ? Boolean(runtimeStore.getState().sessions.get(sessionKey)?.activeRunId)
+      : false
+    const text = `${finalText}（语音输入）`
+    const action = decideVoiceFinalAction({
+      isSending,
+      hasActiveRun,
+      queueLen: voiceSendQueueRef.current.length,
+    })
+
+    if (action === 'steer' && sessionKey) {
+      void runtimeActions.steer(sessionKey, text).then((ok) => {
+        if (ok) {
+          logger.info('[voice] 语音定稿已作为插话发出')
+          return
+        }
+        // 拿不到 activeRunId（刚好结束）就退回短队列，别丢
+        logger.info('[voice] 插话未发出，改为排队')
+        enqueueVoiceSend(text)
+      })
       return
     }
-    voiceFinalSentRef.current = finalText
-    void handleSend(`${finalText}（语音输入）`)
-    voiceCallActions.clearFinalTranscript()
+    if (action === 'queue') {
+      enqueueVoiceSend(text)
+      return
+    }
+    void handleSend(text)
   }, [
     voiceCallState.state,
     voiceCallState.finalTranscript,
     isSending,
     handleSend,
-    setInputValue,
+    runtimeActions,
+    runtimeCurrentSessionKey,
     voiceCallActions,
+    enqueueVoiceSend,
   ])
+
+  // 发送状态落空 → 冲刷语音队列（同一条 effect 的 isSending 版本，避免额外状态）
+  useEffect(() => {
+    if (isSending) return
+    voiceFlushLockRef.current = false
+    if (voiceSendQueueRef.current.length === 0) return
+    flushVoiceSendQueue()
+  }, [isSending, flushVoiceSendQueue])
 
   // Handle suggestion click from empty state
   const handleSuggestionClick = useCallback((suggestion: string) => {
@@ -2254,6 +2318,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onVoiceCallHangup={handleVoiceCallHangup}
             voiceCallState={voiceCallState.state}
             voicePartialTranscript={voiceCallState.partialTranscript}
+            voicePendingTranscript={voiceCallState.pendingTranscript}
+            voiceFinalAt={voiceCallState.finalAt}
             voiceAnalyserNode={voiceCallState.analyserNode}
             onLocateFile={handleLocateFile}
             showTips={showInputTips}

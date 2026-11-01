@@ -1244,6 +1244,17 @@
   background: color-mix(in srgb, var(--mt-success) 8%, transparent);
 }
 
+/* 定稿确认闪（200ms）：让用户知道"刚才那句已经发出去了" */
+.voice-status-bar--final {
+  border-color: color-mix(in srgb, var(--mt-success) 55%, transparent);
+  background: color-mix(in srgb, var(--mt-success) 16%, transparent);
+}
+
+.voice-status-bar--final .voice-status-dot {
+  background: var(--mt-success);
+  animation: none;
+}
+
 .voice-status-dot {
   width: 6px;
   height: 6px;

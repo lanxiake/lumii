@@ -131,16 +131,22 @@ export interface PetControlDockProps {
   onClose: () => void | Promise<void>
   /** 发送文字消息（虚拟人会语音/字幕回应） */
   onSendText: (text: string) => void | Promise<void>
-  /** AI 朗读时自动闭麦 */
-  autoMuteMicWhileSpeaking: boolean
+  /** AI 朗读期间的打断策略 */
+  interruptMode: 'mute' | 'two-stage' | 'direct'
   /** 语音识别阈值（vad.threshold，0~1，越低越灵敏） */
   vadThreshold: number
+  /** 拾音灵敏度档位（只调能量门，不动 VAD 模型） */
+  sensitivity: 'sensitive' | 'standard' | 'strict'
   /** 负面语音阈值（vad.energyGateMultiplier，越大越严格，过滤背景噪声/回声） */
   energyGateMultiplier: number
   /** 修改语音引擎配置（合并持久化，主进程广播热更新） */
   onChangeVoiceSetting: (patch: {
-    autoMuteMicWhileSpeaking?: boolean
-    vad?: { threshold?: number; energyGateMultiplier?: number }
+    interruptMode?: 'mute' | 'two-stage' | 'direct'
+    vad?: {
+      threshold?: number
+      energyGateMultiplier?: number
+      sensitivity?: 'sensitive' | 'standard' | 'strict'
+    }
   }) => void | Promise<void>
 }
 
@@ -225,8 +231,9 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
   onChangeModel,
   onClose,
   onSendText,
-  autoMuteMicWhileSpeaking,
+  interruptMode,
   vadThreshold,
+  sensitivity,
   energyGateMultiplier,
   onChangeVoiceSetting,
 }) => {
@@ -700,25 +707,37 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
               gap: 12,
             }}
           >
-            {/* AI 朗读时自动闭麦 */}
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                fontSize: 12,
-                color: `${light(0.82)}`,
-                cursor: 'pointer',
-              }}
-            >
-              <span title="开启后 AI 朗读期间完全不听你说话；关闭时你开口会先压低 AI 音量，确认是真语音才打断">AI 朗读时完全闭麦</span>
-              <input
-                type="checkbox"
-                checked={autoMuteMicWhileSpeaking}
-                onChange={(e) => void onChangeVoiceSetting({ autoMuteMicWhileSpeaking: e.target.checked })}
-                style={{ width: 16, height: 16, cursor: 'pointer' }}
-              />
-            </label>
+            {/* AI 朗读期间的打断策略 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span
+                style={{ fontSize: 12, color: `${light(0.82)}` }}
+                title="两段式：你开口先压低 AI 音量，确认是真语音才打断；直接：立刻响应但嘈杂时易误触；闭麦：朗读期间完全不听你说话"
+              >
+                AI 朗读时如何打断
+              </span>
+              <select
+                value={interruptMode}
+                onChange={(e) =>
+                  void onChangeVoiceSetting({
+                    interruptMode: e.target.value as 'mute' | 'two-stage' | 'direct',
+                  })
+                }
+                style={{
+                  width: '100%',
+                  fontSize: 12,
+                  padding: '4px 6px',
+                  borderRadius: 6,
+                  border: `1px solid ${light(0.18)}`,
+                  background: 'rgba(0,0,0,0.25)',
+                  color: `${light(0.88)}`,
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="two-stage">两段式打断（推荐）</option>
+                <option value="direct">直接打断</option>
+                <option value="mute">完全闭麦</option>
+              </select>
+            </div>
 
             {/* 语音识别阈值（vad.threshold，越低越灵敏） */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -735,6 +754,33 @@ export const PetControlDock: React.FC<PetControlDockProps> = ({
                 onChange={(e) => void onChangeVoiceSetting({ vad: { threshold: parseFloat(e.target.value) } })}
                 style={{ width: '100%', cursor: 'pointer' }}
               />
+            </div>
+
+            {/* 拾音灵敏度三档（只改能量门系数，不动 VAD 模型） */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 12, color: `${light(0.82)}` }}>拾音灵敏度</span>
+              <select
+                value={sensitivity}
+                onChange={(e) =>
+                  void onChangeVoiceSetting({
+                    vad: { sensitivity: e.target.value as 'sensitive' | 'standard' | 'strict' },
+                  })
+                }
+                style={{
+                  width: '100%',
+                  fontSize: 12,
+                  padding: '4px 6px',
+                  borderRadius: 6,
+                  border: `1px solid ${light(0.18)}`,
+                  background: 'rgba(0,0,0,0.25)',
+                  color: `${light(0.88)}`,
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="sensitive">灵敏（小声也能听到）</option>
+                <option value="standard">标准（默认）</option>
+                <option value="strict">严格（嘈杂环境）</option>
+              </select>
             </div>
 
             {/* 负面语音阈值（vad.energyGateMultiplier，越大越严格） */}

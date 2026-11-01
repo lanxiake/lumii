@@ -10,7 +10,9 @@ if (import.meta.hot) {
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AudioPlaybackEngine } from './audio-playback.js'
+import { DuckFloorTracker, DUCK_TIMEOUT_MS } from './voice-duck.js'
 import { loadAudioWorkletModule } from './load-audio-worklet.js'
+import { loadCaptureConfig, micConstraints } from './capture-constraints.js'
 import pcmProcessorSource from './worklets/pcm-processor.js?raw'
 import type { VoiceCallState } from '../../../../shared/voice-events.js'
 
@@ -24,8 +26,13 @@ function notifyModelsNeedDownload(): void {
 export interface VoiceCallHookState {
   state: VoiceCallState | 'idle'
   callId: string | null
+  /** 流式引擎的中间识别结果（说话途中不断更新） */
   partialTranscript: string
+  /** 已认出、还在提交窗口里等用户说完（「记下了，继续补充…」） */
+  pendingTranscript: string
   finalTranscript: string
+  /** 最近一次定稿的时刻；状态条据此播一闪"已定稿"再复位（0 = 没有） */
+  finalAt: number
   isModelReady: boolean
   error: string | null
   /** 实时波形分析节点（可选，供 WaveformVisualizer 使用） */
@@ -59,6 +66,11 @@ export interface VoiceCallHookState {
   readAloudActive: boolean
   /** 静默实时朗读当前是否正在出声（speaking），供按钮波纹动画 */
   readAloudSpeaking: boolean
+  /**
+   * 朗读期间的打断策略（主进程权威，渲染侧只读）。
+   * `two-stage` 时渲染侧才做压音；`direct` 交给主进程直接判，`mute` 不听。
+   */
+  interruptMode: 'mute' | 'two-stage' | 'direct'
 }
 
 export interface VoiceCallActions {
@@ -87,7 +99,9 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     state: 'idle',
     callId: null,
     partialTranscript: '',
+    pendingTranscript: '',
     finalTranscript: '',
+    finalAt: 0,
     isModelReady: false,
     error: null,
     analyserNode: null,
@@ -101,6 +115,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     edgeVoice: 'zh-CN-XiaoxiaoNeural',
     readAloudActive: false,
     readAloudSpeaking: false,
+    interruptMode: 'two-stage',
   })
 
   // 静默实时朗读标志：事件处理器据此把状态写入 readAloud* 而非驱动 VoiceCallPanel 的 state
@@ -132,6 +147,9 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
             edgeVoice: cfg.tts.voice ?? s.edgeVoice,
           }))
         }
+        if (cfg?.interruptMode) {
+          setState((s) => ({ ...s, interruptMode: cfg.interruptMode }))
+        }
       })
       .catch(() => {})
   }, [])
@@ -145,8 +163,14 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
   // 时长参考（2026-10 核对）：LiveKit interruption min_duration=500ms、
   // sherpa min_speech_duration=250ms、Pipecat start_secs=200ms。
   // 取 300ms 在中间——短于它的多半是"嗯/咳"这类语气或回声残留。
+  //
+  // 门槛不写死：按当前环境底噪估，夹在 0.015~0.06（见 voice-duck.ts 的 G3 说明）。
+  // 压音后 DUCK_TIMEOUT_MS 内没等到主进程确认就自动回弹——否则嘈杂环境下
+  // 渲染侧在 0.02~0.075 之间压着、主进程永远不认，用户听感是"AI 突然很小声"。
   useEffect(() => {
-    if (state.state !== 'speaking') {
+    // 压音只属于两段式：direct 档要的是最快响应（压音反而拖慢打断手感），
+    // mute 档主进程根本不听，压不压都没意义。
+    if (state.state !== 'speaking' || state.interruptMode !== 'two-stage') {
       playbackRef.current?.unduck()
       return
     }
@@ -155,13 +179,14 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     if (!analyser || !playback) return
 
     const TICK_MS = 100
-    const RMS_THRESHOLD = 0.02
     const SPEECH_TICKS_TO_DUCK = 3 // 300ms
     const QUIET_TICKS_TO_UNDUCK = 5 // 500ms
+    const floorTracker = new DuckFloorTracker()
 
     const buf = new Uint8Array(analyser.fftSize)
     let loudTicks = 0
     let quietTicks = 0
+    let duckedAt = 0
     const timer = window.setInterval(() => {
       analyser.getByteTimeDomainData(buf)
       let sum = 0
@@ -170,16 +195,32 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
         sum += v * v
       }
       const rms = Math.sqrt(sum / buf.length)
-      if (rms > RMS_THRESHOLD) {
+
+      // 没压音时才更新底噪：把 AI 回采/用户说话的能量算进底噪会自我抬高门槛
+      if (!playback.isDucked) floorTracker.push(rms)
+      const threshold = floorTracker.threshold()
+
+      if (rms > threshold) {
         loudTicks++
         quietTicks = 0
-        if (loudTicks >= SPEECH_TICKS_TO_DUCK) playback.duck()
+        if (loudTicks >= SPEECH_TICKS_TO_DUCK && !playback.isDucked) {
+          playback.duck()
+          duckedAt = Date.now()
+        }
       } else {
         loudTicks = 0
         if (playback.isDucked && ++quietTicks >= QUIET_TICKS_TO_UNDUCK) {
           playback.unduck()
           quietTicks = 0
+          duckedAt = 0
         }
+      }
+
+      // 兜底回弹：压了半天主进程也没确认（门槛口径不一致 / 只是环境噪声）
+      if (playback.isDucked && duckedAt > 0 && Date.now() - duckedAt > DUCK_TIMEOUT_MS) {
+        playback.unduck()
+        duckedAt = 0
+        quietTicks = 0
       }
     }, TICK_MS)
 
@@ -187,7 +228,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       window.clearInterval(timer)
       playback.unduck()
     }
-  }, [state.state])
+  }, [state.state, state.interruptMode])
 
   // ── 订阅主进程语音事件 ──────────────────────────────────────────────────
 
@@ -237,9 +278,15 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
               ...s,
               finalTranscript: event.text,
               partialTranscript: '',
+              pendingTranscript: '',
+              finalAt: Date.now(),
             }))
+          } else if (event.phase === 'pending') {
+            // 认出来了但还在提交窗口里等用户说完：留在 pending，别覆盖成 partial
+            setState((s) => ({ ...s, pendingTranscript: event.text, partialTranscript: '' }))
           } else {
-            setState((s) => ({ ...s, partialTranscript: event.text }))
+            // 新的一句开始了：上一句的 pending 已经定稿或作废，别让状态条同时挂着两段
+            setState((s) => ({ ...s, partialTranscript: event.text, pendingTranscript: '' }))
           }
           break
 
@@ -308,6 +355,9 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
 
         case 'voice:config:updated':
           // 配置更新推送：热更新音量（渲染侧 GainNode），同步速度/音色状态
+          if (event.config?.interruptMode) {
+            setState((s) => ({ ...s, interruptMode: event.config.interruptMode }))
+          }
           if (event.config?.tts) {
             const cfg = event.config.tts
             if (cfg.volume !== undefined) {
@@ -371,15 +421,8 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
 
       // micless 模式（文字回复出声）：不采麦，只建播放管线 + AnalyserNode 供真口型。
       if (!micless) {
-        // 1. 请求麦克风权限
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        })
+        // 1. 请求麦克风权限（约束来自设置页；改动需重开通话，见 capture-constraints.ts）
+        const stream = await navigator.mediaDevices.getUserMedia(micConstraints(await loadCaptureConfig()))
         streamRef.current = stream
       }
 
@@ -524,7 +567,9 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       state: 'idle',
       callId: null,
       partialTranscript: '',
+      pendingTranscript: '',
       finalTranscript: '',
+      finalAt: 0,
       analyserNode: null,
       playbackAnalyserNode: null,
       charPulsePoll: null,

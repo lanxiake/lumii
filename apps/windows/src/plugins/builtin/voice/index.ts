@@ -10,6 +10,7 @@ import { VoiceCallService } from './voice-service.js'
 import { VoiceModelManager } from './model-manager.js'
 import { registerVoiceIpc } from './voice-ipc.js'
 import { loadVoiceEngineConfig } from './voice-config-store.js'
+import { VoiceWakeHub } from './voice-wake-hub.js'
 
 /**
  * 语音扩展（ASR / TTS / 来电）。
@@ -73,6 +74,15 @@ export const voiceExtension = {
           config,
         )
 
+        // 唤醒：麦克风在渲染层、判定在主进程。进宠物模式的动作从宠物插件取，
+        // 缺插件时降级成"只推送事件、不切窗口"（宠物被禁用也就没有宠物可进）。
+        const wakeHub = new VoiceWakeHub(win, service, async () => {
+          const pet = ctx.get(S.pet)
+          if (!pet) throw new Error('宠物插件未启用，无法进入宠物模式')
+          const result = await pet.switchMode('pet')
+          if (!result.success) throw new Error(result.error ?? '进入宠物模式失败')
+        })
+
         registerVoiceIpc(
           win,
           service,
@@ -82,13 +92,24 @@ export const voiceExtension = {
             handle: (channel, listener) => ctx.registerIpc?.(channel, listener),
             on: (channel, listener) => ctx.registerIpcListener?.(channel, listener),
           },
+          wakeHub,
         )
+
+        // 启动时按配置决定是否开始听唤醒
+        wakeHub.syncWithConfig()
+        // 挂断路径不止 IPC 一条（micless 一轮读完会自己 stopCall），
+        // 用它兜住所有路径，唤醒才不会永久停掉。
+        const offCallEnded = service.onCallEnded(() => wakeHub.unsuppress())
+        ctx.effect(() => {
+          offCallEnded()
+        })
 
         // 停用：释放引擎（VAD/ASR/TTS 原生实例）并把两条全局回调复位，
         // 否则渠道 ASR 与文件导入会继续把活派给一个已释放的服务。
         ctx.effect(() => {
           setChannelAsrReadyChecker(() => false)
           setAudioTranscribeCallback(null)
+          wakeHub.detach()
           void service.dispose().catch((e: Error) => ctx.log.warn(`语音释放失败: ${e.message}`))
           ctx.log.info('语音插件卸载，引擎已释放')
         })

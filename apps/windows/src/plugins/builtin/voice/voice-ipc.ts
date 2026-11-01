@@ -27,6 +27,13 @@ const log = {
 }
 
 /**
+ * 唤醒监听的伪 callId。
+ * 唤醒帧不走通话链路（唤醒期间没有 callId），但 `voice:audio:chunk` 只带
+ * `callId + Buffer` 两个参数——借这个固定值分流最省事，也不必新开一条 IPC 通道。
+ */
+export const WAKE_CALL_ID = '__wake__'
+
+/**
  * 若已下载任意 Qwen3 TTS 权重，后台预装 qwen-tts（不阻塞 UI）
  */
 function maybePrepareQwen3Runtime(
@@ -58,6 +65,18 @@ export function registerVoiceIpc(
   // 插件传入 ctx.registerIpc：通道挂在插件作用域上，停用时自动摘掉。
   // 默认直连 ipcMain；幂等由注册器负责（它会先 removeHandler 再 handle）。
   ipc: IpcHandleRegistrar = ipcMain as unknown as IpcHandleRegistrar,
+  // 唤醒编排（麦克风在渲染层，判定在主进程，见 voice-wake-hub.ts）。
+  // 省略时唤醒相关命令全部返回"未启用"，其它功能不受影响。
+  wakeHub?: {
+    attach(): Promise<{ ok: boolean; reason?: string }>
+    detach(): void
+    feed(samples: Float32Array): void
+    isActive(): boolean
+    consumePending(): { matched: string; rawText: string } | null
+    syncWithConfig(): void
+    suppress(reason: string): void
+    unsuppress(): void
+  },
 ): void {
 
   const asrTest = new AsrTestSession(modelManager, () => voiceService.getConfig())
@@ -129,17 +148,21 @@ export function registerVoiceIpc(
           }
           const persistent = (command as { persistent?: boolean }).persistent === true
           const composerOwned = (command as { composerOwned?: boolean }).composerOwned === true
-          return {
-            callId: await voiceService.startCall(command.sessionKey, command.agentId, {
-              micless,
-              persistent,
-              composerOwned,
-            }),
-          }
+          // 通话与唤醒共用同一份 VAD/ASR：通话一开始就得把唤醒压住，
+          // 否则两边各推各的帧，段缓冲互相踩。
+          wakeHub?.suppress('通话进行中')
+          const callId = await voiceService.startCall(command.sessionKey, command.agentId, {
+            micless,
+            persistent,
+            composerOwned,
+          })
+          return { callId }
         }
 
         case 'voice:call:stop':
           await voiceService.stopCall()
+          // 通话结束：配置还开着唤醒的话恢复监听
+          wakeHub?.unsuppress()
           return { ok: true }
 
         case 'voice:models:get':
@@ -265,12 +288,27 @@ export function registerVoiceIpc(
           if (voiceService.getConfig().tts.provider === 'qwen3') {
             maybePrepareQwen3Runtime(modelManager, voiceService, 'config-set-qwen3')
           }
+          // 唤醒开关变了要跟着起停（渲染层也会收到 config:updated 自己再对齐一次）
+          wakeHub?.syncWithConfig()
           return { ok: true }
         }
 
         case 'voice:playback:finished':
           voiceService.onPlaybackFinished()
           return { ok: true }
+
+        case 'voice:wake:attach':
+          return wakeHub ? wakeHub.attach() : { ok: false, reason: '唤醒不可用' }
+
+        case 'voice:wake:detach':
+          wakeHub?.detach()
+          return { ok: true }
+
+        case 'voice:wake:status':
+          return { active: wakeHub?.isActive() === true }
+
+        case 'voice:wake:consume':
+          return wakeHub?.consumePending() ?? null
 
         case 'voice:tts:preview': {
           const cfg = voiceService.getConfig().tts
@@ -397,6 +435,13 @@ export function registerVoiceIpc(
 
   ipc.on?.('voice:audio:chunk', (_event, callId: string, buffer: Buffer) => {
     const samples = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4)
+
+    // 唤醒监听专用通道：渲染层在没通话时推帧时用这个 callId，
+    // 免得和真实 callId 混在一起（通话中不会有唤醒帧，反之亦然）。
+    if (callId === WAKE_CALL_ID) {
+      wakeHub?.feed(samples)
+      return
+    }
 
     // ASR 测试会话优先消费音频
     if (asrTest.isActive() && asrTest.getCallId() === callId) {

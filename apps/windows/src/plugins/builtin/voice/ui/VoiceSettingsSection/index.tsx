@@ -40,8 +40,10 @@ export function VoiceSettingsSection() {
       qwen3Device?: 'auto' | 'cpu' | 'cuda'
       language?: string
     }
-    vad: { threshold: number; minSpeechMs: number; minSilenceMs: number; energyGateMultiplier: number }
-    autoMuteMicWhileSpeaking: boolean
+    vad: { threshold: number; minSpeechMs: number; minSilenceMs: number; energyGateMultiplier: number; sensitivity?: 'sensitive' | 'standard' | 'strict' }
+    interruptMode: 'mute' | 'two-stage' | 'direct'
+    capture?: { echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean }
+    wakeWord: { enabled: boolean }
   } | null>(null)
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voicePreviewing, setVoicePreviewing] = useState(false)
@@ -202,8 +204,10 @@ export function VoiceSettingsSection() {
       qwen3Device?: 'auto' | 'cpu' | 'cuda'
       language?: string
     }
-    vad?: { threshold?: number; minSpeechMs?: number; minSilenceMs?: number; energyGateMultiplier?: number }
-    autoMuteMicWhileSpeaking?: boolean
+    vad?: { threshold?: number; minSpeechMs?: number; minSilenceMs?: number; energyGateMultiplier?: number; sensitivity?: 'sensitive' | 'standard' | 'strict' }
+    interruptMode?: 'mute' | 'two-stage' | 'direct'
+    capture?: { echoCancellation?: boolean; noiseSuppression?: boolean; autoGainControl?: boolean }
+    wakeWord?: { enabled?: boolean }
   }) => {
     const electronAPI = (window as any).electronAPI
     if (!electronAPI?.voice?.sendCommand || !voiceConfig) return
@@ -212,8 +216,14 @@ export function VoiceSettingsSection() {
       asr: { ...voiceConfig.asr, ...partial.asr },
       tts: { ...voiceConfig.tts, ...partial.tts },
       vad: { ...voiceConfig.vad, ...partial.vad },
-      autoMuteMicWhileSpeaking:
-        partial.autoMuteMicWhileSpeaking ?? voiceConfig.autoMuteMicWhileSpeaking,
+      interruptMode: partial.interruptMode ?? voiceConfig.interruptMode,
+      capture: {
+        echoCancellation: voiceConfig.capture?.echoCancellation ?? true,
+        noiseSuppression: voiceConfig.capture?.noiseSuppression ?? true,
+        autoGainControl: voiceConfig.capture?.autoGainControl ?? true,
+        ...partial.capture,
+      },
+      wakeWord: { ...voiceConfig.wakeWord, ...partial.wakeWord },
     }
     setVoiceConfig(next)
     setVoiceSaving(true)
@@ -425,12 +435,41 @@ export function VoiceSettingsSection() {
                 </div>
               )}
               <div className={styles['setting-item']}>
-                <Checkbox
-                  checked={voiceConfig.autoMuteMicWhileSpeaking ?? true}
-                  onChange={(checked) => saveVoiceConfig({ autoMuteMicWhileSpeaking: checked })}
-                >
-                  AI 朗读时自动闭麦
-                </Checkbox>
+                <label className={styles['setting-label']} data-app-ui-label>
+                  AI 朗读时如何打断
+                </label>
+                <Select
+                  value={voiceConfig.interruptMode ?? 'two-stage'}
+                  options={[
+                    { label: '两段式打断（推荐）：开口先压低 AI 音量，确认后打断', value: 'two-stage' },
+                    { label: '直接打断：立刻响应，环境嘈杂时可能误触', value: 'direct' },
+                    { label: '完全闭麦：AI 朗读期间不听你说话', value: 'mute' },
+                  ]}
+                  onChange={(e) => void saveVoiceConfig({ interruptMode: e.target.value as 'mute' | 'two-stage' | 'direct' })}
+                  style={{ width: '360px' }}
+                />
+              </div>
+              <div className={styles['setting-item']}>
+                <label className={styles['setting-label']} data-app-ui-label>
+                  拾音灵敏度
+                </label>
+                <Select
+                  value={voiceConfig.vad?.sensitivity ?? 'standard'}
+                  options={[
+                    { label: '灵敏：小声也能被听到（安静环境）', value: 'sensitive' },
+                    { label: '标准（默认）', value: 'standard' },
+                    { label: '严格：只认清晰的近场说话（嘈杂环境）', value: 'strict' },
+                  ]}
+                  onChange={(e) =>
+                    saveVoiceConfig({
+                      vad: { sensitivity: e.target.value as 'sensitive' | 'standard' | 'strict' },
+                    })
+                  }
+                  style={{ width: '360px' }}
+                />
+                <p className={styles['settings-note']} style={{ margin: '4px 0 0 0' }}>
+                  只调节「多大声才算在说话」，不改语音模型本身；切档立即生效，不用重开通话。
+                </p>
               </div>
               <div className={styles['setting-item']}>
                 <label className={styles['setting-label']} data-app-ui-label>
@@ -448,7 +487,36 @@ export function VoiceSettingsSection() {
               </div>
               <div className={styles['setting-item']}>
                 <label className={styles['setting-label']} data-app-ui-label>
-                  负面语音阈值：{(voiceConfig.vad?.energyGateMultiplier ?? 1.5).toFixed(1)}x
+                  采麦前端（改动需重新接通通话才生效）
+                </label>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <Checkbox
+                    checked={voiceConfig.capture?.echoCancellation ?? true}
+                    onChange={(checked) => saveVoiceConfig({ capture: { echoCancellation: checked } })}
+                  >
+                    回声消除
+                  </Checkbox>
+                  <Checkbox
+                    checked={voiceConfig.capture?.noiseSuppression ?? true}
+                    onChange={(checked) => saveVoiceConfig({ capture: { noiseSuppression: checked } })}
+                  >
+                    降噪
+                  </Checkbox>
+                  <Checkbox
+                    checked={voiceConfig.capture?.autoGainControl ?? true}
+                    onChange={(checked) => saveVoiceConfig({ capture: { autoGainControl: checked } })}
+                  >
+                    自动增益
+                  </Checkbox>
+                </div>
+                <p className={styles['settings-note']} style={{ margin: '4px 0 0 0' }}>
+                  这三个是系统级开关，没有强度档（Web 标准只提供开/关）。关掉回声消除会更容易被
+                  AI 自己的声音打断；关掉自动增益后小声说话要靠上面的「拾音灵敏度」补。
+                </p>
+              </div>
+              <div className={styles['setting-item']}>
+                <label className={styles['setting-label']} data-app-ui-label>
+                  负面语音阈值（高级）：{(voiceConfig.vad?.energyGateMultiplier ?? 1.5).toFixed(1)}x
                 </label>
                 <input
                   type="range"
@@ -461,6 +529,20 @@ export function VoiceSettingsSection() {
                   }
                   style={{ width: '200px' }}
                 />
+              </div>
+              <div className={styles['setting-item']}>
+                <Checkbox
+                  checked={voiceConfig.wakeWord?.enabled === true}
+                  onChange={(checked) => saveVoiceConfig({ wakeWord: { enabled: checked } })}
+                >
+                  语音唤醒（说「灵栖灵栖」进宠物模式并开始对话）
+                </Checkbox>
+                {voiceConfig.wakeWord?.enabled === true && (
+                  <p className={styles['settings-note']} style={{ margin: '4px 0 0 0' }}>
+                    唤醒要占麦克风，通话期间自动暂停监听、通话结束后恢复。识别靠本地离线模型，
+                    口令请说清楚；连读或极小声可能认不出来。
+                  </p>
+                )}
               </div>
             </div>
 

@@ -14,7 +14,7 @@ import { VoiceCallStateMachine } from './voice-state-machine.js'
 import { type VoiceModelManager } from './model-manager.js'
 import { onAgentEvent } from '../../../main/kernel/agent-event-stream'
 import type { VoiceEngineConfig, VoiceRuntimePhase } from '../../../shared/voice-events.js'
-import { isQwen3CloneVariant } from '../../../shared/voice-events.js'
+import { isQwen3CloneVariant, DEFAULT_VOICE_ENGINE_CONFIG } from '../../../shared/voice-events.js'
 import type { TtsChunk } from './tts-engine.js'
 import { VoiceProfileStore } from './voice-profile-store.js'
 import {
@@ -36,7 +36,7 @@ import {
 } from './qwen3-tts-client.js'
 import { transcribePcm, transcribeAudioBuffer } from './voice-transcription.js'
 import { sherpaFirst, sherpaDone } from '../../../main/onnx-runtime-gate'
-import { NoiseProfiler } from './noise-profiler.js'
+import { frameRms, VoiceGate } from './voice-gate.js'
 
 
 const log = {
@@ -72,20 +72,51 @@ export class VoiceCallService {
   private config: VoiceEngineConfig
   /** 上一次推送的 partial ASR 文字，用于去重 */
   private _lastPartial = ''
-  /** 噪声基线（RMS），通话开始后前 N 帧估算 */
-  private noiseBaseline = 0.01
-  private noiseFrameCount = 0
-  private readonly NOISE_ESTIMATE_FRAMES = 30 // 约 1s 的静音帧估算噪声基线
-  /** 环境画像：安静/普通/嘈杂 → 能量门修正系数（见 noise-profiler.ts） */
-  private noiseProfiler = new NoiseProfiler()
+  /** 噪声底估计 + 环境画像 + 灵敏度档位（见 voice-gate.ts） */
+  private gate = new VoiceGate()
+  /**
+   * 观测开关：能量门每次跳过都打一行结构化日志。
+   *
+   * 为什么要有：能量门、提交窗、打断门槛全是经验值，真机手测时看不到
+   * `segRms / baseline / gate` 就只能靠猜"是不是被门挡了"。
+   * 默认关（刷屏），打开后 500ms 限流一条。
+   */
+  private debugGateEnabled = false
+  private lastGateLogAt = 0
+  private readonly GATE_LOG_INTERVAL_MS = 500
+
+  private logGateDecision(params: {
+    stage: string
+    segRms: number
+    effectiveGate: number
+    scene: string
+  }): void {
+    if (!this.debugGateEnabled) return
+    const now = Date.now()
+    if (now - this.lastGateLogAt < this.GATE_LOG_INTERVAL_MS) return
+    this.lastGateLogAt = now
+    log.info(
+      `[gate] 拒绝 stage=${params.stage} segRms=${params.segRms.toFixed(4)} ` +
+        `baseline=${this.gate.noiseBaseline().toFixed(4)} gate=${params.effectiveGate.toFixed(2)} ` +
+        `scene=${params.scene} state=${this.stateMachine.getState()}`,
+    )
+  }
+
+  setDebugGateLog(enabled: boolean): void {
+    this.debugGateEnabled = enabled
+    log.info(`[setDebugGateLog] 能量门调试日志 ${enabled ? '开启' : '关闭'}`)
+  }
   /** 打断冷却 */
   private lastInterruptTime = 0
   private readonly INTERRUPT_COOLDOWN_MS = 600
   /**
-   * speaking 状态下，语音段 RMS 超过此倍数才做 ASR 打断检测（过滤回声）
-   * 降低到 2.5x：浏览器 echoCancellation 已做了一层，RMS 门槛不需要太高
+   * speaking 状态下，语音段 RMS 超过此倍数才做 ASR 打断检测（过滤回声）。
+   * 两段式取 2.5x（浏览器 echoCancellation 已做了一层，门槛不必太高）；
+   * 直接打断档降到 1.8x，换更快响应——误触由 600ms 冷却 + 两字确认兜住。
    */
-  private readonly INTERRUPT_RMS_MULTIPLIER = 2.5
+  private interruptGateMultiplier(): number {
+    return this.config.interruptMode === 'direct' ? 1.8 : 2.5
+  }
   /**
    * TTS 播放后冷却期（防止 TTS 音频被麦克风拾取后误识别为用户语音）
    * 主进程合成完成时设为 2500ms；渲染侧通知播放完毕后缩短至 600ms
@@ -114,6 +145,12 @@ export class VoiceCallService {
   private heldUtteranceSegments: Float32Array[] = []
   /** micless 模式：文字回复出声（不采麦），仅做 TTS 播放，结束回 idle 而非 listening */
   private micless = false
+  /**
+   * 推理侧已经收尾，但 TTS 还没播完 → 等播完再回 listening。
+   * 见 `settleTurn`：不加这个标记的话，正常收尾会在 AI 还在说话时切回聆听，
+   * 用户一开口就把自己的 TTS 采进 ASR。
+   */
+  private settlePending = false
   /** 持续朗读模式（仅 micless）：一轮 TTS 结束不 stopCall，回 thinking 等下一轮回复 */
   private persistent = false
   /**
@@ -152,7 +189,10 @@ export class VoiceCallService {
         commitMaxMs: 2500,
         ...config?.vad,
       },
-      autoMuteMicWhileSpeaking: config?.autoMuteMicWhileSpeaking ?? false,
+      interruptMode: config?.interruptMode ?? DEFAULT_VOICE_ENGINE_CONFIG.interruptMode,
+      capture: { ...DEFAULT_VOICE_ENGINE_CONFIG.capture, ...config?.capture },
+      debug: config?.debug,
+      wakeWord: { ...DEFAULT_VOICE_ENGINE_CONFIG.wakeWord, ...config?.wakeWord },
     }
 
     this.stateMachine.on('state', ({ to }: { from: string; to: string }) => {
@@ -424,11 +464,10 @@ export class VoiceCallService {
     // micless 不采麦，无需 ASR 流；普通通话才创建
     this.asrStream = micless ? null : this.asrProvider!.createStream()
     this.splitter.reset()
-    this.noiseBaseline = 0.01
-    this.noiseFrameCount = 0
-    this.noiseProfiler.reset()
+    this.gate.reset()
     this.lastInterruptTime = 0
     this.postSpeechCooldownUntil = 0
+    this.settlePending = false
     this._lastPartial = ''
     this.discardPendingUtterance()
 
@@ -486,15 +525,8 @@ export class VoiceCallService {
 
     // 噪声基线：初始阶段前 N 帧做均值估算，之后在 listening 时持续 EMA 更新
     if (!isSpeaking) {
-      const rms = this._calcRms(samples)
       // 环境画像只吃静音帧，避免用户说话本身把噪声底拉高
-      this.noiseProfiler.push(rms)
-      if (this.noiseFrameCount < this.NOISE_ESTIMATE_FRAMES) {
-        this.noiseBaseline = (this.noiseBaseline * this.noiseFrameCount + rms) / (this.noiseFrameCount + 1)
-        this.noiseFrameCount++
-      } else if (this.stateMachine.is('listening')) {
-        this.noiseBaseline = this.noiseBaseline * 0.95 + rms * 0.05
-      }
+      this.gate.pushSilenceFrame(frameRms(samples), this.stateMachine.is('listening'))
     }
 
     // ── AI 说话时，通过 ASR 检测用户打断 ──────────────────────────────────
@@ -505,16 +537,22 @@ export class VoiceCallService {
     //   - 回声能量低于直接说话，RMS 门槛过滤大部分回声段
     //   - 即使回声段通过，ASR 在短段回声上往往返回空文本
     if (this.stateMachine.is('speaking')) {
-      // 自动闭麦：AI 朗读期间不做任何用户语音检测/打断，避免 TTS 回采成输入（需求4）。
+      // 完全闭麦档：AI 朗读期间不做任何用户语音检测/打断，避免 TTS 回采成输入（需求4）。
       // 朗读结束状态机回 listening 后自动恢复，无需显式解麦。
-      if (this.config.autoMuteMicWhileSpeaking) {
+      if (this.config.interruptMode === 'mute') {
         return
       }
+      const gateMultiplier = this.interruptGateMultiplier()
       for (const segment of speechSegments) {
         // 能量门槛：过滤低能量回声（回声经过扬声器→空气→麦克风衰减较大）
-        const segRms = this._calcSegmentRms(segment)
-        if (segRms < this.noiseBaseline * this.INTERRUPT_RMS_MULTIPLIER) {
-          log.debug(`[handleAudioChunk] speaking 阶段语音段能量不足 (rms=${segRms.toFixed(4)}, baseline=${this.noiseBaseline.toFixed(4)})，跳过`)
+        const segRms = frameRms(segment)
+        if (segRms < this.gate.interruptGate(gateMultiplier)) {
+          this.logGateDecision({
+            stage: 'interrupt',
+            segRms,
+            effectiveGate: gateMultiplier,
+            scene: this.gate.scene(),
+          })
           continue
         }
 
@@ -539,6 +577,7 @@ export class VoiceCallService {
             callId: this.callId!,
             text: interruptText,
             isFinal: true,
+            phase: 'final',
           })
           await this.submitToAgent(interruptText)
 
@@ -575,6 +614,7 @@ export class VoiceCallService {
           callId: this.callId,
           text: partial,
           isFinal: false,
+          phase: 'partial',
         })
       }
     }
@@ -588,10 +628,18 @@ export class VoiceCallService {
       // 轻量能量门槛（"负面语音阈值"）：过滤低能量噪音段，避免背景噪声/回声误触发 ASR。
       // 倍率可配（energyGateMultiplier），越大越严格；再按环境画像修正——
       // 安静房间放松一点（别把轻声说话吞掉），嘈杂环境收紧一点（键盘/马路声别当语音）。
-      const segRms = this._calcSegmentRms(segment)
-      const effectiveGate = this.config.vad.energyGateMultiplier * this.noiseProfiler.gateScale()
-      if (segRms < this.noiseBaseline * effectiveGate) {
-        log.debug(`[handleAudioChunk] listening 阶段能量不足 (rms=${segRms.toFixed(4)}, baseline=${this.noiseBaseline.toFixed(4)}, gate=${effectiveGate.toFixed(2)}, scene=${this.noiseProfiler.scene()})，跳过`)
+      const segRms = frameRms(segment)
+      const gate = this.gate.listeningGate(
+        this.config.vad.energyGateMultiplier,
+        this.config.vad.sensitivity ?? 'standard',
+      )
+      if (segRms < gate) {
+        this.logGateDecision({
+          stage: 'listening',
+          segRms,
+          effectiveGate: gate / Math.max(this.gate.noiseBaseline(), 1e-4),
+          scene: this.gate.scene(),
+        })
         if (this.stateMachine.is('recognizing')) {
           this.stateMachine.transition('listening')
         }
@@ -640,7 +688,7 @@ export class VoiceCallService {
     if (this.stateMachine.is('thinking')) {
       this.heldUtterance.push(text)
       if (segment) this.heldUtteranceSegments.push(segment)
-      this.pushTranscript(this.heldUtterance.join(''), false)
+      this.pushTranscript(this.heldUtterance.join(''), false, 'pending')
       log.info(`[queueOrSubmitUtterance] thinking 期间补话，暂存: "${text}"`)
       return
     }
@@ -657,9 +705,9 @@ export class VoiceCallService {
     }
     this.pendingUtterance.push(text)
     if (segment) this.pendingUtteranceSegments.push(segment)
-    // 窗口期内以"未定稿"推给 UI（状态条的斜体转写），定稿才发 final：
+    // 窗口期内以"已认出、还在等你说完"推给 UI（状态条），定稿才发 final：
     // composerOwned 模式下 final 由渲染层负责发送，提前发就等于没有窗口。
-    this.pushTranscript(this.pendingUtterance.join(''), false)
+    this.pushTranscript(this.pendingUtterance.join(''), false, 'pending')
     this.scheduleCommit(minMs, maxMs)
     log.debug(
       `[queueOrSubmitUtterance] 入缓冲 "${text}"（min=${minMs}ms max=${maxMs}ms，积压 ${this.pendingUtterance.length} 段）`,
@@ -701,23 +749,35 @@ export class VoiceCallService {
     this.scheduleCommit(minMs, maxMs)
   }
 
-  private pushTranscript(text: string, isFinal: boolean): void {
+  private pushTranscript(
+    text: string,
+    isFinal: boolean,
+    phase: 'partial' | 'pending' | 'final' = isFinal ? 'final' : 'partial',
+  ): void {
     if (!this.callId || !text) return
     this.pushVoiceEvent({
       type: 'voice:transcript',
       callId: this.callId,
       text,
       isFinal,
+      phase,
     })
   }
 
-  /** 把 thinking 期间攒下的补话一次性发出（状态回到 listening 时调用） */
+  /**
+   * 把 thinking 期间攒下的补话发出（状态回到 listening 时调用）。
+   *
+   * 逐条发，不拼接：用户在 AI 思考期间说的两句话往往是两个独立意图（"等一下"
+   * "我要的是另一个"），拼成一条会让模型当成一个整体来答（G2）。
+   * 每条都是独立 final，由渲染层决定是插话还是排队。
+   */
   private async flushHeldUtterance(): Promise<void> {
     if (this.heldUtterance.length === 0) return
-    const text = this.heldUtterance.join('')
+    const items = this.heldUtterance
     const segments = this.heldUtteranceSegments
     this.heldUtterance = []
     this.heldUtteranceSegments = []
+
     if (segments.length > 0) {
       const total = segments.reduce((n, s) => n + s.length, 0)
       const merged = new Float32Array(total)
@@ -725,9 +785,12 @@ export class VoiceCallService {
       for (const s of segments) { merged.set(s, offset); offset += s.length }
       this._lastSpeechSegment = merged
     }
-    log.info(`[flushHeldUtterance] 发出暂存补话: "${text}"`)
-    this.pushTranscript(text, true)
-    await this.submitToAgent(text)
+
+    log.info(`[flushHeldUtterance] 发出暂存补话 ${items.length} 条: ${items.join(' | ')}`)
+    for (const text of items) {
+      this.pushTranscript(text, true)
+      await this.submitToAgent(text)
+    }
   }
 
   /** 窗口到期：把缓冲的句子合并提交 */
@@ -867,6 +930,18 @@ export class VoiceCallService {
       if (!this.eventMatchesSession(event)) return
       if (!this.callId) return
 
+      // 工具回合的 message:end 是**中间态**：这一轮没有正文，但任务还没完。
+      // 落到下面的空回复兜底会被误判成「AI 没说话」，提前把状态拉回 listening；
+      // 而 onDelta 只在 thinking 时才转 speaking，于是 TTS 开始播报、状态却停在
+      // listening —— 用户此时说话会被当成输入采集，直接回采自己的 TTS。
+      // 处理：只把剩余文本送进 TTS 队列，绝不 transition。
+      if (event.stopReason === 'tool_use') {
+        const pendingText = this.splitter.flush()
+        if (pendingText.length > 0) this.enqueueTts(pendingText)
+        log.info('[onEnd] tool_use 中间态：仅入队 TTS，保持当前状态')
+        return
+      }
+
       // 用户中断（点「停止生成」）：丢掉还没播的合成内容，直接回聆听。
       // 关键点是**这个分支必须自己把状态推回去**——中断发生时往往一个 delta 都还没来，
       // 状态停在 thinking 从未进入 speaking，而 processTtsQueue 只在 speaking 时才回 listening。
@@ -874,16 +949,7 @@ export class VoiceCallService {
       // 之后用户再说话全部静默丢弃（"中断后再也无法语音对话"）。
       if (event.stopReason === 'aborted') {
         log.info('[onEnd] 回合被中断，丢弃 TTS 队列并回到聆听')
-        this.ttsGeneration++
-        this.ttsAbort?.abort()
-        this.ttsAbort = null
-        this.ttsQueue = []
-        this.isTtsBusy = false
-        this.splitter.reset()
-        this.postSpeechCooldownUntil = 0
-        if (this.stateMachine.isOneOf('thinking', 'speaking')) {
-          this.stateMachine.transition('listening')
-        }
+        this.settleTurn('aborted', { discardTts: true })
         return
       }
 
@@ -895,22 +961,40 @@ export class VoiceCallService {
 
       // 空回复兜底：没有 delta 就没有 TTS，也没人会 transition 回 listening。
       // micless 例外——它起呼即 thinking，收尾由 processTtsQueue / stopCall 负责。
-      if (
-        !this.micless
-        && this.stateMachine.is('thinking')
-        && !this.isTtsBusy
-        && this.ttsQueue.length === 0
-      ) {
-        this.stateMachine.transition('listening')
+      if (!this.micless && this.stateMachine.is('thinking')) {
+        this.settleTurn('empty-reply')
       }
+    }
+
+    // 推理层错误：异常路径**没有** message:end（见 bridge-instance-factory 注释），
+    // 不接的话通话会一直悬在 thinking，和原始 bug 1 同型复发。
+    const onError = (event: any) => {
+      if (event.type !== 'agent:error') return
+      if (!this.eventMatchesSession(event)) return
+      if (!this.callId) return
+      log.warn(`[onError] 推理层报错，收口回聆听: ${event.errorMessage ?? event.error ?? ''}`)
+      this.settleTurn('agent:error')
+    }
+
+    // 整个 run 的终态。注意别挂 agent:turn:end——它在工具循环里每轮都发，
+    // 挂上去会在工具跑到一半时把通话拉回 listening。
+    const onIdle = (event: any) => {
+      if (event.type !== 'agent:idle') return
+      if (!this.eventMatchesSession(event)) return
+      if (!this.callId) return
+      this.settleTurn('agent:idle')
     }
 
     const offDelta = onAgentEvent(onDelta)
     const offEnd = onAgentEvent(onEnd)
+    const offError = onAgentEvent(onError)
+    const offIdle = onAgentEvent(onIdle)
 
     this.agentEventUnsubscribe = () => {
       offDelta()
       offEnd()
+      offError()
+      offIdle()
     }
   }
 
@@ -1129,6 +1213,11 @@ export class VoiceCallService {
       log.info(`[processTtsQueue] TTS 合成完成，冷却期 ${this.POST_SPEECH_COOLDOWN_MS}ms`)
       // TTS 队列清空：micless（文字回复）无需回 listening，结束通话回 idle；
       // 普通语音通话回 listening 继续等用户说话。
+      if (!this.micless && this.settlePending) {
+        // 推理侧早先已经收尾（见 settleTurn），压着没切状态就是为了等音频播完
+        this.settlePending = false
+        log.info('[processTtsQueue] 消费 settlePending：音频已合成完毕，回聆听')
+      }
       if (this.stateMachine.is('speaking')) {
         if (this.micless && this.persistent) {
           // 持续朗读：本轮读完回 thinking 等下一轮回复，不结束通话
@@ -1140,11 +1229,62 @@ export class VoiceCallService {
         } else {
           this.stateMachine.transition('listening')
         }
+      } else if (this.stateMachine.is('thinking') && !this.micless) {
+        // 空回复但还剩文本（只有 flush 出来的尾巴、没有 delta）时，状态会停在 thinking：
+        // 没有 delta 就没人执行 thinking → speaking，收尾也不会回 listening。
+        this.stateMachine.transition('listening')
       }
     }
   }
 
   // ── 打断处理 ───────────────────────────────────────────────────────────
+
+  /**
+   * 回合收口：把所有「该结束这次回合」的路径收敛到同一个幂等函数。
+   *
+   * 为什么要收口：以前状态机的回退散落在 `processTtsQueue` / `onEnd` / `flush*` 里，
+   * 任何一条新路径（比如 agent:error）忘了写就永久悬在 thinking，后续语音全被丢弃。
+   *
+   * 关键区别——**谁要打断**：
+   * - 用户打断（`discardTts: true`）：音频该立刻停，队列作废。
+   * - 推理侧正常收尾：TTS 往往还在合成/播放（IPC 早于音频），此时切回 listening
+   *   会让用户下一句话撞上还在播的 AI 声音（回采）。所以只标记 `settlePending`，
+   *   等音频播完由 `processTtsQueue` 收尾。
+   */
+  private settleTurn(reason: string, opts?: { discardTts?: boolean }): void {
+    if (!this.callId) return
+    const from = this.stateMachine.getState()
+    const discardTts = opts?.discardTts === true
+
+    if (discardTts) {
+      this.ttsGeneration++
+      this.ttsAbort?.abort()
+      this.ttsAbort = null
+      this.ttsQueue = []
+      this.isTtsBusy = false
+      this.splitter.reset()
+      this.settlePending = false
+      // 用户主动打断才作废待提交的话；正常收尾要保住它——
+      // 用户可能刚在 thinking 期间补了一句，那句还没发出去（heldUtterance）。
+      this.discardPendingUtterance()
+      this.postSpeechCooldownUntil = 0
+    } else if (this.isTtsBusy || this.stateMachine.is('speaking')) {
+      // 还有话没说完：等 processTtsQueue 收尾再回 listening
+      this.settlePending = true
+      log.info(`[settleTurn] reason=${reason} from=${from} 音频未播完，延迟回聆听`)
+      return
+    }
+
+    if (this.micless) {
+      log.info(`[settleTurn] reason=${reason} from=${from} micless，跳过回聆听`)
+      return
+    }
+    if (this.stateMachine.isOneOf('thinking', 'speaking', 'recognizing')) {
+      // 回 listening 会触发状态监听器 flushHeldUtterance，把 thinking 期间攒的补话放出去
+      this.stateMachine.transition('listening')
+      log.info(`[settleTurn] reason=${reason} from=${from} → listening`)
+    }
+  }
 
   private async handleInterrupt(): Promise<void> {
     log.info('[handleInterrupt] 用户打断 AI 说话')
@@ -1153,6 +1293,8 @@ export class VoiceCallService {
     this.ttsQueue = []
     this.isTtsBusy = false
     this.splitter.reset()
+    // 用户开口打断：之前压着的「等播完再回聆听」已经没有意义了
+    this.settlePending = false
     // 待提交的旧话作废：用户已经开口打断，接着说的才是新的意图
     this.discardPendingUtterance()
     this.postSpeechCooldownUntil = 0 // 用户主动说话，立即解除冷却
@@ -1198,6 +1340,7 @@ export class VoiceCallService {
     this.micless = false
     this.persistent = false
     this.composerOwned = false
+    this.settlePending = false
     this.ttsLanguageSticky = null
     this.ttsProvider?.setLanguageOverride?.(null)
 
@@ -1207,6 +1350,16 @@ export class VoiceCallService {
       durationMs: 0,
       reason: 'user_hangup',
     })
+
+    // 通知订阅者（唤醒靠它恢复监听）。放在最后：此时状态已经彻底复位，
+    // 回调里 `hasActiveCall()` 才会返回 false。
+    for (const listener of this.callEndListeners) {
+      try {
+        listener()
+      } catch (e) {
+        log.warn(`[stopCall] callEnd 监听器异常: ${(e as Error).message}`)
+      }
+    }
   }
 
   /**
@@ -1586,6 +1739,76 @@ export class VoiceCallService {
     return this.config
   }
 
+  // ── 语音唤醒的引擎供应（见 voice-wake-service.ts） ──────────────────────
+  //
+  // 唤醒不自己加载模型：Paraformer 权重 78MB，加载两遍纯浪费，而且两套 VAD 的
+  // 段缓冲会各自漂移。这里把通话服务已有的 VAD/ASR 借给唤醒用，二者靠
+  // attach/detach 互斥（通话期间唤醒一定是 detach 的）。
+
+  /** 是否有通话在进行（唤醒据此让路） */
+  hasActiveCall(): boolean {
+    return this.callId !== null
+  }
+
+  private callEndListeners = new Set<() => void>()
+
+  /**
+   * 订阅"通话已结束"。
+   *
+   * 唤醒需要它：挂断路径不止 IPC 一条（micless 一轮读完会自己 `stopCall`），
+   * 只靠 `voice:call:stop` 命令恢复唤醒会漏掉那些路径，唤醒就再也不回来了。
+   */
+  onCallEnded(listener: () => void): () => void {
+    this.callEndListeners.add(listener)
+    return () => {
+      this.callEndListeners.delete(listener)
+    }
+  }
+
+  /** 唤醒只需要 VAD + ASR，不需要 TTS —— 别为了唤醒逼用户下载合成模型 */
+  async ensureWakeEngine(): Promise<void> {
+    if (this.vad && this.asrProvider) return
+    if (!sherpaFirst()) {
+      throw new Error('唤醒初始化被拒绝：E5 嵌入已先占进程内的 ONNX Runtime')
+    }
+    try {
+      const paths = await this.modelManager.getModelPaths()
+      if (!this.vad) {
+        const vad = new VadEngine(paths.vad)
+        await vad.initialize(
+          this.config.vad.threshold,
+          this.config.vad.minSpeechMs,
+          this.config.vad.minSilenceMs,
+        )
+        this.vad = vad
+      }
+      if (!this.asrProvider) {
+        const provider = createAsrProvider({
+          provider: this.config.asr.provider,
+          modelDir: paths.asr,
+          apiKey: this.config.asr.apiKey,
+        })
+        await provider.initialize()
+        this.asrProvider = provider
+      }
+      log.info('[ensureWakeEngine] 唤醒引擎就绪（VAD + ASR，不含 TTS）')
+    } finally {
+      sherpaDone()
+    }
+  }
+
+  /** 唤醒监听专用：把帧喂给 VAD 并取回已完成语音段 */
+  pushVadForWake(samples: Float32Array): Float32Array[] {
+    if (!this.vad) return []
+    return this.vad.push(samples)
+  }
+
+  /** 唤醒监听专用：对一段 16k PCM 做离线识别 */
+  async transcribeForWake(samples: Float32Array): Promise<string> {
+    if (!this.asrProvider) return ''
+    return transcribePcm(this.asrProvider, samples, 16000)
+  }
+
   // ── 音频文件 ASR 转录（附件导入时调用） ─────────────────────────────────────
 
   /**
@@ -1614,9 +1837,12 @@ export class VoiceCallService {
       asr: { ...this.config.asr, ...partial.asr },
       tts: { ...this.config.tts, ...partial.tts },
       vad: { ...this.config.vad, ...partial.vad },
-      autoMuteMicWhileSpeaking:
-        partial.autoMuteMicWhileSpeaking ?? this.config.autoMuteMicWhileSpeaking,
+      interruptMode: partial.interruptMode ?? this.config.interruptMode,
+      capture: { ...this.config.capture, ...partial.capture },
+      debug: { ...this.config.debug, ...partial.debug },
+      wakeWord: { ...this.config.wakeWord, ...partial.wakeWord },
     }
+    this.debugGateEnabled = this.config.debug?.gateLog === true
 
     // 仅 tts.speed 和/或 tts.speakerId 变化时，热更新不重置引擎
     const changedKeys = Object.keys(partial)
@@ -1645,20 +1871,23 @@ export class VoiceCallService {
       return
     }
 
-    // 能量门倍率 / 自动闭麦 / VAD 阈值：运行时即读，无需重建引擎（仅这些变化时热更新）。
-    // 注意 VAD threshold/minSpeechMs/minSilenceMs 传给 silero 初始化，变化仍需重置引擎；
-    // 此处仅当 vad 变更只含 energyGateMultiplier 时视为热更新。
+      // 能量门倍率 / 打断档位 / VAD 阈值：运行时即读，无需重建引擎（仅这些变化时热更新）。
+      // 注意 VAD threshold/minSpeechMs/minSilenceMs 传给 silero 初始化，变化仍需重置引擎；
+      // 此处仅当 vad 变更只含 energyGateMultiplier 时视为热更新。
     const vadKeys = partial.vad ? Object.keys(partial.vad) : []
     const isRuntimeOnlyUpdate =
-      changedKeys.every((k) => k === 'autoMuteMicWhileSpeaking' || k === 'vad') &&
+      changedKeys.every(
+        (k) => k === 'interruptMode' || k === 'capture' || k === 'vad' || k === 'debug' || k === 'wakeWord',
+      ) &&
       (vadKeys.length === 0
         || vadKeys.every((k) =>
           k === 'energyGateMultiplier'
+          || k === 'sensitivity'
           || k === 'commitMinMs'
           || k === 'commitMaxMs'
           || k === 'commitWindowMs'))
     if (isRuntimeOnlyUpdate) {
-      log.info('[setConfig] 能量门/自动闭麦热更新，引擎保持运行')
+      log.info('[setConfig] 能量门/打断档位热更新，引擎保持运行')
       return
     }
 
@@ -1676,19 +1905,6 @@ export class VoiceCallService {
   }
 
   // ── 工具方法 ───────────────────────────────────────────────────────────
-
-  /** 计算音频帧的 RMS 能量 */
-  private _calcRms(samples: Float32Array): number {
-    if (samples.length === 0) return 0
-    let sum = 0
-    for (const s of samples) sum += s * s
-    return Math.sqrt(sum / samples.length)
-  }
-
-  /** 计算完整语音段的 RMS 能量（复用 _calcRms） */
-  private _calcSegmentRms(segment: Float32Array): number {
-    return this._calcRms(segment)
-  }
 
   /** 清洗 TTS 输入文本：移除 markdown/emoji/OOV 字符，使日志与实际语音一致 */
   private _cleanTtsText(text: string): string {
