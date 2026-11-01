@@ -14,7 +14,7 @@ import { listPipelines, createRunDir, readSpec } from './store'
 import { runPipeline } from './runner'
 import { computeResume, readJournal, readMeta, writeMeta } from './journal'
 import type { PipelineService, PipelineDetail, PipelineSummary } from './service-api'
-import type { RunnerDeps } from './types'
+import type { PipelineSpec, RunnerDeps } from './types'
 
 export interface PipelineServiceDeps {
   readonly callTool: RunnerDeps['callTool']
@@ -30,6 +30,8 @@ export interface PipelineServiceDeps {
   readonly needsPermission?: (tool: string) => boolean
   /** 根目录取值（`resolvePipelinesDir`）；注入以免 import main/** */
   readonly pipelinesRoot: () => string
+  /** 工作区根：spec.preview.htmlPath 是工作区相对路径 */
+  readonly workspaceRoot: () => string
   readonly now?: () => number
   readonly onProgress?: (e: {
     runId: string
@@ -41,6 +43,14 @@ export interface PipelineServiceDeps {
   }) => void
   /** 一次 run 结束（成功或失败），供 UI 收尾卡片 */
   readonly onFinished?: (e: { runId: string; ok: boolean; failedAt?: unknown }) => void
+}
+
+/** `spec.preview.htmlPath` → 存在的绝对路径；不存在就当没有（卡片据此降级成「见 README」） */
+function resolvePreviewPath(spec: PipelineSpec, workspaceRoot: string): string | undefined {
+  const rel = spec.preview?.htmlPath
+  if (!rel) return undefined
+  const abs = path.resolve(workspaceRoot, rel)
+  return fs.existsSync(abs) && fs.statSync(abs).isFile() ? abs : undefined
 }
 
 export function createPipelineService(deps: PipelineServiceDeps): PipelineService {
@@ -123,7 +133,14 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
           onProgress: (e) => deps.onProgress?.({ runId, ...e }),
         })
         deps.onFinished?.({ runId, ok: out.ok, failedAt: out.failedAt })
-        return { ...out, runId, journalPath: path.join(runDir, 'journal.jsonl') }
+        const previewPath = resolvePreviewPath(r.spec, deps.workspaceRoot())
+        return {
+          ...out,
+          runId,
+          journalPath: path.join(runDir, 'journal.jsonl'),
+          ...(r.spec.provenance?.target ? { provenanceTarget: r.spec.provenance.target } : {}),
+          ...(previewPath ? { previewPath } : {}),
+        }
       } finally {
         running.delete(runId)
       }

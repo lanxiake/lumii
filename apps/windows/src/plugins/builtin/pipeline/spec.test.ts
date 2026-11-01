@@ -90,6 +90,30 @@ describe('validateSpec', () => {
     if (r2.ok) expect(r2.specHash).not.toBe(r.specHash)
   })
 
+  it('provenance.target 原样保留；空 target → 加载期拒（对照视图少一半是静默故障）', () => {
+    const ok = validateSpec(baseSpec({ provenance: { target: ' https://a.test/ ' } }), TOOLS, AGENTS)
+    expect(ok.ok && ok.spec.provenance?.target).toBe('https://a.test/')
+
+    expect(errorsOf(baseSpec({ provenance: { target: '  ' } })).join('\n')).toContain(
+      'provenance.target',
+    )
+    expect(errorsOf(baseSpec({ provenance: 'nope' })).join('\n')).toContain(
+      'provenance 必须是对象',
+    )
+  })
+
+  it('preview.htmlPath 原样保留；空 → 加载期拒（产物卡靠它决定有没有预览入口）', () => {
+    const ok = validateSpec(
+      baseSpec({ preview: { htmlPath: ' projects/demo/out/index.html ' } }),
+      TOOLS,
+      AGENTS,
+    )
+    expect(ok.ok && ok.spec.preview?.htmlPath).toBe('projects/demo/out/index.html')
+    expect(errorsOf(baseSpec({ preview: { htmlPath: '' } })).join('\n')).toContain(
+      'preview.htmlPath',
+    )
+  })
+
   it('同一 spec 两次加载 → specHash 相等（归一化不含时间戳等运行时字段）', () => {
     const a = validateSpec(baseSpec(), TOOLS, AGENTS)
     const b = validateSpec(baseSpec(), TOOLS, AGENTS)

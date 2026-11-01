@@ -275,12 +275,30 @@ export function validateSpec(
   postCleanup.forEach((c) => checkRefs('postCleanup', c.id, c.params))
   preconditions.forEach((p) => checkRefs('preconditions', p.id, p.params))
 
+  // provenance.target 是双栏对照左栏的唯一来源：写了却是空的，预览会静默少一半，加载期就拒
+  let provenance: PipelineSpec['provenance']
+  if (raw.provenance !== undefined) {
+    if (!isObj(raw.provenance)) errors.push('provenance 必须是对象')
+    else if (!nonBlank(raw.provenance.target)) errors.push('provenance.target 必须是非空字符串')
+    else provenance = { target: String(raw.provenance.target).trim() }
+  }
+
+  // 同理：preview.htmlPath 决定产物卡能不能打开预览
+  let preview: PipelineSpec['preview']
+  if (raw.preview !== undefined) {
+    if (!isObj(raw.preview)) errors.push('preview 必须是对象')
+    else if (!nonBlank(raw.preview.htmlPath)) errors.push('preview.htmlPath 必须是非空字符串')
+    else preview = { htmlPath: String(raw.preview.htmlPath).trim() }
+  }
+
   if (errors.length > 0) return { ok: false, errors }
   const spec: PipelineSpec = {
     id: String(raw.id),
     name: typeof raw.name === 'string' ? raw.name : undefined,
     description: typeof raw.description === 'string' ? raw.description : undefined,
     source: isObj(raw.source) ? (raw.source as PipelineSpec['source']) : undefined,
+    provenance,
+    preview,
     record: isObj(raw.record) ? (raw.record as unknown as PipelineSpec['record']) : undefined,
     preconditions: preconditions.length ? preconditions : undefined,
     steps,

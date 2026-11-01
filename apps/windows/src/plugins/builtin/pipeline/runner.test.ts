@@ -602,4 +602,17 @@ describe('runner agent 节点', () => {
     expect(res.failedAt?.id).toBe('brief')
     expect(d.callTool).not.toHaveBeenCalled()
   })
+
+  it('spec 的 provenance.target 写进 meta.json（对照视图左栏的数据源）', async () => {
+    const { d } = deps()
+    const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
+      provenance: { target: 'https://example.com/' },
+    })
+    await runPipeline({
+      spec, specHash, mode: 'rehearsal', runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, 'r', 'meta.json'), 'utf8'))
+    expect(meta.provenance).toEqual({ target: 'https://example.com/' })
+  })
 })

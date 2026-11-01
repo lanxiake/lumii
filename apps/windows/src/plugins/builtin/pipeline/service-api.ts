@@ -40,6 +40,10 @@ export interface PipelineRunResult {
    * 需授权工具与 agent 节点——等于根本没法跑（2026-11-01 真机）。
    */
   readonly note?: string
+  /** spec 声明的源站地址（复刻类）；对照视图左栏用它 */
+  readonly provenanceTarget?: string
+  /** spec.preview.htmlPath 解析出的存在文件（绝对路径）；不存在则缺省 */
+  readonly previewPath?: string
   readonly artifact?: {
     mp4Path?: string
     burned?: boolean

@@ -19,7 +19,7 @@ import { shell } from 'electron'
 import { definePlugin } from '@mtbot/plugin-core'
 import { S } from '../../../main/kernel/services'
 import type { MainEvents } from '../../../main/kernel/events'
-import { resolvePipelinesDir } from '../../../main/workspace-paths'
+import { resolveActiveWorkspaceDir, resolvePipelinesDir } from '../../../main/workspace-paths'
 import { createPipelineToolConfigs } from './tools'
 import { createPipelineService } from './runtime'
 import { registerPipelineIpcHandlers } from './ipc'
@@ -171,6 +171,7 @@ export const pipelineExtension = {
           knownAgents: ex.knownAgents,
           needsPermission: ex.needsPermission,
           pipelinesRoot: () => resolvePipelinesDir(),
+          workspaceRoot: () => resolveActiveWorkspaceDir(),
           onProgress: (e) => ex.emitProgress(e),
           onFinished: (e) => ex.emitFinished(e),
         })

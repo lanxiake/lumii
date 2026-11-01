@@ -204,6 +204,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     specHash,
     startedAt: deps.now(),
     status: 'running',
+    ...(spec.provenance?.target ? { provenance: { target: spec.provenance.target } } : {}),
   }
   writeMeta(runDir, meta)
 

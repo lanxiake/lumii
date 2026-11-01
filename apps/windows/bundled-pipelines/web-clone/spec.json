@@ -5,6 +5,12 @@
   "record": {
     "enabled": false
   },
+  "provenance": {
+    "target": "__TARGET_URL__"
+  },
+  "preview": {
+    "htmlPath": "projects/__SLUG__/out/index.html"
+  },
   "preconditions": [
     {
       "id": "check-projects",

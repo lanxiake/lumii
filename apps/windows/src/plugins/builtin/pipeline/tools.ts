@@ -126,6 +126,8 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
           journalPath: res.journalPath,
           steps: res.steps,
           ...(res.note ? { note: res.note } : {}),
+          ...(res.provenanceTarget ? { provenanceTarget: res.provenanceTarget } : {}),
+          ...(res.previewPath ? { previewPath: res.previewPath } : {}),
           ...(res.artifact ? { artifact: res.artifact } : {}),
         })
       } catch (err) {

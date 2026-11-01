@@ -100,6 +100,13 @@ export interface PipelineSpec {
   readonly description?: string
   /** 从哪条轨迹蒸馏而来（`pipeline_draft` 写的），便于回溯（计划风险表） */
   readonly source?: { sessionKey: string; range: { fromMessageId: string; toMessageId: string } }
+  /**
+   * 产物溯源（只读，不参与执行）。复刻类 spec 用 `target` 标源站，
+   * 双栏对照的左栏地址就取自这里——不从 agent 的产出里猜。
+   */
+  readonly provenance?: { readonly target?: string }
+  /** 产物预览入口（工作区相对）；现用于复刻产物的静态导出 `out/index.html` */
+  readonly preview?: { readonly htmlPath?: string }
   readonly record?: RecordBlock
   readonly preconditions?: readonly PipelinePrecondition[]
   readonly steps: readonly PipelineStep[]
@@ -137,6 +144,8 @@ export interface RunMeta {
   endedAt?: number
   status?: 'running' | 'ok' | 'failed' | 'cancelled'
   artifact?: { mp4Path?: string; burned?: boolean; dubbed?: boolean; durationMs?: number; cueCount?: number }
+  /** 从 spec 抄来的溯源信息；read-only，执行逻辑不读它 */
+  readonly provenance?: { readonly target?: string }
 }
 
 /** agent 节点一次执行的入参（与 bridge 的 spawnAgent 对齐，但不含编排层细节） */
