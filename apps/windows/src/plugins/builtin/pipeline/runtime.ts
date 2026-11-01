@@ -18,10 +18,14 @@ import type { RunnerDeps } from './types'
 
 export interface PipelineServiceDeps {
   readonly callTool: RunnerDeps['callTool']
+  /** agent 节点执行器；宿主没注入时含 agent 节点的 spec 会在该步明确失败 */
+  readonly runAgentStage?: RunnerDeps['runAgentStage']
   readonly screenRecord: RunnerDeps['screenRecord']
   readonly readViewState: RunnerDeps['readViewState']
   /** 全量工具名快照（校验 spec 用）；由 bridge 从 toolRegistry 现取 */
   readonly knownTools: () => ReadonlySet<string>
+  /** 已启用的 Agent id 快照（校验 agent 节点用）；同样现取 */
+  readonly knownAgents: () => ReadonlySet<string>
   /** 哪些工具需要授权（rehearsal 要跳过它们）；由 bridge 从 toolRegistry 现取 */
   readonly needsPermission?: (tool: string) => boolean
   /** 根目录取值（`resolvePipelinesDir`）；注入以免 import main/** */
@@ -45,7 +49,7 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
   const needsPermission = deps.needsPermission ?? (() => false)
 
   const detail = async (id: string): Promise<PipelineDetail | null> => {
-    const r = readSpec(root(), id, deps.knownTools())
+    const r = readSpec(root(), id, deps.knownTools(), deps.knownAgents())
     if ('error' in r) return null
     const runsDir = path.join(root(), id, 'runs')
     const runs = fs.existsSync(runsDir)
@@ -66,13 +70,13 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
 
   return {
     async list(): Promise<PipelineSummary[]> {
-      return listPipelines(root(), deps.knownTools())
+      return listPipelines(root(), deps.knownTools(), deps.knownAgents())
     },
 
     detail,
 
     async run(id, opts) {
-      const r = readSpec(root(), id, deps.knownTools())
+      const r = readSpec(root(), id, deps.knownTools(), deps.knownAgents())
       if ('error' in r) return { ok: false, runId: '', journalPath: '', steps: [], error: r.error }
 
       let runDir: string

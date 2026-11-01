@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { runPipeline } from './runner'
 import { validateSpec } from './spec'
-import type { RunnerDeps } from './types'
+import type { RunAgentStageData, RunnerDeps } from './types'
 
 let dir: string
 beforeEach(() => {
@@ -23,9 +23,10 @@ afterEach(() => {
 })
 
 const TOOLS = new Set(['app_goto', 'app_act', 'wechat_read_history', 'wechat_check_env'])
+const AGENTS = new Set(['assistant', 'builtin:explore'])
 
 function specOf(steps: unknown[], extra: Record<string, unknown> = {}) {
-  const r = validateSpec({ id: 'demo', steps, ...extra }, TOOLS)
+  const r = validateSpec({ id: 'demo', steps, ...extra }, TOOLS, AGENTS)
   if (!r.ok) throw new Error('bad test spec: ' + r.errors.join('; '))
   return r
 }
@@ -35,15 +36,32 @@ function deps(opts: {
   results?: Record<string, { ok: boolean; data?: unknown; error?: string }>
   viewState?: { view: string | null; hub?: { open: boolean; tab?: string; category?: string } }
   startOk?: boolean
+  /** agent 节点的返回；缺省给一段可读输出 */
+  agent?: { ok: boolean; data?: RunAgentStageData; error?: string }
+  /** 不注入 runAgentStage（验证「宿主不支持」时该步明确失败） */
+  noAgent?: boolean
 } = {}) {
   const calls: string[] = []
   const marks: { label: string }[] = []
+  /** agent 节点收到的 prompt（断言 {{}} 解析用） */
+  const agentPrompts: string[] = []
   let clock = 1000
   const d: RunnerDeps = {
     callTool: vi.fn(async (name: string) => {
       calls.push(`call:${name}`)
       return opts.results?.[name] ?? { ok: true, data: { ok: true, [name]: 1 } }
     }),
+    ...(opts.noAgent
+      ? {}
+      : {
+          runAgentStage: vi.fn(
+            async (p: { prompt: string }): Promise<{ ok: boolean; data?: RunAgentStageData; error?: string }> => {
+              calls.push('agent')
+              agentPrompts.push(p.prompt)
+              return opts.agent ?? { ok: true, data: { output: 'done', agentName: '助手' } }
+            },
+          ),
+        }),
     screenRecord: {
       start: vi.fn(async () => {
         calls.push('start')
@@ -69,7 +87,7 @@ function deps(opts: {
     // 注入 fake clock：holdMs 直接推进，不真 sleep（单测里 1.2 秒 × N 步会拖死套件）
     now: () => (clock += 1000),
   }
-  return { d, calls, marks }
+  return { d, calls, marks, agentPrompts }
 }
 
 /** 单测里不等真 sleep：runner 接受 sleep 注入；缺省用真 setTimeout */
@@ -474,5 +492,103 @@ describe('runner 主循环', () => {
     expect(res.ok).toBe(false)
     expect(res.failedAt?.id).toBe('b')
     expect(JSON.stringify(res)).toContain('bad_reference')
+  })
+})
+
+/**
+ * agent 节点（P1）。
+ *
+ * 这一组守的是「agent 只产出数据，不参与路由」：无论 agent 返回什么，下一步照跑；
+ * 它唯一的影响是 `outputs` 里多了这个 step 的产出，供下游 `{{}}` 引用。
+ */
+describe('runner agent 节点', () => {
+  const run = (d: RunnerDeps, steps: unknown[], mode: 'record' | 'rehearsal' = 'rehearsal') => {
+    const { spec, specHash } = specOf(steps)
+    return runPipeline({
+      spec, specHash, mode, runDir: path.join(dir, 'r'),
+      deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
+    })
+  }
+
+  it('走 runAgentStage 而不是 callTool；output 进入 journal', async () => {
+    const { d } = deps({ agent: { ok: true, data: { output: '整理完毕', agentName: '助手' } } })
+    const res = await run(d, [{ id: 'brief', kind: 'agent', prompt: '写 brief', rehearsal: 'run' }])
+    expect(res.ok).toBe(true)
+    expect(d.callTool).not.toHaveBeenCalled()
+    expect(d.runAgentStage).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(res.steps[0]?.observed)).toContain('整理完毕')
+  })
+
+  it('prompt 里的 {{}} 会被解析后再交给 agent', async () => {
+    const { d, agentPrompts } = deps({
+      results: { app_goto: { ok: true, data: { url: 'https://x.test/' } } },
+    })
+    await run(d, [
+      { id: 'open', tool: 'app_goto' },
+      { id: 'brief', kind: 'agent', prompt: '目标页是 {{open.url}}，请整理', rehearsal: 'run' },
+    ])
+    expect(agentPrompts[0]).toBe('目标页是 https://x.test/，请整理')
+  })
+
+  it('下游 tool 能引用上游 agent 的 output', async () => {
+    const { d } = deps({ agent: { ok: true, data: { output: 'BRIEF-TEXT' } } })
+    await run(d, [
+      { id: 'brief', kind: 'agent', prompt: '写 brief', rehearsal: 'run' },
+      { id: 'use', tool: 'app_act', params: { text: '{{brief.output}}' } },
+    ])
+    expect(d.callTool).toHaveBeenCalledWith('app_act', { text: 'BRIEF-TEXT' }, undefined)
+  })
+
+  it('宿主没注入 runAgentStage → 该步明确失败，不伪装成 unknown tool', async () => {
+    const { d } = deps({ noAgent: true })
+    const res = await run(d, [{ id: 'brief', kind: 'agent', prompt: 'x', rehearsal: 'run' }])
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('agent')
+    expect(res.error).not.toContain('unknown tool')
+  })
+
+  it('rehearsal 缺省跳过 agent 节点，记 skipped', async () => {
+    const { d } = deps()
+    const res = await run(d, [{ id: 'brief', kind: 'agent', prompt: 'x' }])
+    expect(res.ok).toBe(true)
+    expect(d.runAgentStage).not.toHaveBeenCalled()
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(dir, 'r', 'journal.jsonl'), 'utf8').trim(),
+    )
+    expect(journal.skipped).toBe('rehearsal')
+    expect(journal.kind).toBe('agent')
+  })
+
+  it("rehearsal:'run' 时彩排也真的执行", async () => {
+    const { d } = deps()
+    const res = await run(d, [{ id: 'brief', kind: 'agent', prompt: 'x', rehearsal: 'run' }])
+    expect(res.ok).toBe(true)
+    expect(d.runAgentStage).toHaveBeenCalledTimes(1)
+  })
+
+  it('journal 的 kind：agent 标 agent，tool 保持缺省', async () => {
+    const { d } = deps()
+    await run(d, [
+      { id: 'a', tool: 'app_goto' },
+      { id: 'brief', kind: 'agent', prompt: 'x', rehearsal: 'run' },
+    ])
+    const lines = fs
+      .readFileSync(path.join(dir, 'r', 'journal.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l))
+    expect(lines[0]!.kind).toBeUndefined()
+    expect(lines[1]!.kind).toBe('agent')
+  })
+
+  it('agent 返回 ok:false → 停在当步，后续不执行', async () => {
+    const { d } = deps({ agent: { ok: false, error: 'agent 挂了' } })
+    const res = await run(d, [
+      { id: 'brief', kind: 'agent', prompt: 'x', rehearsal: 'run' },
+      { id: 'c', tool: 'app_act' },
+    ])
+    expect(res.ok).toBe(false)
+    expect(res.failedAt?.id).toBe('brief')
+    expect(d.callTool).not.toHaveBeenCalled()
   })
 })

@@ -1,7 +1,7 @@
 # 原子 `reverse` + pipeline agent 节点 · P1 实施计划
 
 > **设计**：[`../../design/逆向与复刻/2026-11-01-逆向复刻与流水线编排设计.md`](../../design/逆向与复刻/2026-11-01-逆向复刻与流水线编排设计.md) §4.2 / §4.3 / §5.2 / §8.2
-> **状态**：待启动（P1）
+> **状态**：已完成（P1）——总结见 [`2026-11-01-P1实施总结.md`](2026-11-01-P1实施总结.md)
 > **范围**：`reverse` 原子 + `capability-router` + pipeline `agent` 节点 + 完整 `web-clone` spec。**安全域（红蓝）不在本期**（P4）。
 > **前置**：P0 已完成（`clone` 原子、浏览器工具 14 个、eval 扁平化、播种时机修复）。
 
@@ -312,12 +312,12 @@ runAgentStage: async ({ agentType, prompt, allowedTools, model, signal }) => { .
 
 ## 9. 收尾清单
 
-- [ ] agent 节点校验 8 条用例、runner 8 条用例全绿
-- [ ] `validateSpec` 第三参必填，所有调用点已改（含测试）
-- [ ] `pnpm --filter ./apps/windows test:all`（关注 `agent-runtime` / `pipeline` 定向套件）
-- [ ] `pnpm typecheck` 0 错误
-- [ ] `pnpm check:wiring` 新增 0
-- [ ] `/reverse` 两种目标各自单独跑通
-- [ ] 完整 `web-clone` 真机跑通且 `pnpm build` 通过
-- [ ] UI 无执行入口；对话内可跑
-- [ ] 实施总结落 `docs/plans/逆向与复刻/2026-XX-XX-P1实施总结.md`
+- [x] agent 节点校验 8 条用例、runner 8 条用例全绿
+- [x] `validateSpec` 第三参必填，所有调用点已改（含测试）
+- [x] `pnpm --filter ./apps/windows test:all`（定向套件全绿；全量 9 失败均为既有，见总结）
+- [x] `pnpm typecheck` 0 错误
+- [x] `pnpm check:wiring` 新增 0
+- [x] `/reverse` 两种目标各自单独跑通
+- [ ] 完整 `web-clone` 真机跑通且 `pnpm build` 通过（只跑到 rehearsal，留 P2）
+- [x] UI 无执行入口；对话内可跑
+- [x] 实施总结落 `docs/plans/逆向与复刻/2026-11-01-P1实施总结.md`

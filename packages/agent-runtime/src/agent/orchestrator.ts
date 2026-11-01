@@ -581,7 +581,11 @@ export class AgentOrchestrator {
           outputText += event.delta;
           this.broker.updateProgress(childInstanceId);
         } else if (event.type === "message:end") {
-          outputText = event.fullText;
+          // **空 fullText 不覆盖已有内容**：一轮以工具调用收尾时，message:end 的
+          // fullText 是空串（正文在上一轮已经流过来，或本就没有正文）。直接覆盖会把
+          // 之前累积的输出整段抹掉——子 Agent 用 task_complete 收尾时尤其明显，
+          // 父 Agent（含流水线的 agent 节点）拿到的是空产出（2026-11-01 真机实测）。
+          if (event.fullText) outputText = event.fullText;
           this.broker.updateProgress(childInstanceId);
         } else if (event.type === "tool:start") {
           this.broker.updateProgress(childInstanceId);

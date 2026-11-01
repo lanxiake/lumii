@@ -1,8 +1,11 @@
 /**
  * 确定性流水线 preload 桥（计划 Task 7）。
  *
- * 五个 invoke + 两个 on。**不经过命令总线**：流水线页要的是「插件在不在」决定表在不在，
+ * 四个 invoke + 两个 on。**不经过命令总线**：流水线页要的是「插件在不在」决定表在不在，
  * 而不是一条永远存在但报错的命令（与 selection 同取舍）。
+ *
+ * **没有 `run`**：流水线由 Agent 调 `pipeline_run` 执行（设计 §4.0）。这里保留执行入口
+ * 等于给 UI 开第二条通道——权限归属会记错会话，事后也说不清是谁跑的。
  *
  * **进度/结束事件走 `agent-runtime:event` 复用通道**：主进程的 `forwardIpcEvent` 只往这一个
  * 通道发（`bridge-renderer-ipc.ts:80`），按 `type` 区分。所以这里不能自己
@@ -25,11 +28,6 @@ function onRuntimeEvent(type: string, cb: (e: unknown) => void): () => void {
 export const pipelineApi = {
   list: (): Promise<unknown[]> => ipcRenderer.invoke('pipeline:list'),
   detail: (id: string): Promise<unknown | null> => ipcRenderer.invoke('pipeline:detail', id),
-  run: (args: {
-    id: string
-    mode: 'record' | 'rehearsal'
-    resumeRunId?: string
-  }): Promise<unknown> => ipcRenderer.invoke('pipeline:run', args),
   cancel: (runId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('pipeline:cancel', runId),
   openDir: (args: {
     target: 'spec' | 'run'

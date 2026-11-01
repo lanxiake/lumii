@@ -164,9 +164,11 @@ export const pipelineExtension = {
         const ex = bridge.createPipelineExecutor()
         impl = createPipelineService({
           callTool: ex.callTool,
+          runAgentStage: ex.runAgentStage,
           screenRecord: ex.screenRecord,
           readViewState: ex.readViewState,
           knownTools: ex.knownTools,
+          knownAgents: ex.knownAgents,
           needsPermission: ex.needsPermission,
           pipelinesRoot: () => resolvePipelinesDir(),
           onProgress: (e) => ex.emitProgress(e),

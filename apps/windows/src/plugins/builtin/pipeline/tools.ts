@@ -90,7 +90,9 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
     description:
       '按 spec 逐步执行一条流水线。**一次工具调用跑完全程**（不占多轮，不会撞 maxTurns）。' +
       '任一步失败即停，返回 {failedAt, expected, observed, journalPath}。' +
-      '先用 rehearsal 彩排（不录、跳过需授权工具、仍验断言），确认选择器都还命中再 record。' +
+      '先用 rehearsal 彩排（不录、跳过需授权工具与 agent 节点、仍验断言），确认选择器都还命中再 record。' +
+      'spec 里的 agent 节点（`kind:"agent"`）会让子 Agent 同步跑一个回合，产出交回流水线供后续步骤引用；' +
+      '这类节点彩排时默认跳过，只有 spec 显式写 `rehearsal:"run"` 才真跑。' +
       WHEN_TO_USE,
     parameters: RunInput,
     // 执行会触发有副作用的工具，必须过审批（设计 §7.1：审「整条计划」，一次给全，

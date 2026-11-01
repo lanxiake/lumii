@@ -69,7 +69,81 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v)
 }
 
-export function validateSpec(raw: unknown, knownTools: ReadonlySet<string>): ValidateResult {
+type StepBase = Omit<PipelineStep, 'kind' | 'tool' | 'params' | 'prompt'>
+
+function parseToolStep(
+  s: Record<string, unknown>,
+  i: number,
+  id: string,
+  base: StepBase,
+  knownTools: ReadonlySet<string>,
+  errors: string[],
+): PipelineStep | undefined {
+  const tool = typeof s.tool === 'string' ? s.tool : ''
+  if (!tool) errors.push(`steps[${i}] (${id}) 缺少 tool`)
+  else if (!knownTools.has(tool)) errors.push(`steps[${i}] (${id}) unknown tool: ${tool}`)
+  return {
+    ...base,
+    tool,
+    params: isObj(s.params) ? s.params : undefined,
+  }
+}
+
+/**
+ * agent 节点校验。
+ *
+ * **未知 agentType 必须拒绝，不能回落**：`orchestrator.spawnAgent` 对未知 id 是
+ * 静默回落 `assistant`（善意兜底）。对交互对话没问题；对流水线是灾难——作者以为跑的是
+ * 专用 Agent（提示词与工具都不同），实际跑成通用 Agent，结果不可复现且毫无提示。
+ * 所以这里与 `knownTools` 同一原则：加载期拒，错误文案直接告诉用户怎么修。
+ */
+function parseAgentStep(
+  s: Record<string, unknown>,
+  i: number,
+  id: string,
+  base: StepBase,
+  knownAgents: ReadonlySet<string>,
+  errors: string[],
+): PipelineStep | undefined {
+  if (nonBlank(s.tool)) {
+    errors.push(`steps[${i}] (${id}) agent 节点不能同时写 tool（歧义：到底跑工具还是跑回合）`)
+  }
+  const prompt = typeof s.prompt === 'string' ? s.prompt : ''
+  if (!prompt.trim()) errors.push(`steps[${i}] (${id}) agent 节点缺少非空的 prompt`)
+
+  const agentType = typeof s.agentType === 'string' && s.agentType.trim() ? s.agentType.trim() : 'assistant'
+  if (!knownAgents.has(agentType)) {
+    errors.push(
+      `steps[${i}] (${id}) 未知或未启用的 Agent "${agentType}"：请先在 Agents 页启用它` +
+        `（可用：${[...knownAgents].join(', ') || '无'}）`,
+    )
+  }
+
+  const allowedTools = Array.isArray(s.allowedTools)
+    ? s.allowedTools.filter((t): t is string => typeof t === 'string' && !!t.trim())
+    : undefined
+
+  return {
+    ...base,
+    kind: 'agent',
+    agentType,
+    prompt,
+    ...(allowedTools && allowedTools.length ? { allowedTools } : {}),
+    ...(typeof s.model === 'string' && s.model.trim() ? { model: s.model.trim() } : {}),
+    ...(s.rehearsal === 'run' ? { rehearsal: 'run' as const } : {}),
+  }
+}
+
+/** 空串与纯空白都算「没写」 */
+function nonBlank(v: unknown): boolean {
+  return typeof v === 'string' && v.trim() !== ''
+}
+
+export function validateSpec(
+  raw: unknown,
+  knownTools: ReadonlySet<string>,
+  knownAgents: ReadonlySet<string>,
+): ValidateResult {
   const errors: string[] = []
 
   if (!isObj(raw)) return { ok: false, errors: ['spec 必须是一个 JSON 对象'] }
@@ -95,33 +169,41 @@ export function validateSpec(raw: unknown, knownTools: ReadonlySet<string>): Val
       return
     }
 
-    const tool = typeof s.tool === 'string' ? s.tool : ''
-    if (!tool) errors.push(`steps[${i}] (${id}) 缺少 tool`)
-    else if (!knownTools.has(tool)) errors.push(`steps[${i}] (${id}) unknown tool: ${tool}`)
+    const kind = s.kind === undefined ? 'tool' : s.kind
+    if (kind !== 'tool' && kind !== 'agent') {
+      errors.push(`steps[${i}] (${id}) 未知的 kind: ${String(s.kind)}（只支持 tool / agent）`)
+    }
 
     // 重复 id：记错误后**继续校验这个 step 的其余字段**，再跳过入表。
     // 提前 return 会让「id 重复」这一步的工具名校验被吞掉——那正是「一次报全部错误」要防的挤牙膏。
-    if (seen.has(id)) {
-      errors.push(`steps[${i}] 的 id "${id}" 重复（id 在同一 spec 内必须唯一）`)
-      return
-    }
+    const duplicated = seen.has(id)
+    if (duplicated) errors.push(`steps[${i}] 的 id "${id}" 重复（id 在同一 spec 内必须唯一）`)
     seen.add(id)
 
-    steps.push({
+    const base = {
       id,
-      tool,
       label: typeof s.label === 'string' ? s.label : undefined,
       narration: typeof s.narration === 'string' ? s.narration : undefined,
-      params: isObj(s.params) ? s.params : undefined,
       holdMs: typeof s.holdMs === 'number' ? s.holdMs : DEFAULT_HOLD_MS,
       expect: isObj(s.expect) ? (s.expect as PipelineStep['expect']) : undefined,
-    })
+    }
+
+    let parsed: PipelineStep | undefined
+    if (kind === 'agent') {
+      parsed = parseAgentStep(s, i, id, base, knownAgents, errors)
+    } else if (kind === 'tool') {
+      parsed = parseToolStep(s, i, id, base, knownTools, errors)
+    }
+    if (duplicated) return
+    if (parsed) steps.push(parsed)
   })
 
   // ── 引用完整性：只能向后 + 无环 ──
   const order = new Map(steps.map((s, i) => [s.id, s]))
   steps.forEach((s, i) => {
-    for (const ref of refsIn(s.params)) {
+    // agent 节点的 prompt 同样能引用上游；两边一起查，否则 prompt 里的坏引用会跑到运行期才炸
+    const refs = [...refsIn(s.kind === 'agent' ? s.prompt : s.params)]
+    for (const ref of refs) {
       if (!order.has(ref)) {
         errors.push(`steps[${i}] (${s.id}) 引用了不存在的 step "${ref}"`)
       } else if (steps.findIndex((x) => x.id === ref) >= i) {

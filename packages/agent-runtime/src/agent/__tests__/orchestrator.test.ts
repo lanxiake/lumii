@@ -31,6 +31,21 @@ function mockChild(id: string, output = "child-out"): AgentInstance {
   } as unknown as AgentInstance;
 }
 
+/** 按给定事件序列回放；用于「多轮 + 空收尾」这类真实形态 */
+function mockChildEvents(
+  id: string,
+  events: { type: string; fullText?: string; delta?: string }[],
+): AgentInstance {
+  return {
+    id,
+    subscribe: (cb: (e: { type: string; fullText?: string; delta?: string }) => void) => {
+      for (const e of events) cb(e);
+      return () => {};
+    },
+    waitForIdle: async () => {},
+  } as unknown as AgentInstance;
+}
+
 describe("AgentOrchestrator", () => {
   let registry: AgentRegistry;
   let bus: MessageBus;
@@ -613,6 +628,58 @@ describe("AgentOrchestrator", () => {
     expect(prompt.mock.calls[0]![1]).toContain("研究并撰写 ch06 反思与自我进化");
   });
 });
+
+/**
+ * sync 委托的输出收集。
+ *
+ * 真实故障（2026-11-01 真机）：子 Agent 以工具调用收尾时，最后一轮 `message:end`
+ * 的 `fullText` 是空串——正文在更早那一轮已经给过。原来的实现无条件覆盖，
+ * 于是父 Agent（流水线的 agent 节点）拿到的 `output` 是空字符串，
+ * 表面上 run 成功、实际什么都没传回去。
+ */
+describe("sync 委托的输出收集", () => {
+  let localRegistry: AgentRegistry
+  beforeEach(() => {
+    localRegistry = new AgentRegistry()
+  })
+  const orchWith = (child: AgentInstance) =>
+    new AgentOrchestrator(localRegistry, new MessageBus(), {
+      resolveDefinition: async () => mockDef("builtin:explore"),
+      createChildInstance: async () => child.id,
+      prompt: vi.fn().mockResolvedValue(undefined),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+    })
+
+  it("后一轮 message:end 是空串 → 保留前一轮正文（不覆盖成空）", async () => {
+    const child = mockChildEvents("c1", [
+      { type: "message:end", fullText: "计划：先看目录" },
+      { type: "message:end", fullText: "" },
+      { type: "message:end", fullText: "" },
+    ])
+    const r = await orchWith(child).spawnAgent(
+      { name: "s", prompt: "x", mode: "sync" },
+      "parent-1",
+    )
+    expect(r.status).toBe("ok")
+    if (r.status === "ok" && r.mode === "sync") expect(r.output).toBe("计划：先看目录")
+  })
+
+  it("后一轮 message:end 有新正文 → 用新正文覆盖（不是拼接）", async () => {
+    const child = mockChildEvents("c2", [
+      { type: "message:end", fullText: "第一轮" },
+      { type: "message:end", fullText: "第二轮最终答复" },
+    ])
+    const r = await orchWith(child).spawnAgent(
+      { name: "s", prompt: "x", mode: "sync" },
+      "parent-1",
+    )
+    if (r.status === "ok" && r.mode === "sync") expect(r.output).toBe("第二轮最终答复")
+  })
+})
 
 describe("composeSpawnPromptWithFallbackRole", () => {
   it("为未知类型注入角色头，已有 Role 段时不重复", async () => {

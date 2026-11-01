@@ -4,9 +4,12 @@
  * 三条约定：
  * - 通道随插件卸载一起摘掉，所以每个调用都 `try/catch` 并把失败变成 `{error}`，
  *   而不是让页面崩在渲染里（停用插件时页面本身也会一起消失，但热重载的窗口期存在）。
- * - 进度/结束事件是**增量**的：订阅后不改全量清单，只把当前 run 的进度合进 `running`，
+ * - 进度/结束事件是**增量**的：订阅后不改全量清单，只把当前 run 的进度合进 `progress`，
  *   避免每步都重拉一次 list（那会在长流水线里打出几十次 IPC）。
  * - 卸载成对注销订阅（`onProgress`/`onFinished` 返回的是取消函数）。
+ *
+ * **这里没有 run()**：流水线由 Agent 执行（设计 §4.0）。页面只管理、只观察，
+ * 不提供第二条执行通道——否则「谁跑的」无从追溯，权限归属也会记错会话。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -48,7 +51,11 @@ export interface StepView {
   id: string
   label?: string
   narration?: string
-  tool: string
+  kind?: 'tool' | 'agent'
+  /** tool 节点有；agent 节点没有 */
+  tool?: string
+  /** agent 节点有；tool 节点没有 */
+  agentType?: string
   holdMs: number
   expect?: unknown
 }
@@ -59,7 +66,7 @@ export interface PipelineDetail {
     name?: string
     description?: string
     steps: StepView[]
-    /** 页面据此决定「录制运行」能不能点（enabled === false 时禁用并说明原因） */
+    /** 页面据此提示「作者不让录」（不再禁用按钮：执行在对话里） */
     record?: { enabled?: boolean; narrate?: { dub?: boolean; exportMp4?: boolean } }
   }
   specHash: string
@@ -79,7 +86,6 @@ export interface ProgressEvent {
 interface PipelineBridge {
   list(): Promise<unknown[]>
   detail(id: string): Promise<unknown | null>
-  run(args: { id: string; mode: 'record' | 'rehearsal'; resumeRunId?: string }): Promise<unknown>
   cancel(runId: string): Promise<{ ok: boolean }>
   openDir(args: { target: 'spec' | 'run'; id: string }): Promise<{ ok: boolean; error?: string }>
   onProgress(cb: (e: unknown) => void): () => void
@@ -166,14 +172,5 @@ export function usePipelines() {
     }
   }, [refresh, loadDetail])
 
-  const run = useCallback(
-    async (id: string, mode: 'record' | 'rehearsal', resumeRunId?: string) => {
-      const api = bridge()
-      if (!api) return { ok: false, error: '通道不可用' }
-      return api.run({ id, mode, resumeRunId })
-    },
-    [],
-  )
-
-  return { items, selectedId, select: setSelectedId, detail, error, progress, refresh, run }
+  return { items, selectedId, select: setSelectedId, detail, error, progress, refresh }
 }

@@ -36,16 +36,8 @@ export function registerPipelineIpcHandlers(
     return need().detail(id)
   })
 
-  registrar.handle(
-    'pipeline:run',
-    async (_e, args: { id: string; mode: 'record' | 'rehearsal'; resumeRunId?: string }) => {
-      if (!args || typeof args.id !== 'string' || !args.id) {
-        return { ok: false, runId: '', journalPath: '', steps: [], error: '缺少 id' }
-      }
-      const mode = args.mode === 'record' ? 'record' : 'rehearsal'
-      return need().run(args.id, { mode, resumeRunId: args.resumeRunId })
-    },
-  )
+  // **刻意没有 `pipeline:run`**：执行归属是 Agent（设计 §4.0）。UI 留这个 handler
+  // 就等于多一条「谁都能跑」的通道，权限归属与事后追溯都会失真。
 
   // 取消不存在的 run 是常态（已经跑完 / 页面刷新过），返回 {ok:false} 而不是抛
   registrar.handle('pipeline:cancel', (_e, runId: string) => {

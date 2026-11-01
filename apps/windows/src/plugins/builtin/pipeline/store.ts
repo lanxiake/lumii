@@ -43,7 +43,11 @@ function lastRunOf(pipelineDir: string): PipelineSummary['lastRun'] {
   return best ? { runId: best.runId, at: best.startedAt, ok: best.status === 'ok' } : undefined
 }
 
-export function listPipelines(pipelinesRoot: string, knownTools: ReadonlySet<string>): PipelineSummary[] {
+export function listPipelines(
+  pipelinesRoot: string,
+  knownTools: ReadonlySet<string>,
+  knownAgents: ReadonlySet<string>,
+): PipelineSummary[] {
   let ids: string[]
   try {
     ids = fs
@@ -65,7 +69,7 @@ export function listPipelines(pipelinesRoot: string, knownTools: ReadonlySet<str
       out.push({ id, stepCount: 0, narrationCount: 0, error: `spec.json 不是合法 JSON: ${err instanceof Error ? err.message : err}` })
       continue
     }
-    const v = validateSpec(raw, knownTools)
+    const v = validateSpec(raw, knownTools, knownAgents)
     if (!v.ok) {
       out.push({ id, stepCount: 0, narrationCount: 0, error: v.errors.join('; ') })
       continue
@@ -107,11 +111,12 @@ export function readSpec(
   pipelinesRoot: string,
   pipelineId: string,
   knownTools: ReadonlySet<string>,
+  knownAgents: ReadonlySet<string>,
 ): { spec: PipelineSpec; specHash: string } | { error: string } {
   const specPath = path.join(pipelinesRoot, pipelineId, 'spec.json')
   try {
     const raw = JSON.parse(fs.readFileSync(specPath, 'utf8'))
-    const v = validateSpec(raw, knownTools)
+    const v = validateSpec(raw, knownTools, knownAgents)
     return v.ok ? { spec: v.spec, specHash: v.specHash } : { error: v.errors.join('; ') }
   } catch (err) {
     return { error: `读取失败: ${err instanceof Error ? err.message : String(err)}` }

@@ -1,14 +1,16 @@
 /**
  * 流水线管理页（对照原型 §一）：左清单 + 右侧详情。
  *
- * 三条取舍：
- * - **管理是低频操作，不占主界面**：它是一整页（`app.view`），不是首页卡片；
- *   用户真正发起流水线的地方是对话（时间线卡）。
- * - 步骤行展示 `no / 名称 / 工具 / holdMs`，与 spec 一一对应——改 spec 后重载即可见。
+ * 四条取舍：
+ * - **管理是低频操作，不占主界面**：它是一整页（`app.view`），不是首页卡片。
+ * - **这里不执行**：流水线由 Agent 跑（设计 §4.0「流水线是资产，Agent 是执行者」）。
+ *   页面只提供一个「在对话里运行」的按钮，把话术预填进输入框——执行归属、权限归属
+ *   都记在发起它的那个会话上，不会凭空多出第二条执行通道。
+ * - 步骤行展示 `no / 名称 / 工具或 Agent / holdMs`，与 spec 一一对应。
  * - 样式只用 `--mt-*` 令牌，三个主题块才同时成立（不写死色值）。
  */
-import { useMemo, useState } from 'react'
-import { Play, RotateCcw, FolderOpen, AlertTriangle } from 'lucide-react'
+import { useMemo } from 'react'
+import { FolderOpen, AlertTriangle, MessageSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { Loading } from '../../../../renderer/components/ui/Loading/Loading'
 import { Empty } from '../../../../renderer/components/ui/Empty/Empty'
@@ -26,46 +28,33 @@ function fmtAgo(ts?: number): string {
   return `${Math.floor(h / 24)} 天前`
 }
 
-function stepOf(detail: { spec: { steps: StepView[] } } | null, id: string): StepView | undefined {
-  return detail?.spec.steps.find((s) => s.id === id)
-}
-
-export function PipelinePage() {
-  const { items, selectedId, select, detail, error, progress, run } = usePipelines()
-  const [busy, setBusy] = useState<string | null>(null)
-  const [lastResult, setLastResult] = useState<{
-    id: string
-    ok: boolean
-    error?: string
-    artifact?: { mp4Path?: string; durationMs?: number; cueCount?: number; burned?: boolean; dubbed?: boolean }
-  } | null>(null)
+export function PipelinePage({ onViewChange }: { onViewChange?: (view: string) => void } = {}) {
+  const { items, selectedId, select, detail, error, progress } = usePipelines()
 
   const selected: PipelineSummary | undefined = useMemo(
     () => items?.find((p) => p.id === selectedId),
     [items, selectedId],
   )
-  /** spec 明确禁录时禁用「录制运行」（与 runner 的「mode=record 但 spec 否决」同一判据） */
-  const recordDisabled = detail?.spec.record?.enabled === false
+  /** 正在跑的进度（由 Agent 在对话里发起的那次 run；页面只观察） */
   const runningEntry = useMemo(() => {
     if (!selectedId) return undefined
-    return Object.values(progress).find((e) => e.stepId && busy === selectedId)
-  }, [progress, selectedId, busy])
+    return Object.values(progress).find((e) => e.stepId)
+  }, [progress, selectedId])
 
-  const doRun = async (id: string, mode: 'record' | 'rehearsal') => {
-    setBusy(id)
-    setLastResult(null)
-    try {
-      const r = (await run(id, mode)) as {
-        ok?: boolean
-        error?: string
-        artifact?: { mp4Path?: string; durationMs?: number; cueCount?: number; burned?: boolean; dubbed?: boolean }
-      }
-      setLastResult({ id, ok: Boolean(r?.ok), error: r?.error, artifact: r?.artifact })
-    } catch (err) {
-      setLastResult({ id, ok: false, error: err instanceof Error ? err.message : String(err) })
-    } finally {
-      setBusy(null)
-    }
+  /**
+   * 把「跑流水线 X」预填进对话输入框。
+   *
+   * 复用宿主已有的草稿通道（`mtbot:chat-draft-request`），不新造执行 IPC：
+   * 流水线必须由 Agent 调 `pipeline_run` 执行，页面只负责把用户送到对话里。
+   */
+  const askInChat = () => {
+    if (!selectedId) return
+    window.dispatchEvent(
+      new CustomEvent('mtbot:chat-draft-request', {
+        detail: { text: `跑流水线 ${selectedId}` },
+      }),
+    )
+    onViewChange?.('chat')
   }
 
   const openDir = async (target: 'spec' | 'run') => {
@@ -170,30 +159,6 @@ export function PipelinePage() {
                   正在跑第 {runningEntry.i + 1}/{runningEntry.total} 步：{runningEntry.label ?? runningEntry.stepId}
                 </div>
               )}
-              {lastResult && lastResult.id === selected.id && !lastResult.ok && (
-                <div className={styles.failed}>{lastResult.error ?? '运行失败'}</div>
-              )}
-              {lastResult && lastResult.id === selected.id && lastResult.ok && lastResult.artifact && (
-                <div className={styles.artifact}>
-                  <span className={styles.artifactLabel}>产物</span>
-                  <span className={styles.artifactPath} title={lastResult.artifact.mp4Path}>
-                    {lastResult.artifact.mp4Path ?? '(已录制)'}
-                  </span>
-                  <span className={styles.artifactMeta}>
-                    {lastResult.artifact.cueCount != null ? `${lastResult.artifact.cueCount} 段字幕` : ''}
-                    {lastResult.artifact.durationMs != null
-                      ? ` · ${(lastResult.artifact.durationMs / 1000).toFixed(1)}s`
-                      : ''}
-                    {lastResult.artifact.burned ? ' · 已烧录' : ''}
-                  </span>
-                  <button className={styles.btnGhost} onClick={() => openDir('run')}>
-                    打开目录
-                  </button>
-                </div>
-              )}
-              {lastResult && lastResult.id === selected.id && lastResult.ok && !lastResult.artifact && (
-                <div className={styles.warn}>这次运行没有产物（彩排不录屏）</div>
-              )}
             </div>
 
             <div className={styles.body}>
@@ -216,7 +181,9 @@ export function PipelinePage() {
                           <span className={styles.stepName}>{s.label ?? s.id}</span>
                           {jl?.error && <span className={styles.stepErr}>{jl.error.slice(0, 80)}</span>}
                         </span>
-                        <span className={styles.stepTool}>{s.tool}</span>
+                        <span className={styles.stepTool}>
+                          {s.kind === 'agent' ? `Agent · ${s.agentType ?? 'assistant'}` : s.tool}
+                        </span>
                         <span className={styles.stepHold}>{s.holdMs}ms</span>
                       </div>
                     )
@@ -245,35 +212,23 @@ export function PipelinePage() {
                 <div className={styles.actionsCard}>
                   <div className={styles.colTitle}>运行</div>
                   <div className={styles.btns}>
-                    <button
-                      className={styles.btnPrimary}
-                      // spec 明确禁录时**提前禁用**，而不是点下去才报错：
-                      // 点了「录制运行」却拿不到视频，是最容易让人以为「功能坏了」的一种失败。
-                      disabled={busy === selected.id || recordDisabled}
-                      title={recordDisabled ? '这份 spec 设置了 record.enabled=false' : undefined}
-                      onClick={() => void doRun(selected.id, 'record')}
-                    >
-                      <Play size={14} /> 录制运行
+                    <button className={styles.btnPrimary} onClick={askInChat}>
+                      <MessageSquare size={14} /> 在对话里运行
                     </button>
-                    <button
-                      className={styles.btnGhost}
-                      disabled={busy === selected.id}
-                      onClick={() => void doRun(selected.id, 'rehearsal')}
-                    >
-                      <RotateCcw size={14} /> 彩排（不录）
+                    <button className={styles.btnGhost} onClick={() => openDir('run')}>
+                      <FolderOpen size={14} /> 打开上次 run 目录
                     </button>
                   </div>
                   <div className={styles.hint}>
-                    {recordDisabled
-                      ? '这份 spec 声明了 record.enabled=false（作者不让录）。要录制就把它改成 true；彩排仍可用。'
-                      : '彩排不录屏、跳过需授权的工具，但仍会逐步校验断言——先彩排，绿了再录制。'}
+                    流水线由 Agent 执行，不由这个页面执行——点上面把「跑流水线 {selected.id}」填进对话，
+                    确认后发送。要用彩排还是录制，在对话里说清楚即可。
                   </div>
                 </div>
 
                 <div className={styles.colTitle}>历史 run</div>
                 <div className={styles.runs}>
                   {(detail?.runs ?? []).length === 0 ? (
-                    <div className={styles.runEmpty}>还没有运行记录 —— 先跑一次彩排</div>
+                    <div className={styles.runEmpty}>还没有运行记录 —— 去对话里跑一次</div>
                   ) : (
                     detail!.runs.map((r) => (
                       <div key={r.runId} className={styles.runRow}>

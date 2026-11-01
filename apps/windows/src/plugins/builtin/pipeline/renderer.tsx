@@ -41,9 +41,9 @@ export const pipelineRenderer: RendererPlugin = {
     const offView = api.registerSlot('app.view', {
       id: VIEW_ID,
       order: 80,
-      component: () => (
+      component: ({ onViewChange }: { onViewChange?: (v: string) => void }) => (
         <div style={{ height: '100%', padding: 16, minHeight: 0 }}>
-          <PipelinePage />
+          <PipelinePage onViewChange={onViewChange} />
         </div>
       ),
     })

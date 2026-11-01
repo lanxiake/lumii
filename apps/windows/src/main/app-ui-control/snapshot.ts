@@ -143,6 +143,11 @@ export const SNAPSHOT_SCRIPT = `(function () {
   function readValue(el) {
     var tag = el.tagName.toLowerCase();
     if (tag === 'select') return String(el.value == null ? '' : el.value);
+    // contenteditable 没有 .value。对话输入框从 textarea 换成富文本后，
+    // 不读 textContent 就等于「永远看到空输入框」——探针会误报预填没生效。
+    if (el.isContentEditable) {
+      return normalize(el.textContent).slice(0, 120);
+    }
     if (tag !== 'input' && tag !== 'textarea') return undefined;
     var raw = String(el.value == null ? '' : el.value);
     if (raw === '') return '';

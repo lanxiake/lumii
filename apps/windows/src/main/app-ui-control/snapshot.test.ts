@@ -208,6 +208,10 @@ describe('SNAPSHOT_SCRIPT', () => {
     expect(SNAPSHOT_SCRIPT).toContain("type === 'password'")
   })
 
+  it('富文本输入框也回读文本（contenteditable 没有 .value）', () => {
+    expect(SNAPSHOT_SCRIPT).toContain('isContentEditable')
+  })
+
   it('SELECTORS 含语义标记与 h1-h6 兜底', () => {
     expect(SNAPSHOT_SCRIPT).toContain('data-app-ui-heading')
     expect(SNAPSHOT_SCRIPT).toContain('data-app-ui-section-title')

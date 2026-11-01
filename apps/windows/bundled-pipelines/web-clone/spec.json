@@ -1,0 +1,171 @@
+{
+  "id": "web-clone",
+  "name": "网站复刻",
+  "description": "把一个网页按其真实内容/资源/布局重建为本地工程，并做双视口取证与关键样式回归。等同 /clone <url> 的自动化版。跑之前把 __TARGET_URL__ 与 __SLUG__ 换成真实值。用法约定：① 外部输入用 __TARGET_URL__ 占位（{{}} 会被当成 step id 而加载期拒，本期没有运行时变量）；② expect.fields 里只放字面量——expect 不走 resolveParams，写 {{}} 会被当成字面量静默比较；③ 跨步骤数值比对走 JS 内嵌；④ 移动端是持久状态，截完必须切回桌面视口；⑤ bash 步的成败看退出码（非零即失败）；⑥ **别引用 browser_eval 步的产出**——它 needsPermission，彩排时会被跳过并留下空对象，下游 {{}} 必然报 bad_reference。",
+  "record": {
+    "enabled": false
+  },
+  "preconditions": [
+    {
+      "id": "check-projects",
+      "tool": "list_dir",
+      "params": {
+        "path": "projects"
+      },
+      "hint": "先确认工作区有 projects 目录——复刻产物要落在这里"
+    }
+  ],
+  "steps": [
+    {
+      "id": "open",
+      "label": "打开目标页",
+      "tool": "browser_navigate",
+      "params": {
+        "url": "__TARGET_URL__"
+      },
+      "holdMs": 1500,
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "shot-desktop",
+      "label": "桌面全页取证",
+      "tool": "browser_screenshot",
+      "params": {
+        "fullPage": true
+      },
+      "holdMs": 500,
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "set-mobile",
+      "label": "切到移动端视口（持久状态，后面必须切回）",
+      "tool": "browser_set_device",
+      "params": {
+        "name": "iPhone 14"
+      },
+      "holdMs": 800,
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "shot-mobile",
+      "label": "移动端全页取证",
+      "tool": "browser_screenshot",
+      "params": {
+        "fullPage": true
+      },
+      "holdMs": 500,
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "reset-desktop",
+      "label": "切回桌面视口（只改尺寸、不动 UA）",
+      "tool": "browser_set_device",
+      "params": {
+        "width": 1440,
+        "height": 900
+      },
+      "holdMs": 300,
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "assets",
+      "label": "资源清单（上限 500 条；过滤是 URL 子串）",
+      "tool": "browser_requests",
+      "params": {},
+      "holdMs": 300,
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "styles",
+      "label": "关键样式采样（computed style，不猜）",
+      "tool": "browser_eval",
+      "params": {
+        "script": "(() => { const pick = (sel) => { const el = document.querySelector(sel); if (!el) return null; const s = getComputedStyle(el); return { font: s.fontFamily, size: s.fontSize, weight: s.fontWeight, lineHeight: s.lineHeight, color: s.color }; }; return { h1: pick('h1'), body: pick('body'), maxWidth: getComputedStyle(document.querySelector('main') ?? document.body).maxWidth, docWidth: document.documentElement.scrollWidth, winWidth: innerWidth }; })()"
+      },
+      "holdMs": 300,
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "id": "brief",
+      "label": "整理 brief / assets / states 三份文件",
+      "kind": "agent",
+      "agentType": "builtin:explore",
+      "prompt": "你在做网站复刻的观察阶段，只取证、不建工程。\n\n目标：__TARGET_URL__\n已采集：桌面全页截图 {{shot-desktop.result.path}}、移动端全页截图 {{shot-mobile.result.path}}、资源清单 {{assets.result.requests}}。\n\n关键样式自己用 browser_eval 采样（computed style，不猜），别引用上游读数——那一步在彩排时会被跳过。\n\n请用 browser_navigate / browser_snapshot / browser_eval 补足缺失的观察（滚动到折叠区、试交互、读真实字体与断点），先把素材写到 projects/__SLUG__/docs/research/，然后产出三份文件：\n- brief.md：段落顺序、字号/行高/间距、栅格、断点（每条带选择器与 computed 值）\n- assets.md：资源原始 URL、真实 content-type、用途\n- states.md：每段交互/动效的 before→after（触发条件与等待时长）\n\n读不到就写 UNRESOLVED 并说明卡在哪，不许猜。最后用五行以内汇报：文件路径、截图路径、未完成项。",
+      "holdMs": 800
+    },
+    {
+      "id": "scaffold",
+      "label": "拉起工程骨架",
+      "tool": "bash",
+      "params": {
+        "command": "cd projects && npx --yes create-next-app@latest __SLUG__ --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes",
+        "timeoutMs": 600000
+      },
+      "holdMs": 1000
+    },
+    {
+      "id": "build",
+      "label": "按 brief 重建页面（循环对比写在节点内部）",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "按 projects/__SLUG__/docs/research/ 下的 brief.md / assets.md / states.md 重建页面。\n\n规范：\n1. 用真实文案与资源，不许占位符；\n2. 先建共享的字体/色板/容器宽度，再逐区块实现；\n3. 每完成一个区块就对比——用 browser_navigate 打开本地产物、截图、与源站同视口同滚动位置对照，修最大差异项，循环到主结构一致；\n4. 站内链接改写为本地路由，外链保留。\n\n完成标准：主结构、排版、资源对上，并记录仍未实现的部分。**不要**声称像素级完美。",
+      "holdMs": 800
+    },
+    {
+      "id": "check",
+      "label": "产线检查（非零退出即失败）",
+      "tool": "bash",
+      "params": {
+        "command": "cd projects/__SLUG__ && npm run build",
+        "timeoutMs": 600000
+      },
+      "holdMs": 500
+    },
+    {
+      "id": "no-placeholders",
+      "label": "断言产物里没有残留占位符（有就退出码非零 → 该步失败）",
+      "tool": "bash",
+      "params": {
+        "command": "cd projects/__SLUG__ && if grep -rInE 'lorem ipsum|TODO: replace|placeholder-text|__SLUG__|__TARGET_URL__' app components 2>/dev/null; then echo '发现残留占位符' >&2; exit 1; fi; echo 'clean'",
+        "timeoutMs": 60000
+      },
+      "holdMs": 300
+    },
+    {
+      "id": "report",
+      "label": "交付说明",
+      "kind": "agent",
+      "prompt": "为 projects/__SLUG__/ 写 README.md：源→本地 route map、运行方式（npm run dev / 构建产物路径）、已实现的交互，以及**如实列出剩余差异与未实现项**（没有差异就写「未发现主结构差异」）。另外确认 docs/research/ 三份文件都在且非空。最后把「剩余差异」的条数用一行报出来。",
+      "holdMs": 500
+    }
+  ],
+  "postCleanup": []
+}

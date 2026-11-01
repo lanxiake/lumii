@@ -103,6 +103,48 @@ function resolveParams(value: unknown, outputs: Map<string, unknown>): unknown {
   return value
 }
 
+/**
+ * 执行一个 agent 节点。
+ *
+ * prompt 走 `resolveParams`（与 params 同规则），所以 agent 节点能直接吃到上游工具或
+ * 上一个 agent 的结构化产出。宿主没注入 `runAgentStage` 时**该步明确失败**——
+ * 不能静默当成工具调用，否则会报「unknown tool: undefined」这种看不懂的错。
+ */
+async function runAgentStep(
+  step: Extract<PipelineSpec['steps'][number], { kind: 'agent' }>,
+  outputs: Map<string, unknown>,
+  deps: RunnerDeps,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+  if (!deps.runAgentStage) {
+    return { ok: false, error: '当前宿主不支持 agent 节点（未注入 runAgentStage）' }
+  }
+  let prompt: string
+  try {
+    const resolved = resolveParams(step.prompt, outputs)
+    // 整串是单个引用且解析出非字符串时，resolveParams 会原样返回对象——
+    // 提示词必须是字符串，所以统一在这里序列化
+    prompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved)
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  try {
+    const r = await deps.runAgentStage(
+      {
+        stepId: step.id,
+        agentType: step.agentType,
+        prompt,
+        allowedTools: step.allowedTools,
+        model: step.model,
+      },
+      signal,
+    )
+    return r
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 /** `fields` 子集匹配（路径寻址）；缺省只要求工具没返回错误 */
 function assertExpect(
   expect: PipelineSpec['steps'][number]['expect'],
@@ -315,32 +357,47 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
       continue
     }
 
-    // rehearsal：needsPermission 工具不执行，记 skipped，造一个空返回供后续 {{}} 引用
-    if (mode === 'rehearsal' && opts.isRehearsalBlocked(step.tool)) {
+    /**
+     * 这一步的「工具名」。agent 节点没有工具名，统一用空串——
+     * rehearsal 判据与 journal 的 `tool` 字段都靠它，写 `'agent'` 会让人误以为是某个工具。
+     */
+    const toolName = step.kind === 'agent' ? '' : step.tool
+
+    // rehearsal：
+    // - tool 节点：needsPermission 的工具不执行（设计 §4.4）
+    // - agent 节点：缺省也跳过（可能有副作用）；只有显式 `rehearsal:'run'` 才真跑
+    const agentSkipped = step.kind === 'agent' && step.rehearsal !== 'run'
+    const toolBlocked = step.kind !== 'agent' && opts.isRehearsalBlocked(step.tool)
+    if (mode === 'rehearsal' && (agentSkipped || toolBlocked)) {
       outputs.set(step.id, {})
       appendJournal(runDir, {
-        i, id: step.id, tool: step.tool, startedAt, ms: 0, ok: true, skipped: 'rehearsal',
+        i, id: step.id, tool: toolName,
+        ...(step.kind === 'agent' ? { kind: 'agent' as const } : {}),
+        startedAt, ms: 0, ok: true, skipped: 'rehearsal',
       })
       steps.push({ id: step.id, ok: true, ms: 0 })
       continue
     }
 
-    let params: Record<string, unknown>
-    try {
-      params = (resolveParams(step.params ?? {}, outputs) as Record<string, unknown>) ?? {}
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err)
-      appendJournal(runDir, { i, id: step.id, tool: step.tool, startedAt, ms: 0, ok: false, error })
-      steps.push({ id: step.id, ok: false, ms: 0 })
-      return finish({ ok: false, failedAt: { i, id: step.id }, error })
-    }
-
     let r: { ok: boolean; data?: unknown; error?: string }
-    try {
-      r = await deps.callTool(step.tool, params, opts.signal)
-    } catch (err) {
-      // 异常 → step 失败（不让它逃逸成工具级 isError，否则模型只看到"工具炸了"）
-      r = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    if (step.kind === 'agent') {
+      r = await runAgentStep(step, outputs, deps, opts.signal)
+    } else {
+      let params: Record<string, unknown>
+      try {
+        params = (resolveParams(step.params ?? {}, outputs) as Record<string, unknown>) ?? {}
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err)
+        appendJournal(runDir, { i, id: step.id, tool: toolName, startedAt, ms: 0, ok: false, error })
+        steps.push({ id: step.id, ok: false, ms: 0 })
+        return finish({ ok: false, failedAt: { i, id: step.id }, error })
+      }
+      try {
+        r = await deps.callTool(step.tool, params, opts.signal)
+      } catch (err) {
+        // 异常 → step 失败（不让它逃逸成工具级 isError，否则模型只看到"工具炸了"）
+        r = { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
     }
     outputs.set(step.id, r.data ?? {})
 
@@ -366,7 +423,8 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     const a = assertExpect(step.expect, r.data ?? r, viewState)
 
     const line: JournalLine = {
-      i, id: step.id, tool: step.tool, startedAt, ms,
+      i, id: step.id, tool: toolName, startedAt, ms,
+      ...(step.kind === 'agent' ? { kind: 'agent' as const } : {}),
       ok: r.ok && a.ok && !markError,
       markAtMs,
       observed: r.data ?? r,

@@ -20,6 +20,7 @@ import {
   createFeatureFlags,
   MessageBus,
   AgentDefinitionStore,
+  BUILT_IN_AGENTS,
   LocalDatabase,
   AgentMemoryRepo,
   MemoryIndexRepo,
@@ -219,7 +220,8 @@ import {
   relayRecordKnobs,
   WECHAT_RELAY_AGENT_ID,
 } from './wechat-relay-agent'
-import { createUserAgentRecord, getAgentRecord, updateAgentRecord } from '../agents-repo'
+import { createUserAgentRecord, getAgentRecord, listAgentDefinitions, updateAgentRecord } from '../agents-repo'
+import { resolvePipelineAgentWhitelist } from './pipeline-agent-whitelist'
 import { getChannelPolicyStore } from '../channel/channel-policy-store'
 import {
   DEFAULT_CHANNEL_POLICY,
@@ -4031,9 +4033,11 @@ export class AgentRuntimeBridge {
 
   createPipelineExecutor(): {
     callTool: (name: string, params: Record<string, unknown>) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+    runAgentStage: import('../../plugins/builtin/pipeline/types').RunnerDeps['runAgentStage']
     screenRecord: import('../../plugins/builtin/pipeline/types').RunnerDeps['screenRecord']
     readViewState: () => Promise<{ view: string | null; hub?: { open: boolean } }>
     knownTools: () => ReadonlySet<string>
+    knownAgents: () => ReadonlySet<string>
     needsPermission: (tool: string) => boolean
     registerTool: (config: { name: string }) => () => void
     /** 进度/结束事件推给渲染层（插件不直连 ipcMain，走这里） */
@@ -4042,9 +4046,13 @@ export class AgentRuntimeBridge {
   } {
     return {
       callTool: (name, params) => this.callPipelineTool(name, params),
+      runAgentStage: (params, signal) => this.runPipelineAgentStage(params, signal),
       screenRecord: this.buildPipelineScreenRecord(),
       readViewState: () => this.readAppViewState(),
       knownTools: () => new Set(this.toolRegistry.getAll().map((t) => t.name)),
+      // 只算**启用**的：未知或未启用的 Agent 在加载期就被 spec 校验拒掉，
+      // 不让它跑到运行期再被 orchestrator 静默回落成 assistant
+      knownAgents: () => new Set(this.listKnownAgentIds()),
       needsPermission: (tool) => this.toolRegistry.get(tool)?.needsPermission === true,
       emitProgress: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:progress', ...e } as never),
       emitFinished: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:finished', ...e } as never),
@@ -4110,6 +4118,78 @@ export class AgentRuntimeBridge {
         /* 非 JSON 文本原样返回 */
       }
       return res.isError ? { ok: false, data, error: text.slice(0, 400) } : { ok: true, data }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  /**
+   * 已启用的 Agent id 集合（`knownAgents` 的数据源）。
+   *
+   * **必须只算启用的**：`spawnAgent` 对未知 id 是静默回落 `assistant`（对交互对话是善意兜底），
+   * 流水线里这等于「作者以为跑专用 Agent，实际跑通用 Agent」，不可复现且无提示。
+   * 所以 spec 加载期拿这份集合硬校验；漏掉的 id 会被拒，而不是被悄悄换成别人。
+   */
+  private listKnownAgentIds(): string[] {
+    try {
+      return listAgentDefinitions()
+        .filter((d) => d.isActive !== false)
+        .map((d) => d.id)
+    } catch {
+      // 拿不到定义表时退回内置兜底，至少不让校验把合法 spec 拒掉
+      return BUILT_IN_AGENTS.filter((d) => d.isActive !== false).map((d) => d.id)
+    }
+  }
+
+  /**
+   * 执行一个 agent 节点：同步跑完一个子 Agent 回合，把最终输出交回流水线。
+   *
+   * 与 `spawn_agent` 工具的三处刻意差异（都是流水线场景特有的）：
+   * 1. **一律 sync**：流水线要断言、要续跑，异步的就拿不到产出。
+   * 2. **默认白名单扣掉 `pipeline_run` / `spawn_agent`**：否则子 Agent 能递归触发流水线，
+   *    或者再往下 spawn，让「路径由 spec 写死」失效。传空数组等于不限制，所以必须显式给。
+   * 3. **父实例必须能解析到**：解析不到就明确失败，不猜——猜错会把子 Agent 挂到无主会话上，
+   *    产物落错地方且事后无从追溯。
+   */
+  private async runPipelineAgentStage(
+    params: import('../../plugins/builtin/pipeline/types').RunAgentStageParams,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; data?: import('../../plugins/builtin/pipeline/types').RunAgentStageData; error?: string }> {
+    if (signal?.aborted) return { ok: false, error: '已取消（cancelled）' }
+    const parentId = this.currentToolExecutorInstanceIdRef.value
+    if (!parentId) {
+      return { ok: false, error: '无法解析发起流水线的 Agent 实例（流水线可能不是从对话里触发的）' }
+    }
+    const parentTools = this.agentRegistry.get(parentId)?.getTools().map((t) => t.name) ?? []
+    const allowedTools = resolvePipelineAgentWhitelist(parentTools, params.allowedTools)
+
+    try {
+      const orchestrator = await this.lifecycle.ensureOrchestrator()
+      const r = await orchestrator.spawnAgent(
+        {
+          name: `pipeline-${params.stepId}`,
+          prompt: params.prompt,
+          agentType: params.agentType,
+          model: params.model,
+          // 空数组会被编排层当成「不限制」，所以有值才传
+          ...(allowedTools.length ? { allowedTools } : {}),
+          mode: 'sync',
+        },
+        parentId,
+      )
+      if (r.status !== 'ok' || r.mode !== 'sync') {
+        const message = 'message' in r ? r.message : ''
+        const status = 'status' in r ? r.status : 'unknown'
+        return { ok: false, error: `agent 节点未完成（${status}）：${message ?? ''}` }
+      }
+      return {
+        ok: true,
+        data: {
+          output: r.output,
+          agentDefinitionId: r.agentDefinitionId,
+          agentName: r.agentName,
+        },
+      }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
