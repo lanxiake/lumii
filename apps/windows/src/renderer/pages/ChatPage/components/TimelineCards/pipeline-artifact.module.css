@@ -1,0 +1,111 @@
+/* 流水线产物卡：露在折叠区外，一眼看到结果与入口 */
+
+.card {
+  margin: 8px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 10px;
+  background: var(--mt-surface-3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--mt-fg-2);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.badgeOk,
+.badgeFailed {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.badgeOk {
+  background: color-mix(in srgb, var(--mt-success) 18%, transparent);
+  color: var(--mt-success);
+}
+
+.badgeFailed {
+  background: color-mix(in srgb, var(--mt-error) 18%, transparent);
+  color: var(--mt-error);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  color: var(--mt-fg-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  flex: none;
+  font-size: 12px;
+  color: var(--mt-fg-4);
+}
+
+.error {
+  color: var(--mt-error);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12.5px;
+  color: var(--mt-fg-3);
+}
+
+.stats strong {
+  color: var(--mt-fg-1);
+  font-weight: 600;
+}
+
+.note {
+  color: var(--mt-fg-4);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.primary {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--mt-accent-500);
+  color: #fff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.primary:hover {
+  background: var(--mt-accent-400, var(--mt-accent-500));
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--mt-fg-4);
+}
+
+.runId {
+  font-size: 11px;
+  color: var(--mt-fg-4);
+}

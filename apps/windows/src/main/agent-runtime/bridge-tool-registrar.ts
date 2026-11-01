@@ -34,6 +34,7 @@ import { registerPluginDevTools } from './bridge-plugin-dev-tools'
 import { registerLocalCronTools, registerWorkReportReadTool } from './bridge-tool-registrar-cron'
 import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
+import { registerCapabilityExportTools } from './capability-export'
 import { registerClientCommandTools, registerAgentManagementTools } from './bridge-tool-registrar-client-cmd'
 import { registerHandoffTools } from './bridge-tool-registrar-handoff'
 import { isExtensionActive } from '../../plugins/active'
@@ -63,6 +64,10 @@ export class BridgeToolRegistrar {
     registerWorkReportReadTool(this.deps)
     // 渠道出站：不依赖 Gateway，始终注册
     registerChannelTools(this.deps)
+    // 能力导出（技能目录 / MCP 片段）：纯本地读写，始终注册
+    registerCapabilityExportTools(this.deps.toolRegistry, this.deps.toolContext, {
+      getWorkspaceDir: () => this.deps.toolContext.getCwd(),
+    })
     // Agent 操作本客户端界面（Part A：app_screenshot），始终注册
     this.registerAppUiTools()
     // 录屏四工具（内部总开关由 screenRecord.enabled 决定）

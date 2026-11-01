@@ -18,9 +18,12 @@ metadata: { "mtbot": { "emoji": "🔬" } }
 | 目标 | 走哪条 | 参考 |
 |---|---|---|
 | 网页 / 前端 JS / 单页应用 | 前端线 | [`references/frontend.md`](references/frontend.md) |
-| 本地可执行文件 / 脚本 / 库 | 二进制线 | [`references/binary.md`](references/binary.md) |
+| 桌面可执行（PE / ELF / Mach-O） | 桌面二进制线 | [`references/desktop.md`](references/desktop.md) |
+| APK / IPA / AAB | 移动端线 | [`references/mobile.md`](references/mobile.md) |
+| 脚本 / 库 / 数据文件 | 通用二进制线 | [`references/binary.md`](references/binary.md) |
 
-判不准就先用二进制线的 triage（`file` / 大小 / 字符串）判断它到底是什么，再决定。
+**只加载对应当前目标的那一份参考**（移动/桌面各一份，别把三份都塞进上下文）。
+判不准就先用 `binary.md` 的 triage（文件头 / 大小 / 字符串）判断它到底是什么，再决定。
 
 ## 五步
 

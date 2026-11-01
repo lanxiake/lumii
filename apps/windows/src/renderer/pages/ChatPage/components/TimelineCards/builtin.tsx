@@ -10,6 +10,7 @@ import { HandoffCard } from '../HandoffCard'
 import { matchesPendingPermission, PermissionCard } from '../PermissionCard/PermissionCard'
 import { SpawnAgentCard, parseSpawnResult } from '../SpawnAgentCard'
 import { TaskCompleteCard } from '../TaskCompleteCard'
+import { PipelineArtifactCard } from './pipeline-artifact'
 import { ensureTimelineCard, type TimelineCardDefinition, type ToolPart } from './registry'
 
 const isAskUser = (part: ToolPart) => part.name === 'ask_user_question'
@@ -81,6 +82,16 @@ const TASK_COMPLETE: TimelineCardDefinition = {
   owner: 'builtin',
 }
 
+/** 流水线产物：跑完必须让用户看到结果与预览入口 */
+const PIPELINE_ARTIFACT: TimelineCardDefinition = {
+  id: 'builtin.pipeline-artifact',
+  order: 40,
+  pinned: true,
+  match: (part) => part.name === 'pipeline_run',
+  component: PipelineArtifactCard,
+  owner: 'builtin',
+}
+
 /** 幂等：HMR 重跑本模块时不能抛「已注册」 */
 export function registerBuiltinTimelineCards(): void {
   ensureTimelineCard(ASK_USER)
@@ -88,4 +99,5 @@ export function registerBuiltinTimelineCards(): void {
   ensureTimelineCard(HANDOFF)
   ensureTimelineCard(SPAWN)
   ensureTimelineCard(TASK_COMPLETE)
+  ensureTimelineCard(PIPELINE_ARTIFACT)
 }
