@@ -142,8 +142,8 @@ export function registerChannelIpcHandlers(): void {
   ipcMain.handle('channel:setPolicy', (_event, channel: unknown, policy: unknown) =>
     getChannelPolicyStore().set(String(channel ?? ''), policy as ChannelPolicy),
   )
-  // 本机微信「从微信里挑人」：候选 = 微信会话（真名 + wxid）∪ 已配过的条目。
-  // `account` 限定读哪个号——多开时每个号的会话列表不一样。
+  // 本机微信「从微信里挑人」：候选 = 微信通讯录（好友 + 群，真名 + wxid）；
+  // 读失败时退回已配过的条目。`account` 限定读哪个号——多开时通讯录各是各的。
   ipcMain.handle(
     'channel:listWechatContacts',
     (_event, account?: unknown): Promise<WechatContactsResult> =>

@@ -1043,6 +1043,71 @@ def names():
     return m
 
 
+# 系统账号：不是人，也不该出现在「挑人」候选里
+_SYSTEM_CONTACTS = {
+    "notifymessage", "filehelper", "floatbottle", "newsapp", "fmessage", "qmessage",
+    "tmessage", "medianote", "weixin", "mphelper", "qqmail", "qqsafe", "voiceinput",
+    "weixinreminder", "officialaccounts", "notification_messages", "exmail_tips",
+    "weibo", "facebook", "linkedin", "weixinluckybag", "wechatsync",
+}
+
+
+def contact_book(keyword=""):
+    """通讯录（好友 + 群聊），可按 `keyword` 模糊过滤。
+
+    为什么是通讯录而不是会话：会话只包含「聊过的人」，从没聊过的好友在挑人面板里
+    根本选不到（2026-11-01 用户报的坑）。过滤按 username 形状判定种类——`local_type`
+    语义不干净（`wxid_` 既有 1 也有 3），只有「是不是好友」这一层才用它。
+
+    返回 ``{"self": {talker, name}, "contacts": [{talker, name, kind}]}``。
+    name 取「备注 > 昵称 > 微信号 > id」。
+    """
+    _refresh()
+    me = self_wxid()
+    con = sqlite3.connect(_cache["contact"])
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(contact)")}
+        if {"alias", "local_type", "delete_flag"} <= cols:
+            rows = list(con.execute(
+                "select username, nick_name, remark, alias, local_type, delete_flag from contact"))
+        else:  # 换库/老版本：退回最小列集，只按 username 形状过滤
+            rows = [(*r, "", 1, 0)
+                    for r in con.execute("select username, nick_name, remark from contact")]
+    finally:
+        con.close()
+
+    kw = (keyword or "").strip().lower()
+    self_info = {"talker": me, "name": me}
+    out = []
+    for username, nick, remark, alias, lt, deleted in rows:
+        u = (username or "").strip()
+        if not u:
+            continue
+        name = (remark or nick or alias or u).strip() or u
+        if u == me:
+            self_info["name"] = name
+            continue
+        if deleted:
+            continue
+        if u.endswith("@chatroom"):
+            kind = "group"
+        elif u.startswith("gh_"):
+            continue                                  # 公众号 / 服务号
+        elif u.lower() in _SYSTEM_CONTACTS:
+            continue
+        elif u.endswith(("@open", "@openim")):
+            kind = "friend"                           # 企业微信 / 外部联系人
+        elif lt != 1:
+            continue                                  # 陌生人/群友，不在通讯录
+        else:
+            kind = "friend"
+        if kw and kw not in (name + "\x08" + (alias or "") + "\x08" + u).lower():
+            continue
+        out.append({"talker": u, "name": name, "kind": kind})
+    out.sort(key=lambda d: d["name"])
+    return {"self": self_info, "contacts": out}
+
+
 def group_members(talker):
     """群成员的**显示名**列表（不含自己）；非群或读取失败返回 []。
 

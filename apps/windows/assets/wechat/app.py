@@ -336,6 +336,17 @@ def tool_sessions(args):
     return rows
 
 
+def tool_contacts(args):
+    """通讯录（好友 + 群聊）；`query` 按名字/备注/微信号模糊过滤。
+
+    客户端「从微信里挑人」用它，而不是 `list_sessions`——后者只看得到聊过的人。
+    只注册进 DISPATCH（客户端直接调），不进 TOOLS：这是设置页的候选来源，不是给
+    模型多开一个工具面。
+    """
+    kw = str((args or {}).get("query") or "").strip()
+    return core.contact_book(keyword=kw)
+
+
 def tool_history(args):
     talker, err = _resolve_or_error(args.get("talker"))
     if err:
@@ -1719,6 +1730,7 @@ TOOLS.append({
 })
 
 DISPATCH = {"list_sessions": tool_sessions, "read_history": tool_history,
+            "list_contacts": tool_contacts,
             "list_accounts": tool_accounts,
             "read_image": tool_image, "transcribe_voice": tool_transcribe,
             "poll_new": tool_poll, "check_env": tool_status, "locate_db": tool_locate_db,

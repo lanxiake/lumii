@@ -223,13 +223,13 @@ describe('PcwechatPolicyModal', () => {
       listWechatContacts: vi.fn(async (account?: string) => {
         calls.push(account)
         return {
-          contacts: [
-            {
-              id: account ?? '',
-              label: account === 'wxid_a' ? '甲号' : '乙号',
-              isGroup: false,
-            },
-          ],
+          // 页签名字来自 self（通讯录里不含自己）
+          self: {
+            id: account ?? '',
+            label: account === 'wxid_a' ? '甲号' : '乙号',
+            isGroup: false,
+          },
+          contacts: [],
         }
       }),
     }

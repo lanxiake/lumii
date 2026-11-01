@@ -77,9 +77,13 @@ export const channelApi = {
   /** 整体覆盖写某渠道的策略，返回收窄后落盘的那份 */
   setPolicy: (channel: string, policy: ChannelPolicy): Promise<ChannelPolicy> =>
     ipcRenderer.invoke('channel:setPolicy', channel, policy),
-  /** 本机微信可选的人员名单（真名 + wxid；读不到微信时只回已配过的条目并在 error 里说明） */
+  /**
+   * 本机微信通讯录（好友 + 群，真名 + wxid）。
+   * 读不到微信时只回已配过的条目并在 error 里说明；`self` 是当前账号自己。
+   */
   listWechatContacts: (account?: string): Promise<{
     contacts: Array<{ id: string; label: string; isGroup: boolean }>
+    self?: { id: string; label: string; isGroup: boolean }
     error?: string
   }> => ipcRenderer.invoke('channel:listWechatContacts', account),
   /** 多开：本机登录过的微信号（含没在跑的），设置页按账号分账用 */

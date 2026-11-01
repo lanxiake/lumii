@@ -1671,6 +1671,7 @@ declare global {
       setPolicy: (channel: string, policy: ChannelPolicy) => Promise<ChannelPolicy>
       listWechatContacts: (account?: string) => Promise<{
         contacts: Array<{ id: string; label: string; isGroup: boolean }>
+        self?: { id: string; label: string; isGroup: boolean }
         error?: string
       }>
       listWechatAccounts: () => Promise<{

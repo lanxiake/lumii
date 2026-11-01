@@ -134,20 +134,30 @@
       "holdMs": 1000
     },
     {
+      "id": "export-config",
+      "label": "打开静态导出 + 相对资源前缀（P2 双栏预览前提）",
+      "tool": "file_write",
+      "params": {
+        "filePath": "projects/__SLUG__/next.config.ts",
+        "content": "import type { NextConfig } from \"next\";\n\nconst nextConfig: NextConfig = {\n  // 静态导出：只有 out/ 才能在客户端里直接预览，不引 dev server（设计 §4.6）\n  output: \"export\",\n  // 预览走 lumii-local://local/<abs>/out/index.html，根绝对路径 /_next 会解析到\n  // 协议根而 404，必须用相对前缀\n  assetPrefix: \".\",\n  images: { unoptimized: true },\n  reactCompiler: true,\n  turbopack: {\n    rules: {\n      \"*.css\": {\n        loaders: [\"@tailwindcss/turbopack\"],\n        as: \"*.css\",\n      },\n    },\n  },\n};\n\nexport default nextConfig;\n"
+      },
+      "holdMs": 300
+    },
+    {
       "id": "build",
       "label": "按 brief 重建页面（循环对比写在节点内部）",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "按 projects/__SLUG__/docs/research/ 下的 brief.md / assets.md / states.md 重建页面。\n\n规范：\n1. 用真实文案与资源，不许占位符；\n2. 先建共享的字体/色板/容器宽度，再逐区块实现；\n3. 每完成一个区块就对比——用 browser_navigate 打开本地产物、截图、与源站同视口同滚动位置对照，修最大差异项，循环到主结构一致；\n4. 站内链接改写为本地路由，外链保留。\n\n完成标准：主结构、排版、资源对上，并记录仍未实现的部分。**不要**声称像素级完美。",
+      "prompt": "按 projects/__SLUG__/docs/research/ 下的 brief.md / assets.md / states.md 重建页面。\n\n规范：\n1. 用真实文案与资源，不许占位符；\n2. 先建共享的字体/色板/容器宽度，再逐区块实现；\n3. 每完成一个区块就对比——用 browser_navigate 打开本地产物、截图、与源站同视口同滚动位置对照，修最大差异项，循环到主结构一致；\n4. 站内链接改写为本地路由，外链保留；\n5. **产物是静态导出**（next.config.ts 已设 output:'export' + assetPrefix:'.'）：不要用 API 路由、server actions、cookies/headers 等动态能力；本地图片放 public/ 并用相对路径引用，不要依赖 next/image 的优化服务。\n\n完成标准：主结构、排版、资源对上，并记录仍未实现的部分。**不要**声称像素级完美。",
       "holdMs": 800,
       "maxTurns": 200
     },
     {
       "id": "check",
-      "label": "产线检查（非零退出即失败）",
+      "label": "产线检查：构建 + 静态导出 + 资源路径相对化（非零退出即失败）",
       "tool": "bash",
       "params": {
-        "command": "cd projects/__SLUG__ && npm run build",
+        "command": "cd projects/__SLUG__ && npm run build && test -f out/index.html && ! grep -qE '(src|href)=\"/(_next|assets)' out/index.html && echo 'static export ok'",
         "timeoutMs": 600000
       },
       "holdMs": 500
@@ -166,7 +176,7 @@
       "id": "report",
       "label": "交付说明",
       "kind": "agent",
-      "prompt": "为 projects/__SLUG__/ 写 README.md：源→本地 route map、运行方式（npm run dev / 构建产物路径）、已实现的交互，以及**如实列出剩余差异与未实现项**（没有差异就写「未发现主结构差异」）。另外确认 docs/research/ 三份文件都在且非空。最后把「剩余差异」的条数用一行报出来。",
+      "prompt": "为 projects/__SLUG__/ 写 README.md：源→本地 route map、运行方式（npm run dev 调试 / npm run build 静态导出到 out/）、已实现的交互，以及**如实列出剩余差异与未实现项**（没有差异就写「未发现主结构差异」）。若 out/index.html 存在，写明可直接在客户端双栏预览；不存在就写明静态导出失败的原因与「需自行 npm run dev」。另外确认 docs/research/ 三份文件都在且非空。最后把「剩余差异」的条数用一行报出来。",
       "holdMs": 500,
       "maxTurns": 60
     }

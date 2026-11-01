@@ -4,9 +4,9 @@
  * 设计口径（用户 2026-10-08 指定）：**单独弹窗配**，挑人用下拉/勾选，能批量设，
  * 面上写的东西必须是用户看得懂的——显示"妈妈"，不显示"wxid_mama"。
  *
- * 所以唯一需要用户认识 wxid 的地方没有了：候选来自微信自己的会话列表
- * （`list_sessions`，带真名），用户勾名字；wxid 只在名字下面以小字存在，
- * 用来区分同名的人。名单里每条就是「谁 + 怎么处理」。
+ * 所以唯一需要用户认识 wxid 的地方没有了：候选来自微信自己的**通讯录**
+ * （`list_contacts`，好友 + 群，带备注/昵称），用户勾名字或在搜索框里模糊查；
+ * wxid 只在名字下面以小字存在，用来区分同名的人。名单里每条就是「谁 + 怎么处理」。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../../../../../renderer/components/ui/Button/Button'
@@ -41,6 +41,9 @@ export const MODE_OPTIONS: Array<{ value: PeerReplyMode; label: string }> = [
  * 想代回谁，把人加进下面的名单——那是显式选择。
  */
 const DEFAULT_MODE_OPTIONS = MODE_OPTIONS.filter((o) => NON_AGENT_MODES.includes(o.value))
+
+/** 通讯录能到几千人：一次全渲染会卡，先展示前 N 个，靠搜索收敛 */
+const VISIBLE_LIMIT = 100
 
 const TRIGGER_OPTIONS: Array<{ value: PeerTrigger; label: string }> = [
   { value: 'all', label: '每条都回' },
@@ -148,7 +151,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
   // 只有**改过**或**原本就有**的账号才落单独一份
   const [touched, setTouched] = useState<Set<string>>(new Set())
   const touchedRef = useRef(touched)
-  // 账号自己的显示名（从该号的会话列表里「自己那条」读）；页签显示「名字（wxid）」
+  // 账号自己的显示名（通讯录返回的 self）；页签显示「名字（wxid）」
   const [accountNames, setAccountNames] = useState<Record<string, string>>({})
   // 顶层策略不在界面里编辑（没有默认页签了），保存时原样带上
   const [basePolicy, setBasePolicy] = useState<ChannelPolicy | null>(null)
@@ -287,13 +290,12 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     [mutateCurrent],
   )
 
-  /** 读这个号自己的会话列表：拿「自己那条」的显示名，也顺手备好挑人面板的数据 */
+  /** 读这个号的通讯录：拿「自己」的显示名，也顺手备好挑人面板的数据 */
   const fetchAccountMeta = useCallback(async (wxid: string) => {
     if (!wxid) return null
     try {
       const res = await window.channelService?.listWechatContacts?.(wxid)
-      const self = (res?.contacts ?? []).find((c) => c.id.toLowerCase() === wxid.toLowerCase())
-      const name = self?.label.trim()
+      const name = res?.self?.label.trim()
       if (name && name.toLowerCase() !== wxid.toLowerCase()) {
         setAccountNames((prev) =>
           prev[wxid.toLowerCase()] ? prev : { ...prev, [wxid.toLowerCase()]: name },
@@ -305,7 +307,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     }
   }, [])
 
-  /** 切页签时重新拉这个号的数据（策略 + 会话）；账号**未被改过**时用新策略，改过了保留编辑态 */
+  /** 切页签时重新拉这个号的数据（策略 + 通讯录）；账号**未被改过**时用新策略，改过了保留编辑态 */
   const refreshAccount = useCallback(
     async (wxid: string) => {
       if (!wxid) return
@@ -403,7 +405,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
     setCandidateLoading(true)
     setCandidateError(null)
     try {
-      // 多开：候选是**这个号**自己的会话列表
+      // 多开：候选是**这个号**自己的通讯录（好友 + 群），不是会话列表
       const res = await window.channelService?.listWechatContacts?.(active || undefined)
       setCandidates(res?.contacts ?? [])
       if (res?.error) setCandidateError(res.error)
@@ -435,6 +437,12 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
           c.id.toLowerCase().includes(kw)),
     )
   }, [candidates, inList, search])
+
+  /** 实际渲染/可一键全选的那一屏（搜索为空时通讯录可能几千人） */
+  const visibleCandidates = useMemo(
+    () => selectableCandidates.slice(0, VISIBLE_LIMIT),
+    [selectableCandidates],
+  )
 
   const addCheckedCandidates = useCallback(() => {
     // 不能用 selectableCandidates 取人：它是「按当前搜索词过滤后」的可见列表。
@@ -603,7 +611,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
         )}
         <p style={{ margin: 0, color: 'var(--mt-fg-3)', fontSize: 12 }}>
           每个微信号一个页签，名单与档位各配各的（工作号只提醒、生活号直接代回）；
-          <strong>切换页签会重新读这个号的会话与策略</strong>，没保存的改动留在原页签里。
+          <strong>切换页签会重新读这个号的通讯录与策略</strong>，没保存的改动留在原页签里。
           名单外的人一律<strong>不叫模型</strong>（不烧 token）——最多弹条通知。
           回复永远从收到消息的那个号发出。
         </p>
@@ -669,11 +677,12 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
                   size="sm"
                   variant="ghost"
                   onClick={() =>
-                    // 「全选」= 把当前可见的人并进勾选，而不是覆盖整个勾选集：
+                    // 「全选」= 把当前**渲染出来**的人并进勾选，而不是覆盖整个勾选集：
                     // 与上一处同源——搜索会换掉可见列表，覆盖式全选会吞掉先前勾的人。
-                    setPickerChecked((prev) => new Set([...prev, ...selectableCandidates.map((c) => c.id)]))
+                    // 也只在 VISIBLE_LIMIT 内生效：通讯录几千人时一键全选等于全量放行。
+                    setPickerChecked((prev) => new Set([...prev, ...visibleCandidates.map((c) => c.id)]))
                   }
-                  disabled={candidateLoading || selectableCandidates.length === 0}
+                  disabled={candidateLoading || visibleCandidates.length === 0}
                 >
                   全选
                 </Button>
@@ -703,14 +712,14 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
 
               <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 8 }}>
                 {candidateLoading && (
-                  <div style={{ fontSize: 13, color: 'var(--mt-fg-3)' }}>正在读微信会话…</div>
+                  <div style={{ fontSize: 13, color: 'var(--mt-fg-3)' }}>正在读微信通讯录…</div>
                 )}
                 {!candidateLoading && selectableCandidates.length === 0 && (
                   <div style={{ fontSize: 13, color: 'var(--mt-fg-3)' }}>
                     {search.trim() ? '没有匹配的人' : '没有可选的人（可能都已经在名单里了）'}
                   </div>
                 )}
-                {selectableCandidates.map((c) => (
+                {visibleCandidates.map((c) => (
                   <div
                     key={c.id}
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}
@@ -736,6 +745,11 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({ open, onClose, onSaved
                     </span>
                   </div>
                 ))}
+                {selectableCandidates.length > VISIBLE_LIMIT && (
+                  <div style={{ fontSize: 12, color: 'var(--mt-fg-3)', padding: '6px 0' }}>
+                    还有 {selectableCandidates.length - VISIBLE_LIMIT} 人，输入名字 / 备注 / 微信号搜索
+                  </div>
+                )}
               </div>
             </div>
           )}
