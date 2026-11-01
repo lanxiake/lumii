@@ -179,6 +179,14 @@ const TEXT_TOOL_INVOCATION_MAX_FIRES = 1;
 const STEER_SKIP_REMAINING_TOOLS_REASON = "用户插话，跳过本批剩余工具";
 
 /**
+ * 开新回合前等待上一轮真正退出的上限。
+ *
+ * pi 的 abort() 只发信号，activeRun 要等正在跑的工具 settle 才清空。长命令
+ * （实测有 6 分钟以上的）会让这段时间很长；上限只是防止真卡死时永久挂起。
+ */
+const IDLE_WAIT_CAP_MS = 5 * 60_000;
+
+/**
  * Agent 实例
  *
  * 封装 pi-agent-core 的 Agent class，提供面向客户端 UI 的事件流。
@@ -293,6 +301,10 @@ export class AgentInstance {
   private readonly selfHeal: SelfHealController;
   /** prompt() 等待整个自愈链完成的 resolve 回调 */
   private _promptDoneResolve: (() => void) | null = null;
+  /** prompt 代次：等待空闲期间用户 abort 时，本次 prompt 直接作废 */
+  private _promptGen = 0;
+  /** 等待上一轮退出时的"作废"回调（abort() 触发） */
+  private _idleWaitResolve: (() => void) | null = null;
   /** AgentKernel 抽象层（默认由 PiAgentKernelAdapter 包装，测试时可注入 FakeAgentKernel） */
   private readonly kernel: AgentKernel;
 
@@ -710,36 +722,73 @@ export class AgentInstance {
     if (this._state === "destroyed") {
       throw new Error(`Agent instance destroyed: ${this.id}`);
     }
+
+    // 上一轮 abort 后 pi 的 activeRun 要等正在跑的工具真正退出才清空（长命令可能好几分钟）。
+    // 这期间直接 startTurn 会撞 "Agent is already processing"，被内核适配层吞成一个
+    // 立即返回的"成功"空回合——用户看到的就是「点了重新生成毫无反应」（2026-11-01 实测）。
+    const gen = ++this._promptGen;
+    if (this.agent.signal) {
+      // 还要排队：先让 UI 显示"正在处理"，否则这段时间看起来和按钮失灵一模一样
+      console.warn(`[AgentInstance:${this.id}] 上一轮尚未退出，新一轮排队等待`);
+      this.setState("running");
+    }
+    await this.awaitIdleBeforePrompt(gen);
+    if (gen !== this._promptGen) return; // 等待期间用户又点了一次停止，本轮作废
+
     this.selfHeal.reset();
     this._aborted = false;
-    // 创建一个 Promise，等待整个自愈链完成（agent_end 不再触发自愈时 resolve）
-    const done = new Promise<void>((resolve) => {
-      this._promptDoneResolve = resolve;
-    });
-    try {
-      await this.kernel.startTurn({
-        message,
-        images: images && images.length > 0 ? images.map(({ data, mimeType }) => ({ data, mimeType })) : undefined,
-        origin,
+    const turnRequest = {
+      message,
+      images: images && images.length > 0 ? images.map(({ data, mimeType }) => ({ data, mimeType })) : undefined,
+      origin,
+    };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // 每次尝试重新登记：等待期间上一轮的 agent_end 可能已把旧 done resolve 掉
+      const done = new Promise<void>((resolve) => {
+        this._promptDoneResolve = resolve;
       });
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      this.setState("error");
-      this.emit({ type: "agent:error", instanceId: this.id, error: errorMsg });
+
+      let error: string | undefined;
+      try {
+        error = (await this.kernel.startTurn(turnRequest))?.error;
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+
+      // 撞上一轮没退干净：等它真退出后重试一次。不重试的话，内核适配层会把这个
+      // 错误吞成「已完成」，UI 一个字都不出（2026-11-01 实测：点重新生成无反应）。
+      if (error && attempt === 0 && /already processing/i.test(error)) {
+        console.warn(`[AgentInstance:${this.id}] 撞到 already processing，等待上一轮退出后重试一次`);
+        await this.awaitIdleBeforePrompt(gen);
+        if (gen !== this._promptGen) return; // 等待期间被 abort，本轮作废
+        continue;
+      }
+
+      // 重试后仍失败：不能再静默，否则用户以为按钮坏了
+      if (attempt > 0 && error) {
+        this.setState("error");
+        this.emit({ type: "agent:error", instanceId: this.id, error });
+      }
+      // FakeAgentKernel 不触发 agent_end，此处兜底 resolve（PiAgentKernelAdapter 已提前 resolve，此为 no-op）
+      if (!this.selfHeal.isHealing) {
+        this._promptDoneResolve?.();
+        this._promptDoneResolve = null;
+      }
+      // 等待自愈链完成
+      await done;
+      return;
     }
-    // FakeAgentKernel 不触发 agent_end，此处兜底 resolve（PiAgentKernelAdapter 已提前 resolve，此为 no-op）
-    if (!this.selfHeal.isHealing) {
-      this._promptDoneResolve?.();
-      this._promptDoneResolve = null;
-    }
-    // 等待自愈链完成
-    await done;
   }
 
   /** 中止当前运行 */
   abort(): void {
     this.endingPause = false;
     this._aborted = true;
+    // 作废正在等待空闲的 prompt（它还没真正开跑）
+    this._promptGen++;
+    this._idleWaitResolve?.();
+    this._idleWaitResolve = null;
     // 取消挂起的自愈 continue，避免 abort 后僵尸回合与新 prompt 竞态
     this.selfHeal.dispose();
     this.agent.abort();
@@ -778,6 +827,36 @@ export class AgentInstance {
   /** 等待 Agent 空闲 */
   async waitForIdle(): Promise<void> {
     return this.agent.waitForIdle();
+  }
+
+  /**
+   * 开新回合前等上一轮真正退出（pi 的 activeRun 清空）。
+   *
+   * abort() 只发信号，pi 要等当前工具 settle 才 finishRun；长命令没退干净时
+   * 直接开新回合必然撞 "Agent is already processing"。上限到点就放行——
+   * 那说明真的卡死了，让内核报错总比静默空转强。
+   */
+  private async awaitIdleBeforePrompt(gen: number, capMs = IDLE_WAIT_CAP_MS): Promise<void> {
+    const idle = this.agent.waitForIdle().catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cap = new Promise<"cap">((resolve) => {
+      timer = setTimeout(() => {
+        console.warn(`[AgentInstance:${this.id}] 等待上一轮退出超过 ${capMs}ms，放行本轮`);
+        resolve("cap");
+      }, capMs);
+      timer.unref?.();
+    });
+    // 等待期间用户点停止 → 立刻放行，由调用方按代次作废本次 prompt
+    const stopped = new Promise<"stopped">((resolve) => {
+      if (gen !== this._promptGen) resolve("stopped");
+      else this._idleWaitResolve = () => resolve("stopped");
+    });
+    try {
+      await Promise.race([idle, cap, stopped]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      this._idleWaitResolve = null;
+    }
   }
 
   /** 更新工具列表 */

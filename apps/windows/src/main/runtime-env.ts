@@ -210,6 +210,36 @@ async function writeShims(): Promise<void> {
  *
  * 同时注入搜索工具配置（从 ConfigManager 读取）。
  */
+/**
+ * 若本机有 Android SDK platform-tools，把它放到 PATH 最前。
+ *
+ * 目的：Git Bash 下优先命中真实 `adb.exe`，避开 Chocolatey ShimGen 的
+ * `adb` 包装（实测会与 `fork-server --reply-fd` 冷启动握手叠出挂死）。
+ * 目录不存在则原样返回。
+ */
+function prependAndroidPlatformTools(pathValue: string): string {
+  const adbName = process.platform === 'win32' ? 'adb.exe' : 'adb'
+  const candidates = [
+    envPathJoin(process.env.ANDROID_HOME, 'platform-tools'),
+    envPathJoin(process.env.ANDROID_SDK_ROOT, 'platform-tools'),
+    envPathJoin(process.env.LOCALAPPDATA, 'Android', 'Sdk', 'platform-tools'),
+    envPathJoin(process.env.HOME, 'Android', 'Sdk', 'platform-tools'),
+    envPathJoin(process.env.USERPROFILE, 'AppData', 'Local', 'Android', 'Sdk', 'platform-tools'),
+  ].filter((p): p is string => Boolean(p))
+
+  const sdkTools = candidates.find((dir) => existsSync(join(dir, adbName)))
+  if (!sdkTools) return pathValue
+
+  const parts = pathValue.split(delimiter).filter(Boolean)
+  return [sdkTools, ...parts.filter((p) => p !== sdkTools)].join(delimiter)
+}
+
+/** 拼接环境变量片段为绝对路径；任一段为空则返回 null */
+function envPathJoin(...parts: Array<string | undefined>): string | null {
+  if (parts.some((p) => !p)) return null
+  return join(...(parts as string[]))
+}
+
 export function buildScriptEnv(
   extra?: Record<string, string>,
   searchConfig?: { langSearchApiKey?: string; searxngBaseUrl?: string },
@@ -218,9 +248,12 @@ export function buildScriptEnv(
 
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
   const current = env[pathKey] ?? ''
+  const withSdkAdb = prependAndroidPlatformTools(current)
   const shimDir = getShimDir()
-  if (!current.split(delimiter).includes(shimDir)) {
-    env[pathKey] = current ? `${current}${delimiter}${shimDir}` : shimDir
+  if (!withSdkAdb.split(delimiter).includes(shimDir)) {
+    env[pathKey] = withSdkAdb ? `${withSdkAdb}${delimiter}${shimDir}` : shimDir
+  } else {
+    env[pathKey] = withSdkAdb
   }
 
   // 注入搜索工具配置

@@ -14,7 +14,7 @@ import { type ChildProcess } from 'node:child_process'
 import * as iconv from 'iconv-lite'
 import { resolveShell } from '@mtbot/agent-runtime'
 import { buildScriptEnv } from '../../runtime-env'
-import { killProcessTree, spawnChildInGroup } from '../../platform/process-kill'
+import { destroyChildStdio, killProcessTree, spawnChildInGroup } from '../../platform/process-kill'
 
 /**
  * 强制终止子进程（含进程树）。
@@ -27,23 +27,47 @@ function forceKillProcess(child: ChildProcess): void {
   killProcessTree(child)
 }
 
-// 主题3 P1-1：输出上限提升到 1MB（配合 tool-result-persist hook 落盘）。
-// 超出时截断并追加告警，避免单条命令输出撑爆上下文。
+/** 输出上限（配合 tool-result-persist hook 落盘） */
 const OUTPUT_CAP = 1_000_000
+/** bash 默认超时 */
 const DEFAULT_TIMEOUT_MS = 120_000
+/** 超时前多久触发续期询问 */
+export const DEFAULT_RENEWAL_LEAD_MS = 60_000
+/** 单次续期上限（与 bash timeoutMs 文档上限对齐） */
+export const MAX_RENEWAL_EXTEND_MS = 600_000
 
+export type ApproachingTimeoutInfo = {
+  command: string
+  elapsedMs: number
+  remainingMs: number
+  timeoutMs: number
+}
+
+export type ExecuteLocalCommandOpts = {
+  cwd?: string
+  timeoutMs?: number
+  shell?: string
+  signal?: AbortSignal
+  /** 距超时还剩 renewalLeadMs 时回调；返回 extendMs>0 则延长 deadline */
+  onApproachingTimeout?: (info: ApproachingTimeoutInfo) => Promise<{ extendMs: number }>
+  /** 续期询问提前量，默认 60s */
+  renewalLeadMs?: number
+}
+
+/**
+ * 在本机执行一条 shell 命令。
+ *
+ * - 超时/中止后**立即 settle**（对齐 `platform/shell-command.ts`），不死等 `close`
+ * - 可选：超时前 `renewalLeadMs` 触发 `onApproachingTimeout`，按返回的 `extendMs` 重置 deadline
+ */
 export async function executeLocalCommand(
   command: string,
-  opts?: {
-    cwd?: string
-    timeoutMs?: number
-    shell?: string
-    signal?: AbortSignal
-  },
+  opts?: ExecuteLocalCommandOpts,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const cwd = opts?.cwd ?? process.cwd()
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  // 主题4 P1：委托 resolveShell 决定 shell 路径/参数/编码（bash 优先，失败降级 cmd）。
+  const renewalLeadMs = opts?.renewalLeadMs ?? DEFAULT_RENEWAL_LEAD_MS
+  const onApproachingTimeout = opts?.onApproachingTimeout
   const resolved = resolveShell({ command, explicitShell: opts?.shell })
   const shellPath = resolved.shellPath
   const shellArgs = resolved.args
@@ -51,7 +75,6 @@ export async function executeLocalCommand(
   const signal = opts?.signal
 
   return new Promise((resolve) => {
-    // 用户已提前中断：不启动子进程，直接返回
     if (signal?.aborted) {
       resolve({ stdout: '', stderr: '[Command aborted by user]', exitCode: 130 })
       return
@@ -60,10 +83,14 @@ export async function executeLocalCommand(
     const child = spawnChildInGroup(shellPath, shellArgs, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      // 追加内置 node / python shim 到 PATH，用户没装环境也能跑 `node x.js` / `python3 x.py`
       env: buildScriptEnv(),
       windowsHide: true,
     })
+
+    const startedAt = Date.now()
+    let deadlineAt = startedAt + timeoutMs
+    let killTimer: ReturnType<typeof setTimeout> | null = null
+    let warnTimer: ReturnType<typeof setTimeout> | null = null
 
     const stdoutChunks: Buffer[] = []
     const stderrChunks: Buffer[] = []
@@ -71,6 +98,122 @@ export async function executeLocalCommand(
     let outputTruncated = false
     let killedByTimeout = false
     let abortedByUser = false
+    let settled = false
+
+    /** 解码已收集的 stdout/stderr 块 */
+    const decodeBuffer = (chunks: Buffer[]): string => {
+      const raw = Buffer.concat(chunks)
+      if (usingCmdFallback) {
+        try {
+          return iconv.decode(raw, 'cp936')
+        } catch {
+          return raw.toString('utf-8')
+        }
+      }
+      return raw.toString('utf-8')
+    }
+
+    /** 清理所有定时器 */
+    const clearTimers = (): void => {
+      if (killTimer) {
+        clearTimeout(killTimer)
+        killTimer = null
+      }
+      if (warnTimer) {
+        clearTimeout(warnTimer)
+        warnTimer = null
+      }
+    }
+
+    /** 只 settle 一次；超时/abort/close/error 共用 */
+    const settle = (exitCode: number, stderrExtra = ''): void => {
+      if (settled) return
+      settled = true
+      clearTimers()
+      signal?.removeEventListener('abort', onAbort)
+
+      const truncationNote = outputTruncated
+        ? `\n[输出超过 ${OUTPUT_CAP} 字节上限已截断（实际 ${totalBytes} 字节）。如需完整输出，请将命令结果重定向到文件后用 file_read 分页读取。]`
+        : ''
+      const stdout = decodeBuffer(stdoutChunks)
+      const stderr = decodeBuffer(stderrChunks) + truncationNote + stderrExtra
+      resolve({ stdout, stderr, exitCode })
+    }
+
+    /** 杀进程树并掐断 stdio；不等 close */
+    const killChild = (): void => {
+      forceKillProcess(child)
+      destroyChildStdio(child)
+    }
+
+    /** 按当前 deadline 安排超时杀进程 */
+    const scheduleKill = (): void => {
+      if (killTimer) {
+        clearTimeout(killTimer)
+        killTimer = null
+      }
+      const delay = Math.max(0, deadlineAt - Date.now())
+      killTimer = setTimeout(() => {
+        killedByTimeout = true
+        killChild()
+        settle(124, '\n[Command timed out]')
+      }, delay)
+    }
+
+    /**
+     * 在 deadline 前 renewalLeadMs 触发续期回调；可多次续期。
+     * 询问期间命令不停；若返回 extendMs>0，从此刻重置 deadline。
+     */
+    const scheduleWarn = (): void => {
+      if (warnTimer) {
+        clearTimeout(warnTimer)
+        warnTimer = null
+      }
+      if (!onApproachingTimeout || renewalLeadMs <= 0) return
+      // 本段剩余必须大于 lead，才有「提前 1 分钟」的窗口（避免一启动就弹）
+      if (deadlineAt - Date.now() <= renewalLeadMs) return
+
+      const delay = deadlineAt - renewalLeadMs - Date.now()
+      if (delay < 0) return
+
+      warnTimer = setTimeout(() => {
+        void (async () => {
+          if (settled || signal?.aborted) return
+          const remainingMs = Math.max(0, deadlineAt - Date.now())
+          if (remainingMs <= 0) return
+
+          let extendMs = 0
+          try {
+            const answer = await Promise.race([
+              onApproachingTimeout({
+                command,
+                elapsedMs: Date.now() - startedAt,
+                remainingMs,
+                timeoutMs,
+              }),
+              new Promise<{ extendMs: number }>((r) =>
+                setTimeout(() => r({ extendMs: 0 }), remainingMs),
+              ),
+            ])
+            extendMs = Math.min(
+              MAX_RENEWAL_EXTEND_MS,
+              Math.max(0, Math.floor(answer?.extendMs ?? 0)),
+            )
+          } catch {
+            extendMs = 0
+          }
+
+          if (settled) return
+
+          if (extendMs > 0) {
+            deadlineAt = Date.now() + extendMs
+            scheduleKill()
+            scheduleWarn()
+          }
+          // extendMs===0：保留原 deadline 上的 killTimer
+        })()
+      }, delay)
+    }
 
     child.stdout?.on('data', (chunk: Buffer) => {
       totalBytes += chunk.length
@@ -90,69 +233,28 @@ export async function executeLocalCommand(
       }
     })
 
-    // Windows 用 taskkill /T /F 杀整棵进程树，避免孙进程存活导致 close 事件不触发
-    const killChild = (): void => forceKillProcess(child)
-
-    const timer = setTimeout(() => {
-      killedByTimeout = true
-      killChild()
-    }, timeoutMs)
-
     const onAbort = (): void => {
       abortedByUser = true
       killChild()
+      settle(130, '\n[Command aborted by user]')
     }
     signal?.addEventListener('abort', onAbort, { once: true })
 
     child.on('close', (code) => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      const decodeBuffer = (chunks: Buffer[]): string => {
-        const raw = Buffer.concat(chunks)
-        // 仅 cmd.exe fallback 走 cp936（cmd 默认 GBK 输出）；
-        // Git Bash / 显式 shell / 非 Windows 一律按 UTF-8 解码。
-        if (usingCmdFallback) {
-          try {
-            return iconv.decode(raw, 'cp936')
-          } catch {
-            return raw.toString('utf-8')
-          }
-        }
-        return raw.toString('utf-8')
-      }
-
-      const stdout = decodeBuffer(stdoutChunks)
-      const stderr = decodeBuffer(stderrChunks)
-
-      const truncationNote = outputTruncated
-        ? `\n[输出超过 ${OUTPUT_CAP} 字节上限已截断（实际 ${totalBytes} 字节）。如需完整输出，请将命令结果重定向到文件后用 file_read 分页读取。]`
-        : ''
-
       if (abortedByUser) {
-        resolve({
-          stdout,
-          stderr: stderr + truncationNote + '\n[Command aborted by user]',
-          exitCode: code ?? 130,
-        })
+        settle(code ?? 130)
       } else if (killedByTimeout) {
-        resolve({
-          stdout,
-          stderr: stderr + truncationNote + '\n[Command timed out]',
-          exitCode: code ?? 124,
-        })
+        settle(code ?? 124)
       } else {
-        resolve({ stdout, stderr: stderr + truncationNote, exitCode: code ?? 0 })
+        settle(code ?? 0)
       }
     })
 
     child.on('error', (err) => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      resolve({
-        stdout: '',
-        stderr: `Failed to spawn command: ${err.message}`,
-        exitCode: 1,
-      })
+      settle(1, `\nFailed to spawn command: ${err.message}`)
     })
+
+    scheduleKill()
+    scheduleWarn()
   })
 }

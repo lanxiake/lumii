@@ -30,10 +30,19 @@ function pathKeys(env: Record<string, string>): string[] {
 }
 
 describe('runtime-env', () => {
+  /** adb PATH 前置用例的临时目录 */
+  const tmpRootsForAdb: string[] = []
+
   // 预置成"系统既没有 node 也没有 python"，与开发机实际装了什么无关
   beforeEach(() => {
     _resetSystemNodeCache(null)
     _resetSystemPythonCache(null)
+  })
+
+  afterEach(() => {
+    for (const root of tmpRootsForAdb.splice(0)) {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('系统有 node 时 resolveNodeExec 优先系统 node', () => {
@@ -82,6 +91,28 @@ describe('runtime-env', () => {
   it('默认注入 CLI_HUB_NO_ANALYTICS=1，已有值不覆盖', () => {
     expect(buildScriptEnv().CLI_HUB_NO_ANALYTICS).toBe('1')
     expect(buildScriptEnv({ CLI_HUB_NO_ANALYTICS: '0' }).CLI_HUB_NO_ANALYTICS).toBe('0')
+  })
+
+  it('本机有 Android SDK platform-tools 时将其前置到 PATH（优先真实 adb）', () => {
+    const root = mkdtempSync(join(os.tmpdir(), 'lumii-adb-path-'))
+    tmpRootsForAdb.push(root)
+    const tools = join(root, 'platform-tools')
+    mkdirSync(tools, { recursive: true })
+    const adbName = process.platform === 'win32' ? 'adb.exe' : 'adb'
+    writeFileSync(join(tools, adbName), '')
+
+    const prev = process.env.ANDROID_HOME
+    process.env.ANDROID_HOME = root
+    try {
+      const env = buildScriptEnv({ Path: `C:\\fake-choco${delimiter}C:\\windows` })
+      const key = pathKeys(env)[0]
+      const parts = env[key].split(delimiter)
+      expect(parts[0]).toBe(tools)
+      expect(parts).toContain(getShimDir())
+    } finally {
+      if (prev === undefined) delete process.env.ANDROID_HOME
+      else process.env.ANDROID_HOME = prev
+    }
   })
 })
 

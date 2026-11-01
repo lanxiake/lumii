@@ -1232,6 +1232,18 @@ export class AgentRuntimeBridge {
         })
         return this.askUserQuestionController.waitForAnswer(input.requestId, timeoutMs)
       },
+      cancelAskUserQuestion: (requestId) => {
+        if (this.askUserQuestionController.cancel(requestId)) {
+          this.ipcChannel.forwardIpcEvent({
+            type: 'agent:ask-user:cancelled',
+            requestId,
+            reason: 'timeout',
+          })
+        }
+      },
+      // bash 超时续期等：工具执行中嵌套单轮 LLM（不走主 agent 循环）
+      callLLM: (prompt, opts) =>
+        this.callLLM(prompt, opts?.instanceId, opts?.purpose ?? 'tool_nested'),
       executeSkill: this.config.executeSkill,
       recordSkillExecution: (skillIdOrName) => this.config.recordSkillExecution?.(skillIdOrName),
       // 注意：ToolExecutionContext.getSkills 是同步签名（供 tool 内部即时列表查询）。

@@ -97,6 +97,23 @@ export function killProcessTree(child: ChildProcess, _signal: NodeJS.Signals = '
 }
 
 /**
+ * 掐断子进程 stdio，降低「孙子占着管道 → 'close' 永不触发」的概率。
+ * 调用方仍应以 settled 标志在超时/中止时立刻 resolve，不能只靠 close。
+ */
+export function destroyChildStdio(child: ChildProcess): void {
+  try {
+    child.stdout?.destroy?.()
+  } catch {
+    /* ignore */
+  }
+  try {
+    child.stderr?.destroy?.()
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * 按 pid 终止整棵进程树（外部进程：浏览器残留、技能拉起的孙子进程等）。
  *
  * `_signal` 目前只用于文档化调用方意图——POSIX 侧一律从 SIGTERM 起步再升级，

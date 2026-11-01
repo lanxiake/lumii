@@ -21,7 +21,7 @@ import * as path from 'node:path'
 import type { RunnerOptions, RunnerResult } from './ts-runner'
 import { extractResult } from './ts-runner'
 import { createLogger } from './logger'
-import { killProcessTree, spawnChildInGroup } from './platform/process-kill'
+import { destroyChildStdio, killProcessTree, spawnChildInGroup } from './platform/process-kill'
 import { buildSafeChildEnv } from './platform/shell-env'
 
 /** 日志 */
@@ -212,6 +212,7 @@ export class ShellRunner {
         stderr = decodeShellOutput(Buffer.concat(stderrChunks))
       }
       let killed = false
+      let settled = false
       let timeoutId: ReturnType<typeof setTimeout> | null = null
 
       try {
@@ -240,6 +241,23 @@ export class ShellRunner {
         })
       }
 
+      /** 超时/中止/退出只 settle 一次；不等待可能永不到来的 close */
+      const settle = (result: RunnerResult): void => {
+        if (settled) return
+        settled = true
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
+        resolve(result)
+      }
+
+      /** 杀进程树并掐 stdio，避免孙子占管道导致永久挂起 */
+      const killAndRelease = (): void => {
+        this.forceKillProcess(child)
+        destroyChildStdio(child)
+      }
+
       // 收集 stdout
       child.stdout?.on('data', (chunk: Buffer) => {
         stdoutChunks.push(chunk)
@@ -250,32 +268,45 @@ export class ShellRunner {
         stderrChunks.push(chunk)
       })
 
-      // 超时处理：直接强制终止进程树
+      // 超时：杀树后立刻 settle（对齐 shell-command / local-bash）
       timeoutId = setTimeout(() => {
-        if (!killed) {
-          killed = true
-          log.warn('Shell 脚本执行超时，终止子进程', { entryPath, timeoutMs })
-          this.forceKillProcess(child)
-        }
+        if (settled) return
+        killed = true
+        log.warn('Shell 脚本执行超时，终止子进程', { entryPath, timeoutMs })
+        killAndRelease()
+        flushOutput()
+        settle({
+          success: false,
+          error: '执行被终止（超时或取消）',
+          exitCode: null,
+          executionTimeMs: Date.now() - startTime,
+          stdout,
+          stderr,
+        })
       }, timeoutMs)
 
       // 外部取消信号
       if (abortSignal) {
         const onAbort = () => {
-          if (!killed) {
-            killed = true
-            log.info('Shell 脚本被外部取消', { entryPath })
-            this.forceKillProcess(child)
-          }
+          if (settled) return
+          killed = true
+          log.info('Shell 脚本被外部取消', { entryPath })
+          killAndRelease()
+          flushOutput()
+          settle({
+            success: false,
+            error: '执行被终止（超时或取消）',
+            exitCode: null,
+            executionTimeMs: Date.now() - startTime,
+            stdout,
+            stderr,
+          })
         }
         abortSignal.addEventListener('abort', onAbort, { once: true })
       }
 
       // 进程退出
       child.on('close', (exitCode) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId)
-        }
         flushOutput()
 
         const executionTimeMs = Date.now() - startTime
@@ -288,7 +319,7 @@ export class ShellRunner {
         })
 
         if (killed) {
-          return resolve({
+          return settle({
             success: false,
             error: '执行被终止（超时或取消）',
             exitCode,
@@ -299,7 +330,7 @@ export class ShellRunner {
         }
 
         if (exitCode !== 0) {
-          return resolve({
+          return settle({
             success: false,
             error: stderr.trim() || `进程退出码: ${exitCode}`,
             exitCode,
@@ -312,7 +343,7 @@ export class ShellRunner {
         // 从 stdout 中提取结果（复用 TSRunner 的 extractResult）
         const result = extractResult(stdout)
 
-        resolve({
+        settle({
           success: true,
           result,
           exitCode,
@@ -324,13 +355,10 @@ export class ShellRunner {
 
       // 进程错误
       child.on('error', (err) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId)
-        }
         flushOutput()
 
         log.error('Shell 子进程错误', { error: err.message })
-        resolve({
+        settle({
           success: false,
           error: `Shell 子进程错误: ${err.message}`,
           exitCode: null,

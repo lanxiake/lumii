@@ -120,4 +120,50 @@ describe("AgentInstance with FakeAgentKernel", () => {
 
     expect(kernel.receivedRequests.map((r) => r.message)).toEqual(["first", "second"]);
   });
+
+  it("内核报 already processing：等待空闲后重试一次，不静默成功", async () => {
+    const kernel = new FakeAgentKernel({ replyText: "ok" });
+    const original = kernel.startTurn.bind(kernel);
+    let calls = 0;
+    kernel.startTurn = async (request) => {
+      calls++;
+      if (calls === 1) {
+        return { fullText: "", cancelled: false, error: "Agent is already processing a prompt." };
+      }
+      return original(request);
+    };
+
+    const instance = new AgentInstance(makeConfig(kernel));
+    const errors: string[] = [];
+    instance.subscribe((e) => {
+      if (e.type === "agent:error") errors.push(e.error);
+    });
+
+    await instance.prompt("重新生成");
+
+    expect(calls).toBe(2);
+    expect(errors).toEqual([]);
+    expect(instance.state).toBe("idle");
+  });
+
+  it("内核连续报 already processing：重试后仍失败则上报 agent:error", async () => {
+    const kernel = new FakeAgentKernel();
+    kernel.startTurn = async () => ({
+      fullText: "",
+      cancelled: false,
+      error: "Agent is already processing a prompt.",
+    });
+
+    const instance = new AgentInstance(makeConfig(kernel));
+    const errors: string[] = [];
+    instance.subscribe((e) => {
+      if (e.type === "agent:error") errors.push(e.error);
+    });
+
+    await instance.prompt("重新生成");
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/already processing/i);
+    expect(instance.state).toBe("error");
+  });
 });

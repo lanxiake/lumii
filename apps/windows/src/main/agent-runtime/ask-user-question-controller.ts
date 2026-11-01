@@ -65,6 +65,20 @@ export class AskUserQuestionController {
   }
 
   /**
+   * 取消单个挂起提问（如 bash 续期 race 已放弃，避免 UI 卡在待答卡片）。
+   * @returns 是否找到并取消了该 requestId
+   */
+  cancel(requestId: string): boolean {
+    const entry = this.pending.get(requestId)
+    if (!entry) return false
+    clearTimeout(entry.timeoutHandle)
+    this.pending.delete(requestId)
+    entry.resolve({ answers: {}, cancelled: true })
+    log.info(`[cancel] cancelled pending ask: ${requestId}`)
+    return true
+  }
+
+  /**
    * 以 cancelled=true 拒绝所有挂起请求（abort / destroyAll 时调用）。
    * @returns 被取消的 requestId 列表，供调用方广播渲染侧收卡事件
    */

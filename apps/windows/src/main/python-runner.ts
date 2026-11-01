@@ -18,7 +18,7 @@ import { extractResult } from './ts-runner'
 import { detectSystemPython, ensureBundledPython } from './python-env'
 import { getPythonVenvExe, isPythonVenvReady } from './python-venv'
 import { buildScriptEnv } from './runtime-env'
-import { killProcessTree, spawnChildInGroup } from './platform/process-kill'
+import { destroyChildStdio, killProcessTree, spawnChildInGroup } from './platform/process-kill'
 
 /** 日志 */
 const log = {
@@ -120,6 +120,7 @@ export class PythonRunner {
       let stdout = ''
       let stderr = ''
       let killed = false
+      let settled = false
       let timeoutId: ReturnType<typeof setTimeout> | null = null
 
       try {
@@ -147,6 +148,23 @@ export class PythonRunner {
         })
       }
 
+      /** 超时/中止/退出只 settle 一次；不等待可能永不到来的 close */
+      const settle = (result: RunnerResult): void => {
+        if (settled) return
+        settled = true
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
+        resolve(result)
+      }
+
+      /** 杀进程树并掐 stdio */
+      const killAndRelease = (): void => {
+        forceKillProcess(child)
+        destroyChildStdio(child)
+      }
+
       // 收集 stdout
       child.stdout?.on('data', (chunk: Buffer) => {
         stdout += chunk.toString()
@@ -157,33 +175,43 @@ export class PythonRunner {
         stderr += chunk.toString()
       })
 
-      // 超时处理：Windows 用 taskkill /T /F 杀整棵进程树（否则孙进程存活会导致 close 事件永不触发）
+      // 超时：杀树后立刻 settle
       timeoutId = setTimeout(() => {
-        if (!killed) {
-          killed = true
-          log.warn('Python 脚本执行超时，终止子进程', { entryPath, timeoutMs })
-          forceKillProcess(child)
-        }
+        if (settled) return
+        killed = true
+        log.warn('Python 脚本执行超时，终止子进程', { entryPath, timeoutMs })
+        killAndRelease()
+        settle({
+          success: false,
+          error: '执行被终止（超时或取消）',
+          exitCode: null,
+          executionTimeMs: Date.now() - startTime,
+          stdout,
+          stderr,
+        })
       }, timeoutMs)
 
       // 外部取消信号
       if (abortSignal) {
         const onAbort = () => {
-          if (!killed) {
-            killed = true
-            log.info('Python 脚本被外部取消', { entryPath })
-            forceKillProcess(child)
-          }
+          if (settled) return
+          killed = true
+          log.info('Python 脚本被外部取消', { entryPath })
+          killAndRelease()
+          settle({
+            success: false,
+            error: '执行被终止（超时或取消）',
+            exitCode: null,
+            executionTimeMs: Date.now() - startTime,
+            stdout,
+            stderr,
+          })
         }
         abortSignal.addEventListener('abort', onAbort, { once: true })
       }
 
       // 进程退出
       child.on('close', (exitCode) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId)
-        }
-
         const executionTimeMs = Date.now() - startTime
 
         log.info('Python 脚本执行完成', {
@@ -194,7 +222,7 @@ export class PythonRunner {
         })
 
         if (killed) {
-          return resolve({
+          return settle({
             success: false,
             error: '执行被终止（超时或取消）',
             exitCode,
@@ -205,7 +233,7 @@ export class PythonRunner {
         }
 
         if (exitCode !== 0) {
-          return resolve({
+          return settle({
             success: false,
             error: stderr.trim() || `进程退出码: ${exitCode}`,
             exitCode,
@@ -218,7 +246,7 @@ export class PythonRunner {
         // 从 stdout 中提取结果（复用 TSRunner 的 extractResult）
         const result = extractResult(stdout)
 
-        resolve({
+        settle({
           success: true,
           result,
           exitCode,
@@ -230,12 +258,8 @@ export class PythonRunner {
 
       // 进程错误
       child.on('error', (err) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId)
-        }
-
         log.error('Python 子进程错误', { error: err.message })
-        resolve({
+        settle({
           success: false,
           error: `Python 子进程错误: ${err.message}`,
           exitCode: null,

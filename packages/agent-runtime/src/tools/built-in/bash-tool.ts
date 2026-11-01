@@ -1,9 +1,20 @@
 /**
  * Bash Tool — Shell 命令执行
+ *
+ * 超时前 {@link BASH_RENEWAL_LEAD_MS} 若宿主注入了 `callLLM`，
+ * 嵌套询问 **Agent** 是否续期（execute 期间主循环无法再调工具）。
  */
 
 import { Type, type Static } from "@sinclair/typebox";
 import type { MtBotToolConfig } from "../tool-adapter.js";
+import type { AgentToolUpdateCallback } from "../../types/tool.js";
+import {
+  BASH_RENEWAL_LEAD_MS,
+  buildBashRenewalAgentPrompt,
+  extendMsFromAgentRenewalReply,
+} from "./bash-renewal.js";
+
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 const BashInput = Type.Object({
   command: Type.String({ description: "The shell command to execute" }),
@@ -20,6 +31,8 @@ export const bashToolConfig: MtBotToolConfig<typeof BashInput> = {
     "Execute a shell command on the local system. Use for git, npm, build tools, and other terminal operations. " +
     "The default timeout is 120s. For long-running operations such as image/video generation, builds, or downloads, " +
     "pass an explicit `timeoutMs` (e.g. 180000) so the command is not killed prematurely. " +
+    "About 60s before timeout the runtime may ask the agent (nested LLM) whether to renew the deadline; " +
+    "if the agent declines, the command times out as scheduled; if it renews, pass extendMs. " +
     "Commands can be interrupted by the user at any time." +
     "\n\nIMPORTANT tool usage rules:\n" +
     "- NEVER use bash for operations that have dedicated tools:\n" +
@@ -46,23 +59,82 @@ export const bashToolConfig: MtBotToolConfig<typeof BashInput> = {
   category: "shell",
   isReadOnly: false,
   needsPermission: true,
-  execute: async (_toolCallId, params, context, signal) => {
+  execute: async (_toolCallId, params, context, signal, onUpdate) => {
     const { command, cwd, timeoutMs } = params;
+    const effectiveTimeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
     const result = await context.executeCommand(command, {
       cwd: cwd ?? context.getCwd(),
-      timeoutMs: timeoutMs ?? 120000,
+      timeoutMs: effectiveTimeout,
       signal,
+      renewalLeadMs: BASH_RENEWAL_LEAD_MS,
+      onApproachingTimeout: context.callLLM
+        ? async (info) => {
+            notifyRenewalPrompt(onUpdate, info.remainingMs);
+            const prompt = buildBashRenewalAgentPrompt(info);
+            // 决策必须在硬超时前返回；留余量给杀进程
+            const llmBudgetMs = Math.max(5_000, Math.min(45_000, info.remainingMs - 3_000));
+            try {
+              const reply = await Promise.race([
+                context.callLLM!(prompt, {
+                  purpose: "bash_renewal",
+                  instanceId: context.instanceId,
+                }),
+                new Promise<string>((resolve) => {
+                  setTimeout(() => resolve('{"renew":false}'), llmBudgetMs);
+                }),
+              ]);
+              const extendMs = extendMsFromAgentRenewalReply(reply);
+              notifyRenewalResult(onUpdate, extendMs);
+              return { extendMs };
+            } catch {
+              notifyRenewalResult(onUpdate, 0);
+              return { extendMs: 0 };
+            }
+          }
+        : undefined,
     });
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n");
     return {
       content: [{ type: "text", text: output || "(no output)" }],
       details: { exitCode: result.exitCode },
       // 非零退出即失败（2026-09-18 批次 1 定案）。
-      // 依据：近 5 天 321 次调用里非零占 26.5%，而「非零属正常语义」的命令
-      // （grep 未匹配 / diff 有差异 / test 判假）在 bash_command_log 全量 1559 条里仅 22 条（1.4%）。
-      // 回退方案：若上线后错误率 > 40%（说明有未预料的语义性场景），
-      // 收窄为 `result.exitCode === 127 || result.exitCode === 255`（命令未找到 / 中断）。
       isError: result.exitCode !== 0,
     };
   },
 };
+
+/** tool_progress：正在询问 Agent 是否续期 */
+function notifyRenewalPrompt(
+  onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+  remainingMs: number,
+): void {
+  onUpdate?.({
+    content: [
+      {
+        type: "text",
+        text: `命令即将超时（约 ${Math.round(remainingMs / 1000)}s），正在询问 Agent 是否续期…`,
+      },
+    ],
+    details: { phase: "renewal_prompt", remainingMs },
+  });
+}
+
+/** tool_progress：Agent 续期结论 */
+function notifyRenewalResult(
+  onUpdate: AgentToolUpdateCallback<unknown> | undefined,
+  extendMs: number,
+): void {
+  onUpdate?.({
+    content: [
+      {
+        type: "text",
+        text:
+          extendMs > 0
+            ? `Agent 决定续期 ${Math.round(extendMs / 1000)}s，继续等待命令。`
+            : "Agent 决定不续期，将按原超时终止命令。",
+      },
+    ],
+    details: { phase: "renewal_result", extendMs },
+  });
+}

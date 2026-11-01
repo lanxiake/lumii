@@ -114,6 +114,19 @@ export interface ToolExecutionContext {
       timeoutMs?: number;
       shell?: string;
       signal?: AbortSignal;
+      /**
+       * 距超时还剩 `renewalLeadMs`（默认 60s）时回调。
+       * 返回 `extendMs > 0` 则从此刻起把 deadline 延长这么多；`0` 或不回调则按原 deadline 终止。
+       * 命令继续跑着，回调应在剩余时间内返回。
+       */
+      onApproachingTimeout?: (info: {
+        command: string;
+        elapsedMs: number;
+        remainingMs: number;
+        timeoutMs: number;
+      }) => Promise<{ extendMs: number }>;
+      /** 触发续期询问的提前量，默认 60_000；仅当 timeoutMs 大于该值时才会询问 */
+      renewalLeadMs?: number;
     },
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
@@ -179,6 +192,21 @@ export interface ToolExecutionContext {
    * 对齐 claude-code-rev/src/tools/AskUserQuestionTool 实现。
    */
   askUserQuestion?: (input: AskUserQuestionContextInput) => Promise<AskUserQuestionContextResult>;
+
+  /**
+   * 可选能力：取消进行中的 ask_user_question（如 abort 收卡）。
+   * 未注入时静默忽略。
+   */
+  cancelAskUserQuestion?: (requestId: string) => void;
+
+  /**
+   * 可选能力：嵌套单轮 LLM（工具执行中无法再走主 agent 循环时用，如 bash 超时续期决策）。
+   * 未注入时调用方应跳过依赖 LLM 的旁路逻辑。
+   */
+  callLLM?: (
+    prompt: string,
+    opts?: { purpose?: string; instanceId?: string },
+  ) => Promise<string>;
 
   /**
    * 可选能力：执行本地已安装的 executable 技能
