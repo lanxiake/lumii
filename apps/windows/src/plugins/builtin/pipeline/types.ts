@@ -50,6 +50,14 @@ export interface AgentStep extends BaseStep {
   readonly prompt: string
   readonly allowedTools?: readonly string[]
   readonly model?: string
+  /**
+   * 回合上限，覆盖该 Agent 定义里的 `maxTurns`。
+   *
+   * 一次工具调用要跑完全程、没有续跑机会：定义默认值（assistant 80 / explore 30）
+   * 撞上就整步失败。2026-11-01 真机：`web-clone` 的 build 节点 80 轮没写完，
+   * 被 abort 成一个看不出原因的「aborted」。
+   */
+  readonly maxTurns?: number
   /** 彩排时是否真的执行。缺省 'skip'——agent 可能有副作用，默认保守 */
   readonly rehearsal?: 'run' | 'skip'
 }
@@ -138,6 +146,7 @@ export interface RunAgentStageParams {
   readonly prompt: string
   readonly allowedTools?: readonly string[]
   readonly model?: string
+  readonly maxTurns?: number
 }
 
 /** agent 节点的产出。模板里按 `{{stepId.output}}` 取 */

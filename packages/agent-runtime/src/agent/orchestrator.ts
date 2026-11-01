@@ -71,6 +71,13 @@ export interface SpawnAgentParams {
   /** 子 Agent 工具白名单（支持参数级语法如 "bash(git:*)"\uff09 */
   readonly allowedTools?: readonly string[];
   /**
+   * 子 Agent 回合上限（覆盖其定义里的 maxTurns）。
+   *
+   * 给「一次调用要干很久」的调用方用（流水线 agent 节点）：它们没有交互回合可续，
+   * 撞上定义默认值就直接失败，且错误与「被人叫停」长得一样。
+   */
+  readonly maxTurns?: number;
+  /**
    * @internal 由 orchestrator 自动维护，不暴露给 LLM 可见的 spawn-agent-tool Schema
    * 标记当前 spawn 调用的深度，用于防止无限递归委派（R1）
    */
@@ -146,6 +153,8 @@ export interface AgentOrchestratorDeps {
      * 将 _spawnDepth 设为此值，使深度检查生效
      */
     readonly spawnDepth?: number;
+    /** 覆盖子 Agent 的回合上限（缺省沿用其定义里的 maxTurns） */
+    readonly maxTurns?: number;
   }) => Promise<string>;
   /** 获取实例关联的对话 ID（用于子 Agent 继承父会话，消息写入同一 DB 对话） */
   getConversationId?: (instanceId: string) => string | undefined;
@@ -548,6 +557,7 @@ export class AgentOrchestrator {
         conversationId: parentConversationId,
         allowedTools: params.allowedTools,
         spawnDepth: currentDepth + 1,
+        ...(params.maxTurns ? { maxTurns: params.maxTurns } : {}),
       });
     } catch (err) {
       this.broker.releasePendingSlot(parentKey);
@@ -603,6 +613,22 @@ export class AgentOrchestrator {
             return {
               status: "error",
               message: staleRun.errorMessage ?? "Sub-agent stalled before completion.",
+            };
+          }
+          // 预算耗尽与「被叫停」都走 abort()，但处置完全不同：前者要调大预算或收窄任务。
+          // 报成 aborted 会让调用方以为有人按了停止（2026-11-01 真机：流水线 build 节点）。
+          if (childInstance.abortReason === "maxTurns") {
+            this.finalizeWithGuard(
+              childInstanceId,
+              "failed",
+              outputText,
+              "turn budget exhausted (maxTurns)",
+            );
+            return {
+              status: "error",
+              message:
+                `Sub-agent hit its turn budget (maxTurns=${params.maxTurns ?? agentDef.maxTurns ?? "?"}) before finishing. ` +
+                `Narrow the task or raise the budget.`,
             };
           }
           // 中止是中立的终端态：既不是成功（此前显示「已完成」，2026-09-20 冒烟实测），

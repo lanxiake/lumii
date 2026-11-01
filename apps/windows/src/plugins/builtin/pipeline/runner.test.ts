@@ -210,7 +210,9 @@ describe('runner 主循环', () => {
     expect(marks.map((m) => m.label)).toEqual(['有旁白'])
   })
 
-  it('record.enabled=false 时 mode=record → 判失败并说明原因（不再静默成功）', async () => {
+  it('record.enabled=false 而 mode=record → 照常执行、不录、原因写进 note', async () => {
+    // 判失败的话这类 spec 只剩彩排可选，而彩排会跳过需授权工具与 agent 节点——
+    // 等于根本跑不了（2026-11-01 真机：web-clone 13 步全绿却被判 failed）。
     const { spec, specHash } = specOf([{ id: 'a', tool: 'app_goto' }], {
       record: { enabled: false },
     })
@@ -219,8 +221,8 @@ describe('runner 主循环', () => {
       spec, specHash, mode: 'record', runDir: path.join(dir, 'r'),
       deps: d, sleep: fastSleep, isRehearsalBlocked: () => false,
     })
-    expect(res.ok).toBe(false)
-    expect(String(res.error)).toContain('record.enabled=false')
+    expect(res.ok).toBe(true)
+    expect(String(res.note)).toContain('record.enabled=false')
     expect(calls).not.toContain('start')
     expect(res.artifact).toBeUndefined()
   })
@@ -528,6 +530,15 @@ describe('runner agent 节点', () => {
       { id: 'brief', kind: 'agent', prompt: '目标页是 {{open.url}}，请整理', rehearsal: 'run' },
     ])
     expect(agentPrompts[0]).toBe('目标页是 https://x.test/，请整理')
+  })
+
+  it('maxTurns 透传给宿主（一次调用跑完全程，没有续跑机会）', async () => {
+    const { d } = deps({ agent: { ok: true, data: { output: 'done' } } })
+    await run(d, [{ id: 'build', kind: 'agent', prompt: '建页', maxTurns: 200, rehearsal: 'run' }])
+    expect(d.runAgentStage).toHaveBeenCalledWith(
+      expect.objectContaining({ maxTurns: 200 }),
+      undefined,
+    )
   })
 
   it('下游 tool 能引用上游 agent 的 output', async () => {

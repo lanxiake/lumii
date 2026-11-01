@@ -4185,6 +4185,7 @@ export class AgentRuntimeBridge {
           model: params.model,
           // 空数组会被编排层当成「不限制」，所以有值才传
           ...(allowedTools.length ? { allowedTools } : {}),
+          ...(params.maxTurns ? { maxTurns: params.maxTurns } : {}),
           mode: 'sync',
         },
         parentId,

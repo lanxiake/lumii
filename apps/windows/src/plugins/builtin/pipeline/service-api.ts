@@ -35,8 +35,11 @@ export interface PipelineRunResult {
   /**
    * 录制产物。**必须透出到工具返回与页面**：
    * 用户点了「录制运行」、run 也报成功，却看不到视频——闭环就断在这里。
-   * `mode:'record'` 却没有 artifact 时，`error` 会说明原因（spec 禁用录制 / 录屏服务不可用）。
+   * `mode:'record'` 却没有 artifact 时：录屏服务不可用 → `error`；spec 自己否决录制 →
+   * 不算失败（见 `note`）。veto 若判失败，这类流水线就只剩彩排，而彩排会跳过
+   * 需授权工具与 agent 节点——等于根本没法跑（2026-11-01 真机）。
    */
+  readonly note?: string
   readonly artifact?: {
     mp4Path?: string
     burned?: boolean

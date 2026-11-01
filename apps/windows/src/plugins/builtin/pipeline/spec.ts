@@ -123,6 +123,13 @@ function parseAgentStep(
     ? s.allowedTools.filter((t): t is string => typeof t === 'string' && !!t.trim())
     : undefined
 
+  // 回合上限写错别静默忽略——它决定这一步能不能跑完
+  const maxTurnsOk =
+    typeof s.maxTurns === 'number' && Number.isInteger(s.maxTurns) && s.maxTurns > 0
+  if (s.maxTurns !== undefined && !maxTurnsOk) {
+    errors.push(`steps[${i}] (${id}) maxTurns 必须是正整数`)
+  }
+
   return {
     ...base,
     kind: 'agent',
@@ -130,6 +137,7 @@ function parseAgentStep(
     prompt,
     ...(allowedTools && allowedTools.length ? { allowedTools } : {}),
     ...(typeof s.model === 'string' && s.model.trim() ? { model: s.model.trim() } : {}),
+    ...(maxTurnsOk ? { maxTurns: s.maxTurns as number } : {}),
     ...(s.rehearsal === 'run' ? { rehearsal: 'run' as const } : {}),
   }
 }

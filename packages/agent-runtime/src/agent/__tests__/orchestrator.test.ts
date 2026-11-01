@@ -403,6 +403,32 @@ describe("AgentOrchestrator", () => {
     expect(orch.broker.getRun("child-abort")?.status).toBe("cancelled");
   });
 
+  it("撞回合上限 → 返回 error 且点名 maxTurns（不伪装成「被叫停」）", async () => {
+    const child = {
+      id: "child-maxturns",
+      subscribe: () => () => {},
+      waitForIdle: async () => {},
+      wasAborted: true,
+      abortReason: "maxTurns",
+    } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "child-maxturns",
+      prompt: vi.fn().mockResolvedValue(undefined),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    const r = await orch.spawnAgent({ name: "sub", prompt: "go", maxTurns: 200 }, "parent-1");
+
+    expect(r.status).toBe("error");
+    if (r.status === "error") expect(r.message).toContain("maxTurns=200");
+  });
+
   it("sync 委托被 stale 看门狗杀掉 → 返回 error（不是 aborted，也不是成功）", async () => {
     let aborted = false;
     let releaseIdle: (() => void) | undefined;

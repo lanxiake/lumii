@@ -193,4 +193,17 @@ describe('validateSpec —— agent 节点', () => {
     const s = r.spec.steps[0]!
     expect(s.kind === 'agent' && s.rehearsal).toBeUndefined()
   })
+
+  it('maxTurns 写错 → 拒（不静默忽略，它决定这一步能不能跑完）', () => {
+    const errs = errorsOf(agentSpec({ kind: 'agent', prompt: 'x', maxTurns: 0 }))
+    expect(errs.join('\n')).toMatch(/maxTurns/)
+  })
+
+  it('maxTurns 合法 → 原样保留', () => {
+    const r = validateSpec(agentSpec({ kind: 'agent', prompt: 'x', maxTurns: 120 }), TOOLS, AGENTS)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const s = r.spec.steps[0]!
+    expect(s.kind === 'agent' && s.maxTurns).toBe(120)
+  })
 })

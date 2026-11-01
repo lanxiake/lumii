@@ -224,6 +224,12 @@ export class AgentInstance {
    * 暂停（pause）不走 `abort()`，不会置位。下一次 prompt() 重置。
    */
   private _aborted = false;
+  /**
+   * 中止原因。编排层据此把「撞回合上限」与「用户/父级打断」区分开——
+   * 两者都表现为 wasAborted=true，但处置完全不同：前者是预算不够
+   * （该调大或收窄任务），后者是有人叫停。
+   */
+  private _abortReason: "interrupted" | "maxTurns" | null = null;
   private accumulatedText = "";
   private unsubscribeAgent: (() => void) | null = null;
   /** 超时定时器句柄 */
@@ -604,7 +610,7 @@ export class AgentInstance {
           console.log(
             `[AgentInstance:${this.id}] maxTurns reached (${this.turnCount}/${this.maxTurns}), aborting`,
           );
-          this.abort();
+          this.abort("maxTurns");
         } else {
           this.stuckGuard.checkAndHandle();
         }
@@ -737,6 +743,7 @@ export class AgentInstance {
 
     this.selfHeal.reset();
     this._aborted = false;
+    this._abortReason = null;
     const turnRequest = {
       message,
       images: images && images.length > 0 ? images.map(({ data, mimeType }) => ({ data, mimeType })) : undefined,
@@ -782,9 +789,10 @@ export class AgentInstance {
   }
 
   /** 中止当前运行 */
-  abort(): void {
+  abort(reason: "interrupted" | "maxTurns" = "interrupted"): void {
     this.endingPause = false;
     this._aborted = true;
+    this._abortReason = reason;
     // 作废正在等待空闲的 prompt（它还没真正开跑）
     this._promptGen++;
     this._idleWaitResolve?.();
@@ -817,6 +825,11 @@ export class AgentInstance {
    */
   get wasAborted(): boolean {
     return this._aborted;
+  }
+
+  /** 中止原因（未中止时为 null）；`maxTurns` 表示预算耗尽而非被叫停。 */
+  get abortReason(): "interrupted" | "maxTurns" | null {
+    return this._aborted ? (this._abortReason ?? "interrupted") : null;
   }
 
   /** 获取对话消息历史 */

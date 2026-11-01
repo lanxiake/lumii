@@ -48,6 +48,8 @@ export interface RunResult {
   readonly failedAt?: { i: number; id: string; expected?: unknown; observed?: unknown }
   readonly steps: readonly StepResult[]
   readonly artifact?: RunMeta['artifact']
+  /** 非失败但需要如实转述的事（例：spec 否决录制，本次跑完没录） */
+  readonly note?: string
   readonly error?: string
 }
 
@@ -136,6 +138,7 @@ async function runAgentStep(
         prompt,
         allowedTools: step.allowedTools,
         model: step.model,
+        maxTurns: step.maxTurns,
       },
       signal,
     )
@@ -270,20 +273,26 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
         }
       }
     }
-    // **闭环兜底**：明确要求录制、步骤也全过了，却没有任何产物 → 这不能算成功。
-    // 典型来路：spec 写着 `record.enabled: false`（作者否决）、或录屏服务中途不可用。
-    // 不判失败的话，用户在页面上看到「成功」，却找不到视频——比直接报错更糟。
+    // **闭环兜底**：明确要求录制、步骤也全过了，却没有任何产物 → 不能无声地算成功。
+    //
+    // 但**作者否决**（`record.enabled:false`）不是故障：那是 spec 在说「这条不录」。
+    // 判失败会让这类流水线只剩彩排可选，而彩排会跳过需授权工具和 agent 节点——
+    // 等于根本跑不了（2026-11-01 真机：web-clone 13 步全绿却被判 failed）。
+    // 所以按「跑了、没录、原因写在 note 里」返回，让调用方如实转述。
     let finalOk = result.ok
     let finalError = result.error
+    let note: string | undefined
     if (recordRequested && result.ok && !artifact) {
-      finalOk = false
-      finalError = recordVetoed
-        ? '该 spec 明确禁用了录制（record.enabled=false），本次没有产物。把它改成 true，或用彩排模式。'
-        : '要求录制但没有拿到产物（录屏服务不可用或启动后异常退出）。'
+      if (recordVetoed) {
+        note = '该 spec 声明了 record.enabled=false，本次只执行不录制（步骤结果与产物照常可用）。'
+      } else {
+        finalOk = false
+        finalError = '要求录制但没有拿到产物（录屏服务不可用或启动后异常退出）。'
+      }
     }
 
     writeMeta(runDir, { ...meta, endedAt: deps.now(), status: finalOk ? 'ok' : 'failed', artifact })
-    return { ...result, ok: finalOk, error: finalError, steps, journalPath, artifact }
+    return { ...result, ok: finalOk, error: finalError, note, steps, journalPath, artifact }
   }
 
   // ── preconditions：不满足直接停，且**不 start 录制** ──

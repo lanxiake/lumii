@@ -246,6 +246,22 @@ export function buildScriptEnv(
 ): Record<string, string> {
   const env: Record<string, string> = { ...process.env, ...(extra ?? {}) } as Record<string, string>
 
+  // 客户端自己的构建期开关不该漏进用户脚本。开发态下这里是 "development"，
+  // 用户在 shell 里跑 `next build` 会收到「非标准 NODE_ENV」警告并崩在预渲染
+  // （2026-11-01 真机：web-clone 流水线的 check 步）。调用方显式传的保留。
+  if (extra?.NODE_ENV === undefined) delete env.NODE_ENV
+
+  // 同理：客户端自身是被 npm/pnpm 启动的（开发态 `pnpm dev`），这些生命周期变量
+  // 描述的是**我们**那次安装，不是用户脚本。最要命的是 `npm_config_local_prefix`
+  // 指向本仓库——用户项目里跑 `npm run build` 时 npm 会把本仓库的 node_modules/.bin
+  // 当成项目的，于是 "next 不是内部或外部命令"（同日真机 fetch：which npm 之后
+  // 脚本内的 PATH 全是 lumii 的 .bin）。用户终端里本来就没有这些变量，抹掉才是对齐。
+  for (const key of Object.keys(env)) {
+    if (extra && key in extra) continue
+    const lower = key.toLowerCase()
+    if (lower.startsWith('npm_') || lower.startsWith('pnpm_')) delete env[key]
+  }
+
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
   const current = env[pathKey] ?? ''
   const withSdkAdb = prependAndroidPlatformTools(current)

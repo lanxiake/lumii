@@ -270,6 +270,8 @@ export class BridgeLifecycle {
             ...opts.definition,
             canSpawnSubAgents: false,
             disallowedTools: childDisallowed,
+            // 调用方可按单次委托收紧/放宽回合预算（流水线 agent 节点会用它）
+            ...(opts.maxTurns ? { maxTurns: opts.maxTurns } : {}),
             ...(opts.allowedTools?.length ? {
               tools: (opts.allowedTools as string[]).filter(
                 (t) => !CHILD_AGENT_DISALLOWED_TOOLS.includes(t),

@@ -82,6 +82,32 @@ describe('runtime-env', () => {
     expect(hits).toHaveLength(1)
   })
 
+  it('应用的 NODE_ENV 不漏进用户脚本，但调用方显式传的保留', () => {
+    const prev = process.env.NODE_ENV
+    process.env.NODE_ENV = 'development'
+    try {
+      expect(buildScriptEnv().NODE_ENV).toBeUndefined()
+      expect(buildScriptEnv({ NODE_ENV: 'production' }).NODE_ENV).toBe('production')
+    } finally {
+      if (prev === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = prev
+    }
+  })
+
+  it('launcher 的 npm/pnpm 生命周期变量不漏进用户脚本（会让 npm 认错 local prefix）', () => {
+    const prev = process.env.npm_config_local_prefix
+    process.env.npm_config_local_prefix = 'E:/somewhere/else'
+    try {
+      expect(buildScriptEnv().npm_config_local_prefix).toBeUndefined()
+      expect(buildScriptEnv({ npm_config_registry: 'https://reg' }).npm_config_registry).toBe(
+        'https://reg',
+      )
+    } finally {
+      if (prev === undefined) delete process.env.npm_config_local_prefix
+      else process.env.npm_config_local_prefix = prev
+    }
+  })
+
   it('系统无 Python 时注入 pip 镜像，已有配置不覆盖', () => {
     expect(buildScriptEnv().PIP_INDEX_URL).toBe(PYPI_MIRROR)
     expect(buildScriptEnv({ PIP_INDEX_URL: 'https://my.mirror/simple' }).PIP_INDEX_URL)

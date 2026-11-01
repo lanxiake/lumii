@@ -125,6 +125,7 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
           runId: res.runId,
           journalPath: res.journalPath,
           steps: res.steps,
+          ...(res.note ? { note: res.note } : {}),
           ...(res.artifact ? { artifact: res.artifact } : {}),
         })
       } catch (err) {

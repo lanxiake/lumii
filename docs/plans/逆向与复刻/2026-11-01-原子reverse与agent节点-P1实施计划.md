@@ -318,6 +318,6 @@ runAgentStage: async ({ agentType, prompt, allowedTools, model, signal }) => { .
 - [x] `pnpm typecheck` 0 错误
 - [x] `pnpm check:wiring` 新增 0
 - [x] `/reverse` 两种目标各自单独跑通
-- [ ] 完整 `web-clone` 真机跑通且 `pnpm build` 通过（只跑到 rehearsal，留 P2）
+- [x] 完整 `web-clone` 真机跑通且 `pnpm build` 通过（weflow.top，13/13 步）
 - [x] UI 无执行入口；对话内可跑
 - [x] 实施总结落 `docs/plans/逆向与复刻/2026-11-01-P1实施总结.md`

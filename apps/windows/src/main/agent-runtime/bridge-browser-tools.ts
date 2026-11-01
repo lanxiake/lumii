@@ -177,10 +177,20 @@ export function registerBrowserTools(
 
   reg(createMtBotTool({
     name: 'browser_navigate', label: 'Navigate Browser', category: 'channel' as const,
-    description: 'Navigate the browser to a URL',
-    parameters: Type.Object({ url: Type.String({ description: 'URL to navigate to' }) }),
+    description:
+      'Navigate the browser to a URL. Waits for `load`, so a heavy first visit can exceed the ' +
+      'default 20s — pass timeoutMs for slow real-world sites.',
+    parameters: Type.Object({
+      url: Type.String({ description: 'URL to navigate to' }),
+      timeoutMs: Type.Optional(
+        Type.Number({ description: '导航超时，默认 20000，上限 120000' }),
+      ),
+    }),
     isReadOnly: false, needsPermission: false,
-    execute: wrapExecute('/navigate', (p) => ({ url: p.url })),
+    execute: wrapExecute('/navigate', (p) => ({
+      url: p.url,
+      ...(typeof p.timeoutMs === 'number' ? { timeoutMs: p.timeoutMs } : {}),
+    })),
   }, ctx))
 
   reg(createMtBotTool({

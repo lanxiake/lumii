@@ -236,6 +236,16 @@ export interface BridgeInstanceFactoryDeps {
 }
 
 export class BridgeInstanceFactory {
+  /**
+   * 「当前正在执行工具的实例」是**栈**，不是单槽。
+   *
+   * 工具执行可以嵌套（流水线 `pipeline_run` 里再跑子 Agent 的工具）。旧实现
+   * `after` 一律把 ref 置 undefined，内层工具一结束外层就丢了归属——
+   * 真机表现：web-clone 的 `brief` 节点跑完后，同一条流水线的 `build` 节点报
+   * 「无法解析发起流水线的 Agent 实例」。
+   */
+  private readonly toolExecutorStack: string[] = []
+
   constructor(private readonly deps: BridgeInstanceFactoryDeps) {}
 
   /**
@@ -896,10 +906,14 @@ export class BridgeInstanceFactory {
       },
       toolLifecycle: {
         beforeActualToolExecute: () => {
+          this.toolExecutorStack.push(instanceId)
           this.deps.currentToolExecutorInstanceId.value = instanceId
         },
         afterActualToolExecute: () => {
-          this.deps.currentToolExecutorInstanceId.value = undefined
+          const i = this.toolExecutorStack.lastIndexOf(instanceId)
+          if (i >= 0) this.toolExecutorStack.splice(i, 1)
+          this.deps.currentToolExecutorInstanceId.value =
+            this.toolExecutorStack[this.toolExecutorStack.length - 1]
         },
       },
       toolLogger: {

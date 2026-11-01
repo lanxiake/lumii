@@ -35,6 +35,10 @@ export function registerBrowserAgentSnapshotRoutes(
     const body = readBody(req);
     const url = toStringOrEmpty(body.url);
     const targetId = toStringOrEmpty(body.targetId) || undefined;
+    const timeoutMs =
+      typeof body.timeoutMs === "number" && Number.isFinite(body.timeoutMs)
+        ? body.timeoutMs
+        : undefined;
     if (!url) {
       return jsonError(res, 400, "url is required");
     }
@@ -48,6 +52,7 @@ export function registerBrowserAgentSnapshotRoutes(
         cdpUrl: profileCtx.profile.cdpUrl,
         targetId: tab.targetId,
         url,
+        ...(timeoutMs ? { timeoutMs } : {}),
       });
       res.json({ ok: true, targetId: tab.targetId, ...result });
     } catch (err) {
