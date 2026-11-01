@@ -465,9 +465,10 @@ step('EVAL', ['BROWSER-EVAL-01'], async (ctx) => {
   const p1 = resultJson(e1.result)
   assert(p1, `browser_eval 返回体不是 JSON：${resultText(e1.result).slice(0, 200)}`)
   assert(p1.ok === true, `browser_eval 返回 ok 不为 true：${resultText(e1.result).slice(0, 200)}`)
-  // 注意层级：wrapExecute 包一层 `{ok,result}`，browserEvalPayload 再把求值结果放进内层 `result`
+  // 注意层级：wrapExecute 包一层 `{ok,result}`；browserEvalPayload 已扁平化，
+  // 标量结果落在内层 `value`（对象结果则直接摊在 `result` 上）
   const body1 = p1.result ?? {}
-  assert(body1.result === 2, `1+1 结果预期 2，实测 ${JSON.stringify(body1.result)}`)
+  assert(body1.value === 2, `1+1 结果预期 2，实测 ${JSON.stringify(body1.value)}`)
   assert(
     typeof body1.url === 'string' && body1.url.length > 0,
     `返回体缺少 url 字段（2026-09-21 修的正是这个）：${resultText(e1.result).slice(0, 200)}`,
@@ -481,7 +482,7 @@ step('EVAL', ['BROWSER-EVAL-01'], async (ctx) => {
   const e2 = assertToolOk(findCall(t2.calls, 'browser_eval'), 'browser_eval(读 clicks)')
   const p2 = resultJson(e2.result)
   assert(p2?.ok === true, `第二次 eval 返回 ok 不为 true：${resultText(e2.result).slice(0, 200)}`)
-  const clicksViaTool = p2?.result?.result
+  const clicksViaTool = p2?.result?.value
   const probe = await readProbe(CDP, /interact\.html/)
   assert(probe, 'CDP 读不到 __probe 用于交叉验证')
   assert(

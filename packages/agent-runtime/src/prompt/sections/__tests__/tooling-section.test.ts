@@ -44,6 +44,11 @@ const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "browser_eval",
   "browser_back",
   "browser_forward",
+  // 复刻取证（bridge-browser-tools.ts）：设备模拟、资源清单、响应体、下载
+  "browser_set_device",
+  "browser_requests",
+  "browser_response_body",
+  "browser_download",
   // 云同步（bridge-tool-registrar-sync.ts）与开发转交（bridge-tool-registrar-handoff.ts）
   // 2026-09-18 补入提示词分组——此前它们在 Other Tools 里，minimal 档下只是个数字
   "cloud_sync_read_file",

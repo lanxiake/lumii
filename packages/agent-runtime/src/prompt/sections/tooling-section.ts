@@ -34,6 +34,12 @@ const TOOL_SUMMARIES: Record<string, string> = {
   web_search: "Look up time-sensitive facts (Bing built-in by default, no API key; falls back to LangSearch/SearXNG if configured)",
   web_fetch: "Fetch one known URL",
 
+  // Browser forensics (clone / reverse)
+  browser_set_device: "Emulate a device viewport (name, or width+height)",
+  browser_requests: "List network requests (URL substring filter)",
+  browser_response_body: "Read one response's body, status and headers",
+  browser_download: "Click a ref and save the triggered download",
+
   // Media Generation
   image_generate: "Generate images to workspace/outputs (model options in schema)",
   speech_generate: "Synthesize speech audio to workspace/outputs",
@@ -286,6 +292,10 @@ const BROWSER_TOOLS = new Set([
   "browser_back",
   "browser_forward",
   "browser_screenshot",
+  "browser_set_device",
+  "browser_requests",
+  "browser_response_body",
+  "browser_download",
 ])
 const SESSION_TOOLS = new Set([
   "session_create",

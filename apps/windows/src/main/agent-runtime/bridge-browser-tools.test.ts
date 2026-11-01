@@ -9,12 +9,34 @@
  * 这里用假 BrowserRouteContext 把第 1 条锁死：只要错误不是 "Not Found" 且带着假 context 的标记，
  * 就说明请求真的走进了 /act 处理器。
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToolRegistry, type ToolExecutionContext } from '@mtbot/agent-runtime'
 import type { BrowserRouteContext } from '@mtbot/browser-control'
 import { registerBrowserTools, browserErrorText, browserEvalPayload } from './bridge-browser-tools'
-import { parseJsonToolResultPayload } from './bridge-utils'
+import { jsonToolResult, parseJsonToolResultPayload } from './bridge-utils'
 import { buildWindowsBrowserConfig } from '../../plugins/builtin/browser/service'
+
+/** 记录工具最后发往哪条路由、带什么 body——用来断言 fullPage / resize 真的换了分支。
+ * 必须走 vi.hoisted：mock 工厂先于本文件其余声明执行，普通 const 这时还在 TDZ。 */
+const { dispatched } = vi.hoisted(() => ({
+  dispatched: [] as Array<{ method: string; path: string; body?: unknown }>,
+}))
+
+vi.mock('@mtbot/browser-control', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@mtbot/browser-control')>()
+  return {
+    ...actual,
+    createBrowserRouteDispatcher: (ctx: unknown) => {
+      const real = actual.createBrowserRouteDispatcher(ctx as never)
+      return {
+        dispatch: (req: { method: string; path: string; body?: unknown }) => {
+          dispatched.push({ method: req.method, path: req.path, body: req.body })
+          return real.dispatch(req as never)
+        },
+      }
+    },
+  }
+})
 
 /** 假 context 的标记：走到 ensureTabAvailable 即证明路由命中 */
 const ROUTE_REACHED = 'browser-route-reached'
@@ -76,8 +98,12 @@ function registerAndGetExecute(toolName: string, thrown?: string) {
   return tool!.execute.bind(tool)
 }
 
+beforeEach(() => {
+  dispatched.length = 0
+})
+
 describe('registerBrowserTools', () => {
-  it('注册 10 个浏览器工具', () => {
+  it('注册 14 个浏览器工具', () => {
     const registry = new ToolRegistry()
     registerBrowserTools(registry, stubContext(), () => stubBrowserContext())
     for (const name of [
@@ -91,10 +117,23 @@ describe('registerBrowserTools', () => {
       'browser_eval',
       'browser_back',
       'browser_forward',
+      'browser_set_device',
+      'browser_requests',
+      'browser_response_body',
+      'browser_download',
     ]) {
       expect(registry.get(name), `${name} 未注册`).toBeDefined()
     }
   })
+
+  const routeParams: Record<string, unknown> = {
+    browser_eval: { script: 'document.title' },
+    browser_scroll: { direction: 'down' },
+    browser_set_device: { name: 'iPhone 14' },
+    browser_requests: {},
+    browser_response_body: { url: 'https://example.com/app.js' },
+    browser_download: { ref: 'e1', path: '/tmp/mtbot/a.bin' },
+  }
 
   it.each([
     'browser_eval',
@@ -103,23 +142,71 @@ describe('registerBrowserTools', () => {
     'browser_forward',
     'browser_screenshot',
     'browser_snapshot',
+    'browser_set_device',
+    'browser_requests',
+    'browser_response_body',
+    'browser_download',
   ])(
     '%s 命中真实路由，而不是 404 Not Found',
     async (toolName) => {
       const execute = registerAndGetExecute(toolName)
-      const params =
-        toolName === 'browser_eval'
-          ? { script: 'document.title' }
-          : toolName === 'browser_scroll'
-            ? { direction: 'down' }
-            : undefined
-      const result = await execute('tc1', params)
+      const result = await execute('tc1', routeParams[toolName])
       const payload = parseJsonToolResultPayload(result)
       expect(payload?.ok).toBe(false)
       expect(String(payload?.error)).toContain(ROUTE_REACHED)
       expect(String(payload?.error)).not.toContain('Not Found')
     },
   )
+
+  describe('取证补面：fullPage / 设备模拟 / 下载', () => {
+    it('browser_screenshot 默认不带 fullPage', async () => {
+      const execute = registerAndGetExecute('browser_screenshot')
+      await execute('tc1', {})
+      expect(dispatched.at(-1)).toMatchObject({ path: '/screenshot', body: { fullPage: false } })
+    })
+
+    it('browser_screenshot 传 fullPage:true 仍走 /screenshot，body 带上它', async () => {
+      const execute = registerAndGetExecute('browser_screenshot')
+      await execute('tc1', { fullPage: true })
+      expect(dispatched.at(-1)).toMatchObject({ path: '/screenshot', body: { fullPage: true } })
+    })
+
+    it('browser_set_device 缺 name 也缺尺寸：本地就拒，不发请求', async () => {
+      const execute = registerAndGetExecute('browser_set_device')
+      const payload = parseJsonToolResultPayload(await execute('tc1', {}))
+      expect(payload?.ok).toBe(false)
+      expect(String(payload?.error)).toContain('name')
+      expect(String(payload?.error)).toContain('width')
+      expect(dispatched).toHaveLength(0)
+    })
+
+    it('browser_set_device 给 width/height：走 /act 的 resize 分支', async () => {
+      const execute = registerAndGetExecute('browser_set_device')
+      await execute('tc1', { width: 390, height: 844 })
+      expect(dispatched.at(-1)).toMatchObject({
+        path: '/act',
+        body: { kind: 'resize', width: 390, height: 844 },
+      })
+    })
+
+    it('browser_set_device 给 name：走 /set/device', async () => {
+      const execute = registerAndGetExecute('browser_set_device')
+      await execute('tc1', { name: ' iPhone 14 ' })
+      expect(dispatched.at(-1)).toMatchObject({ path: '/set/device', body: { name: 'iPhone 14' } })
+    })
+
+    it.each([
+      [{ path: '/tmp/a.bin' }, 'ref'],
+      [{ ref: 'e1' }, 'path'],
+    ])('browser_download 缺参数 %o：本地拒绝并提示先 browser_snapshot', async (params, missing) => {
+      const execute = registerAndGetExecute('browser_download')
+      const payload = parseJsonToolResultPayload(await execute('tc1', params))
+      expect(payload?.ok).toBe(false)
+      expect(String(payload?.error)).toContain(missing)
+      expect(String(payload?.error)).toContain('browser_snapshot')
+      expect(dispatched).toHaveLength(0)
+    })
+  })
 
   it('browser_eval 无需 path 前缀（走 /act 的 evaluate 分支）', async () => {
     const execute = registerAndGetExecute('browser_eval')
@@ -137,41 +224,67 @@ describe('registerBrowserTools', () => {
  * 模型却拿 `player is not defined` 去当「作用域问题」排查。`/act` 的 evaluate 分支
  * 本就回了 `url`，但 `pick` 只透出 `result`，模型无从知道自己不在目标页上。
  */
-describe('browserEvalPayload —— 让模型看得见「我在哪个页面」', () => {
-  it('普通页面：透出 result，并带上 url / targetId', () => {
-    const payload = browserEvalPayload({
-      result: { hp: 7 },
-      url: 'file:///C:/ws/outputs/demo/demo2-canvas.html',
-      targetId: 'ABC123',
-    })
+describe('browserEvalPayload —— 扁平化后模型读一步就能拿到目标字段', () => {
+  it('对象结果：直接摊在 result 上，不再多套一层 result', () => {
+    const payload = browserEvalPayload({ result: { hp: 7 } })
     expect(payload.result).toEqual({ hp: 7 })
-    expect(payload.url).toBe('file:///C:/ws/outputs/demo/demo2-canvas.html')
-    expect(payload.targetId).toBe('ABC123')
-    // 非空白页不该多嘴
-    expect(payload.note).toBeUndefined()
+    expect((payload.result as Record<string, unknown>).value).toBeUndefined()
+  })
+
+  it.each([42, 'text'] as const)('标量结果 %s：放在 result.value，不冒充对象', (v) => {
+    const payload = browserEvalPayload({ result: v })
+    expect(payload.result).toEqual({ value: v })
+  })
+
+  it.each(['file:///C:/ws/outputs/demo/demo2-canvas.html', 'https://example.com/'])(
+    '对象结果 + 页面信息：url / targetId 与脚本字段同层（%s）',
+    (url) => {
+      const payload = browserEvalPayload({ result: { ok: true, hp: 7 }, url, targetId: 'ABC123' })
+      expect(payload.result).toEqual({ ok: true, hp: 7, url, targetId: 'ABC123' })
+    },
+  )
+
+  it('脚本返回 ok:false 时原样保留在 result 内，外层工具结果不受影响', () => {
+    const payload = browserEvalPayload({ result: { ok: false, x: 1 } })
+    expect((payload.result as Record<string, unknown>).ok).toBe(false)
+    // 外层是 wrapExecute 的 {ok:true}：工具本身没失败，不该被内层脚本值带偏
+    const wrapped = jsonToolResult({ ok: true, result: payload })
+    expect(wrapped.isError).toBeUndefined()
+  })
+
+  it('脚本没返回 ok 时不替它编 ok:true（否则 payloadIsFailure 会误判）', () => {
+    const payload = browserEvalPayload({ result: { hp: 7 } })
+    expect((payload.result as Record<string, unknown>).ok).toBeUndefined()
   })
 
   it.each(['about:blank', 'about:blank/', 'chrome://newtab', 'chrome://newtab/'])(
-    '空白页 %s：额外给出「先导航」的可照做提示',
+    '空白页 %s：url 与「先导航」提示都在 result 内',
     (url) => {
       const payload = browserEvalPayload({ result: undefined, url })
-      expect(payload.url).toBe(url)
-      expect(String(payload.note)).toContain('browser_navigate')
-      expect(String(payload.note)).toContain('空白页')
+      const r = payload.result as Record<string, unknown>
+      expect(r.url).toBe(url)
+      expect(String(r.note)).toContain('browser_navigate')
+      expect(String(r.note)).toContain('空白页')
     },
   )
 
   it('旧服务端不回 url 时不报错、也不误报空白页', () => {
     const payload = browserEvalPayload({ result: 42 })
-    expect(payload.result).toBe(42)
-    expect(payload.url).toBeUndefined()
-    expect(payload.note).toBeUndefined()
+    expect(payload.result).toEqual({ value: 42 })
+    expect((payload.result as Record<string, unknown>).url).toBeUndefined()
+    expect((payload.result as Record<string, unknown>).note).toBeUndefined()
   })
 
   it('url 为空串（取不到页面）按「没有 url」处理，不触发空白页提示', () => {
     const payload = browserEvalPayload({ result: 1, url: '' })
-    expect(payload.url).toBeUndefined()
-    expect(payload.note).toBeUndefined()
+    expect(payload.result).toEqual({ value: 1 })
+  })
+
+  it.each([null, undefined])('结果 %s：不炸，也不凭空造字段', (v) => {
+    const payload = browserEvalPayload({ result: v })
+    expect(payload.result).toBeTypeOf('object')
+    expect(payload.result).not.toBeNull()
+    expect((payload.result as Record<string, unknown>).ok).toBeUndefined()
   })
 })
 

@@ -51,33 +51,31 @@ export function resolveBundledPipelinesDir(): string | undefined {
 }
 
 /**
- * 播种：**目标目录已有内容就整体跳过**。
+ * 播种：**逐条**播种，目标已存在同名目录就跳过。
  *
- * 与 bundled-skills 的哈希基线不同——流水线没有「内置条目下线」的需求，而 spec 是
- * **用户可以改的数据**。所以简化成「有内容就跳过」：绝不用种子覆盖用户改过的 spec。
- * 用户删掉某条又想要回来，删掉 `{workspace}/pipelines` 整目录即可。
+ * 不能「目录非空就整体跳过」——那样老工作区永远收不到新内置流水线（2026-11-01
+ * 真机验收时 `web-clone-evidence` 就因此没出现）。也不能直接覆盖：spec 是
+ * **用户可以改的数据**。逐条 + `existsSync` 同时满足两件事：新条目能进，改过的不被覆盖。
+ * 用户删掉某条又想要回来，删掉 `{workspace}/pipelines/<id>` 再重启即可。
  */
 export function seedBundledPipelines(
   sourceDir: string | undefined,
   pipelinesDir: string,
-): { seeded: number; skipped: boolean } {
-  if (!sourceDir || !fs.existsSync(sourceDir)) return { seeded: 0, skipped: false }
-  try {
-    if (fs.readdirSync(pipelinesDir).length > 0) return { seeded: 0, skipped: true }
-  } catch {
-    /* 目录不存在：下面 cpSync 会建 */
-  }
+): { seeded: number } {
+  if (!sourceDir || !fs.existsSync(sourceDir)) return { seeded: 0 }
   let seeded = 0
   for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
+    const dest = path.join(pipelinesDir, entry.name)
+    if (fs.existsSync(dest)) continue
     try {
-      fs.cpSync(path.join(sourceDir, entry.name), path.join(pipelinesDir, entry.name), { recursive: true })
+      fs.cpSync(path.join(sourceDir, entry.name), dest, { recursive: true })
       seeded++
     } catch {
       /* 单条失败不影响其余 */
     }
   }
-  return { seeded, skipped: false }
+  return { seeded }
 }
 
 /**
@@ -121,20 +119,28 @@ export const pipelineExtension = {
     id: 'com.lumii.pipeline',
     provides: ['pipeline'],
     apply(ctx) {
-      try {
-        const seeded = seedBundledPipelines(resolveBundledPipelinesDir(), resolvePipelinesDir())
-        if (seeded.seeded > 0) ctx.log.info(`已播种 ${seeded.seeded} 条内置流水线`)
-      } catch (err) {
-        ctx.log.warn(`播种内置流水线失败（已忽略）: ${err instanceof Error ? err.message : err}`)
-      }
-
-      // 老工作区的 .gitignore 补迁移（新建工作区由 buildDefaultGitignore 覆盖）
-      try {
-        if (migrateGitignoreForPipelines(path.dirname(resolvePipelinesDir()))) {
-          ctx.log.info('已为老工作区补上 pipelines/**/runs/ 忽略规则')
+      /**
+       * 播种 + 老工作区 .gitignore 迁移。
+       *
+       * **不能在 apply() 里做**：apply 跑在 workspace getter 挂接之前（实测 18:36:15
+       * 播种、18:36:19 才 setActiveWorkspaceDirGetter），`resolvePipelinesDir()` 会
+       * 回落到默认工作区——用户配了自定义 workspace 时，内置流水线会播到错目录，
+       * 列表里永远看不到。等到 `agent:runtime-ready`（核心初始化完之后）再做。
+       */
+      const seedAndMigrate = () => {
+        try {
+          const seeded = seedBundledPipelines(resolveBundledPipelinesDir(), resolvePipelinesDir())
+          if (seeded.seeded > 0) ctx.log.info(`已播种 ${seeded.seeded} 条内置流水线`)
+        } catch (err) {
+          ctx.log.warn(`播种内置流水线失败（已忽略）: ${err instanceof Error ? err.message : err}`)
         }
-      } catch {
-        /* 迁移失败不影响功能 */
+        try {
+          if (migrateGitignoreForPipelines(path.dirname(resolvePipelinesDir()))) {
+            ctx.log.info('已为老工作区补上 pipelines/**/runs/ 忽略规则')
+          }
+        } catch {
+          /* 迁移失败不影响功能 */
+        }
       }
 
       // service 的真实现由 bridge 提供（它才有 callTool / 录屏 / 视图回读）。
@@ -151,6 +157,8 @@ export const pipelineExtension = {
       const wire = (): boolean => {
         const bridge = ctx.get(S.agentRuntime)?.get()
         if (!bridge) return false
+        // 到这里 workspace getter 已挂接，播种/迁移才落对目录
+        seedAndMigrate()
         // 核心**注入**执行器（含权限闸门过的 callTool / 录屏 / 视图回读 / 工具注册口）。
         // 方向是核心→插件，插件从不 import 核心（wiring ⑪ 守的这条）。
         const ex = bridge.createPipelineExecutor()

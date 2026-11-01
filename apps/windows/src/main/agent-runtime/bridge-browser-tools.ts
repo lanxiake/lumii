@@ -88,28 +88,33 @@ function isBlankPageUrl(url: string): boolean {
 /**
  * 组装 `browser_eval` 的返回载荷。
  *
+ * 形状是**扁平**的：`result` 直接摊开脚本返回的对象，标量才放到 `result.value`。
+ * 这样模型（和流水线模板里的 `{{step.result.xxx}}`）读一步就能拿到目标字段，
+ * 不必先猜「脚本返回的是对象还是标量」。
+ *
  * `/act` 的 evaluate 分支本就回了 `url` / `targetId`（`agent.act.ts:315-320`），
- * 此前被 `pick` 丢掉、只把 `result` 递给模型——于是模型拿不到「我在哪个页面」这个
- * 唯一凭据。`about:blank` 上的 `X is not defined` 与目标页上的同名报错，处置方式
- * 完全不同，必须让模型自己能分辨。导出供测试直接断言（与 `browserErrorText` 同）。
+ * 与脚本字段同层透出——`about:blank` 上的 `X is not defined` 与目标页上的同名报错
+ * 处置方式完全不同，必须让模型自己能分辨。导出供测试直接断言（与 `browserErrorText` 同）。
+ *
+ * 内层 `ok` 不主动填：脚本自己返回的 `ok` 原样保留，没返回就没有。
+ * 替用户编 `ok:true` 会让脚本真的返回 `ok:false` 时看不出失败。
  */
-export function browserEvalPayload(body: unknown): {
-  result: unknown
-  url?: string
-  targetId?: string
-  note?: string
-} {
+export function browserEvalPayload(body: unknown): { result: Record<string, unknown> } {
   const b = body as { result?: unknown; url?: string; targetId?: string } | undefined
-  const url = typeof b?.url === 'string' ? b.url : undefined
+  const url = typeof b?.url === 'string' && b.url ? b.url : undefined
+  const isPlainObj = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === 'object' && !Array.isArray(v)
   return {
-    result: b?.result,
-    ...(url ? { url } : {}),
-    ...(b?.targetId ? { targetId: b.targetId } : {}),
-    ...(url && isBlankPageUrl(url)
-      ? {
-          note: '当前标签停在空白页，页面上没有任何脚本与变量——先用 browser_navigate 打开目标 URL 再求值。',
-        }
-      : {}),
+    result: {
+      ...(isPlainObj(b?.result) ? b.result : { ...(b?.result === undefined ? {} : { value: b.result }) }),
+      ...(url ? { url } : {}),
+      ...(b?.targetId ? { targetId: b.targetId } : {}),
+      ...(url && isBlankPageUrl(url)
+        ? {
+            note: '当前标签停在空白页，页面上没有任何脚本与变量——先用 browser_navigate 打开目标 URL 再求值。',
+          }
+        : {}),
+    },
   }
 }
 
@@ -153,7 +158,7 @@ export function registerBrowserTools(
   ): any =>
     async (_id: string, rawParams: unknown) => {
       try {
-        const p = rawParams as Record<string, unknown>
+        const p = (rawParams ?? {}) as Record<string, unknown>
         const result = await dispatchBrowserProxy(path, buildBody ? buildBody(p) : undefined)
         return jsonToolResult({ ok: true, result: pick ? pick(result) : result })
       } catch (err) {
@@ -234,10 +239,132 @@ export function registerBrowserTools(
     name: 'browser_screenshot', label: 'Browser Screenshot', category: 'channel' as const,
     description:
       'Take a screenshot of the current browser page and return the image path. ' +
+      'Pass fullPage=true to capture the whole document including below-the-fold content. ' +
       'For element refs (needed by browser_click / browser_type) use browser_snapshot instead.',
-    parameters: Type.Object({}),
+    parameters: Type.Object({
+      fullPage: Type.Optional(Type.Boolean({
+        description: '截整页（含折叠区）；复刻取证必须开',
+      })),
+    }),
     isReadOnly: true, needsPermission: false,
-    execute: wrapExecute('/screenshot'),
+    execute: wrapExecute('/screenshot', (p) => ({ fullPage: p.fullPage === true })),
+  }, ctx))
+
+  reg(createMtBotTool({
+    name: 'browser_set_device', label: 'Browser Set Device', category: 'channel' as const,
+    description:
+      'Emulate a device viewport. Pass a Playwright device name (e.g. "iPhone 14", "Pixel 7", ' +
+      '"Desktop Chrome") to set viewport + user agent, or pass width/height for a custom viewport ' +
+      'without changing the user agent. The device stays active until changed or the browser closes.',
+    parameters: Type.Object({
+      name: Type.Optional(Type.String({
+        description: 'Playwright 官方设备名，如 "iPhone 14" / "Pixel 7" / "Desktop Chrome"',
+      })),
+      width: Type.Optional(Type.Number({
+        description: '自定义视口宽（与 height 一起用，不改 UA）',
+      })),
+      height: Type.Optional(Type.Number({
+        description: '自定义视口高（与 width 一起用，不改 UA）',
+      })),
+    }),
+    isReadOnly: false, needsPermission: false,
+    execute: async (_id: string, rawParams: unknown) => {
+      const p = (rawParams ?? {}) as { name?: unknown; width?: unknown; height?: unknown }
+      const name = typeof p.name === 'string' ? p.name.trim() : ''
+      const width = Number(p.width)
+      const height = Number(p.height)
+      if (name) {
+        return wrapExecute('/set/device', () => ({ name }))(_id, {})
+      }
+      if (width > 0 && height > 0) {
+        return wrapExecute('/act', () => ({ kind: 'resize', width, height }))(_id, {})
+      }
+      return jsonToolResult({
+        ok: false,
+        error:
+          '要么给 name（Playwright 官方设备名），要么给 width + height（自定义视口）。' +
+          '可用设备名如 "iPhone 14" / "Pixel 7" / "Desktop Chrome"。',
+      })
+    },
+  }, ctx))
+
+  reg(createMtBotTool({
+    name: 'browser_requests', label: 'Browser Network Requests', category: 'channel' as const,
+    description:
+      'List network requests seen on the current page since it loaded (up to 500). ' +
+      'The filter is a URL substring, NOT a resource type — pass an extension or CDN path prefix ' +
+      '(e.g. ".woff2", "/_next/static") to narrow it. Pass clear=true to empty the buffer, which is ' +
+      'useful on heavy pages when you need to capture a later segment.',
+    parameters: Type.Object({
+      filter: Type.Optional(Type.String({ description: 'URL 子串过滤（不是类型过滤）' })),
+      clear: Type.Optional(Type.Boolean({ description: '抓完清空缓冲，为重页面分段准备' })),
+    }),
+    isReadOnly: true, needsPermission: false,
+    execute: async (_id: string, rawParams: unknown) => {
+      try {
+        const p = (rawParams ?? {}) as { filter?: unknown; clear?: unknown }
+        const query: Record<string, unknown> = {}
+        if (typeof p.filter === 'string' && p.filter.trim()) query.filter = p.filter.trim()
+        if (p.clear === true) query.clear = true
+        return jsonToolResult({
+          ok: true,
+          result: await dispatchRoute('/requests', { method: 'GET', query }),
+        })
+      } catch (err) {
+        return jsonToolResult({ ok: false, error: browserErrorText(err) })
+      }
+    },
+  }, ctx))
+
+  reg(createMtBotTool({
+    name: 'browser_response_body', label: 'Browser Response Body', category: 'channel' as const,
+    description:
+      'Fetch the response body of a network request matching a URL pattern (exact, substring, or ' +
+      'wildcard). Returns status, headers and body, so you can verify the real content-type before ' +
+      'saving an asset. maxChars defaults to 200000.',
+    parameters: Type.Object({
+      url: Type.String({ description: 'URL 模式：精确值、子串或含 * 的通配符' }),
+      maxChars: Type.Optional(Type.Number({ description: '截断长度，默认 200000' })),
+      timeoutMs: Type.Optional(Type.Number({ description: '等待该响应出现的超时，默认 20000' })),
+    }),
+    isReadOnly: true, needsPermission: false,
+    execute: wrapExecute('/response/body', (p) => ({
+      url: p.url,
+      ...(typeof p.maxChars === 'number' ? { maxChars: p.maxChars } : {}),
+      ...(typeof p.timeoutMs === 'number' ? { timeoutMs: p.timeoutMs } : {}),
+    })),
+  }, ctx))
+
+  reg(createMtBotTool({
+    name: 'browser_download', label: 'Browser Download', category: 'channel' as const,
+    description:
+      'Click an element by ref and save the triggered download to a local path. ' +
+      'Refs come from browser_snapshot. Downloads are saved where you say, not to a browser folder.',
+    parameters: Type.Object({
+      ref: Type.String({ description: 'Element ref from browser_snapshot, e.g. "e12"' }),
+      path: Type.String({ description: '本机落盘路径（含文件名）' }),
+      timeoutMs: Type.Optional(Type.Number({ description: '等待下载完成的超时，默认 120000' })),
+    }),
+    isReadOnly: false, needsPermission: true,
+    execute: async (_id: string, rawParams: unknown) => {
+      const p = (rawParams ?? {}) as { ref?: unknown; path?: unknown; timeoutMs?: unknown }
+      const ref = typeof p.ref === 'string' ? p.ref.trim() : ''
+      const out = typeof p.path === 'string' ? p.path.trim() : ''
+      if (!ref || !out) {
+        return jsonToolResult({
+          ok: false,
+          error:
+            '缺少 ' +
+            [!ref ? 'ref' : '', !out ? 'path' : ''].filter(Boolean).join(' / ') +
+            '：ref 先经 browser_snapshot 取得（点 trigger 元素即可触发下载），path 给本机落盘路径（含文件名）。',
+        })
+      }
+      return wrapExecute('/download', () => ({
+        ref,
+        path: out,
+        ...(typeof p.timeoutMs === 'number' ? { timeoutMs: p.timeoutMs } : {}),
+      }))(_id, {})
+    },
   }, ctx))
 
   reg(createMtBotTool({
