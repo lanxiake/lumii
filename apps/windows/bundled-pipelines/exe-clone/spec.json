@@ -31,18 +31,13 @@
     },
     {
       "id": "unpack",
-      "label": "L1 解包 + 逐条校验",
+      "label": "L1 解包 + 逐条校验（工具本身失败即该步失败，不额外断 expect）",
       "tool": "reverse_probe",
       "params": {
         "target": "__TARGET__",
         "extractTo": "projects/__SLUG__/unpacked"
       },
-      "holdMs": 500,
-      "expect": {
-        "fields": {
-          "ok": true
-        }
-      }
+      "holdMs": 500
     },
     {
       "id": "recon",

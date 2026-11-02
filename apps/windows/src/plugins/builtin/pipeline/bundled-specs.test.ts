@@ -62,6 +62,32 @@ describe('bundled-pipelines 全部 spec', () => {
    *
    * 占位符名是对**作者**说的，不是对**运行时的读者**说的。替换之后仍然要读得通。
    */
+  /**
+   * `expect.fields` 断言的必须是工具**真的会返回**的字段。
+   *
+   * 2026-11-02 真机踩到：`exe-clone` 的 unpack 步写了 `expect.fields.ok === true`，
+   * 而 `reverse_probe` 返回的是纯 `KEY=value` 文本，响应里没有 `ok`——
+   * 于是**解包完全成功（11 文件、EXTRACT_VERIFIED=11/11）却被判 ok:false**。
+   * assertExpect 用 JSON.stringify 比较 `undefined !== true`，报错信息里
+   * observed 是一大段正常输出，看着非常像「输出有问题」。
+   *
+   * 这里列出已知不返回 `ok` 的工具：给它们写 `expect.fields.ok` 必然是错的。
+   * 工具调用本身失败时 runner 已经会记 ok:false，不需要重复断言。
+   */
+  const TOOLS_WITHOUT_OK_FIELD = new Set(['reverse_probe'])
+
+  it.each(dirs)('%s 不对不返回 ok 的工具断言 expect.fields.ok', (id) => {
+    const raw = JSON.parse(readFileSync(join(BUNDLED, id, 'spec.json'), 'utf8'))
+    const offenders: string[] = []
+    for (const s of raw.steps ?? []) {
+      if (!TOOLS_WITHOUT_OK_FIELD.has(s.tool)) continue
+      if (s.expect?.fields && 'ok' in s.expect.fields) {
+        offenders.push(`${s.id} (${s.tool}) 断言了 ok`)
+      }
+    }
+    expect(offenders, offenders.join('; ')).toEqual([])
+  })
+
   it.each(dirs)('%s 的描述里不含占位符名（替换后读起来自相矛盾）', (id) => {
     const raw = JSON.parse(readFileSync(join(BUNDLED, id, 'spec.json'), 'utf8'))
     const desc: string = typeof raw.description === 'string' ? raw.description : ''
