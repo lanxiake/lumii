@@ -93,6 +93,10 @@ reverse_probe({ target: "C:/Program Files/某应用/App.exe" })   // 或直接�
 **`unpacked` 是一个静默坑**：按 asar 内的 offset 去读 unpacked 条目，会读到隔壁条目的字节，
 不报错、只是数据是错的。要读它们的实体文件，去 `app.asar.unpacked/<同相对路径>`。
 
+（工具内部另有一个只在 Electron 里出现的坑：Electron 把 `.asar` 注册成虚拟目录，
+`fs.openSync` 对 asar 文件本身抛 ENOENT、`statSync` 返回 0。工具已改用 `original-fs` 绕过，
+用 `bash` 手写脚本时要注意同样的问题。）
+
 **asar 解出来之后**：`out/` 或 `dist/` 下的 renderer 就是一个能跑的前端。把它当**证据源**
 （真实组件结构、真实文案、真实样式）去重建可维护的源码；**直接复用解出的 bundle 等于重打包，
 不是复刻**（见设计 `2026-11-02-P3-EXE与APP复刻设计.md` §5）。

@@ -26,7 +26,28 @@
  */
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
+import { createRequire } from 'node:module'
 import * as path from 'node:path'
+
+/**
+ * 读 asar 必须用 `original-fs`，不能用 `node:fs`。
+ *
+ * Electron 把 `.asar` 注册成一个**虚拟目录**塞进 fs：
+ * - `existsSync` 返回 true、
+ * - `statSync` 返回 size **0**、
+ * - `openSync` / `readFileSync` 对 asar 文件本身抛 `ENOENT, not found in <asar>`。
+ *
+ * 真机就是这样：脚本在纯 Node 里跑得好好的，一进 Electron 就 `asar 解析失败：ENOENT`。
+ * `original-fs` 是 Electron 提供的未打补丁版本，读的是真实字节。
+ * 纯 Node（单测环境）没有这个模块，`require` 失败就退回 `node:fs`——两边都对。
+ */
+const realFs: typeof fs = (() => {
+  try {
+    return createRequire(import.meta.url)('original-fs') as typeof fs
+  } catch {
+    return fs
+  }
+})()
 
 export interface AsarEntry {
   /** asar 内的绝对路径，形如 `/out/main/index.js` */
@@ -144,7 +165,7 @@ export function verifyAsarBytes(
       let cursor = header.dataStart + e.offset + read
       while (remaining > 0) {
         const n = Math.min(remaining, buf.length)
-        const got = fs.readSync(fd, buf, 0, n, cursor)
+        const got = realFs.readSync(fd, buf, 0, n, cursor)
         if (got <= 0) {
           ok = false
           break
@@ -183,7 +204,7 @@ export interface AsarProbeFailure {
 /** Electron 应用里 asar 的标准位置；也接受直接传 `.asar` 路径 */
 export function findElectronAsar(target: string): string | null {
   const abs = path.resolve(target)
-  const stat = fs.existsSync(abs) ? fs.statSync(abs) : null
+  const stat = realFs.existsSync(abs) ? realFs.statSync(abs) : null
   const candidates: string[] = []
   if (stat?.isDirectory()) {
     candidates.push(path.join(abs, 'resources', 'app.asar'), path.join(abs, 'app.asar'))
@@ -197,7 +218,7 @@ export function findElectronAsar(target: string): string | null {
       path.join(dir, '..', 'resources', 'app.asar'),
     )
   }
-  return candidates.find((c) => fs.existsSync(c)) ?? null
+  return candidates.find((c) => realFs.existsSync(c)) ?? null
 }
 
 function readJsonEntry(fd: number, header: AsarHeader, want: string): unknown {
@@ -205,7 +226,7 @@ function readJsonEntry(fd: number, header: AsarHeader, want: string): unknown {
   if (!e || e.unpacked) return null
   if (e.size > 4 * 1024 * 1024) return null
   const buf = Buffer.allocUnsafe(e.size)
-  fs.readSync(fd, buf, 0, e.size, header.dataStart + e.offset)
+  realFs.readSync(fd, buf, 0, e.size, header.dataStart + e.offset)
   try {
     return JSON.parse(buf.toString('utf8'))
   } catch {
@@ -227,12 +248,12 @@ export function probeAsarFile(
 ): AsarProbeResult | AsarProbeFailure {
   try {
     const abs = path.resolve(filePath)
-    if (!fs.existsSync(abs)) return { ok: false, error: `文件不存在：${abs}` }
-    const fd = fs.openSync(abs, 'r')
+    if (!realFs.existsSync(abs)) return { ok: false, error: `文件不存在：${abs}` }
+    const fd = realFs.openSync(abs, 'r')
     try {
-      const fileSize = fs.fstatSync(fd).size
+      const fileSize = realFs.fstatSync(fd).size
       const head = Buffer.allocUnsafe(Math.min(fileSize, 64 * 1024 * 1024))
-      fs.readSync(fd, head, 0, head.length, 0)
+      realFs.readSync(fd, head, 0, head.length, 0)
       const header = readAsarHeader(head)
       const lines: string[] = []
       const push = (k: string, v: unknown): void => {
@@ -249,7 +270,7 @@ export function probeAsarFile(
       if (unpackedEntries.length > 0) {
         push(
           'UNPACKED_DIR',
-          fs.existsSync(`${abs}.unpacked`) ? `${abs}.unpacked` : 'MISSING（条目声明了 unpacked 但目录不存在）',
+          realFs.existsSync(`${abs}.unpacked`) ? `${abs}.unpacked` : 'MISSING（条目声明了 unpacked 但目录不存在）',
         )
       }
 
@@ -301,7 +322,7 @@ export function probeAsarFile(
       )
       return { ok: true, text: lines.join('\n') }
     } finally {
-      fs.closeSync(fd)
+      realFs.closeSync(fd)
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
