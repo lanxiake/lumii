@@ -261,8 +261,14 @@ export interface BridgeAgentInstanceEventDeps {
   calibrateSessionCharsPerToken: (sessionKey: string, modelId: string, promptTokens: number) => void
   /** 压缩后清除提供商 token 缓存 */
   clearSessionProviderInputTokens: (sessionKey: string) => void
-  /** 与 bridge.currentToolExecutorInstanceId 同步（tool:start / tool:end） */
-  setCurrentToolExecutorInstanceId: (id: string | undefined) => void
+  /**
+   * 与 bridge.currentToolExecutorInstanceId 同步（tool:start / tool:end）。
+   *
+   * `owner` 只对清空生效：**只有当前值确实属于本实例时才清**。子 Agent 的内层工具结束时
+   * 无条件置空，会把外层 `pipeline_run` 的归属一起抹掉——流水线 agent 节点报
+   * 「无法解析发起流水线的 Agent 实例」。栈本身由 `toolLifecycle` 维护，这里只是同步。
+   */
+  setCurrentToolExecutorInstanceId: (id: string | undefined, owner?: string) => void
   /** Agent 显示名称（用于子 Agent 消息持久化 sourceAgent.label） */
   agentName?: string
   /** 是否为子 Agent（子 Agent 消息需持久化 sourceAgent 信息） */
@@ -749,7 +755,7 @@ export function createAgentInstanceRuntimeEventHandler(
       }
     }
     if (event.type === 'tool:end') {
-      setCurrentToolExecutorInstanceId(undefined)
+      setCurrentToolExecutorInstanceId(undefined, instanceId)
       toolCallInstanceMap.delete(event.toolCallId)
       const state = instanceStates.get(instanceId)
       const argMap = state?.toolCallArgs

@@ -27,6 +27,24 @@ import type { PipelineService } from './service-api'
 
 const BUNDLED_DIR_NAME = 'bundled-pipelines'
 
+/**
+ * 递归复制目录（**不能用 `fs.cpSync`**）。
+ *
+ * Electron 36.9.5（Node 22.19）里源路径含中文时，`cpSync` 会在内部抛 `length_error`，
+ * 而 Node 是 `-fno-exceptions` 编的 —— 整个主进程直接 abort，JS 层连 catch 的机会都没有。
+ * 2026-11-02 在 `capability_export` 上连崩 4 次才定位；这里同样吃中文路径（pipelines 目录
+ * 跟 skills 一样挂在用户可自定义的工作区下）。
+ */
+function copyDirRecursive(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true })
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name)
+    const to = path.join(dest, entry.name)
+    if (entry.isDirectory()) copyDirRecursive(from, to)
+    else fs.copyFileSync(from, to)
+  }
+}
+
 /** 解析 `bundled-pipelines/` 源目录（仿 bundled-skills-seeder 的三段回退） */
 export function resolveBundledPipelinesDir(): string | undefined {
   const override = process.env.LUMII_BUNDLED_PIPELINES_DIR?.trim()
@@ -69,7 +87,7 @@ export function seedBundledPipelines(
     const dest = path.join(pipelinesDir, entry.name)
     if (fs.existsSync(dest)) continue
     try {
-      fs.cpSync(path.join(sourceDir, entry.name), dest, { recursive: true })
+      copyDirRecursive(path.join(sourceDir, entry.name), dest)
       seeded++
     } catch {
       /* 单条失败不影响其余 */

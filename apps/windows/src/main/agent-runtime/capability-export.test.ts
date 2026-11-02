@@ -126,3 +126,11 @@ describe('exportCapability — mcp', () => {
     if (!res.ok) expect(res.error).toContain('alpha')
   })
 })
+
+describe('Electron 36.9.5 的 cpSync 会在中文源路径上 abort 主进程', () => {
+  it('导出实现不得使用 fs.cpSync（单测跑在纯 Node 上，永远复现不出崩溃）', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'capability-export.ts'), 'utf8')
+    expect(src).not.toContain('cpSync(')
+  })
+})
+

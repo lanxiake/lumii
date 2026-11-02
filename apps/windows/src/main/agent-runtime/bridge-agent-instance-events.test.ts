@@ -165,7 +165,10 @@ describe("Wiki 摄入钩子接线", () => {
 });
 
 /** 事件处理器测试用的最小依赖装配（落库类 describe 共用） */
-function buildHandler(conversationRepo: Record<string, unknown>) {
+function buildHandler(
+  conversationRepo: Record<string, unknown>,
+  overrides: { setCurrentToolExecutorInstanceId?: (id: string | undefined, owner?: string) => void } = {},
+) {
   const ctx = createRunContext("session", "instance", "session");
   const instanceStates = new InstanceStateStore();
   const state = createInstanceState(ctx, {
@@ -205,7 +208,7 @@ function buildHandler(conversationRepo: Record<string, unknown>) {
     setSessionProviderInputTokens: vi.fn(),
     calibrateSessionCharsPerToken: vi.fn(),
     clearSessionProviderInputTokens: vi.fn(),
-    setCurrentToolExecutorInstanceId: vi.fn(),
+    setCurrentToolExecutorInstanceId: overrides.setCurrentToolExecutorInstanceId ?? vi.fn(),
     getCwd: () => os.tmpdir(),
   });
   return { handler, state, ctx, forwardIpcEvent };
@@ -1183,5 +1186,34 @@ describe("插话分段（steer:delivered）", () => {
 
     expect(deleteMessage).toHaveBeenCalledWith("message-2", "conversation-1");
     expect(updateMessageContent).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("工具执行归属（tool:start / tool:end 与实例栈同步）", () => {
+  it("tool:end 把实例 id 作为 owner 传下去（否则子 Agent 内层工具会抹掉外层 pipeline_run 的归属）", () => {
+    const setCurrentToolExecutorInstanceId = vi.fn();
+    const { handler } = buildHandler(
+      {
+        updateMessageContent: vi.fn(),
+        deleteMessage: vi.fn(),
+        saveMessage: vi.fn(),
+        getConversation: vi.fn().mockReturnValue({ id: "conversation-1" }),
+        finalizeStreamingMessagesForConversation: vi.fn(),
+      },
+      { setCurrentToolExecutorInstanceId },
+    );
+
+    handler({ type: "tool:start", toolCallId: "t1", toolName: "bash", args: {} } as never);
+    handler({
+      type: "tool:end",
+      toolCallId: "t1",
+      toolName: "bash",
+      isError: false,
+      result: {},
+    } as never);
+
+    expect(setCurrentToolExecutorInstanceId).toHaveBeenNthCalledWith(1, "instance");
+    // 第二个参数是 owner：仓库里由栈实现决定「只摘自己那条」，事件层必须把身份交出去
+    expect(setCurrentToolExecutorInstanceId).toHaveBeenNthCalledWith(2, undefined, "instance");
   });
 });

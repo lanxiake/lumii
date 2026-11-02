@@ -816,8 +816,18 @@ export class BridgeInstanceFactory {
       calibrateSessionCharsPerToken: (k, modelId, tokens) =>
         this.deps.calibrateSessionCharsPerToken(k, modelId, tokens),
       clearSessionProviderInputTokens: (k) => this.deps.clearSessionProviderInputTokens(k),
-      setCurrentToolExecutorInstanceId: (id) => {
-        this.deps.currentToolExecutorInstanceId.value = id
+      setCurrentToolExecutorInstanceId: (id, owner) => {
+        // **两条通路都写同一个栈**：`toolLifecycle`（真实执行前后）与实例事件（tool:start/end）。
+        // 各自 push 一次、pop 一次，靠 `lastIndexOf` 只摘自己那条，因此重复计数不影响「栈顶是谁」。
+        // 只清不清归属的老写法会让子 Agent 的内层工具结束时抹掉外层 `pipeline_run` 的归属
+        // （2026-11-02 真机：web-clone 的 build 节点报「无法解析发起流水线的 Agent 实例」）。
+        if (id) this.toolExecutorStack.push(id)
+        else if (owner) {
+          const i = this.toolExecutorStack.lastIndexOf(owner)
+          if (i >= 0) this.toolExecutorStack.splice(i, 1)
+        }
+        this.deps.currentToolExecutorInstanceId.value =
+          this.toolExecutorStack[this.toolExecutorStack.length - 1]
       },
       getCwd: this.deps.config.getCwd,
       onConversationEnd: this.deps.config.onConversationEnd,

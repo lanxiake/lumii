@@ -48,6 +48,24 @@ function isInside(parent: string, child: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }
 
+/**
+ * 递归复制目录。
+ *
+ * **不能用 `fs.cpSync`**：Electron 36.9.5（Node 22.19）里源路径含中文时它会在内部
+ * 抛 `length_error`（`-fno-exceptions` 下直接 abort 主进程，且没有任何 JS 栈可捕）。
+ * 2026-11-02 真机验收时连崩 4 次才定位到——单测跑在系统 Node 上，永远看不见。
+ * 与 `bundled-skills-seeder.copyDirSync` 同一形态。
+ */
+function copyDirSync(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true })
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name)
+    const to = path.join(dest, entry.name)
+    if (entry.isDirectory()) copyDirSync(from, to)
+    else fs.copyFileSync(from, to)
+  }
+}
+
 /** 技能 id → 目录：`skills/<id>/SKILL.md`，id 可含 `/` 表示分类 */
 function resolveSkillDir(workspaceDir: string, id: string): string | null {
   const segments = id.replace(/\\/g, '/').split('/').filter(Boolean)
@@ -160,7 +178,7 @@ export function exportCapability(opts: ExportCapabilityOptions): ExportCapabilit
         }
       }
       fs.mkdirSync(path.dirname(dest), { recursive: true })
-      fs.cpSync(skillDir, dest, { recursive: true })
+      copyDirSync(skillDir, dest)
       files.push(...listFiles(dest))
       fs.writeFileSync(path.join(dest, 'README.md'), skillReadme(opts.name, opts.source.id), 'utf8')
       files.push('README.md')
