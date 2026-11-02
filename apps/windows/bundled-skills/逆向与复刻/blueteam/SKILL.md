@@ -13,6 +13,17 @@ activation_scope: on_demand
 - 只是想理解代码——用 `reverse`。
 - 想要「绕过检测的方法」——不做。这条能力的方向是**让检测生效**，不是让绕过成立。
 
+## 交给 `security` Agent 跑（有的话）
+
+如果你的运行时里存在 `security`（灵栖安全）这个 Agent，红队与蓝队整条链都交给它：
+
+```
+spawn_agent({ agentType: "security", mode: "sync", prompt: "<Findings 路径与目标>" })
+```
+
+它按需加载、不进团队列表（避免被自动路由），所以只能显式用这个 id 调用。
+没有它时按本文件做，结论一样有效。
+
 ## 输入是什么
 
 三种都行，**不要求上游是红队**：

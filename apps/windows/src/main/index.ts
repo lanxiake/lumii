@@ -534,6 +534,13 @@ async function initAgentRuntime(): Promise<void> {
       // 灵栖/Lumii：用户自建 Agent + 常驻专家团队（注入系统提示词多 Agent 段，同时进入 Router 候选）。
       // 常驻专家供主助手经 spawn_agent 委托执行（子实例记忆归属 = 其 definitionId）。
       // 不含 code-dev：ACP 会话型，交接走「转交」流程（见 docs/plans/专项Agent/05-队长制-主助手接团队.md）。
+      //
+      // **`security` 也不在这个白名单里，是有意的**：它要「按需加载」——进了这个列表就等于
+      // 每轮都在主助手眼前、还会进 Router 候选，日常对话可能被路由到一个只会做安全验证的 Agent。
+      // 代价是主助手「看不见它」，只能靠 `spawn_agent({agentType:"security"})` 显式调用；
+      // 那个路径是通的（真机验过：解析到「灵栖安全」且红线生效）。发现路径写在
+      // `bundled-skills/逆向与复刻/{redteam,blueteam}/SKILL.md` 的「交给 security Agent」一节——
+      // 技能本身就是按需加载的入口。**别为了「让它出现在团队里」把它加进这个数组**。
       const delegatableSystemAgentIds = ['chronicler', 'info-curator']
       const systemExperts = delegatableSystemAgentIds
         .map((id) => findBuiltInAgent(id))

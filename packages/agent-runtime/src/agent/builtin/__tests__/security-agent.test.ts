@@ -86,4 +86,17 @@ describe("其它内置 Agent 不受影响", () => {
     ).map((d) => d.id);
     expect(resident).toEqual(["chronicler", "info-curator"]);
   });
+
+  it("**security 不能进团队列表**：它按需加载，发现路径在技能文档里", () => {
+    // 团队列表的实现在 apps/windows/src/main/index.ts 的 delegatableSystemAgentIds，
+    // 这里守不住那个数组本身，但守得住「它不该被当成常驻专家」这个结论——
+    // 想把它加进去的人得先来改这条测试，也就会先看到这段理由。
+    expect(SECURITY?.id).toBe("security");
+    expect(SECURITY?.selectable).toBeFalsy();
+    // 常驻专家的判据是 selectable（见上一条）；security 明确不在其中
+    const residentIds = BUILTIN_AGENT_DEFINITIONS.filter(
+      (d) => d.selectable && d.id !== "assistant" && d.id !== "code-dev",
+    ).map((d) => d.id);
+    expect(residentIds).not.toContain("security");
+  });
 });
