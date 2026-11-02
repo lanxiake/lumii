@@ -88,6 +88,8 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
     url?: string
     meta?: { pages?: number; width?: number; height?: number }
     failed?: boolean
+    /** 主进程明确说磁盘上没了（TTL 清盘 / 半成品） */
+    missing?: boolean
   } | null>(null)
 
   useEffect(() => {
@@ -96,7 +98,12 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
     setThumb(null) // 新版本别继续挂旧图
     void requestArtifactThumb(artifact.path, artifact.timestamp).then((result) => {
       if (cancelled) return
-      setThumb(result.ok ? { url: result.url, meta: result.meta } : { failed: true })
+      if (result.ok) {
+        setThumb({ url: result.url, meta: result.meta })
+        return
+      }
+      const missing = typeof result.error === 'string' && result.error.includes('文件不存在')
+      setThumb({ failed: true, missing })
     })
     return () => {
       cancelled = true
@@ -106,23 +113,30 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
 
   // 小图（或尺寸未知）先直读原图，缩略图回来再替换 —— 避免占位闪一下；
   // 已知的大图先占位，别让 rail 去解码 4096px。缩略失败一律回退原图。
+  // 已确认丢失的不回退原图（原图 IPC 也会 404，只会再刷一次错）。
   const mayLoadOriginal = isImage && (!artifact.meta || !needsImageThumb(artifact))
   const fallbackUrl =
-    isImage && (mayLoadOriginal || thumb?.failed) ? mediaUrl(absolutePath) : undefined
+    isImage && !thumb?.missing && (mayLoadOriginal || thumb?.failed)
+      ? mediaUrl(absolutePath)
+      : undefined
   const thumbSrc = thumb?.url ?? fallbackUrl
+  const missing = Boolean(thumb?.missing)
 
   return (
     <button
       type="button"
-      className={clsx(styles.card, selected && styles.cardSelected)}
+      className={clsx(styles.card, selected && styles.cardSelected, missing && styles.cardMissing)}
       onClick={(event) => {
         // 修饰键只在这里翻译成意图；多选的合并规则在 rail（selection.ts）
         if (event.shiftKey) onSelect(artifact.path, 'range')
         else if (event.ctrlKey || event.metaKey) onSelect(artifact.path, 'add')
         else onSelect(artifact.path)
       }}
-      onDoubleClick={() => onOpenWindow?.(absolutePath, name)}
-      title={artifact.path}
+      onDoubleClick={() => {
+        if (missing) return
+        onOpenWindow?.(absolutePath, name)
+      }}
+      title={missing ? `${artifact.path}（文件已不在磁盘）` : artifact.path}
       aria-pressed={selected}
     >
       <span className={styles.thumb}>
@@ -131,7 +145,12 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
         ) : (
           <span className={styles.thumbExt}>{extLabel(artifact.path)}</span>
         )}
-        {artifact.kind === 'video' && <span className={styles.playBadge}>▶</span>}
+        {artifact.kind === 'video' && !missing && <span className={styles.playBadge}>▶</span>}
+        {missing && (
+          <span className={styles.missingBadge} aria-label="文件已丢失">
+            丢失
+          </span>
+        )}
         <span
           className={clsx(styles.statusDot, styles[`status--${artifact.status}`])}
           aria-label={STATUS_LABEL[artifact.status]}
@@ -140,7 +159,9 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
         </span>
       </span>
       <span className={styles.cardName}>{name}</span>
-      <span className={styles.cardMeta}>{metaLabelOf(artifact, thumb?.meta)}</span>
+      <span className={styles.cardMeta}>
+        {missing ? '文件已不在磁盘' : metaLabelOf(artifact, thumb?.meta)}
+      </span>
     </button>
   )
 }

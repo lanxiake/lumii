@@ -469,6 +469,28 @@
   line-height: 1;
 }
 
+/** TTL 清盘 / 半成品：卡片仍在台账，但磁盘上已经没了 */
+.cardMissing {
+  opacity: 0.72;
+}
+
+.cardMissing .thumb {
+  filter: grayscale(0.35);
+}
+
+.missingBadge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgb(0 0 0 / 65%);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 .statusDot {
   position: absolute;
   top: 4px;

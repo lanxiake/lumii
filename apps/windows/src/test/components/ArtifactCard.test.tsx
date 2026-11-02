@@ -193,4 +193,21 @@ describe('ArtifactCard 缩略图', () => {
     await waitFor(() => expect(screen.getByText('MP4')).toBeInTheDocument())
     expect(container.querySelector('img')).toBeNull()
   })
+
+  it('缩略图报文件不存在时标记丢失，并禁止双开独立窗', async () => {
+    mockThumb(() => Promise.resolve({ ok: false, error: '文件不存在' }))
+    const onOpenWindow = vi.fn()
+    render(
+      <ArtifactCard
+        artifact={makeArtifact({ path: 'outputs/video-downloads/web/gone.mp4', kind: 'video' })}
+        absolutePath="/ws/outputs/video-downloads/web/gone.mp4"
+        onSelect={vi.fn()}
+        onOpenWindow={onOpenWindow}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('丢失')).toBeInTheDocument())
+    expect(screen.getByText('文件已不在磁盘')).toBeInTheDocument()
+    screen.getByRole('button').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    expect(onOpenWindow).not.toHaveBeenCalled()
+  })
 })
