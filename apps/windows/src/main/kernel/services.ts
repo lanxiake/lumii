@@ -79,4 +79,9 @@ export const S = {
   screenRecord: createServiceKey<ScreenRecordService>('screenRecord'),
   /** 确定性流水线（插件提供；停用后 `pipeline_*` 工具不注册、IPC 表为 no-op） */
   pipeline: createServiceKey<import('../../plugins/builtin/pipeline/service-api').PipelineService>('pipeline'),
+  /**
+   * 逆向工具链（Ghidra 等）。插件停用后这里没有值：技能据此走「缺工具」的降级路径，
+   * 而不是拿着一个「工具还在、只是跑不动」的假象。
+   */
+  reverse: createServiceKey<import('../../plugins/builtin/reverse/service-api').ReverseService>('reverse'),
 } as const

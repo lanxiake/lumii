@@ -2,7 +2,7 @@
 /**
  * 自检：Ghidra 探针的输出形态与「找不到 Ghidra」的降级行为。
  *
- * 跑法：`node scripts/ghidra/reverse-probe.selfcheck.mjs`
+ * 跑法：`node assets/reverse/scripts/ghidra/reverse-probe.selfcheck.mjs`
  *
  * 为什么需要它：这个脚本的失败模式全是**静默的**——
  * - 能力标签匹配写松了（`connect$` 把 `SCardDisconnect` 归成 network），输出看着正常、结论全错；

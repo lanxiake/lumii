@@ -40,7 +40,7 @@ metadata: { "mtbot": { "emoji": "🔬" } }
 | 目的 | 工具 | 注意 |
 |---|---|---|
 | 看文件类型/大小 | `bash`（`file` / `du` / `ls -l`） | Windows 上没有 `file` 就用文件头字节 |
-| **反编译二进制** | `bash` → `node scripts/ghidra/reverse-probe.mjs <file>` | 装了 Ghidra 就用（PE/ELF 皆可）；给出函数数、能力分类导入、可疑字符串。没装就按参考降级 |
+| **反编译二进制** | `reverse_probe`（扩展「逆向工具链」提供） | 有就用（PE/ELF 皆可）：函数数、能力分类导入、可疑字符串、可选反编译。**没有就按参考降级**，别去技能目录里找脚本 |
 | 搜字符串 | `grep` | 先搜报错文案、URL、密钥前缀，最快定位 |
 | 读源码/反编译产物 | `file_read` | 大文件用 offset/limit 分段 |
 | 跑命令观察行为 | `bash` | 沙箱外执行，跑来历不明的二进制要谨慎 |

@@ -93,6 +93,7 @@ import type { AgentMessage, AgentTool, StreamFn } from '@earendil-works/pi-agent
 import { matchByQuery, toolSearchToolConfig } from '@mtbot/agent-runtime'
 import { assembleTools } from '@mtbot/agent-runtime'
 import { VIEW_STATE_SCRIPT } from '../app-ui-control/controller'
+import { resolveNodeExec } from '../runtime-env'
 import { getNarrateService, getScreenRecordService } from '../kernel/screen-record-contract'
 
 /** 流水线调工具时借用的一份「定义」——只为过权限闸门，不是真的 Agent */
@@ -4052,6 +4053,14 @@ export class AgentRuntimeBridge {
     knownAgents: () => ReadonlySet<string>
     needsPermission: (tool: string) => boolean
     registerTool: (config: { name: string }) => () => void
+    /**
+     * 跑 JS 子进程用的 node 解析器。
+     *
+     * 插件需要它却没有别的来源：Electron 里 `process.execPath` 是 `electron.exe`，
+     * 直接 spawn 会起第二个应用（被单实例锁挡住后**挂住不返回**，真机实测）。
+     * 插件不许 import 主进程（wiring ⑪），所以从这里注入。
+     */
+    resolveNode: () => { command: string; env: Record<string, string> }
     /** 进度/结束事件推给渲染层（插件不直连 ipcMain，走这里） */
     emitProgress: (e: { runId: string; i: number; total: number; stepId: string; label?: string; status: string }) => void
     emitFinished: (e: { runId: string; ok: boolean; failedAt?: unknown }) => void
@@ -4068,6 +4077,7 @@ export class AgentRuntimeBridge {
       needsPermission: (tool) => this.toolRegistry.get(tool)?.needsPermission === true,
       emitProgress: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:progress', ...e } as never),
       emitFinished: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:finished', ...e } as never),
+      resolveNode: () => resolveNodeExec(),
       registerTool: (config) => {
         if (!this.toolContext) return () => {}
         this.toolRegistry.register(

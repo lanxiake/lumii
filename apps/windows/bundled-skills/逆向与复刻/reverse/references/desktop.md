@@ -85,21 +85,15 @@ strings -n 6 bin | head -200
 - 签名与公证（notarization）**未核验就写未核验**，不要给「已签名」这种结论。
 - Universal binary（`CA FE BA BE`）先按架构拆开再分析。
 
-## 6. Ghidra 反编译（**装了就用，比停在 strings 强得多**）
+## 6. Ghidra 反编译（**有 `reverse_probe` 工具就用，比停在 strings 强得多**）
 
-本机装了 Ghidra 时，`scripts/ghidra/reverse-probe.mjs` 把 headless 分析封成一条命令：
+本机装了 Ghidra、且「逆向工具链」扩展开着时，有一个 `reverse_probe` 工具：
 
-```bash
-node scripts/ghidra/reverse-probe.mjs <target.exe> [--decompile N] [--out probe.txt]
+```
+reverse_probe({ target: "C:/path/app.exe", decompile: 3 })   // decompile 可省，默认 0
 ```
 
-**一次调用跑完，别分段轮询**。`notepad.exe`（534 KB）约 3 分钟，`certutil.exe`（1.9 MB）约 4 分钟；
-脚本启动时会把预估时间打到 stderr。**同步等它返回**——`nohup … &` 再 `sleep` 轮询会让
-Agent 以为没进展而重跑一遍，真机上就这么白烧了 4 分钟（两次输出逐字节相同，纯浪费）。
-
-`--out FILE` 写文件（推荐：大输出直接 `file_read` 分段读，不占上下文）；不写就打到 stdout。
-
-输出是**稳定的 `KEY=value` 行**，直接可抄进 `evidence.md`：
+输出是**稳定的 `KEY=value` 文本**，直接可抄进 `evidence.md`：
 
 | 段 | 内容 | 用途 |
 |---|---|---|
@@ -108,28 +102,27 @@ Agent 以为没进展而重跑一遍，真机上就这么白烧了 4 分钟（�
 | `CAPABILITY.<类>=N` + `.SAMPLE` | 按能力归类的导入（network / process / registry / crypto / file / debugger / inject / service / clipboard / screenshot / keyboard） | **一句话回答「这程序会做什么」** |
 | `--- IMPORTS_ALL ---` | 全量导入表 | 需要精确核对时用 |
 | `--- STRINGS_OF_INTEREST ---` | URL / 路径 / 凭据关键词 / 报错文案 | 定位外部服务与配置键 |
-| `--decompile N` | 最像业务入口的 N 个函数伪代码 | 需要讲清内部流程时用 |
+| `decompile: N` | 最像业务入口的 N 个函数伪代码 | 需要讲清内部流程时用 |
 
-**找到 Ghidra 的顺序**：`--ghidra <目录>` → 环境变量 `LUMII_GHIDRA_DIR` → 常见安装位置
-（`~/tools/ghidra*`、`C:/myself/tools/ghidra*`、`/opt/ghidra` 等）。都没有就按 §7 降级。
+**没有 `reverse_probe` 时**：说明扩展没开或本机没装 Ghidra。调一次它会如实告诉你缺哪个，
+然后按 §7 降级（Triage + strings + 导入表）。**不要**去 `skills/` 里找脚本自己跑——
+脚本在插件资产里，不在技能目录。
+
+**一次调用跑完，别分段轮询**。`notepad.exe`（534 KB）约 3 分钟，`certutil.exe`（1.9 MB）约 4 分钟。
+**同步等它返回**——`nohup … &` 再 `sleep` 轮询会让 Agent 以为没进展而重跑一遍，
+真机上就这么白烧了 4 分钟（两次输出逐字节相同，纯浪费）。
 
 两条经实测校准的口径（**别自己另发明**）：
 
-1. **能力标签是「导入了什么」，不是「它干了什么」**。`VirtualAlloc` 在绝大多数程序里是正常内存管理。
-   写结论时要带保留：「导入了 CreateRemoteThread 与 WriteProcessMemory（注入能力），是否真的注入需动态验证」。
-2. **`--decompile` 取的是「最像业务入口」的函数**，已排除 CRT 样板（`__security_check_cookie` 这类
+1. **能力标签是「导入了什么」，不是「它干了什么」**。真机实测时 `VirtualAlloc` 被归进 `inject=1`，
+   但反查 `CreateRemoteThread` / `WriteProcessMemory` 命中数都是 0——所以「注入了」这个结论不成立。
+   做法：看到可疑标签，**回去在 `IMPORTS_ALL` 段核同族导入**，核不上就只写「导入了 X」。
+2. **`decompile` 取的是「最像业务入口」的函数**，已排除 CRT 样板（`__security_check_cookie` 这类
    在真机上引用数最高，不排除就会只看到三个样板函数）。伪代码里的 `FUN_xxx` 是 Ghidra 未识别的名字，
    如实照抄，**不要自己起名**。
 
 耗时参考：`notepad.exe`（534 KB）完整分析约 3 分钟；`certutil.exe`（1.9 MB）约 4 分钟。
-**先跑不带 `--decompile` 的**（多数问题在这一步就有答案），需要流程细节再加。
-
-**标签只是线索，结论要自己核**。真机实测时 `VirtualAlloc` 被归进 `inject=1`，
-但反查 `CreateRemoteThread` / `WriteProcessMemory` 命中数都是 0——所以「注入了」这个结论不成立。
-做法：看到可疑标签，**回去在 `IMPORTS_ALL` 段核同族导入**，核不上就只写「导入了 X」。
-
-自检：`node scripts/ghidra/reverse-probe.selfcheck.mjs`
-（设了 `LUMII_GHIDRA_DIR` 会额外跑一次真实分析，约 3 分钟；不设只验降级与源码形态）。
+**先跑 `decompile: 0`**（多数问题在这一步就有答案），需要流程细节再加大。
 
 ## 7. 工具缺席时
 

@@ -15,6 +15,7 @@ import { channelQbotExtension } from './builtin/channel-qbot'
 import { pcwechatExtension } from './builtin/pcwechat'
 import { dashboardFeedExtension } from './builtin/dashboard-feed'
 import { pipelineExtension } from './builtin/pipeline'
+import { reverseExtension } from './builtin/reverse'
 import { filePreviewExtension } from './builtin/file-preview'
 import { usageExtension } from './builtin/usage'
 import { vcsExtension } from './builtin/vcs'
@@ -67,6 +68,7 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   { ...channelContinuityExtension, hot: true },
   { ...autonomousExtension, hot: true },
   { ...pipelineExtension, hot: true },
+  { ...reverseExtension, hot: true },
 ]
 
 /** 可由设置页即时启停的内置插件（由上面的 `hot` 标记派生，不再手工维护第二份清单）。 */
