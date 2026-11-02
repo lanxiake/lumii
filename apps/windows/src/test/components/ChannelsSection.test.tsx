@@ -129,7 +129,14 @@ describe('ChannelsSection', () => {
     expect(screen.getByRole('button', { name: '配置' })).toBeInTheDocument()
   })
 
-  it('MCP 没配时卡片不给安装按钮，而是把人送到「设置 › MCP 服务」', async () => {
+  /**
+   * 2026-11-02 修订：本机微信已从外部 MCP 迁成内置扩展 `com.lumii.pcwechat`。
+   *
+   * 旧用例找的是「去配置 MCP」→ `{view:'mcp'}`，那是 MCP 与插件解耦时期的口径。
+   * 现在缺配置只有一种解法：去**插件**里打开它，所以按钮与跳转目标都变了。
+   * 不变的那条仍然成立：**卡片上不给安装入口**——安装是插件的事，不是渠道卡片的事。
+   */
+  it('本机微信没就绪时卡片不给安装按钮，而是把人送到「设置 › 插件」', async () => {
     mockChannelServices({
       mcpStatus: {
         state: 'not-configured',
@@ -143,12 +150,12 @@ describe('ChannelsSection', () => {
     window.addEventListener('mtbot:navigate-request', onNavigate)
     render(<ChannelsSection />)
 
-    // MCP 与插件解耦：卡片上**没有**安装入口，只有跳转
+    // 安装入口不在渠道卡片上（装上客户端就有能力，装不装由插件开关决定）
     expect(screen.queryByRole('button', { name: '安装微信本机助手' })).toBeNull()
-    const go = await screen.findByRole('button', { name: '去配置 MCP' })
+    const go = await screen.findByRole('button', { name: '去插件里打开' })
     go.click()
     expect(onNavigate).toHaveBeenCalledTimes(1)
-    expect((onNavigate.mock.calls[0]![0] as CustomEvent).detail).toEqual({ view: 'mcp' })
+    expect((onNavigate.mock.calls[0]![0] as CustomEvent).detail).toEqual({ view: 'plugins' })
     window.removeEventListener('mtbot:navigate-request', onNavigate)
   })
 

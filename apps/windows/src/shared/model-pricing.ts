@@ -108,6 +108,8 @@ const PRICES: Readonly<Record<string, ModelPrice>> = {
   'gpt-6-astra': usdTok(10, 50, 1, 12.5),
   // gpt-6.1-sol: $2 / $10 / cr $0.10 / cw $2.50
   'gpt-6.1-sol': usdTok(2, 10, 0.1, 2.5),
+  // gpt-6.1-terra: $1 / $5 / cr $0.05 / cw $1.25（CC-switch 预置，2026-11-02 补）
+  'gpt-6.1-terra': usdTok(1, 5, 0.05, 1.25),
   // gpt-6-sol: $2 / $10 / cr $0.20 / cw $2.50
   'gpt-6-sol': usdTok(2, 10, 0.2, 2.5),
   // gpt-6-luna: $0.10 / $0.50 / cr $0.01 / cw $0.125
