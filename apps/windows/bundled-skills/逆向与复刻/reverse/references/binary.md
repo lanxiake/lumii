@@ -78,4 +78,8 @@ netstat -ano | findstr <PID>
 | 动态调试 | x64dbg / gdb | 只能做运行时外部观察（网络、文件、进程） |
 | 解壳 | 调试器 + 手工 | 报告壳类型，不硬做 |
 
+**装了 Ghidra 就走反编译**（PE / ELF 都行，命令见 [`desktop.md`](desktop.md) §6）：
+`node scripts/ghidra/reverse-probe.mjs <file>` 会给出函数数、按能力归类的导入、可疑字符串，
+比 `strings` 猜得准得多。缺工具时**先报缺什么**，再写降级结论。
+
 **报告里要写清「因为缺 X，以下结论是基于 Y 层面的推断」**——这比给一个漂亮但无依据的结论有用得多。
