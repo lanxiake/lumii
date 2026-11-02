@@ -34,10 +34,17 @@ const ComparePane: React.FC<ComparePaneProps> = ({ title, url }) => {
   const webviewRef = useRef<WebviewElement | null>(null)
   const [zoom, setZoom] = useState(1)
   const [loadError, setLoadError] = useState<string | null>(null)
+  /**
+   * `setZoomFactor` 在 `dom-ready` 之前调用会**同步抛错**：
+   * "The WebView must be attached to the DOM and the dom-ready event emitted before this method
+   * can be called."——挂载时会立刻跑一次 zoom effect，于是整张卡被错误边界打红（真机实测）。
+   */
+  const [domReady, setDomReady] = useState(false)
 
   useEffect(() => {
     setLoadError(null)
     setZoom(1)
+    setDomReady(false)
   }, [url])
 
   /** webview 对百分比高度支持不稳定，把宿主像素尺寸写进去 */
@@ -59,8 +66,9 @@ const ComparePane: React.FC<ComparePaneProps> = ({ title, url }) => {
   }, [url, loadError])
 
   useEffect(() => {
+    if (!domReady) return
     webviewRef.current?.setZoomFactor?.(zoom)
-  }, [zoom])
+  }, [zoom, domReady])
 
   useEffect(() => {
     const webview = webviewRef.current
@@ -72,11 +80,14 @@ const ComparePane: React.FC<ComparePaneProps> = ({ title, url }) => {
       setLoadError(detail.errorDescription?.trim() || '页面无法加载')
     }
     const handleFinishLoad = (): void => setLoadError(null)
+    const handleDomReady = (): void => setDomReady(true)
     webview.addEventListener('did-fail-load', handleFailLoad)
     webview.addEventListener('did-finish-load', handleFinishLoad)
+    webview.addEventListener('dom-ready', handleDomReady)
     return () => {
       webview.removeEventListener('did-fail-load', handleFailLoad)
       webview.removeEventListener('did-finish-load', handleFinishLoad)
+      webview.removeEventListener('dom-ready', handleDomReady)
     }
   }, [url])
 
@@ -95,6 +106,7 @@ const ComparePane: React.FC<ComparePaneProps> = ({ title, url }) => {
           className={styles.iconButton}
           aria-label={`刷新${title}`}
           title="刷新"
+          disabled={!domReady}
           onClick={() => webviewRef.current?.reload?.()}
         >
           <RotateCw size={14} />

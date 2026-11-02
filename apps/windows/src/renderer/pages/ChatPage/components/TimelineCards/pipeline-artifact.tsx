@@ -68,9 +68,16 @@ export function parseRemainingDifferences(payload: PipelineRunPayload): number |
   return m ? Number(m[1]) : null
 }
 
-/** 绝对路径 → 预览协议 URL（与主进程 buildLocalMediaFileUrl 同一形态） */
+/**
+ * 绝对路径 → 预览 URL。
+ *
+ * **必须用 `file://`，不能用 `lumii-local://`**：自定义 scheme 在 `<webview>` 里既不报
+ * `did-fail-load` 也不发 `dom-ready`，整栏静默空白（2026-11-02 真机实测）。`file://` 正常，
+ * 且相对资源（`./_next/...`）由静态导出的 `assetPrefix:'.'` 保证能一起加载。
+ */
 function toLocalFileUrl(absPath: string): string {
-  return `lumii-local://local/${encodeURI(absPath.replace(/\\/g, '/'))}`
+  const p = absPath.replace(/\\/g, '/')
+  return `file:///${p.replace(/^\/+/, '')}`
 }
 
 function formatDuration(ms: number): string {
@@ -87,6 +94,22 @@ export const PipelineArtifactCard: React.FC<TimelineCardContext> = ({ part }) =>
   const mode = args.mode === 'record' ? '录制' : '彩排'
 
   if (!payload) {
+    // 流水线一次调用跑完全程（web-clone 实测 10 分钟），这段时间 `result` 还是 undefined。
+    // 报「无法解析」会让用户以为跑挂了——如实说在跑，进度看执行过程。
+    if (part.status === 'running') {
+      return (
+        <div className={styles.card} data-testid="pipeline-artifact-card">
+          <div className={styles.header}>
+            <span className={styles.badgeOk}>流水线执行中</span>
+            <span className={styles.title}>{pipelineId || 'pipeline'}</span>
+            <span className={styles.meta}>{mode}</span>
+          </div>
+          <div className={styles.stats}>
+            <span>步骤进度见下方「执行过程」，跑完这里会显示剩余差异与对照入口。</span>
+          </div>
+        </div>
+      )
+    }
     return <div className={styles.card}>流水线结果无法解析，请查看执行日志。</div>
   }
 

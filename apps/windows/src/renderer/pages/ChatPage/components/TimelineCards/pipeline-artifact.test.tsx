@@ -46,7 +46,7 @@ describe('PipelineArtifactCard', () => {
     const webviews = Array.from(document.querySelectorAll('webview'))
     expect(webviews.map((el) => el.getAttribute('src'))).toEqual([
       'https://example.com/',
-      'lumii-local://local/E:/ws/projects/demo/out/index.html',
+      'file:///E:/ws/projects/demo/out/index.html',
     ])
   })
 
@@ -69,5 +69,17 @@ describe('PipelineArtifactCard', () => {
     )
     expect(screen.getByText(/构建失败/)).toBeInTheDocument()
     expect(screen.getByText(/第 10 步 check/)).toBeInTheDocument()
+  })
+
+  it('还在跑（result 尚未回填）→ 说「执行中」，不报「无法解析」', () => {
+    const running = {
+      id: 't1',
+      name: 'pipeline_run',
+      args: { id: 'web-clone', mode: 'record' },
+      status: 'running',
+    } as unknown as ToolPart
+    render(<PipelineArtifactCard {...ctx(running)} />)
+    expect(screen.getByText(/流水线执行中/)).toBeInTheDocument()
+    expect(screen.queryByText(/无法解析/)).toBeNull()
   })
 })

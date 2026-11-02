@@ -48,10 +48,10 @@
     },
     {
       "id": "scaffold",
-      "label": "拉起工程骨架",
+      "label": "拉起工程骨架（先建到临时目录再把 analysis/ 并回去）",
       "tool": "bash",
       "params": {
-        "command": "cd projects && npx --yes create-next-app@latest __SLUG__ --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes",
+        "command": "cd projects && rm -rf __SLUG__-scaffold && npx --yes create-next-app@latest __SLUG__-scaffold --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes && mkdir -p __SLUG__ && for f in __SLUG__-scaffold/* __SLUG__-scaffold/.[!.]*; do [ -e \"$f\" ] && mv \"$f\" __SLUG__/; done && rmdir __SLUG__-scaffold",
         "timeoutMs": 600000
       },
       "holdMs": 800
