@@ -26,6 +26,8 @@ const KNOWN_TOOLS = new Set([
   'list_dir',
   'app_goto',
   'file_write',
+  /** 逆向工具链插件（com.lumii.reverse）提供；关掉插件时该流水线会在第一步失败 */
+  'reverse_probe',
 ])
 
 /** 内置 spec 引用的 Agent；取 bridge 侧 knownAgents 的同名集合 */
