@@ -162,9 +162,11 @@ export const reverseExtension = {
           ctx.log.warn(`逆向探针脚本缺失（${scriptsDir}），工具仍会注册但调用会报错`)
         }
         const ex = bridge.createPipelineExecutor()
+        const workspaceDir = ctx.get(S.workspaceDir)
         const config = createReverseProbeToolConfig({
           service: { backends: detectBackends, scriptsDir: () => scriptsDir },
           resolveNode: ex.resolveNode,
+          resolveWorkspaceDir: () => workspaceDir?.get() ?? '',
         })
         ctx.effect(ex.registerTool(config as unknown as { name: string }))
         const ghidra = resolveGhidraDir()

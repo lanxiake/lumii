@@ -24,7 +24,7 @@ import type { MtBotToolConfig } from '@mtbot/agent-runtime'
 import type { ReverseService } from './service-api'
 import { probeApkFile } from './apk-probe'
 import { probeIpaFile } from './ipa-probe'
-import { findElectronAsar, probeAsarFile } from './asar-probe'
+import { findElectronAsar, extractAsar, probeAsarFile } from './asar-probe'
 
 const ProbeInput = Type.Object({
   target: Type.String({
@@ -53,6 +53,18 @@ const ProbeInput = Type.Object({
     Type.Boolean({
       description:
         'asar 后端：是否逐条目核 SHA256（默认 true）。关掉快几秒，但就失去唯一一个客观判据',
+    }),
+  ),
+  extractTo: Type.Optional(
+    Type.String({
+      description:
+        'asar 后端：把内层资产解到这个目录（工作区相对或绝对路径）。给了就解包并列出产物；' +
+        '不给只做结构摘要。默认跳过 node_modules（几万个文件，几乎不是要找的东西）',
+    }),
+  ),
+  includeDeps: Type.Optional(
+    Type.Boolean({
+      description: 'asar 后端：解包时是否连 node_modules 一起解（默认 false）',
     }),
   ),
 })
@@ -90,6 +102,8 @@ export interface ReverseProbeDeps {
   readonly service: ReverseService
   /** 真机验证用：换成假实现可以不装 Ghidra */
   readonly spawnProbe?: typeof runProbeScript
+  /** 解包目标目录里相对路径的基准（工作区根）。缺省退回 `process.cwd()` */
+  readonly resolveWorkspaceDir?: () => string
   /**
    * 跑脚本用的 node 可执行文件 + 环境。
    *
@@ -153,7 +167,26 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
         if (!asarPath) return text({ ok: false, error: `找不到 Electron 的 app.asar：${target}` })
         const r = probeAsarFile(asarPath, { verify: p.verify !== false })
         if (!r.ok) return text({ ok: false, error: `asar 解析失败：${r.error}` })
-        return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
+        if (!p.extractTo?.trim()) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `${r.text}\n\n提示：加 extractTo（如 "projects/_reverse/<slug>/unpacked"）可把内层资产解出来。`,
+              },
+            ],
+            details: undefined,
+          }
+        }
+        const outDir = path.isAbsolute(p.extractTo.trim())
+          ? p.extractTo.trim()
+          : path.resolve(deps.resolveWorkspaceDir?.() ?? process.cwd(), p.extractTo.trim())
+        const ex = extractAsar(asarPath, outDir, { includeDeps: p.includeDeps === true })
+        if (!ex.ok) return text({ ok: false, error: `asar 解包失败：${ex.error}` })
+        return {
+          content: [{ type: 'text' as const, text: `${r.text}\n\n${ex.text}` }],
+          details: undefined,
+        }
       }
 
       const ghidra = deps.service.backends().find((b) => b.id === 'ghidra')

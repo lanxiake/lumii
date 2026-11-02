@@ -234,6 +234,20 @@ function readJsonEntry(fd: number, header: AsarHeader, want: string): unknown {
   }
 }
 
+/**
+ * 用 asar 头自带的 integrity 核一块内存里的字节。返回 null = 头部没写 integrity，无法判。
+ * 分块规则：第 i 块是 `[i*blockSize, min((i+1)*blockSize, size))`。
+ */
+function bytesMatchIntegrity(buf: Buffer, e: AsarEntry): boolean | null {
+  if (!e.blocks?.length) return null
+  const bs = e.blockSize && e.blockSize > 0 ? e.blockSize : 4 * 1024 * 1024
+  for (let i = 0; i < e.blocks.length; i++) {
+    const seg = buf.subarray(i * bs, Math.min((i + 1) * bs, buf.length))
+    if (createHash('sha256').update(seg).digest('hex') !== e.blocks[i]) return false
+  }
+  return true
+}
+
 /** 应用自身代码（非 node_modules），按大小降序——判断「业务在哪」最快 */
 function appSourceFiles(entries: readonly AsarEntry[], limit = 25): AsarEntry[] {
   return entries
@@ -241,6 +255,124 @@ function appSourceFiles(entries: readonly AsarEntry[], limit = 25): AsarEntry[] 
     .sort((a, b) => b.size - a.size)
     .slice(0, limit)
 }
+
+/**
+ * asar 内的路径 → 落盘路径。**这是信任边界**：头部来自待分析的文件，
+ * `../../` 之类的条目能把内容写到输出目录外面去。越界一律跳过并计数。
+ */
+function safeJoin(outDir: string, entryPath: string): string | null {
+  const rel = entryPath.replace(/^\/+/, '')
+  if (!rel || rel.includes('\0')) return null
+  const abs = path.resolve(outDir, rel)
+  const root = path.resolve(outDir)
+  return abs === root || abs.startsWith(root + path.sep) ? abs : null
+}
+
+export interface AsarExtractOptions {
+  /** 连 `node_modules` 一起解（默认 false：动辄几万个文件，也几乎不是要找的东西） */
+  readonly includeDeps?: boolean
+}
+
+export interface AsarExtractResult {
+  readonly ok: true
+  readonly text: string
+  readonly outDir: string
+  readonly files: number
+}
+
+/**
+ * 解出内层资产。**L1 的「解包」到这里才完整**——只识别和校验等于没解。
+ */
+export function extractAsar(
+  filePath: string,
+  outDir: string,
+  opts: AsarExtractOptions = {},
+): AsarExtractResult | AsarProbeFailure {
+  try {
+    const abs = path.resolve(filePath)
+    if (!realFs.existsSync(abs)) return { ok: false, error: `文件不存在：${abs}` }
+    const out = path.resolve(outDir)
+    const fd = realFs.openSync(abs, 'r')
+    try {
+      const fileSize = realFs.fstatSync(fd).size
+      const head = Buffer.allocUnsafe(Math.min(fileSize, 64 * 1024 * 1024))
+      realFs.readSync(fd, head, 0, head.length, 0)
+      const header = readAsarHeader(head)
+
+      let written = 0
+      let skippedDeps = 0
+      let unsafe = 0
+      let fromUnpacked = 0
+      /** 解出来再核一遍：asar 头来自待分析文件，不能假设里面写的 hash 就是对的 */
+      let bytesChecked = 0
+      const mismatched: string[] = []
+      const unwritten: string[] = []
+
+      for (const e of header.entries) {
+        if (!opts.includeDeps && e.path.startsWith('/node_modules/')) {
+          skippedDeps++
+          continue
+        }
+        const dest = safeJoin(out, e.path)
+        if (!dest) {
+          unsafe++
+          continue
+        }
+        realFs.mkdirSync(path.dirname(dest), { recursive: true })
+        if (e.unpacked) {
+          // 实体在 app.asar.unpacked/ 下，同相对路径
+          const src = path.join(`${abs}.unpacked`, e.path.replace(/^\/+/, ''))
+          if (!realFs.existsSync(src)) {
+            if (unwritten.length < 10) unwritten.push(e.path)
+            continue
+          }
+          realFs.copyFileSync(src, dest)
+          fromUnpacked++
+        } else {
+          const buf = Buffer.allocUnsafe(e.size)
+          if (e.size > 0) realFs.readSync(fd, buf, 0, e.size, header.dataStart + e.offset)
+          realFs.writeFileSync(dest, buf)
+          const ok = bytesMatchIntegrity(buf, e)
+          if (ok !== null) {
+            bytesChecked++
+            if (!ok && mismatched.length < 10) mismatched.push(e.path)
+          }
+        }
+        written++
+      }
+
+      const lines = [
+        'PROGRAM=asar-extract',
+        `ASAR_PATH=${abs}`,
+        `OUT_DIR=${out}`,
+        `FILES_WRITTEN=${written}`,
+        `FROM_UNPACKED=${fromUnpacked}`,
+        `SKIPPED_NODE_MODULES=${skippedDeps}${opts.includeDeps ? '（includeDeps=true）' : '（默认跳过；要依赖传 includeDeps:true）'}`,
+        // 解出来再核一遍：上面 probe 段的 BYTES_VERIFIED 用的是**头里写的** hash，
+        // 这里用的是**解出来的字节**。头是待分析文件提供的，两者都过才算真的对。
+        `EXTRACT_VERIFIED=${mismatched.length === 0 ? `${bytesChecked}/${bytesChecked}` : `${bytesChecked - mismatched.length}/${bytesChecked}`}`,
+      ]
+      if (mismatched.length > 0) {
+        lines.push('--- EXTRACT_HASH_MISMATCH ---', ...mismatched)
+      }
+      if (unsafe > 0) lines.push(`SKIPPED_UNSAFE_PATH=${unsafe}（条目路径越出输出目录，已拒绝）`)
+      if (unwritten.length > 0) {
+        lines.push(`MISSING_UNPACKED=${unwritten.length}+`, '--- 声明 unpacked 但实体缺失 ---', ...unwritten)
+      }
+      lines.push(
+        '--- 下一步 ---',
+        '业务代码在 out/ 或 dist/ 下。压缩产物没有 sourcemap 时只能读结构与字符串；',
+        '拿它当**证据源**去重建可维护的源码，直接复用 bundle 等于重打包（不是复刻）。',
+      )
+      return { ok: true, text: lines.join('\n'), outDir: out, files: written }
+    } finally {
+      realFs.closeSync(fd)
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 
 export function probeAsarFile(
   filePath: string,

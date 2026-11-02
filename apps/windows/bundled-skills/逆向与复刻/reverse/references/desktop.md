@@ -79,7 +79,28 @@ reverse_probe({ target: "C:/Program Files/某应用/App.exe" })   // 或直接�
 | `ENTRIES` / `UNPACKED` / `UNPACKED_DIR` | 包里多少文件、有多少实体在 `app.asar.unpacked/` |
 | `APP_FILE_COUNT` + `--- APP_FILES ---` | **业务代码在哪**（已排除 `node_modules`，按体积降序） |
 | `APP_SOURCEMAPS` / `DEP_SOURCEMAPS` | 业务代码带不带 sourcemap（**带就能读源码，不带只能读结构**） |
-| `BYTES_VERIFIED=n/n` | 逐条目 SHA256，asar 头自带——**解包层唯一的客观判据** |
+| `BYTES_VERIFIED=n/n` | 逐条目 SHA256，asar 头自带——**解包层的客观判据** |
+
+### 3.2 要读代码就解包（加 `extractTo`）
+
+```
+reverse_probe({ target: "…/App.exe", extractTo: "projects/_reverse/<slug>/unpacked" })
+```
+
+`extractTo` 是工作区相对路径（也接受绝对路径）。解出来后再多两行：
+
+| 段 | 用途 |
+|---|---|
+| `FILES_WRITTEN` / `FROM_UNPACKED` | 写了多少文件、其中多少来自 `app.asar.unpacked/` |
+| `SKIPPED_NODE_MODULES` | 默认跳过依赖（几万个文件，几乎不是要找的东西）；要依赖传 `includeDeps:true` |
+| `EXTRACT_VERIFIED=n/n` | **解出来的字节**再核一遍 SHA256 |
+
+**`BYTES_VERIFIED` 与 `EXTRACT_VERIFIED` 是两个不同的判据**，别混：
+前者核的是「按头的偏移读 asar」，后者核的是「落盘的字节」。asar 头本身来自待分析文件，
+两边都过才算真的对。实测 LiteShell：`BYTES_VERIFIED=6988/6988` + `EXTRACT_VERIFIED=11/11`。
+
+**路径逃逸会被拒绝**：头部是待分析文件提供的，`../../x.js` 这类条目能把内容写到输出目录外。
+工具按解析后的绝对路径判前缀，越界条目跳过并计数（`SKIPPED_UNSAFE_PATH`）。
 
 三条口径（写结论时别越过）：
 

@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { findElectronAsar, probeAsarFile, readAsarHeader, verifyAsarBytes } from './asar-probe'
+import { findElectronAsar, extractAsar, probeAsarFile, readAsarHeader, verifyAsarBytes } from './asar-probe'
 
 interface FakeFile {
   /** asar 内路径，以 `/` 开头 */
@@ -239,5 +239,85 @@ describe('probeAsarFile', () => {
   it('文件不存在 → ok:false（不抛）', () => {
     const r = probeAsarFile(path.join(os.tmpdir(), 'no-such-app.asar'))
     expect(r.ok).toBe(false)
+  })
+})
+
+describe('extractAsar', () => {
+  it('解出文件、跳过 node_modules、按原相对路径落盘', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([
+        { path: '/package.json', data: Buffer.from('{"name":"x"}') },
+        { path: '/out/main/index.js', data: Buffer.from('console.log(1)') },
+        { path: '/node_modules/foo/index.js', data: Buffer.from('dep') },
+      ]),
+    )
+    const out = path.join(dir, 'unpacked')
+    const r = extractAsar(file, out)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.files).toBe(2)
+    expect(r.text).toContain('FILES_WRITTEN=2')
+    expect(r.text).toContain('SKIPPED_NODE_MODULES=1')
+    expect(r.text).toContain('EXTRACT_VERIFIED=2/2')
+    expect(fs.readFileSync(path.join(out, 'out/main/index.js'), 'utf8')).toBe('console.log(1)')
+    expect(fs.existsSync(path.join(out, 'node_modules'))).toBe(false)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('includeDeps 时连依赖一起解', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([
+        { path: '/a.js', data: Buffer.from('a') },
+        { path: '/node_modules/foo/index.js', data: Buffer.from('dep') },
+      ]),
+    )
+    const out = path.join(dir, 'u')
+    const r = extractAsar(file, out, { includeDeps: true })
+    expect(r.ok && r.files).toBe(2)
+    expect(fs.existsSync(path.join(out, 'node_modules/foo/index.js'))).toBe(true)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('unpacked 条目从 app.asar.unpacked/ 取；实体缺失时如实报，不写空文件', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([
+        { path: '/a.js', data: Buffer.from('a') },
+        { path: '/native.node', data: Buffer.from(''), unpacked: true },
+      ]),
+    )
+    const out = path.join(dir, 'u')
+    // 实体缺失
+    const miss = extractAsar(file, out)
+    expect(miss.ok).toBe(true)
+    if (miss.ok) {
+      expect(miss.text).toContain('MISSING_UNPACKED=1')
+      expect(miss.text).toContain('/native.node')
+      expect(fs.existsSync(path.join(out, 'native.node'))).toBe(false)
+    }
+    // 补上实体后能解
+    fs.mkdirSync(`${file}.unpacked`, { recursive: true })
+    fs.writeFileSync(path.join(`${file}.unpacked`, 'native.node'), 'BINARY')
+    const hit = extractAsar(file, path.join(dir, 'u2'))
+    expect(hit.ok && hit.files).toBe(2)
+    if (hit.ok) expect(fs.readFileSync(path.join(dir, 'u2/native.node'), 'utf8')).toBe('BINARY')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('**路径逃逸必须拒绝**：头部是待分析文件提供的，`../` 能把内容写到输出目录外', () => {    const { dir, file } = writeTemp(
+      buildAsar([
+        { path: '/ok.js', data: Buffer.from('ok') },
+        { path: '/../../escaped.js', data: Buffer.from('PWNED') },
+      ]),
+    )
+    const out = path.join(dir, 'deep', 'unpacked')
+    const r = extractAsar(file, out)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.text).toContain('SKIPPED_UNSAFE_PATH')
+    expect(fs.existsSync(path.join(out, 'ok.js'))).toBe(true)
+    // 没写到输出目录的祖先里去
+    expect(fs.existsSync(path.join(dir, 'escaped.js'))).toBe(false)
+    expect(fs.existsSync(path.join(dir, 'deep', 'escaped.js'))).toBe(false)
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 })
