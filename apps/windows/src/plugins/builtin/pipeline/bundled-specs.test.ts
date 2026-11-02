@@ -52,4 +52,20 @@ describe('bundled-pipelines 全部 spec', () => {
     const v = validateSpec(raw, KNOWN_TOOLS, KNOWN_AGENTS)
     expect(v.ok ? undefined : v.errors).toBeUndefined()
   })
+
+  /**
+   * 描述里不许出现占位符名。
+   *
+   * 2026-11-02 真机踩到：`exe-clone` 的描述写着「跑之前把 __TARGET__ 与 __SLUG__ 换成真实值」，
+   * 用户替换之后这句话变成「跑之前把 C:/…/LiteShell.exe 与 liteshell-clone 换成真实值」——
+   * Agent 读完以为自己还没填，回头去查 spec、查目录、查进程，绕了半小时。
+   *
+   * 占位符名是对**作者**说的，不是对**运行时的读者**说的。替换之后仍然要读得通。
+   */
+  it.each(dirs)('%s 的描述里不含占位符名（替换后读起来自相矛盾）', (id) => {
+    const raw = JSON.parse(readFileSync(join(BUNDLED, id, 'spec.json'), 'utf8'))
+    const desc: string = typeof raw.description === 'string' ? raw.description : ''
+    const found = desc.match(/__[A-Z][A-Z0-9_]*__/g) ?? []
+    expect(found, `description 里出现占位符 ${found.join(', ')}——改成「先替换 spec 里的占位符」这种不点名的说法`).toEqual([])
+  })
 })

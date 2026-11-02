@@ -1,7 +1,7 @@
 {
   "id": "web-clone",
   "name": "网站复刻",
-  "description": "把一个网页按其真实内容/资源/布局重建为本地工程，并做双视口取证与关键样式回归。等同 /clone <url> 的自动化版。跑之前把 __TARGET_URL__ 与 __SLUG__ 换成真实值。用法约定：① 外部输入用 __TARGET_URL__ 占位（{{}} 会被当成 step id 而加载期拒，本期没有运行时变量）；② expect.fields 里只放字面量——expect 不走 resolveParams，写 {{}} 会被当成字面量静默比较；③ 跨步骤数值比对走 JS 内嵌；④ 移动端是持久状态，截完必须切回桌面视口；⑤ bash 步的成败看退出码（非零即失败）；⑥ **别引用 browser_eval 步的产出**——它 needsPermission，彩排时会被跳过并留下空对象，下游 {{}} 必然报 bad_reference。",
+  "description": "把一个网页按其真实内容/资源/布局重建为本地工程，并做双视口取证与关键样式回归。等同 /clone <url> 的自动化版。**跑之前先替换 spec 里的路径占位符**（目标地址与项目名）。用法约定：① 外部输入用占位符而不是 {{}}（{{}} 会被当成 step id 而加载期拒，本期没有运行时变量）；② expect.fields 里只放字面量——expect 不走 resolveParams，写 {{}} 会被当成字面量静默比较；③ 跨步骤数值比对走 JS 内嵌；④ 移动端是持久状态，截完必须切回桌面视口；⑤ bash 步的成败看退出码（非零即失败）；⑥ **别引用 browser_eval 步的产出**——它 needsPermission，彩排时会被跳过并留下空对象，下游 {{}} 必然报 bad_reference。",
   "record": {
     "enabled": false
   },

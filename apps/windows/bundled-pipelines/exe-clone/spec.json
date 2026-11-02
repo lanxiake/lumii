@@ -1,7 +1,7 @@
 {
   "id": "exe-clone",
   "name": "桌面应用复刻（先解包再重建）",
-  "description": "对一个 Electron 桌面应用做 L1 解包 → L2 界面重建。只处理 Electron 套壳（资源里有 resources/app.asar）；其它壳或原生程序会明确停在分析层，不假装能复刻。跑之前把 __TARGET__ 与 __SLUG__ 换成真实值（__TARGET__ 填 exe 路径、安装目录或 .asar 均可）。",
+  "description": "对一个 Electron 桌面应用做 L1 解包 → L2 界面重建。只处理 Electron 套壳（资源里有 resources/app.asar）；其它壳或原生程序会明确停在分析层，不假装能复刻。**彩排的局限**：needsPermission 的工具（bash / reverse_probe / file_write）在 rehearsal 下会被跳过并记 skipped，所以彩排只能验 spec 结构，验不出「目标不是 Electron」这类运行时判定——那要 record 模式。",
   "record": {
     "enabled": false
   },
@@ -20,8 +20,18 @@
   ],
   "steps": [
     {
+      "id": "detect-shell",
+      "label": "L1 前置：确认这是 Electron 套壳（不是的话在这里就失败，别往下跑）",
+      "tool": "bash",
+      "params": {
+        "command": "T='__TARGET__'; D=\"$T\"; [ -f \"$T\" ] && D=$(dirname \"$T\"); A=\"$D/resources/app.asar\"; [ -f \"$A\" ] || A=\"$D/app.asar\"; if [ \"${T##*.}\" = \"asar\" ]; then A=\"$T\"; fi; if [ -f \"$A\" ]; then echo \"ASAR=$A\"; exit 0; fi; echo \"这不是 Electron 套壳：同目录/上级都找不到 resources/app.asar。目标可能是原生程序、PyInstaller、.NET 或 Flutter——那些壳本流水线不做（见设计 §3.1 判据表）。先用 reverse_probe 做 L0 观察。\" >&2; exit 1",
+        "timeoutMs": 30000
+      },
+      "holdMs": 200
+    },
+    {
       "id": "unpack",
-      "label": "L1 解包 + 逐条校验（非 Electron 会在这里明确失败，不会流到后面）",
+      "label": "L1 解包 + 逐条校验",
       "tool": "reverse_probe",
       "params": {
         "target": "__TARGET__",

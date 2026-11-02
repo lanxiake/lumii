@@ -1,7 +1,7 @@
 {
   "id": "reverse-then-clone",
   "name": "先逆向再复刻",
-  "description": "先按 reverse 技能的流程产出 projects/<slug>/analysis/，再按分析结果复刻页面并静态导出。与 web-clone 的区别：观察与重建分成两个 agent 步，中间用文件交接（analysis/），失败点可定位、可分别调预算。跑之前把 __TARGET_URL__ 与 __SLUG__ 换成真实值；外部输入不写 {{}}（本期没有运行时变量）。",
+  "description": "先按 reverse 技能的流程产出 projects/<slug>/analysis/，再按分析结果复刻页面并静态导出。与 web-clone 的区别：观察与重建分成两个 agent 步，中间用文件交接（analysis/），失败点可定位、可分别调预算。**跑之前先替换 spec 里的路径占位符**（目标地址与项目名），否则会打开一个无效地址；外部输入不写 {{}}（本期没有运行时变量）。",
   "record": {
     "enabled": false
   },
