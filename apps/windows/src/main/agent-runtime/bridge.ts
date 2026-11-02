@@ -4211,6 +4211,8 @@ export class AgentRuntimeBridge {
           output: r.output,
           agentDefinitionId: r.agentDefinitionId,
           agentName: r.agentName,
+          // 「实际用了几轮」落进 journal：调 maxTurns 才有依据（见 RunAgentStageData）
+          ...(typeof r.turnsUsed === 'number' ? { turnsUsed: r.turnsUsed } : {}),
         },
       }
     } catch (err) {

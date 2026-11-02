@@ -820,6 +820,17 @@ export class AgentInstance {
   }
 
   /**
+   * 本轮已完成的回合数。
+   *
+   * 供流水线 agent 节点把「实际用了几轮」落到 journal——没有它，
+   * `maxTurns` 该不该调只能靠猜（真机 `clone` 步跑 632 秒后 ok，离上限多远无人知道）。
+   * 它在 `prompt()` 开始时重置，所以要在回合结束后、`destroy()` 之前读。
+   */
+  getTurnCount(): number {
+    return this.turnCount
+  }
+
+  /**
    * 本轮运行是否被 `abort()` 中止（下一次 prompt() 重置）。
    * 供编排层在 waitForIdle 之后判定 sync 委托的中止终态——彼时 state 已被 agent_end 改回 idle。
    */

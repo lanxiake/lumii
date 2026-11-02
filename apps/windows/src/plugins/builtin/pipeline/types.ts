@@ -163,6 +163,14 @@ export interface RunAgentStageData {
   readonly output: string
   readonly agentDefinitionId?: string
   readonly agentName?: string
+  /**
+   * 实际用掉的回合数（宿主能取到才给）。
+   *
+   * **journal 不记这个，「`maxTurns=240` 够不够」就永远只能靠猜**——真机上
+   * `clone` 步跑了 632 秒、`ok:true`，但没人知道它离上限还有多远，下次要不要调大只能押。
+   * 落进 journal 后，调 `maxTurns` 才有依据。
+   */
+  readonly turnsUsed?: number
 }
 
 /** 执行器依赖（写死，单测只 mock 这几个 —— 计划 Task 3）

@@ -106,6 +106,13 @@ export type SpawnAgentResult =
       readonly queuedMs?: number;
       /** agentType 被省略/回落时的友好说明（回传父 Agent / UI） */
       readonly agentTypeNote?: string;
+      /**
+       * 实际用掉的回合数。
+       *
+       * 流水线 agent 节点会把它落进 journal——`maxTurns` 该不该调，得先知道
+       * 「这次用了 137/240 还是 239/240」。宿主不消费时忽略即可。
+       */
+      readonly turnsUsed?: number;
     }
   | {
       readonly status: "ok";
@@ -584,6 +591,8 @@ export class AgentOrchestrator {
         this.broker.releaseSlot(childInstanceId);
         return { status: "error", message: "sub-agent instance missing after create" };
       }
+      /** 实际用掉的回合数，回合结束后在 destroy 之前取 */
+      let turnsUsed: number | undefined;
 
       let outputText = "";
       const unsub = childInstance.subscribe((event: AgentRuntimeEvent) => {
@@ -650,6 +659,9 @@ export class AgentOrchestrator {
           };
         }
         this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
+        // **在 finally 的 destroy 之前读**：销毁后 getInstance 就拿不到了。
+        // 流水线要把「实际用了几轮」落进 journal，否则调 maxTurns 只能靠猜。
+        turnsUsed = this.deps.getInstance(childInstanceId)?.getTurnCount()
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.finalizeWithGuard(childInstanceId, "failed", outputText, message);
@@ -689,6 +701,7 @@ export class AgentOrchestrator {
         agentDefinitionId: agentDef.id,
         agentName: agentDef.name,
         output: guardedOutput,
+        ...(turnsUsed !== undefined ? { turnsUsed } : {}),
         ...(queuedMs > 0 ? { queuedMs } : {}),
         ...(agentTypeNote ? { agentTypeNote } : {}),
       };

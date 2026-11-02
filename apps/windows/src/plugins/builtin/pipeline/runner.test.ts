@@ -541,6 +541,15 @@ describe('runner agent 节点', () => {
     )
   })
 
+  it('实际用了几轮要落进 journal（否则调 maxTurns 只能靠猜）', async () => {
+    const { d } = deps({
+      agent: { ok: true, data: { output: 'done', turnsUsed: 137 } },
+    })
+    const res = await run(d, [{ id: 'build', kind: 'agent', prompt: '建页', rehearsal: 'run' }])
+    const observed = res.steps[0]?.observed as { turnsUsed?: number }
+    expect(observed.turnsUsed).toBe(137)
+  })
+
   it('下游 tool 能引用上游 agent 的 output', async () => {
     const { d } = deps({ agent: { ok: true, data: { output: 'BRIEF-TEXT' } } })
     await run(d, [

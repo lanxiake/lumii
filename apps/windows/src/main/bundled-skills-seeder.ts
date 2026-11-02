@@ -47,6 +47,11 @@ const BUNDLED_SKILLS_DIR_NAME = 'bundled-skills'
 export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
   // —— 历史下线 ——
   '产品与项目管理/product-manager-toolkit',
+  // 2026-11-02 下线：设计 §9.3-5 的判据是「跑一段时间看它会不会被调用，从不被调用就删掉」。
+  // 真机实测：全量 `skill_invoke` 历史里 0 次（只有 `skill_search` 因名字匹配把它列出来过），
+  // 也没进过任何提示词——等于只是一条「看起来在路由、实际上没人用」的说明。
+  // 删掉而不是留着：文案失实的路由比没有更糟（同样的判断 §9.3-5 已写明）。
+  '逆向与复刻/capability-router',
   '电商与营销/ecommerce-copywriter',
   '电商与营销/ecommerce-video-marketing',
   '电商与营销/pet-commerce-creator',
