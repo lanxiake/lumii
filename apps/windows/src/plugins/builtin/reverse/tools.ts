@@ -24,17 +24,19 @@ import type { MtBotToolConfig } from '@mtbot/agent-runtime'
 import type { ReverseService } from './service-api'
 import { probeApkFile } from './apk-probe'
 import { probeIpaFile } from './ipa-probe'
+import { findElectronAsar, probeAsarFile } from './asar-probe'
 
 const ProbeInput = Type.Object({
   target: Type.String({
     description:
-      '目标文件绝对路径。支持 PE / ELF / Mach-O（需 Ghidra）与 .apk / .xapk / .apks（内置解析，无需外部工具）。' +
+      '目标文件绝对路径。支持 PE / ELF / Mach-O（需 Ghidra）、.apk / .xapk / .apks（内置解析）、' +
+      '.ipa（内置解析）、.asar / Electron 应用目录或 exe（内置解析，无需 Ghidra）。' +
       '.aab 会被明确拒绝——请先用 bundletool 转成 .apks',
   }),
   decompile: Type.Optional(
     Type.Number({
       description:
-        'Ghidra 后端：反编译「最像业务入口」的 N 个函数（0 = 只做结构摘要，默认 0）。加了它耗时翻倍。APK 后端忽略此参数',
+        'Ghidra 后端：反编译「最像业务入口」的 N 个函数（0 = 只做结构摘要，默认 0）。加了它耗时翻倍。APK / IPA / asar 后端忽略此参数',
       minimum: 0,
       maximum: 20,
     }),
@@ -45,6 +47,12 @@ const ProbeInput = Type.Object({
         'APK 后端：最多解析几个 classes*.dex 的字符串池（默认 8）。大包有几十个 dex，全解会很慢',
       minimum: 1,
       maximum: 50,
+    }),
+  ),
+  verify: Type.Optional(
+    Type.Boolean({
+      description:
+        'asar 后端：是否逐条目核 SHA256（默认 true）。关掉快几秒，但就失去唯一一个客观判据',
     }),
   ),
 })
@@ -64,6 +72,18 @@ const REQUIRED_KEYS = ['FORMAT=', 'ARCH=', 'FUNCTIONS=']
 export function pickBackend(target: string): 'apk' | 'ipa' | 'ghidra' {
   if (/\.ipa$/i.test(target)) return 'ipa'
   return /\.(apk|xapk|apks|aab)$/i.test(target) ? 'apk' : 'ghidra'
+}
+
+/**
+ * 在 `pickBackend` 之上补一次**文件系统探测**：Electron 应用的 exe 按扩展名是 `ghidra`，
+ * 但同目录 `resources/app.asar` 才是业务代码所在。先认它，省掉 4 分钟反编译一个外壳。
+ *
+ * 只对「本来是 ghidra」的目标探测，APK/IPA 不做多余 IO。
+ */
+export function resolveBackend(target: string): 'apk' | 'ipa' | 'asar' | 'ghidra' {
+  const base = pickBackend(target)
+  if (base !== 'ghidra') return base
+  return findElectronAsar(target) ? 'asar' : 'ghidra'
 }
 
 export interface ReverseProbeDeps {
@@ -91,13 +111,19 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
       '组件与导出组件、dex 里的 URL 与类名、原生库与 ABI、加固与跨端框架判定、签名文件。秒级返回。\n' +
       '· `.ipa` → 内置 IPA 解析：bundle id/版本/最低 iOS、权限用途说明、框架、' +
       'Mach-O 加密状态（cryptid）、描述文件团队与过期时间。秒级返回。\n' +
+      '· `.asar`，**或任何路径的同目录/上级有 `resources/app.asar`**（Electron 套壳）→ 内置 asar 解析：' +
+      '应用名/版本/main、文件清单（按体积降序，node_modules 单列）、sourcemap 数、' +
+      '**逐条目 SHA256 核对**（`BYTES_VERIFIED=n/n`，这是解包层唯一的客观判据）。秒级返回。\n' +
+      '  Electron 应用优先走这条——Ghidra 看 Electron 的 exe 只是反编译一个 Chromium 外壳，' +
+      '真正的业务代码在 asar 里。\n' +
       '· 其它（PE / ELF / Mach-O）→ Ghidra headless：格式/架构/函数总数、**按能力归类的导入**、' +
       '可疑字符串、可选反编译 N 个最像业务入口的函数。**一次调用 3–5 分钟，同步等它返回**——' +
       '不要 nohup 后台起再轮询，那会重跑一遍。\n' +
       '`.aab` 会被明确拒绝（manifest 是 protobuf）——请先用 bundletool 转成 `.apks`。\n' +
       '都返回稳定的 `KEY=value` 文本，可直接抄进 `analysis/evidence.md`。\n' +
       '口径：能力标签只代表「导入了什么」，**不代表「它干了什么」**；' +
-      'APK 的 `PACKER_SUSPECT` 只是命中特征，不是「一定是壳」的结论。',
+      'APK 的 `PACKER_SUSPECT` 只是命中特征，不是「一定是壳」的结论；' +
+      'asar 的 `BYTES_VERIFIED` 只证明「字节读对了」，不证明「业务逻辑读懂了」。',
     parameters: ProbeInput,
     category: 'filesystem' as const,
     isReadOnly: true,
@@ -109,8 +135,8 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
         return text({ ok: false, error: '缺少 target——要知道分析哪个文件。' })
       }
 
-      // APK / IPA：自带实现，不依赖外部工具链
-      const backend = pickBackend(target)
+      // APK / IPA / asar：自带实现，不依赖外部工具链
+      const backend = resolveBackend(target)
       if (backend === 'apk') {
         const dexLimit = Number.isFinite(p.dexLimit) ? Math.max(1, Math.min(50, p.dexLimit!)) : 8
         const r = probeApkFile(path.resolve(target), { dexLimit })
@@ -120,6 +146,13 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
       if (backend === 'ipa') {
         const r = probeIpaFile(path.resolve(target))
         if (!r.ok) return text({ ok: false, error: `IPA 解析失败：${r.error}` })
+        return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
+      }
+      if (backend === 'asar') {
+        const asarPath = findElectronAsar(target)
+        if (!asarPath) return text({ ok: false, error: `找不到 Electron 的 app.asar：${target}` })
+        const r = probeAsarFile(asarPath, { verify: p.verify !== false })
+        if (!r.ok) return text({ ok: false, error: `asar 解析失败：${r.error}` })
         return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
       }
 

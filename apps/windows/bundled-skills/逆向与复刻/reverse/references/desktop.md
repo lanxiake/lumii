@@ -56,13 +56,46 @@ Get-AuthenticodeSignature .\app.exe | Format-List Status, SignerCertificate
 
 | 迹象 | 说明 | 做法 |
 |---|---|---|
-| `resources/app.asar` | Electron 套壳 | 有 `asar` 命令才解；否则 `strings` 看资源名 |
+| `resources/app.asar` | Electron 套壳 | **`reverse_probe` 内置解析（§3.1）**，不需要 `asar` 命令 |
 | `nw.pak` / `nw.dll` | NW.js | 同上 |
 | 单文件 exe 很小时外挂 `*.dll` 或 `*.pak` | 安装器/自解压 | 先看同目录文件清单，别假设 exe 自包含 |
 | `PyInstaller` / `_MEI` 字符串 | Python 打包 | 能看到归档；解包需外部工具 |
 
 **判断「是不是 Electron」的价值很高**：是的话，业务逻辑多半在 `app.asar` 里的 JS，
 比啃原生二进制快得多。
+
+### 3.1 是 Electron 就走 `reverse_probe`，别喂 Ghidra
+
+```
+reverse_probe({ target: "C:/Program Files/某应用/App.exe" })   // 或直接给 .asar / 安装目录
+```
+
+工具会**先看同目录 `resources/app.asar`**，找到就走内置 asar 解析（纯 Node，秒级），
+不会去反编译那个 Chromium 外壳。输出：
+
+| 段 | 用途 |
+|---|---|
+| `APP_NAME` / `APP_VERSION` / `APP_MAIN` / `APP_DESCRIPTION` | 一眼认出这是什么应用、从哪启动 |
+| `ENTRIES` / `UNPACKED` / `UNPACKED_DIR` | 包里多少文件、有多少实体在 `app.asar.unpacked/` |
+| `APP_FILE_COUNT` + `--- APP_FILES ---` | **业务代码在哪**（已排除 `node_modules`，按体积降序） |
+| `APP_SOURCEMAPS` / `DEP_SOURCEMAPS` | 业务代码带不带 sourcemap（**带就能读源码，不带只能读结构**） |
+| `BYTES_VERIFIED=n/n` | 逐条目 SHA256，asar 头自带——**解包层唯一的客观判据** |
+
+三条口径（写结论时别越过）：
+
+1. **`BYTES_VERIFIED` 只证明「字节读对了」**，不证明「业务逻辑读懂了」。
+   `6988/6988` 与 `80840/80840` 是本机两个真实样本的实测值，而它们的 `APP_SOURCEMAPS` 都是 0。
+2. **`BYTES_VERIFIED` 的分母不含 `UNPACKED` 条目**——那些实体不在 asar 里，从 asar 无法校验。
+   分子分母不等时，差的**正好就是** unpacked 数（`6988 + 29 = 7017`）。
+3. **`APP_SOURCEMAPS=0` 不是失败**，只是「业务代码是压缩产物」。这时能拿到的仍然很多：
+   文件结构、依赖清单、字体/图片/配置、字符串常量、IPC 通道名。要读逻辑得靠动态观察。
+
+**`unpacked` 是一个静默坑**：按 asar 内的 offset 去读 unpacked 条目，会读到隔壁条目的字节，
+不报错、只是数据是错的。要读它们的实体文件，去 `app.asar.unpacked/<同相对路径>`。
+
+**asar 解出来之后**：`out/` 或 `dist/` 下的 renderer 就是一个能跑的前端。把它当**证据源**
+（真实组件结构、真实文案、真实样式）去重建可维护的源码；**直接复用解出的 bundle 等于重打包，
+不是复刻**（见设计 `2026-11-02-P3-EXE与APP复刻设计.md` §5）。
 
 ## 4. Linux ELF
 
@@ -132,6 +165,6 @@ reverse_probe({ target: "C:/path/app.exe", decompile: 3 })   // decompile 可省
 | 动态调试 | x64dbg / gdb / lldb | 只做外部观察（网络、文件、进程） |
 | 解壳 | 调试器 + 手工 | 报告壳类型与依据，不硬做 |
 | .NET 反编译 | ILSpy / dnSpy | 只做字符串与元数据层 |
-| asar 解包 | `asar` / 7-Zip | `strings` 读资源名，注明未解包 |
+| asar 解包 | 无（`reverse_probe` 内置） | `reverse_probe` 缺席时才退到 `strings` 读资源名，并注明未解包 |
 
 报告要写清「因为缺 X，以下结论基于 Y 层」。

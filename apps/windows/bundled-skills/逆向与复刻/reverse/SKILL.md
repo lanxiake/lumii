@@ -40,7 +40,7 @@ metadata: { "mtbot": { "emoji": "🔬" } }
 | 目的 | 工具 | 注意 |
 |---|---|---|
 | 看文件类型/大小 | `bash`（`file` / `du` / `ls -l`） | Windows 上没有 `file` 就用文件头字节 |
-| **反编译二进制** | `reverse_probe`（扩展「逆向工具链」提供） | PE/ELF/Mach-O 走 Ghidra；**`.apk` 走内置解析（不需要任何外部工具）**。没有该工具就按参考降级，别去技能目录里找脚本 |
+| **反编译二进制** | `reverse_probe`（扩展「逆向工具链」提供） | PE/ELF/Mach-O 走 Ghidra；**`.apk` / `.ipa` / Electron 的 `app.asar` 走内置解析（不需要任何外部工具）**。目标是 Electron 应用时它会自己找同目录的 `app.asar`，别去反编译外壳。没有该工具就按参考降级，别去技能目录里找脚本 |
 | 搜字符串 | `grep` | 先搜报错文案、URL、密钥前缀，最快定位 |
 | 读源码/反编译产物 | `file_read` | 大文件用 offset/limit 分段 |
 | 跑命令观察行为 | `bash` | 沙箱外执行，跑来历不明的二进制要谨慎 |

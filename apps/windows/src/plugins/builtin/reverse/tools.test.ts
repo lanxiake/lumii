@@ -11,7 +11,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { createReverseProbeToolConfig, pickBackend } from './tools'
+import { createReverseProbeToolConfig, pickBackend, resolveBackend } from './tools'
 import type { ReverseService } from './service-api'
 
 const OK_OUTPUT = [
@@ -147,6 +147,44 @@ describe('后端选择', () => {
     )
     expect(res.isError).toBe(true)
     expect(textOf(res)).toContain('IPA 解析失败')
+    expect(textOf(res)).not.toContain('没找到 Ghidra')
+    expect(spawnProbe).not.toHaveBeenCalled()
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('resolveBackend：同目录有 resources/app.asar 的 exe 走 asar，而不是花 4 分钟反编译外壳', () => {
+    const spawnProbe = vi.fn()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rev-asar-'))
+    const exe = path.join(dir, 'demo.exe')
+    fs.writeFileSync(exe, 'MZ')
+    expect(resolveBackend(exe)).toBe('ghidra') // 还没有 asar
+
+    fs.mkdirSync(path.join(dir, 'resources'))
+    fs.writeFileSync(path.join(dir, 'resources', 'app.asar'), Buffer.from(''))
+    expect(resolveBackend(exe)).toBe('asar')
+    // 内建后端不受影响
+    expect(resolveBackend('C:/x/app.apk')).toBe('apk')
+    expect(resolveBackend('C:/x/app.ipa')).toBe('ipa')
+    fs.rmSync(dir, { recursive: true, force: true })
+    expect(spawnProbe).not.toHaveBeenCalled()
+  })
+
+  it('asar 后端**即使没装 Ghidra 也能用**，且不 spawn 外部进程', async () => {
+    const spawnProbe = vi.fn()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rev-asar-run-'))
+    const asar = path.join(dir, 'app.asar')
+    fs.writeFileSync(asar, Buffer.alloc(64)) // 不是合法 asar：应报解析错误而不是「缺 Ghidra」
+    const res = await run(
+      {
+        service: service({
+          backends: () => [{ id: 'ghidra', label: 'Ghidra', path: null, targets: ['PE'], hint: '' }],
+        }),
+        spawnProbe,
+      },
+      { target: asar },
+    )
+    expect(res.isError).toBe(true)
+    expect(textOf(res)).toContain('asar 解析失败')
     expect(textOf(res)).not.toContain('没找到 Ghidra')
     expect(spawnProbe).not.toHaveBeenCalled()
     fs.rmSync(dir, { recursive: true, force: true })
