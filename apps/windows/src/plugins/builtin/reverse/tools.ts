@@ -23,10 +23,13 @@ import { spawn } from 'node:child_process'
 import type { MtBotToolConfig } from '@mtbot/agent-runtime'
 import type { ReverseService } from './service-api'
 import { probeApkFile } from './apk-probe'
+import { probeIpaFile } from './ipa-probe'
 
 const ProbeInput = Type.Object({
   target: Type.String({
-    description: '目标文件绝对路径。支持 PE / ELF / Mach-O（需 Ghidra）与 APK（内置，无需外部工具）',
+    description:
+      '目标文件绝对路径。支持 PE / ELF / Mach-O（需 Ghidra）与 .apk / .xapk / .apks（内置解析，无需外部工具）。' +
+      '.aab 会被明确拒绝——请先用 bundletool 转成 .apks',
   }),
   decompile: Type.Optional(
     Type.Number({
@@ -51,13 +54,16 @@ type ProbeInputT = Static<typeof ProbeInput>
 const REQUIRED_KEYS = ['FORMAT=', 'ARCH=', 'FUNCTIONS=']
 
 /**
- * 按扩展名/幻数挑后端。
+ * 按扩展名挑后端。
  *
- * APK 只认 `.apk`（`.aab`/`.xapk` 结构不同，先如实拒绝而不是给半对的结果）；
- * 其余一律交给 Ghidra——它自己认格式，我们不重复造轮子。
+ * `.apk` / `.xapk` / `.apks` / `.aab` / `.ipa` 都交给内置解析（不需要任何外部工具）：
+ * - `.aab` 会明确拒绝并告诉用户怎么转（bundletool），比让它落到 Ghidra 上分析一个 zip 有用；
+ * - `.ipa` 用同一套 zip 读取 + 自己的 plist/Mach-O 解析。
+ * 其余一律交给 Ghidra：它自己认格式，我们不重复造轮子。
  */
-export function pickBackend(target: string): 'apk' | 'ghidra' {
-  return /\.apk$/i.test(target) ? 'apk' : 'ghidra'
+export function pickBackend(target: string): 'apk' | 'ipa' | 'ghidra' {
+  if (/\.ipa$/i.test(target)) return 'ipa'
+  return /\.(apk|xapk|apks|aab)$/i.test(target) ? 'apk' : 'ghidra'
 }
 
 export interface ReverseProbeDeps {
@@ -80,13 +86,16 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
     name: 'reverse_probe',
     label: 'Reverse Probe',
     description:
-      '对目标做静态结构分析，**两种后端自动按扩展名选**：\n' +
-      '· `.apk` → 内置 APK 解析（不需要任何外部工具）：包名/版本/SDK、权限（含敏感项计数）、' +
+      '对目标做静态结构分析，**三种后端自动按扩展名选**：\n' +
+      '· `.apk` / `.xapk` / `.apks` → 内置 APK 解析（不需要任何外部工具）：包名/版本/SDK、权限（含敏感项）、' +
       '组件与导出组件、dex 里的 URL 与类名、原生库与 ABI、加固与跨端框架判定、签名文件。秒级返回。\n' +
+      '· `.ipa` → 内置 IPA 解析：bundle id/版本/最低 iOS、权限用途说明、框架、' +
+      'Mach-O 加密状态（cryptid）、描述文件团队与过期时间。秒级返回。\n' +
       '· 其它（PE / ELF / Mach-O）→ Ghidra headless：格式/架构/函数总数、**按能力归类的导入**、' +
       '可疑字符串、可选反编译 N 个最像业务入口的函数。**一次调用 3–5 分钟，同步等它返回**——' +
       '不要 nohup 后台起再轮询，那会重跑一遍。\n' +
-      '两者都返回稳定的 `KEY=value` 文本，可直接抄进 `analysis/evidence.md`。\n' +
+      '`.aab` 会被明确拒绝（manifest 是 protobuf）——请先用 bundletool 转成 `.apks`。\n' +
+      '都返回稳定的 `KEY=value` 文本，可直接抄进 `analysis/evidence.md`。\n' +
       '口径：能力标签只代表「导入了什么」，**不代表「它干了什么」**；' +
       'APK 的 `PACKER_SUSPECT` 只是命中特征，不是「一定是壳」的结论。',
     parameters: ProbeInput,
@@ -100,11 +109,17 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
         return text({ ok: false, error: '缺少 target——要知道分析哪个文件。' })
       }
 
-      // APK：自带实现，不依赖外部工具链，也不受「扩展没开」以外的影响
-      if (pickBackend(target) === 'apk') {
+      // APK / IPA：自带实现，不依赖外部工具链
+      const backend = pickBackend(target)
+      if (backend === 'apk') {
         const dexLimit = Number.isFinite(p.dexLimit) ? Math.max(1, Math.min(50, p.dexLimit!)) : 8
         const r = probeApkFile(path.resolve(target), { dexLimit })
         if (!r.ok) return text({ ok: false, error: `APK 解析失败：${r.error}` })
+        return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
+      }
+      if (backend === 'ipa') {
+        const r = probeIpaFile(path.resolve(target))
+        if (!r.ok) return text({ ok: false, error: `IPA 解析失败：${r.error}` })
         return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
       }
 

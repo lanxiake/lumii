@@ -380,6 +380,67 @@ describe('countSensitive', () => {
   })
 })
 
+// ─── 分包容器与 AAB ────────────────────────────────────────────────────────
+
+describe('probeApk — 容器格式', () => {
+  const innerManifest = buildAxm([
+    {
+      name: 'manifest',
+      attrs: [
+        { name: 'package', value: 'com.demo.split' },
+        { name: 'versionName', value: '9.9.9' },
+      ],
+    },
+    { name: 'uses-permission', attrs: [{ name: 'name', value: 'android.permission.INTERNET' }] },
+  ])
+  const baseApk = buildZip([
+    { name: 'AndroidManifest.xml', data: innerManifest },
+    { name: 'classes.dex', data: buildDex(['https://api.split.demo']) },
+  ])
+  const configApk = buildZip([
+    { name: 'AndroidManifest.xml', data: buildAxm([{ name: 'manifest', attrs: [] }]) },
+  ])
+
+  it('.xapk / .apks：外层列出清单，挑出带 manifest 的主包做完整分析', () => {
+    const container = buildZip([
+      { name: 'config.arm64_v8a.apk', data: configApk },
+      { name: 'com.demo.split.apk', data: baseApk },
+      { name: 'manifest.json', data: Buffer.from('{}') },
+    ])
+    const r = probeApk(container)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.text).toContain('PROGRAM=apk-container')
+    expect(r.text).toContain('INNER_APKS=2')
+    expect(r.text).toContain('BASE_APK=com.demo.split.apk') // 配置分包只有空 manifest，不是主包
+    expect(r.text).toContain('PACKAGE=com.demo.split')
+    expect(r.text).toContain('--- BASE_APK ---')
+  })
+
+  it('容器里没有可解析的主包 → 明确报错，并列出试过哪些', () => {
+    const container = buildZip([
+      { name: 'a.apk', data: Buffer.from('not-a-zip') },
+      { name: 'readme.txt', data: Buffer.from('x') },
+    ])
+    const r = probeApk(container)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/找不到带 package 的主 APK/)
+  })
+
+  it('.aab：明确拒绝并给 bundletool 的转法（不落到 Ghidra 上去瞎分析）', () => {
+    const aab = buildZip([
+      { name: 'base/manifest/AndroidManifest.xml', data: Buffer.from('protobuf-not-axml') },
+      { name: 'BundleConfig.pb', data: Buffer.from('x') },
+    ])
+    const r = probeApk(aab)
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toContain('AAB')
+      expect(r.error).toContain('bundletool')
+    }
+  })
+})
+
 describe('probeApkFile', () => {
   it('文件不存在 → ok:false（不抛）', () => {
     const r = probeApkFile(path.join(os.tmpdir(), 'definitely-not-here.apk'))

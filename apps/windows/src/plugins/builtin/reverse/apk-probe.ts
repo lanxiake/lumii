@@ -300,35 +300,39 @@ export interface ApkProbeOptions {
   readonly dexLimit?: number
 }
 
+/** 在目录里找条目名（`.` 开头的是 macOS 打包残留，忽略） */
+function findEntry(entries: readonly ZipEntryInfo[], name: string): ZipEntryInfo | undefined {
+  return entries.find((e) => e.name === name)
+}
+
 /**
- * 产出与 `ReverseProbe.java` 同风格的 `KEY=value` + `--- SECTION ---` 文本，
- * 这样技能对两种后端用同一套「抄进 evidence.md」的读法。
+ * 单 APK 分析。返回 `KEY=value` 行数组（不含容器层的 `<TYPE>_INNER` 之类）。
+ *
+ * 拆出来是为了 `.xapk` / `.apks` 能复用：它们是「zip 里装若干 apk」，
+ * 每个内层 apk 都要走同一套逻辑，**不能复制一份解析代码**。
  */
-export function probeApk(buf: Buffer, opts: ApkProbeOptions = {}): ApkProbeResult | ApkProbeFailure {
-  try {
-    const entries = readZipDirectory(buf)
-    const lines: string[] = []
-    const put = (k: string, v: string | number): void => {
-      lines.push(`${k}=${v}`)
-    }
+function analyzeApk(buf: Buffer, opts: ApkProbeOptions): { lines: string[] } | ApkProbeFailure {
+  const entries = readZipDirectory(buf)
+  const lines: string[] = []
+  const put = (k: string, v: string | number): void => {
+    lines.push(`${k}=${v}`)
+  }
 
-    const dexEntries = entries
-      .filter((e) => /^classes\d*\.dex$/.test(e.name))
-      .sort((a, b) => dexIndex(a.name) - dexIndex(b.name))
-    const soEntries = entries.filter((e) => /^lib\/[^/]+\/.+\.so$/.test(e.name))
-    const signature = entries.filter((e) => /^META-INF\/.+\.(RSA|DSA|EC|SF)$/.test(e.name))
+  const dexEntries = entries
+    .filter((e) => /^classes\d*\.dex$/.test(e.name))
+    .sort((a, b) => dexIndex(a.name) - dexIndex(b.name))
+  const soEntries = entries.filter((e) => /^lib\/[^/]+\/.+\.so$/.test(e.name))
+  const signature = entries.filter((e) => /^META-INF\/.+\.(RSA|DSA|EC|SF)$/.test(e.name))
 
-    put('PROGRAM', 'apk')
-    put('FORMAT', 'Android APK (zip)')
-    put('ENTRIES', entries.length)
-    put('SIZE_KB', Math.round(buf.length / 1024))
-    put('DEX_COUNT', dexEntries.length)
-    put('NATIVE_LIBS', soEntries.length)
-    put('ABIS', [...new Set(soEntries.map((e) => e.name.split('/')[1]))].join(',') || 'none')
+  put('ENTRIES', entries.length)
+  put('SIZE_KB', Math.round(buf.length / 1024))
+  put('DEX_COUNT', dexEntries.length)
+  put('NATIVE_LIBS', soEntries.length)
+  put('ABIS', [...new Set(soEntries.map((e) => e.name.split('/')[1]))].join(',') || 'none')
 
-    // ── Manifest ──
-    const manifestEntry = entries.find((e) => e.name === 'AndroidManifest.xml')
-    if (manifestEntry) {
+  // ── Manifest ──
+  const manifestEntry = findEntry(entries, 'AndroidManifest.xml')
+  if (manifestEntry) {
       try {
         const els = parseAxmlManifest(extractEntry(buf, manifestEntry))
         const manifest = els.find((e) => e.name === 'manifest')
@@ -414,10 +418,100 @@ export function probeApk(buf: Buffer, opts: ApkProbeOptions = {}): ApkProbeResul
     lines.push('--- NATIVE_LIBS ---')
     for (const e of soEntries.slice(0, 60)) lines.push(e.name)
 
-    return { ok: true, text: `${lines.join('\n')}\n` }
+    return { lines }
+}
+
+/**
+ * 分析入口：按容器类型分发。
+ *
+ * - `.apk` → 直接分析；
+ * - `.xapk` / `.apks` → 外层是 zip，内层是若干 apk（`.apks` 常带 `splits/`、`.xapk` 带 `config.*.apk`）。
+ *   **挑主包**（manifest 里带 `package` 的那个）做完整分析，其余只列清单——
+ *   逐个全解析（配置分包几十个、每个都几 MB）会让一次调用跑到分钟级。
+ * - `.aab` → 结构不同（`base/manifest/AndroidManifest.xml` 是 protobuf），**明确拒绝**而不是给半对结果。
+ */
+export function probeApk(buf: Buffer, opts: ApkProbeOptions = {}): ApkProbeResult | ApkProbeFailure {
+  try {
+    const entries = readZipDirectory(buf)
+    const isContainer =
+      entries.some((e) => /^base\/manifest\/AndroidManifest\.xml$/.test(e.name)) ||
+      (entries.some((e) => /\.apk$/i.test(e.name)) && !entries.some((e) => e.name === 'AndroidManifest.xml'))
+
+    if (entries.some((e) => /^base\/manifest\/AndroidManifest\.xml$/.test(e.name))) {
+      return {
+        ok: false,
+        error:
+          'AAB（App Bundle）的 manifest 是 protobuf 格式，本探针不解析。' +
+          '请用 bundletool 转成 APK 再分析（`bundletool build-apks --bundle=x.aab --output=x.apks`），' +
+          '或提供对应的 APK。',
+      }
+    }
+
+    if (!isContainer) {
+      const r = analyzeApk(buf, opts)
+      if ('error' in r) return { ok: false, error: r.error }
+      return { ok: true, text: `${['PROGRAM=apk', 'FORMAT=Android APK (zip)', ...r.lines].join('\n')}\n` }
+    }
+
+    return probeContainer(buf, entries, opts)
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/** `.xapk` / `.apks`：拆出内层 apk，挑主包解析 */
+function probeContainer(
+  buf: Buffer,
+  entries: ZipEntryInfo[],
+  opts: ApkProbeOptions,
+): ApkProbeResult | ApkProbeFailure {
+  const apkEntries = entries.filter((e) => /\.apk$/i.test(e.name))
+  const lines: string[] = ['PROGRAM=apk-container', 'FORMAT=Android 分包（xapk/apks）']
+  const put = (k: string, v: string | number): void => {
+    lines.push(`${k}=${v}`)
+  }
+  put('OUTER_ENTRIES', entries.length)
+  put('SIZE_KB', Math.round(buf.length / 1024))
+  put('INNER_APKS', apkEntries.length)
+  lines.push('--- INNER_APK_LIST ---')
+  for (const e of apkEntries) lines.push(`${e.name} (${Math.round((e.compressedSize || 0) / 1024)}KB)`)
+
+  // 主包判定：内层 apk 的 manifest 里**有 `package` 属性**。
+  // 光看「有没有 AndroidManifest.xml」不够——配置分包（`config.arm64_v8a.apk` 之类）
+  // 也带一个极小的 manifest，真机上会把它当主包，结果 `PACKAGE=UNRESOLVED`。
+  let base: { name: string; buf: Buffer } | null = null
+  const tried: string[] = []
+  for (const e of apkEntries) {
+    try {
+      const inner = extractEntry(buf, e)
+      const innerEntries = readZipDirectory(inner)
+      const mEntry = innerEntries.find((x) => x.name === 'AndroidManifest.xml')
+      if (!mEntry) continue
+      const els = parseAxmlManifest(extractEntry(inner, mEntry))
+      const manifestEl = els.find((x) => x.name === 'manifest')
+      const pkg = manifestEl?.attrs.find((a) => a.name === 'package')?.value
+      tried.push(e.name)
+      if (!pkg) continue
+      base = { name: e.name, buf: inner }
+      break
+    } catch {
+      /* 单个内层包坏了不影响其余，继续找 */
+    }
+  }
+
+  if (!base) {
+    return {
+      ok: false,
+      error: `这是分包容器，但里面找不到带 package 的主 APK。已试：${tried.join(', ') || '无'}（只有配置分包通常说明主包缺失）`,
+    }
+  }
+
+  put('BASE_APK', base.name)
+  put('BASE_TRIED', tried.length)
+  const r = analyzeApk(base.buf, opts)
+  if ('error' in r) return { ok: false, error: `主包 ${base.name} 解析失败：${r.error}` }
+  lines.push('--- BASE_APK ---', ...r.lines)
+  return { ok: true, text: `${lines.join('\n')}\n` }
 }
 
 function dexIndex(name: string): number {

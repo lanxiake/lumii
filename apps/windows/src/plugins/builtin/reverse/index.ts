@@ -108,7 +108,16 @@ function detectBackends(): ReverseBackendStatus[] {
       id: 'apk',
       label: 'APK（内置）',
       path: 'builtin',
-      targets: ['Android .apk'],
+      targets: ['Android .apk / .xapk / .apks'],
+      hint: '',
+    },
+    {
+      // 无外部依赖的另一条：zip + 二进制 plist + Mach-O 加密标记，纯 Node。
+      // 反汇编与代码签名核验**不做**——前者需要 macOS 工具链，后者需要 codesign。
+      id: 'ipa',
+      label: 'IPA（内置）',
+      path: 'builtin',
+      targets: ['iOS .ipa'],
       hint: '',
     },
   ]

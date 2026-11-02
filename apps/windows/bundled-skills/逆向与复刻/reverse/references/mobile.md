@@ -8,8 +8,8 @@
 |---|---|---|
 | `PK` + `.apk` | Android 应用（本质是 zip） | **先用 `reverse_probe`（§3.0），再按 §2 手工补** |
 | `PK` + `.ipa` | iOS 应用（本质是 zip） | §4 |
-| `PK` + `.aab` | Android App Bundle | 解包后同 §2，但资源按模块分 |
-| `.xapk` / `.apks` | 分包/包裹格式 | 解包后按 APK 处理 |
+| `PK` + `.aab` | Android App Bundle | **探针会明确拒绝**（manifest 是 protobuf）；用 bundletool 转成 `.apks` 再分析 |
+| `.xapk` / `.apks` | 分包/包裹格式（外层 zip，内层若干 apk） | **`reverse_probe` 会自动挑出带 package 的主包分析** |
 
 ```bash
 xxd -l 16 app.apk          # 确认 PK\x03\x04
@@ -98,6 +98,28 @@ reverse_probe({ target: "C:/path/app.apk", dexLimit: 8 })
 
 ## 4. IPA 静态结构
 
+### 4.0 先用 `reverse_probe`（同样不需要外部工具）
+
+```
+reverse_probe({ target: "C:/path/app.ipa" })
+```
+
+秒级返回：
+
+| 段 | 内容 |
+|---|---|
+| `BUNDLE_ID` / `VERSION` / `BUILD` / `MIN_IOS` | 包标识与版本 |
+| `PERMISSION_USAGE_KEYS` + `--- PERMISSIONS ---` | `NS*UsageDescription`——**有这条就说明它真的申请了对应能力** |
+| `MACHO` / `ENCRYPTED` | 加密状态（`cryptid`）。App Store 下载的包通常 `yes`，说明代码段是加密的 |
+| `FRAMEWORK` / `FRAMEWORKS_COUNT` | Flutter / RN / Unity / Electron 套壳 |
+| `PROVISION_TEAM` / `PROVISION_EXPIRY` | 描述文件的团队与过期时间 |
+| `SIGN_CODE` | **恒为 UNRESOLVED**——核验签名需要 `codesign`，本平台没有 |
+
+**它不做 Mach-O 反汇编**（需要 macOS 工具链）。`ENCRYPTED=yes` 时，静态反汇编本来也读不出逻辑，
+如实写清楚即可，别硬啃。
+
+### 4.1 手工补（工具给不了的）
+
 ```bash
 unzip -l app.ipa | head -40
 unzip -o -d ipa_unpacked app.ipa
@@ -106,13 +128,13 @@ ls ipa_unpacked/Payload/*.app | head -40
 
 | 路径 | 看什么 |
 |---|---|
-| `Payload/*.app/Info.plist` | 可能是二进制 plist；`strings` 能读键名与 URL scheme |
-| `Payload/*.app/PlugIns/` | 扩展（widget / share）各自有 Info.plist |
-| `Frameworks/` | 动态库与跨端框架（Flutter / RN / Unity） |
+| `Payload/*.app/Info.plist` | 二进制 plist；`reverse_probe` 已解析常见字段 |
+| `Payload/*.app/PlugIns/` | 扩展（widget / share）各有自己的 Info.plist |
+| `Frameworks/` | 动态库与跨端框架 |
 | `embedded.mobileprovision` | 描述文件（团队、权限、有效期） |
 | 可执行文件 | Mach-O；`otool -L` / `nm` 需 macOS 工具 |
 
-签名核验在本机通常缺 `codesign`，**如实写「未核验签名」**，不要给假结论。
+签名核验在本机缺 `codesign`，**如实写「未核验签名」**，不要给假结论。
 
 ## 5. 动态观察的边界
 

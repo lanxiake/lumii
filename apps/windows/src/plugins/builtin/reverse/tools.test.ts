@@ -117,11 +117,39 @@ describe('reverse_probe', () => {
 })
 
 describe('后端选择', () => {
-  it('.apk 走内置 APK 后端，其它交给 Ghidra', () => {
+  it('.apk / .xapk / .apks / .aab / .ipa 走内置，其它交给 Ghidra', () => {
     expect(pickBackend('C:/x/app.apk')).toBe('apk')
     expect(pickBackend('C:/x/APP.APK')).toBe('apk')
+    expect(pickBackend('C:/x/app.xapk')).toBe('apk')
+    expect(pickBackend('C:/x/app.apks')).toBe('apk')
+    expect(pickBackend('C:/x/app.aab')).toBe('apk')
+    expect(pickBackend('C:/x/app.ipa')).toBe('ipa')
     expect(pickBackend('C:/x/app.exe')).toBe('ghidra')
     expect(pickBackend('/bin/ls')).toBe('ghidra')
+  })
+
+  it('IPA 走内置实现：不 spawn 外部进程、不依赖 Ghidra', async () => {
+    const spawnProbe = vi.fn()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rev-ipa-'))
+    const ipa = path.join(dir, 'demo.ipa')
+    fs.writeFileSync(ipa, Buffer.alloc(128)) // 不是合法 IPA：应报解析错误而不是「缺 Ghidra」
+    const res = await run(
+      {
+        service: service({
+          backends: () => [
+            { id: 'ghidra', label: 'Ghidra', path: null, targets: ['PE'], hint: '装到 ~/tools/' },
+            { id: 'ipa', label: 'IPA（内置）', path: 'builtin', targets: ['.ipa'], hint: '' },
+          ],
+        }),
+        spawnProbe,
+      },
+      { target: ipa },
+    )
+    expect(res.isError).toBe(true)
+    expect(textOf(res)).toContain('IPA 解析失败')
+    expect(textOf(res)).not.toContain('没找到 Ghidra')
+    expect(spawnProbe).not.toHaveBeenCalled()
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 
   it('APK 走内置实现：**即使没装 Ghidra 也能用**，且不 spawn 外部进程', async () => {
