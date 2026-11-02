@@ -21,6 +21,7 @@ export const BUILTIN_AGENT_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   "code-dev": "灵栖开发",
   chronicler: "灵栖记事",
   "info-curator": "灵栖情报",
+  security: "灵栖安全",
 };
 
 /**

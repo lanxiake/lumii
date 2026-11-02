@@ -65,6 +65,7 @@ import {
   VERIFY_CRITICAL_REMINDER,
   VERIFY_WHEN_TO_USE,
 } from "./prompts.js";
+import { SECURITY_PROMPT, SECURITY_REFUSAL_NOTE, SECURITY_WHEN_TO_USE } from "./security-prompts.js";
 
 /**
  * 内置 Agent ID 命名空间前缀
@@ -296,6 +297,75 @@ const INFO_CURATOR_DEF: AgentDefinition = {
 };
 
 /**
+ * `security` 专用 Agent（P4）：设计 §5.4 明确保留它的理由**不是身份**，是**结构性护栏**——
+ * `tools` 白名单 + `disallowedTools` 摘掉 `pipeline_run` / `spawn_agent`，
+ * 这些是技能散文做不到的（技能拦不住工具）。
+ *
+ * `isActive: true` 而不是设计里写的 `false`——**实测发现 `false` 等于永久不存在**：
+ * 内置 Agent 的 `isEnabled` 直接取自 `def.isActive`（`agents-repo.systemAgentRecords`），
+ * 而 `updateAgentRecord` 只改用户 Agent，没有任何路径能把它打开。护栏设成了永不可达，
+ * 等于没做。
+ *
+ * 「按需」改由三条自动通路一并排除来实现：
+ * 1. 不进 Router 候选（`getCustomAgents` 的 `delegatableSystemAgentIds` 是硬编码白名单）；
+ * 2. 不进会话选择器（`selectable: false`）；
+ * 3. 不进主助手团队（同上白名单）。
+ *
+ * 留下的入口只有一个：**显式 `spawn_agent({agentType:"security"})` 或流水线 spec 指定**。
+ * 这才是「按需加载」该有的样子——不是「不可用」。
+ *
+ * 不 `selectable`：它不是日常聊天的入口，是跑安全任务的。
+ */
+const SECURITY_DEF: AgentDefinition = {
+  id: "security",
+  name: "灵栖安全",
+  description: SECURITY_WHEN_TO_USE,
+  sourceType: "system",
+  version: 1,
+  systemPrompt: `${SECURITY_PROMPT}\n\n${SECURITY_REFUSAL_NOTE}`,
+  modelTier: "balanced",
+  defaultPurpose: "chat",
+  tools: [
+    // 观察与取证
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_click",
+    "browser_type",
+    "browser_eval",
+    "browser_requests",
+    "browser_response_body",
+    "browser_screenshot",
+    // 读代码定位根因、跑规则与构建
+    BASH_TOOL_NAME,
+    FILE_READ_TOOL_NAME,
+    FILE_WRITE_TOOL_NAME,
+    FILE_EDIT_TOOL_NAME,
+    LIST_DIR_TOOL_NAME,
+    GREP_TOOL_NAME,
+    GLOB_TOOL_NAME,
+    // 两个安全原子按需加载
+    SKILL_SEARCH_TOOL_NAME,
+    SKILL_INVOKE_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
+    ASK_USER_QUESTION_TOOL_NAME,
+  ],
+  // 设计 §5.4：默认不给 pipeline_run / spawn_agent —— 前者让「路径由 spec 写死」失效，
+  // 后者能让它把活派给没有安全红线的 Agent（红线跟着 systemPrompt 走，派出去就没了）
+  disallowedTools: [
+    "pipeline_run",
+    SPAWN_AGENT_TOOL_NAME,
+    SEND_MESSAGE_TOOL_NAME,
+    "propose_dev_handoff",
+  ],
+  maxTurns: 120,
+  canSpawnSubAgents: false,
+  // 安全验证要看**用户**的画像（哪些是他自己的项目、授权情况记在哪），不是自己名下的
+  memory: { scope: "user", readView: "user", autoExtract: true },
+  selectable: false,
+  isActive: true,
+};
+
+/**
  * 客户端内置 Agent 离线镜像
  *
  * 供 `AgentDefinitionStore.get` 在 API 不可达时返回给调用方。
@@ -310,6 +380,7 @@ export const BUILTIN_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
   CODE_DEV_DEF,
   CHRONICLER_DEF,
   INFO_CURATOR_DEF,
+  SECURITY_DEF,
 ];
 
 /**

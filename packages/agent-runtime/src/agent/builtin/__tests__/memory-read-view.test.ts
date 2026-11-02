@@ -7,6 +7,8 @@
  *     09-14/09-15 两天日报连续输出「今天的工作记忆为空」就是这么来的。
  *   - `info-curator`（灵栖情报）：它要按**用户**的偏好吃穿，而偏好常被别的 Agent 先记下
  *     （主助手记「不想看标题党」、开发记「做端侧推理」）。
+ *   - `security`（灵栖安全）：用户的授权记录与「哪些项目是他自己的」记在别处，
+ *     只读自己名下等于不知道能打谁。
  * - **作业型**（平时自己干活、写自己的记忆）→ 缺省 `"own"`：assistant / code-dev。
  *
  * 与 `memory.scope` 的区别是这份测试要守住的关键：scope 是**持久化**语义
@@ -22,7 +24,7 @@ import { BUILTIN_AGENT_DEFINITIONS, findBuiltInAgent } from "../definitions.js";
 const ORDINARY_AGENTS = ["assistant", "code-dev"];
 
 /** 交付物由全用户记忆拼出来的巡访型 Agent */
-const CROSS_AGENT_AGENTS = ["chronicler", "info-curator"];
+const CROSS_AGENT_AGENTS = ["chronicler", "info-curator", "security"];
 
 describe("记忆读取视图 readView", () => {
   it("巡访型 Agent 跨 Agent 读：素材/体检对象来自其他 Agent", () => {
@@ -39,11 +41,11 @@ describe("记忆读取视图 readView", () => {
     }
   });
 
-  it("开跨 Agent 视图的正好是这两位巡访型 Agent", () => {
+  it("开跨 Agent 视图的正好是这三位巡访型 Agent", () => {
     const crossAgent = BUILTIN_AGENT_DEFINITIONS.filter((d) => d.memory?.readView === "user").map(
       (d) => d.id,
     );
-    expect(crossAgent).toEqual(["chronicler", "info-curator"]);
+    expect(crossAgent).toEqual(["chronicler", "info-curator", "security"]);
   });
 
   it("读取视图与持久化 scope 是两个独立维度：这些 Agent 的 scope 都是 user", () => {
