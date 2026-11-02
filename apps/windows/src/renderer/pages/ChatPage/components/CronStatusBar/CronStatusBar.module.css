@@ -38,7 +38,7 @@
 
 .summaryRow[data-tone='alert'] .summary,
 .summaryRow[data-tone='alert'] .summaryText {
-  color: var(--mt-danger, #d9534f);
+  color: var(--mt-error);
 }
 
 .summaryActions {
@@ -135,7 +135,7 @@
 
 .bar[data-tone='error'] .icon,
 .bar[data-tone='error'] .label {
-  color: var(--mt-danger, #d9534f);
+  color: var(--mt-error);
 }
 
 .spin {
