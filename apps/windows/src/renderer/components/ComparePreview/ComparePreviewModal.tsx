@@ -152,6 +152,16 @@ const ComparePane: React.FC<ComparePaneProps> = ({ title, url }) => {
             src={url}
             title={title}
             className={styles.webview}
+            /**
+             * **必须显式收紧**：不写 `webpreferences` 就继承主窗口（`sandbox:false`、
+             * `nodeIntegration:false`、`contextIsolation:true`）。对照视图右栏加载的是
+             * `file://` 下的复刻产物——那是**外部站点内容重建出来的页面**，跑在
+             * 「能读整个磁盘」的 file: 源里。收紧成独立沙箱后，即使产物里有恶意脚本，
+             * 也读不到本地文件。
+             *
+             * 左栏是 https 源站，同样受益（它本来就读不到本地，但统一沙箱更省心）。
+             */
+            webpreferences="sandbox=yes,nodeIntegration=no,contextIsolation=yes,webSecurity=yes,allowRunningInsecureContent=no"
           />
         )}
       </div>
