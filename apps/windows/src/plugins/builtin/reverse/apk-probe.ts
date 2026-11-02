@@ -614,9 +614,9 @@ export function probeApk(buf: Buffer, opts: ApkProbeOptions = {}): ApkProbeResul
       return {
         ok: false,
         error:
-          'AAB（App Bundle）的 manifest 是 protobuf 格式，本探针不解析。' +
-          '请用 bundletool 转成 APK 再分析（`bundletool build-apks --bundle=x.aab --output=x.apks`），' +
-          '或提供对应的 APK。',
+          '这是 AAB（App Bundle），不是 APK——它的 manifest 是 protobuf，走 APK 的 AXML 解析器解不开。' +
+          '请改用 aab-probe（`reverse_probe` 会按 .aab 扩展名自动选它），或用 bundletool 转成 APK' +
+          '（`bundletool build-apks --bundle=x.aab --output=x.apks`）。',
       }
     }
 

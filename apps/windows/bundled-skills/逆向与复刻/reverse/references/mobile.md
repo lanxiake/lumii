@@ -1,4 +1,4 @@
-# 移动端逆向（APK / IPA）
+# 移动端逆向（APK / AAB / IPA）
 
 **只在目标确认是移动应用时加载本参考**。缺工具就报缺什么，**不要自动安装**。
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | `PK` + `.apk` | Android 应用（本质是 zip） | **先用 `reverse_probe`（§3.0），再按 §2 手工补** |
 | `PK` + `.ipa` | iOS 应用（本质是 zip） | §4 |
-| `PK` + `.aab` | Android App Bundle | **探针会明确拒绝**（manifest 是 protobuf）；用 bundletool 转成 `.apks` 再分析 |
+| `PK` + `.aab` | Android App Bundle | **`reverse_probe` 内置解析**（manifest 是 protobuf，自带解码器）；见 §3.3 |
 | `.xapk` / `.apks` | 分包/包裹格式（外层 zip，内层若干 apk） | **`reverse_probe` 会自动挑出带 package 的主包分析** |
 
 ```bash
@@ -102,6 +102,40 @@ Java/Kotlin 代码仍然需要 jadx（§3.1）。这是刻意的边界：半对�
 
 **JS/跨端框架**：`assets/index.android.bundle`（RN）、`assets/flutter_assets/`（Flutter）、
 `assets/app.asar`（Electron 套壳）都按**文本/资源**读，别当二进制硬啃。
+
+### 3.2 分包容器（`.xapk` / `.apks`）
+
+`reverse_probe` 会自动挑出**带 `package` 属性**的那层 apk 当主包分析，
+其余（`config.arm64_v8a.apk` 这类）只在 `INNER_APK_LIST` 里列出来。
+
+### 3.3 AAB（App Bundle）—— 也走 `reverse_probe`，不用先装 bundletool
+
+```
+reverse_probe({ target: "C:/path/app.aab", dexLimit: 8 })
+```
+
+AAB 与 APK 的差别只有两处，而**两处都已处理**：
+
+| 差别 | 处理 |
+|---|---|
+| manifest 是 protobuf（`Resources.proto` 的 XmlNode），不是 AXML | 探针自带最小 protobuf 解码器，读字符串字段 |
+| dex 在 `base/dex/` 下而不是根目录 | 与 APK 里的 `classes*.dex` **完全相同**，直接复用同一套解析 |
+
+输出除了包名/版本/SDK/权限/组件（结构与 APK 一样），还多两段：
+
+| 段 | 内容 |
+|---|---|
+| `MODULES` + `--- MODULES ---` | 模块清单（`base` 一定有；`feature*` 单独列但不逐个深入） |
+| `DEX_COUNT` / `DEX_READ` | dex 数量与实际读了几份 |
+
+**三条边界**（写报告时别越过）：
+
+1. **只读 protobuf 的字符串字段**。`compiled_item`（编译后的资源引用）不解析——
+   那要接 `resources.pb` 的资源表，属于「把 AAB 当 APK 用」，超出静态结构分析的范围。
+   所以 `label`、`icon` 这类引用型属性读不到是**正常的**，不是解析失败。
+2. **不产出 APK、不做签名、不合并分包**。要看**安装后的形态**（哪个设备拿哪个 split、
+   签名是否有效）仍然用 bundletool——这是 AAB 特有的分发层信息，静态结构给不了。
+3. **manifest 解出 0 个元素是报错，不是「包信息不全」**。非标准编码会在这里明确失败。
 
 ## 4. IPA 静态结构
 

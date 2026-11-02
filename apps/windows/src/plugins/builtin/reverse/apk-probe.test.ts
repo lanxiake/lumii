@@ -536,7 +536,7 @@ describe('probeApk — 容器格式', () => {
     if (!r.ok) expect(r.error).toMatch(/找不到带 package 的主 APK/)
   })
 
-  it('.aab：明确拒绝并给 bundletool 的转法（不落到 Ghidra 上去瞎分析）', () => {
+  it('.aab 落到 APK 解析器时明确引导到 AAB 后端（两条路不应互相静默吞掉）', () => {
     const aab = buildZip([
       { name: 'base/manifest/AndroidManifest.xml', data: Buffer.from('protobuf-not-axml') },
       { name: 'BundleConfig.pb', data: Buffer.from('x') },
@@ -545,7 +545,7 @@ describe('probeApk — 容器格式', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.error).toContain('AAB')
-      expect(r.error).toContain('bundletool')
+      expect(r.error).toContain('aab-probe')
     }
   })
 })

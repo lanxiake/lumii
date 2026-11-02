@@ -122,7 +122,9 @@ describe('后端选择', () => {
     expect(pickBackend('C:/x/APP.APK')).toBe('apk')
     expect(pickBackend('C:/x/app.xapk')).toBe('apk')
     expect(pickBackend('C:/x/app.apks')).toBe('apk')
-    expect(pickBackend('C:/x/app.aab')).toBe('apk')
+    // AAB 有自己的 protobuf 解码器，不再复用 APK 的拒绝分支
+    expect(pickBackend('C:/x/app.aab')).toBe('aab')
+    expect(pickBackend('C:/x/APP.AAB')).toBe('aab')
     expect(pickBackend('C:/x/app.ipa')).toBe('ipa')
     expect(pickBackend('C:/x/app.exe')).toBe('ghidra')
     expect(pickBackend('/bin/ls')).toBe('ghidra')

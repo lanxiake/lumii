@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process'
 import type { MtBotToolConfig } from '@mtbot/agent-runtime'
 import type { ReverseService } from './service-api'
 import { probeApkFile } from './apk-probe'
+import { probeAabFile } from './aab-probe'
 import { probeIpaFile } from './ipa-probe'
 import { findElectronAsar, extractAsar, probeAsarFile } from './asar-probe'
 
@@ -31,7 +32,8 @@ const ProbeInput = Type.Object({
     description:
       '目标文件绝对路径。支持 PE / ELF / Mach-O（需 Ghidra）、.apk / .xapk / .apks（内置解析）、' +
       '.ipa（内置解析）、.asar / Electron 应用目录或 exe（内置解析，无需 Ghidra）。' +
-      '.aab 会被明确拒绝——请先用 bundletool 转成 .apks',
+      '.aab：manifest 是 protobuf，本工具自带解码器（只取字符串字段），dex 与 APK 完全相同。' +
+      '不产出 APK、不做签名、不合并分包——要安装形态仍然用 bundletool',
   }),
   decompile: Type.Optional(
     Type.Number({
@@ -77,13 +79,15 @@ const REQUIRED_KEYS = ['FORMAT=', 'ARCH=', 'FUNCTIONS=']
  * 按扩展名挑后端。
  *
  * `.apk` / `.xapk` / `.apks` / `.aab` / `.ipa` 都交给内置解析（不需要任何外部工具）：
- * - `.aab` 会明确拒绝并告诉用户怎么转（bundletool），比让它落到 Ghidra 上分析一个 zip 有用；
+ * - `.aab` 的 manifest 是 protobuf（`Resources.proto` 的 XmlNode），自带一个最小解码器就能读；
+ *   dex 与 APK 里的完全一样，所以 URL / 类名 / 方法名都可用；
  * - `.ipa` 用同一套 zip 读取 + 自己的 plist/Mach-O 解析。
  * 其余一律交给 Ghidra：它自己认格式，我们不重复造轮子。
  */
-export function pickBackend(target: string): 'apk' | 'ipa' | 'ghidra' {
+export function pickBackend(target: string): 'apk' | 'ipa' | 'aab' | 'ghidra' {
   if (/\.ipa$/i.test(target)) return 'ipa'
-  return /\.(apk|xapk|apks|aab)$/i.test(target) ? 'apk' : 'ghidra'
+  if (/\.aab$/i.test(target)) return 'aab'
+  return /\.(apk|xapk|apks)$/i.test(target) ? 'apk' : 'ghidra'
 }
 
 /**
@@ -92,7 +96,7 @@ export function pickBackend(target: string): 'apk' | 'ipa' | 'ghidra' {
  *
  * 只对「本来是 ghidra」的目标探测，APK/IPA 不做多余 IO。
  */
-export function resolveBackend(target: string): 'apk' | 'ipa' | 'asar' | 'ghidra' {
+export function resolveBackend(target: string): 'apk' | 'ipa' | 'aab' | 'asar' | 'ghidra' {
   const base = pickBackend(target)
   if (base !== 'ghidra') return base
   return findElectronAsar(target) ? 'asar' : 'ghidra'
@@ -120,9 +124,12 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
     name: 'reverse_probe',
     label: 'Reverse Probe',
     description:
-      '对目标做静态结构分析，**三种后端自动按扩展名选**：\n' +
+      '对目标做静态结构分析，**四种后端自动按扩展名/文件系统选**：\n' +
       '· `.apk` / `.xapk` / `.apks` → 内置 APK 解析（不需要任何外部工具）：包名/版本/SDK、权限（含敏感项）、' +
       '组件与导出组件、dex 里的 URL 与类名、原生库与 ABI、加固与跨端框架判定、签名文件。秒级返回。\n' +
+      '· `.aab`（App Bundle）→ 内置 AAB 解析：manifest 是 protobuf，工具自带最小解码器读字符串字段；' +
+      '**dex 与 APK 里的完全一样**，所以 URL / 类名 / 方法名都可用；另列模块与原生库。秒级返回。' +
+      '不产出 APK、不合并分包——要安装形态仍用 bundletool。\n' +
       '· `.ipa` → 内置 IPA 解析：bundle id/版本/最低 iOS、权限用途说明、框架、' +
       'Mach-O 加密状态（cryptid）、描述文件团队与过期时间。秒级返回。\n' +
       '· `.asar`，**或任何路径的同目录/上级有 `resources/app.asar`**（Electron 套壳）→ 内置 asar 解析：' +
@@ -133,10 +140,9 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
       '· 其它（PE / ELF / Mach-O）→ Ghidra headless：格式/架构/函数总数、**按能力归类的导入**、' +
       '可疑字符串、可选反编译 N 个最像业务入口的函数。**一次调用 3–5 分钟，同步等它返回**——' +
       '不要 nohup 后台起再轮询，那会重跑一遍。\n' +
-      '`.aab` 会被明确拒绝（manifest 是 protobuf）——请先用 bundletool 转成 `.apks`。\n' +
       '都返回稳定的 `KEY=value` 文本，可直接抄进 `analysis/evidence.md`。\n' +
       '口径：能力标签只代表「导入了什么」，**不代表「它干了什么」**；' +
-      'APK 的 `PACKER_SUSPECT` 只是命中特征，不是「一定是壳」的结论；' +
+      'APK/AAB 的 `PACKER_SUSPECT` 只是命中特征，不是「一定是壳」的结论；' +
       'asar 的 `BYTES_VERIFIED` 只证明「字节读对了」，不证明「业务逻辑读懂了」。',
     parameters: ProbeInput,
     category: 'filesystem' as const,
@@ -160,6 +166,12 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
       if (backend === 'ipa') {
         const r = probeIpaFile(path.resolve(target))
         if (!r.ok) return text({ ok: false, error: `IPA 解析失败：${r.error}` })
+        return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
+      }
+      if (backend === 'aab') {
+        const dexLimit = Number.isFinite(p.dexLimit) ? Math.max(1, Math.min(50, p.dexLimit!)) : 8
+        const r = probeAabFile(path.resolve(target), { dexLimit })
+        if (!r.ok) return text({ ok: false, error: `AAB 解析失败：${r.error}` })
         return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
       }
       if (backend === 'asar') {
