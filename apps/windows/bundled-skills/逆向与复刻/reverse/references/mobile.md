@@ -6,7 +6,7 @@
 
 | 文件头 / 扩展名 | 实际是什么 | 走哪条 |
 |---|---|---|
-| `PK` + `.apk` | Android 应用（本质是 zip） | §2 |
+| `PK` + `.apk` | Android 应用（本质是 zip） | **先用 `reverse_probe`（§3.0），再按 §2 手工补** |
 | `PK` + `.ipa` | iOS 应用（本质是 zip） | §4 |
 | `PK` + `.aab` | Android App Bundle | 解包后同 §2，但资源按模块分 |
 | `.xapk` / `.apks` | 分包/包裹格式 | 解包后按 APK 处理 |
@@ -47,13 +47,47 @@ ls apk_unpacked/lib/*/ 2>/dev/null
 ls apk_unpacked/assets/ | head -30
 ```
 
-## 3. 代码层（依赖外部工具，缺席就如实说）
+## 3. 代码层
+
+### 3.0 先用 `reverse_probe`（**不需要装任何工具**）
+
+目标以 `.apk` 结尾时，`reverse_probe` 走**内置 APK 解析**（纯 Node，不依赖 jadx/aapt）：
+
+```
+reverse_probe({ target: "C:/path/app.apk", dexLimit: 8 })
+```
+
+秒级返回，`KEY=value` 文本可直接抄进 `evidence.md`：
+
+| 段 | 内容 |
+|---|---|
+| `PACKAGE` / `VERSION_NAME` / `MIN_SDK` / `TARGET_SDK` | 包标识与兼容范围 |
+| `PERMISSIONS` / `PERMISSIONS_SENSITIVE` + `--- PERMISSIONS ---` | 全量权限，敏感项单独计数 |
+| `COMPONENT.<type>` / `EXPORTED_COMPONENTS` + `--- EXPORTED ---` | 组件数与**对外可见**的组件（攻击面） |
+| `DEX_COUNT` / `DEX_READ` / `URL_COUNT` + `--- URLS_IN_DEX ---` | dex 里的外连域名 |
+| `CLASS_DESC_COUNT` + `--- CLASSES_SAMPLE ---` | 类名样本（判断用了什么 SDK） |
+| `ABIS` / `NATIVE_LIBS` + `--- NATIVE_LIBS ---` | 原生库与 ABI |
+| `PACKER_SUSPECT` | 加固**迹象**（命中特征名，不是「一定是壳」） |
+| `FRAMEWORK` | Flutter / RN / Unity / Electron 套壳等 |
+| `SIGNATURE_FILES` | v1 签名文件（`META-INF/*.RSA` 等） |
+
+**它不做字节码反编译**——`CLASS_DESC_COUNT` 是类名，不是逻辑。要读 Java/Kotlin 代码
+仍然需要 jadx（§3.1）。这是刻意的边界：半对的反编译比「没做」更误导。
+
+两个口径：
+
+1. `dexLimit` 默认 8——大包有几十个 dex，全解会慢。`DEX_READ=8/40` 这种写法就是在告诉你
+   **只看了前 8 个**，别把「没搜到 URL」当成「没有外连」。
+2. `PACKER_SUSPECT` 命中只说明**存在对应特征文件**。写结论时带依据（哪个 `.so`），
+   不要说「已加固、无法分析」——本工具本来就没打算脱壳。
+
+### 3.1 需要读代码时（依赖外部工具，缺席就如实说）
 
 | 想做的事 | 需要 | 缺席时 |
 |---|---|---|
-| 读 manifest 明文 | `aapt dump xmltree` / `apkanalyzer` | 只做 `strings` 层面的结论 |
-| Java/Kotlin 反编译 | `jadx` | 报告「只有 dex，未反编译」 |
-| 原生库符号 | `nm` / `objdump` | 只能看字符串与导入 |
+| 读 manifest 明文（更完整） | `aapt dump xmltree` / `apkanalyzer` | `reverse_probe` 已覆盖常用字段 |
+| Java/Kotlin 反编译 | `jadx` | 报告「只有类名与字符串，未反编译」 |
+| 原生库符号 | `nm` / `objdump` | 只能看字符串与导入（`reverse_probe` 也可对 `.so` 跑） |
 | 验签 | `apksigner verify` / `jarsigner -verify` | 报告未验签，不猜 |
 
 **加固 / 脱壳**：出现 `libjiagu.so`、`libshell*.so`、`libnesec.so`，或 dex 极小而

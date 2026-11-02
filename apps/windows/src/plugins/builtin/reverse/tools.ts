@@ -22,15 +22,26 @@ import { spawn } from 'node:child_process'
 
 import type { MtBotToolConfig } from '@mtbot/agent-runtime'
 import type { ReverseService } from './service-api'
+import { probeApkFile } from './apk-probe'
 
 const ProbeInput = Type.Object({
-  target: Type.String({ description: '目标文件绝对路径（PE / ELF / Mach-O）' }),
+  target: Type.String({
+    description: '目标文件绝对路径。支持 PE / ELF / Mach-O（需 Ghidra）与 APK（内置，无需外部工具）',
+  }),
   decompile: Type.Optional(
     Type.Number({
       description:
-        '反编译「最像业务入口」的 N 个函数（0 = 只做结构摘要，默认 0）。加了它耗时翻倍',
+        'Ghidra 后端：反编译「最像业务入口」的 N 个函数（0 = 只做结构摘要，默认 0）。加了它耗时翻倍。APK 后端忽略此参数',
       minimum: 0,
       maximum: 20,
+    }),
+  ),
+  dexLimit: Type.Optional(
+    Type.Number({
+      description:
+        'APK 后端：最多解析几个 classes*.dex 的字符串池（默认 8）。大包有几十个 dex，全解会很慢',
+      minimum: 1,
+      maximum: 50,
     }),
   ),
 })
@@ -38,6 +49,16 @@ type ProbeInputT = Static<typeof ProbeInput>
 
 /** 结构化输出里我们真正要断言的几行——缺了就是脚本没跑对 */
 const REQUIRED_KEYS = ['FORMAT=', 'ARCH=', 'FUNCTIONS=']
+
+/**
+ * 按扩展名/幻数挑后端。
+ *
+ * APK 只认 `.apk`（`.aab`/`.xapk` 结构不同，先如实拒绝而不是给半对的结果）；
+ * 其余一律交给 Ghidra——它自己认格式，我们不重复造轮子。
+ */
+export function pickBackend(target: string): 'apk' | 'ghidra' {
+  return /\.apk$/i.test(target) ? 'apk' : 'ghidra'
+}
 
 export interface ReverseProbeDeps {
   readonly service: ReverseService
@@ -59,12 +80,15 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
     name: 'reverse_probe',
     label: 'Reverse Probe',
     description:
-      '对二进制做静态结构分析（Ghidra headless）：格式/架构/函数总数、**按能力归类的导入**' +
-      '（network / process / registry / crypto / file / debugger / inject / service / clipboard / screenshot / keyboard）、' +
-      '可疑字符串（URL / 路径 / 凭据关键词）、可选反编译 N 个最像业务入口的函数。\n' +
-      '**一次调用耗时 3–5 分钟，同步等它返回**——不要 nohup 后台起再轮询，那会重跑一遍。\n' +
-      '返回是稳定的 `KEY=value` 文本，可直接抄进 `analysis/evidence.md`。\n' +
-      '能力标签只代表「导入了什么」，**不代表「它干了什么」**——下结论前回 IMPORTS_ALL 段核对同族导入。',
+      '对目标做静态结构分析，**两种后端自动按扩展名选**：\n' +
+      '· `.apk` → 内置 APK 解析（不需要任何外部工具）：包名/版本/SDK、权限（含敏感项计数）、' +
+      '组件与导出组件、dex 里的 URL 与类名、原生库与 ABI、加固与跨端框架判定、签名文件。秒级返回。\n' +
+      '· 其它（PE / ELF / Mach-O）→ Ghidra headless：格式/架构/函数总数、**按能力归类的导入**、' +
+      '可疑字符串、可选反编译 N 个最像业务入口的函数。**一次调用 3–5 分钟，同步等它返回**——' +
+      '不要 nohup 后台起再轮询，那会重跑一遍。\n' +
+      '两者都返回稳定的 `KEY=value` 文本，可直接抄进 `analysis/evidence.md`。\n' +
+      '口径：能力标签只代表「导入了什么」，**不代表「它干了什么」**；' +
+      'APK 的 `PACKER_SUSPECT` 只是命中特征，不是「一定是壳」的结论。',
     parameters: ProbeInput,
     category: 'filesystem' as const,
     isReadOnly: true,
@@ -75,6 +99,15 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
       if (!target) {
         return text({ ok: false, error: '缺少 target——要知道分析哪个文件。' })
       }
+
+      // APK：自带实现，不依赖外部工具链，也不受「扩展没开」以外的影响
+      if (pickBackend(target) === 'apk') {
+        const dexLimit = Number.isFinite(p.dexLimit) ? Math.max(1, Math.min(50, p.dexLimit!)) : 8
+        const r = probeApkFile(path.resolve(target), { dexLimit })
+        if (!r.ok) return text({ ok: false, error: `APK 解析失败：${r.error}` })
+        return { content: [{ type: 'text' as const, text: r.text }], details: undefined }
+      }
+
       const ghidra = deps.service.backends().find((b) => b.id === 'ghidra')
       if (!ghidra?.path) {
         // 缺工具是**正常状态**，不是错误：如实说清缺什么、怎么办，别让模型以为文件有问题
@@ -83,7 +116,8 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
           error:
             '本机没找到 Ghidra（reverse 扩展已启用，但工具链缺失）。' +
             (ghidra?.hint ?? '') +
-            '\n没有 Ghidra 也能继续：按 references/desktop.md §7 做 Triage（文件头 / 字符串 / 导入表）。',
+            '\n没有 Ghidra 也能继续：按 references/desktop.md §7 做 Triage（文件头 / 字符串 / 导入表）。' +
+            '\n（如果目标是 APK，用 .apk 扩展名调用——APK 后端是内置的，不需要 Ghidra。）',
         })
       }
       const decompose = Number.isFinite(p.decompile) ? Math.max(0, Math.min(20, p.decompile!)) : 0

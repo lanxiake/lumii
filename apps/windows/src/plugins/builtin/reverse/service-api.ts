@@ -17,11 +17,16 @@ export interface ReverseService {
 }
 
 export interface ReverseBackendStatus {
-  /** `ghidra` | `jadx`（后续） */
+  /**
+   * `ghidra` | `apk`
+   *
+   * `apk` 与其它后端**不同类**：它不需要任何外部工具链（纯 Node 解 zip + AXML + dex 字符串池），
+   * 所以 `path` 恒为 `'builtin'`、永远不会「缺失」。留成后端的形状是为了调用方能统一处理。
+   */
   id: string
   /** 人话名，直接进工具描述 */
   label: string
-  /** 找到的安装路径；没找到就是 null */
+  /** 找到的安装路径；自带实现是 `'builtin'`，没找到就是 null */
   path: string | null
   /** 支持的目标类型，明确到扩展/幻数层 */
   targets: readonly string[]

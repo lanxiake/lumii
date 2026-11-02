@@ -102,6 +102,15 @@ function detectBackends(): ReverseBackendStatus[] {
       targets: ['PE (.exe/.dll)', 'ELF', 'Mach-O'],
       hint: GHIDRA_HINT,
     },
+    {
+      // 自带实现，**没有外部依赖**——所以 path 恒为 'builtin'，永远是可用状态。
+      // 这是 APK 线最实在的好处：不需要用户装 jadx/apktool，装上客户端就能用。
+      id: 'apk',
+      label: 'APK（内置）',
+      path: 'builtin',
+      targets: ['Android .apk'],
+      hint: '',
+    },
   ]
 }
 

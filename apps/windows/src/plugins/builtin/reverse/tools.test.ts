@@ -7,8 +7,11 @@
  * - 脚本资产缺失（开发态忘构建）会列出一个一调就崩的工具。
  */
 import { describe, expect, it, vi } from 'vitest'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 
-import { createReverseProbeToolConfig } from './tools'
+import { createReverseProbeToolConfig, pickBackend } from './tools'
 import type { ReverseService } from './service-api'
 
 const OK_OUTPUT = [
@@ -110,5 +113,39 @@ describe('reverse_probe', () => {
     const spawnProbe = vi.fn(async () => ({ ok: true, stdout: OK_OUTPUT.join('\n') }))
     await run({ service: service(), spawnProbe }, { target: 'C:/a.exe', decompile: 999 })
     expect(spawnProbe).toHaveBeenCalledWith(expect.objectContaining({ decompile: 20 }))
+  })
+})
+
+describe('后端选择', () => {
+  it('.apk 走内置 APK 后端，其它交给 Ghidra', () => {
+    expect(pickBackend('C:/x/app.apk')).toBe('apk')
+    expect(pickBackend('C:/x/APP.APK')).toBe('apk')
+    expect(pickBackend('C:/x/app.exe')).toBe('ghidra')
+    expect(pickBackend('/bin/ls')).toBe('ghidra')
+  })
+
+  it('APK 走内置实现：**即使没装 Ghidra 也能用**，且不 spawn 外部进程', async () => {
+    const spawnProbe = vi.fn()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rev-apk-'))
+    const apk = path.join(dir, 'demo.apk')
+    // 不是合法 APK——重点是证明它走的是内置解析器（报解析错），而不是「缺 Ghidra」
+    fs.writeFileSync(apk, Buffer.alloc(128))
+    const res = await run(
+      {
+        service: service({
+          backends: () => [
+            { id: 'ghidra', label: 'Ghidra', path: null, targets: ['PE'], hint: '装到 ~/tools/' },
+            { id: 'apk', label: 'APK（内置）', path: 'builtin', targets: ['.apk'], hint: '' },
+          ],
+        }),
+        spawnProbe,
+      },
+      { target: apk },
+    )
+    expect(res.isError).toBe(true)
+    expect(textOf(res)).toContain('APK 解析失败')
+    expect(textOf(res)).not.toContain('没找到 Ghidra')
+    expect(spawnProbe).not.toHaveBeenCalled()
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 })
