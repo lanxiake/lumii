@@ -13,6 +13,7 @@ import { resolveRecordingsDir } from '../../workspace-paths'
 import { buildLocalMediaUrl, buildLocalMediaDirUrl, allowLocalMediaPreviewPath } from '../../local-media-protocol'
 import { extractDocumentText } from '../../vendor/document-parser.js'
 import { resolveWikiRefPreviewTarget } from './resolve-wiki-ref-preview'
+import { describeMissingPreviewFile } from './missing-preview-message'
 import { isVaultRefPath } from '@mtbot/agent-runtime'
 
 const log = {
@@ -278,7 +279,7 @@ export async function handleFilesReadPreviewByPath(
     resolvedAbs = resolveWikiRefPreviewTarget(resolvedAbs, resolvedCwd)
   }
   if (!fs.existsSync(resolvedAbs)) {
-    throw new Error('文件不存在或已被删除')
+    throw new Error(describeMissingPreviewFile(resolvedAbs, resolvedCwd))
   }
   const fileName = path.basename(resolvedAbs)
   /** 与 files:read-preview-content 共用推断，避免 PDF 等被误作 text/plain */
