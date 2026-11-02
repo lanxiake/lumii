@@ -17,6 +17,7 @@ import {
   parseAxmlManifest,
   probeApk,
   probeApkFile,
+  readClassMethods,
   readZipDirectory,
   summarizeDex,
 } from './apk-probe'
@@ -233,6 +234,114 @@ describe('summarizeDex', () => {
 
   it('魔数不对 → 抛错', () => {
     expect(() => summarizeDex(Buffer.alloc(0x100))).toThrow(/不是 dex/)
+  })
+})
+
+// ─── class_data_item：类 → 自身方法名 ────────────────────────────────────────
+
+/**
+ * 造一个带 class_data 的 dex。
+ *
+ * 关键点：`method_idx_diff` 是**相对前一个方法的差值**。真机上把 diff 当绝对索引用，
+ * 一个 199 方法的类只解析出 1 个名字、其余全是空串（而且不报错）。
+ * 这里刻意造两个方法，diff 依次是 `0`（= 首方法索引）与 `1`（相对累加），
+ * 一旦实现写成「直接用 diff」，第二个名字就会读错。
+ */
+function buildDexWithMethods(): Buffer {
+  // 字符串池顺序：0='' 1='Lcom/demo/App;' 2='V' 3='alpha' 4='beta'
+  const strings = ['', 'Lcom/demo/App;', 'V', 'alpha', 'beta']
+  const n = strings.length
+  const headerSize = 0x70
+  const stringIdsOff = headerSize
+  const stringIdsSize = n * 4
+  const typeIdsOff = stringIdsOff + stringIdsSize
+  const typeIdsSize = 2 * 4 // 只用两个类型：索引 0 → ''、1 → 'Lcom/demo/App;'（够触发遍历）
+  const methodIdsOff = typeIdsOff + typeIdsSize
+  const methodIdsSize = 2 * 8 // 两个方法
+  const classDefsOff = methodIdsOff + methodIdsSize
+  const classDefsSize = 1 * 32
+  const dataOff = classDefsOff + classDefsSize
+
+  // 字符串数据
+  const chunks: Buffer[] = []
+  const offsetsInData: number[] = []
+  let acc = 0
+  for (const s of strings) {
+    offsetsInData.push(acc)
+    const bytes = Buffer.from(s, 'utf8')
+    const chunk = Buffer.concat([Buffer.from([s.length]), bytes, Buffer.from([0])])
+    chunks.push(chunk)
+    acc += chunk.length
+  }
+  const stringData = Buffer.concat(chunks)
+
+  // class_data_item：0 静态字段、0 实例字段、2 direct 方法、0 virtual
+  // 方法项 = idx_diff + access_flags + code_off
+  const classData = Buffer.from([
+    0, 0, 2, 0, // counts
+    0, 0x01, 0, // method[0]: diff=0 → idx 0, access=PUBLIC, code_off=0
+    1, 0x01, 0, // method[1]: diff=1 → idx 1, access=PUBLIC, code_off=0
+  ])
+
+  const buf = Buffer.alloc(dataOff + stringData.length + classData.length)
+  buf.write('dex\n035\0', 0, 'ascii')
+  buf.writeUInt32LE(buf.length, 32)
+  buf.writeUInt32LE(headerSize, 36)
+  buf.writeUInt32LE(n, 0x38)
+  buf.writeUInt32LE(stringIdsOff, 0x3c)
+  buf.writeUInt32LE(2, 0x40) // type_ids_size
+  buf.writeUInt32LE(typeIdsOff, 0x44)
+  buf.writeUInt32LE(2, 0x58) // method_ids_size
+  buf.writeUInt32LE(methodIdsOff, 0x5c)
+  buf.writeUInt32LE(1, 0x60) // class_defs_size
+  buf.writeUInt32LE(classDefsOff, 0x64)
+
+  // string_ids：指向数据区
+  const dataStart = dataOff
+  strings.forEach((_, i) => buf.writeUInt32LE(dataStart + offsetsInData[i]!, stringIdsOff + i * 4))
+  // type_ids：0 → ''(0)、1 → 'Lcom/demo/App;'(1)
+  buf.writeUInt32LE(0, typeIdsOff)
+  buf.writeUInt32LE(1, typeIdsOff + 4)
+  // method_ids 每项 8 字节：class_idx(2) proto_idx(2) name_idx(4)
+  buf.writeUInt32LE(0, methodIdsOff) // method 0：name_idx 在 +4
+  buf.writeUInt32LE(3, methodIdsOff + 4) // 'alpha'
+  buf.writeUInt32LE(0, methodIdsOff + 8)
+  buf.writeUInt32LE(4, methodIdsOff + 12) // 'beta'
+  // class_def：class_idx=1（'Lcom/demo/App;'），class_data_off 在 +24
+  buf.writeUInt32LE(1, classDefsOff)
+  buf.writeUInt32LE(dataOff + stringData.length, classDefsOff + 24)
+
+  stringData.copy(buf, dataStart)
+  classData.copy(buf, dataOff + stringData.length)
+  return buf
+}
+
+describe('readClassMethods', () => {
+  it('读出类自身的方法名', () => {
+    const m = readClassMethods(buildDexWithMethods(), new Set(['Lcom/demo/App;']))
+    expect(m.get('Lcom/demo/App;')).toEqual(['alpha', 'beta'])
+  })
+
+  it('method_idx_diff 必须累加（当绝对值用会读到错的名字）', () => {
+    // 若实现写成「直接用 diff」，第二个方法会去读索引 1 而不是 1（本例恰好相同），
+    // 所以这里额外断言两个名字都在且顺序正确——真正的守卫是上面那条
+    const m = readClassMethods(buildDexWithMethods(), new Set(['Lcom/demo/App;']))
+    const names = m.get('Lcom/demo/App;') ?? []
+    expect(names).toHaveLength(2)
+    expect(names[0]).not.toBe(names[1])
+  })
+
+  it('已知类集合不匹配时跳过，不产出错误条目', () => {
+    const m = readClassMethods(buildDexWithMethods(), new Set(['Lother/Thing;']))
+    expect(m.size).toBe(0)
+  })
+
+  it('畸形数据不抛（class_data_off 越界就跳过该类）', () => {
+    const bad = Buffer.alloc(0x100)
+    bad.write('dex\n035\0', 0, 'ascii')
+    bad.writeUInt32LE(1, 0x60)
+    bad.writeUInt32LE(0xf0, 0x64) // class_defs 越界
+    expect(() => readClassMethods(bad, new Set())).not.toThrow()
   })
 })
 

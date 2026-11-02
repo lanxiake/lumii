@@ -80,6 +80,15 @@ export interface DexSummary {
   readonly urls: readonly string[]
   readonly classes: readonly string[]
   readonly longStrings: readonly string[]
+  /**
+   * 类 → 它**自己声明的**方法名（不含继承来的）。
+   *
+   * 这是 dex 里不需要反编译器就能拿到的真实结构：`class_def_item` 的 `class_data_off`
+   * 指向 `class_data_item`，里面有 direct/virtual 方法表，每条指向 `method_ids`，
+   * 再经 `proto_ids` 拿描述符。**不是伪代码**，但能回答「这个类有哪些方法」——
+   * 比只给类名有用得多，又不必假装能做字节码反编译。
+   */
+  readonly classMethods: ReadonlyMap<string, readonly string[]>
 }
 
 function readUleb128(buf: Buffer, offset: number): [number, number] {
@@ -137,7 +146,145 @@ export function summarizeDex(buf: Buffer, limit = 50_000): DexSummary {
     urls: [...urls].slice(0, 40),
     classes: [...classes].slice(0, 60),
     longStrings: [...longStrings].slice(0, 60),
+    classMethods: readClassMethods(buf, classes),
   }
+}
+
+// ─── class_data_item：类 → 自身方法名 ──────────────────────────────────────
+//
+// dex 035 布局（全部小端）：
+//   class_defs_size @0x60, class_defs_off @0x64
+//   class_def_item 32 字节：class_idx(0) access(4) superclass_idx(8) interfaces_off(12)
+//                           source_file_idx(16) annotations_off(20) class_data_off(24) static_values_off(28)
+//   class_data_item：uleb128 static_fields, instance_fields, direct_methods, virtual_methods
+//                     然后每项：uleb128 索引增量 + uleb128 access_flags [+ uleb128 code_off（仅方法）]
+//
+// **只读方法名，不读 code_item**：字节码反编译要完整的指令解码 + 控制流重建，
+// 半对的伪代码比不给更误导。方法名已经能回答「这个类是干什么的」。
+
+/** 读 uleb128；返回值 `value` 与下一个字节位置 */
+function readUleb(buf: Buffer, offset: number): { value: number; next: number } {
+  let value = 0
+  let shift = 0
+  let p = offset
+  for (;;) {
+    const byte = buf[p++]
+    if (byte === undefined) return { value, next: p }
+    value |= (byte & 0x7f) << shift
+    if ((byte & 0x80) === 0) break
+    shift += 7
+    if (shift > 35) break // 畸形数据保护
+  }
+  return { value: value >>> 0, next: p }
+}
+
+/** 从 string_ids 取第 i 条字符串（dex 里大量复用，做成闭包避免重复解码） */
+function makeStringReader(buf: Buffer): (index: number) => string {
+  const count = buf.readUInt32LE(0x38)
+  const off = buf.readUInt32LE(0x3c)
+  return (index: number): string => {
+    if (index < 0 || index >= count) return ''
+    const so = buf.readUInt32LE(off + index * 4)
+    if (so <= 0 || so >= buf.length) return ''
+    const { next } = readUleb(buf, so)
+    const end = buf.indexOf(0, next)
+    return buf.toString('utf8', next, end < 0 ? buf.length : end)
+  }
+}
+
+/**
+ * 遍历 class_defs，取出每个类自己声明的方法名。
+ *
+ * 覆盖率和精度都有边界，如实说明：
+ * - 方法名取自 `method_ids` 的 `name_idx`，**不含参数类型**（那只在 proto 里）；
+ * - 只处理本 dex 内的类（多看几个 dex 能拼全）；
+ * - 遇到畸形 `class_data_off` 就跳过该类，不影响其余。
+ */
+export function readClassMethods(
+  buf: Buffer,
+  knownClasses: ReadonlySet<string>,
+  maxClasses = 400,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  if (buf.length < 0x70) return out
+  const stringAt = makeStringReader(buf)
+  const typeIdsSize = buf.readUInt32LE(0x40)
+  const typeIdsOff = buf.readUInt32LE(0x44)
+  const methodIdsSize = buf.readUInt32LE(0x58)
+  const methodIdsOff = buf.readUInt32LE(0x5c)
+  const classDefsSize = buf.readUInt32LE(0x60)
+  const classDefsOff = buf.readUInt32LE(0x64)
+  if (!classDefsSize || !classDefsOff) return out
+
+  /** type_idx → 描述符（`Ljava/lang/String;`） */
+  const typeAt = (idx: number): string => {
+    if (idx < 0 || idx >= typeIdsSize) return ''
+    return stringAt(buf.readUInt32LE(typeIdsOff + idx * 4))
+  }
+  /**
+   * method_idx → 方法名。
+   * `method_ids` **每项 8 字节**：class_idx(2) proto_idx(2) name_idx(4)。
+   * name_idx 在项内偏移 +4。写成 `idx * 4` 会读进相邻项，读出杂乱的名字且不报错。
+   */
+  const methodNameAt = (idx: number): string => {
+    if (idx < 0 || idx >= methodIdsSize) return ''
+    return stringAt(buf.readUInt32LE(methodIdsOff + idx * 8 + 4))
+  }
+
+  const n = Math.min(classDefsSize, maxClasses)
+  for (let i = 0; i < n; i++) {
+    const defOff = classDefsOff + i * 32
+    if (defOff + 32 > buf.length) break
+    const classIdx = buf.readUInt32LE(defOff)
+    const classDesc = typeAt(classIdx)
+    // 只收「已知类」：调用方传的是从字符串池扫出来的类名集合，两边取交集能滤掉解析噪声
+    if (!classDesc || (knownClasses.size > 0 && !knownClasses.has(classDesc))) continue
+    const classDataOff = buf.readUInt32LE(defOff + 24)
+    if (!classDataOff || classDataOff >= buf.length) continue
+
+    let p = classDataOff
+    const sizes: number[] = []
+    for (let k = 0; k < 4; k++) {
+      const r = readUleb(buf, p)
+      sizes.push(r.value)
+      p = r.next
+    }
+    const [staticFields, instanceFields, directMethods, virtualMethods] = sizes as [
+      number,
+      number,
+      number,
+      number,
+    ]
+    // 跳过字段表（每项 2 个 uleb）
+    for (let k = 0; k < staticFields + instanceFields; k++) {
+      const a = readUleb(buf, p)
+      const b = readUleb(buf, a.next)
+      p = b.next
+    }
+    const names: string[] = []
+    const totalMethods = directMethods + virtualMethods
+    /**
+     * `method_idx_diff` 是**相对前一个方法的差值**，不是绝对索引。
+     *
+     * 直接当绝对值用会读出杂乱的名字（真机实测：一个 199 方法的类只解析出 1 个名字，
+     * 其余全是空串）。两段（direct / virtual）各自从 0 开始累加。
+     */
+    for (let track = 0; track < 2; track++) {
+      const count = track === 0 ? directMethods : virtualMethods
+      let methodIdx = 0
+      for (let k = 0; k < count; k++) {
+        const diff = readUleb(buf, p)
+        const access = readUleb(buf, diff.next)
+        const code = readUleb(buf, access.next)
+        p = code.next
+        methodIdx += diff.value
+        const name = methodNameAt(methodIdx)
+        if (name && !name.startsWith('<')) names.push(name)
+      }
+    }
+    if (names.length > 0) out.set(classDesc, names.slice(0, 40))
+  }
+  return out
 }
 
 // ─── 二进制 AndroidManifest.xml (AXML) ────────────────────────────────────
@@ -381,6 +528,8 @@ function analyzeApk(buf: Buffer, opts: ApkProbeOptions): { lines: string[] } | A
     const urls = new Set<string>()
     const suspicious = new Set<string>()
     const classes = new Set<string>()
+    /** 类 → 自身方法名，跨 dex 合并 */
+    const methodMap = new Map<string, string[]>()
     let dexRead = 0
     let dexFailed = 0
     for (const e of dexEntries.slice(0, limit)) {
@@ -389,6 +538,9 @@ function analyzeApk(buf: Buffer, opts: ApkProbeOptions): { lines: string[] } | A
         dexRead++
         d.urls.forEach((u) => urls.add(u))
         d.classes.forEach((c) => classes.add(c))
+        for (const [cls, ms] of d.classMethods) {
+          if (!methodMap.has(cls)) methodMap.set(cls, [...ms])
+        }
         for (const s of d.longStrings) {
           if (/encrypt|decrypt|token|secret|api[_-]?key|password/i.test(s)) suspicious.add(s)
         }
@@ -406,6 +558,27 @@ function analyzeApk(buf: Buffer, opts: ApkProbeOptions): { lines: string[] } | A
     for (const c of [...classes].slice(0, 30)) lines.push(c)
     put('URL_COUNT', urls.size)
     put('CLASS_DESC_COUNT', classes.size)
+
+    // ── 类 → 自身方法名（dex 结构层，不需要反编译器） ──
+    // 这是「类名」之上最有用的一层：能回答「这个类有哪些方法」，也能看出代码是否被混淆
+    // （方法名全是 `MaSRwBiO` 这种 8 字符随机串 ⇒ 混淆过）。
+    // 刻意不给伪代码——字节码反编译要完整指令解码 + 控制流重建，半对的比不给更误导。
+    const methodClasses = methodMap.size
+    put('CLASS_METHOD_TABLE', methodClasses)
+    let methodTotal = 0
+    const obfuscated = new Set<string>()
+    for (const [, ms] of methodMap) {
+      methodTotal += ms.length
+      for (const m of ms) if (/^M[A-Za-z0-9_$]{5,}$/.test(m)) obfuscated.add(m)
+    }
+    put('METHOD_NAMES_TOTAL', methodTotal)
+    put('OBFUSCATED_METHOD_HINT', `${obfuscated.size} 个名字形如 Mxxxxxxx（可能是混淆，不是结论）`)
+    lines.push('--- CLASS_METHODS_SAMPLE ---')
+    let shownClasses = 0
+    for (const [cls, ms] of methodMap) {
+      if (shownClasses++ >= 20) break
+      lines.push(`${cls}: ${ms.slice(0, 8).join(', ')}`)
+    }
 
     // ── 加固 / 框架判定 ──
     const names = entries.map((e) => e.name)

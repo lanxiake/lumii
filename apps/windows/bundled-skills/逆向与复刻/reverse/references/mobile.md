@@ -66,13 +66,20 @@ reverse_probe({ target: "C:/path/app.apk", dexLimit: 8 })
 | `COMPONENT.<type>` / `EXPORTED_COMPONENTS` + `--- EXPORTED ---` | 组件数与**对外可见**的组件（攻击面） |
 | `DEX_COUNT` / `DEX_READ` / `URL_COUNT` + `--- URLS_IN_DEX ---` | dex 里的外连域名 |
 | `CLASS_DESC_COUNT` + `--- CLASSES_SAMPLE ---` | 类名样本（判断用了什么 SDK） |
+| `CLASS_METHOD_TABLE` / `METHOD_NAMES_TOTAL` | **解析出方法表的类数 / 方法名总数**（dex 结构层，不需要反编译器） |
+| `--- CLASS_METHODS_SAMPLE ---` | **类 → 它自己声明的方法名** |
+| `OBFUSCATED_METHOD_HINT` | 名字形如 `Mxxxxxxx` 的方法数（**混淆迹象**，不是结论） |
 | `ABIS` / `NATIVE_LIBS` + `--- NATIVE_LIBS ---` | 原生库与 ABI |
 | `PACKER_SUSPECT` | 加固**迹象**（命中特征名，不是「一定是壳」） |
 | `FRAMEWORK` | Flutter / RN / Unity / Electron 套壳等 |
 | `SIGNATURE_FILES` | v1 签名文件（`META-INF/*.RSA` 等） |
 
-**它不做字节码反编译**——`CLASS_DESC_COUNT` 是类名，不是逻辑。要读 Java/Kotlin 代码
-仍然需要 jadx（§3.1）。这是刻意的边界：半对的反编译比「没做」更误导。
+**它不做字节码反编译**——`CLASS_METHODS_SAMPLE` 给的是**方法名**，不是方法体。要读
+Java/Kotlin 代码仍然需要 jadx（§3.1）。这是刻意的边界：半对的伪代码比「没做」更误导。
+
+方法名本身已经能回答不少问题：「这个类有 `decode`/`encode`/`encodedSize`」比「这个类存在」
+有用得多；反过来，一整个类的方法名都是 `MaSRwBiO` 这种 8 字符随机串，说明**代码被混淆过**——
+这是可以写进报告的结构性结论（但别据此推断「在隐藏什么」）。
 
 两个口径：
 
