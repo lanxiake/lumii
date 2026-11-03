@@ -1,7 +1,7 @@
 {
   "id": "settings-tour",
   "name": "设置页巡览",
-  "description": "依次打开设置各分区并停留，录制并导出 MP4。三条判据全中：路径可枚举、每步有可断言结果、会重复跑。",
+  "description": "依次打开设置里的六个主要分区（通用 / 模型配置 / 渠道 / 语音 / 用量），每页停留 2.8–3 秒，录制后按步骤旁白烧录字幕、导出 MP4。**零输入**：路径写死在 spec 里，换演示内容改 steps 即可。纯 app_goto，不碰需要授权的工具，所以彩排能验真实路径而不只是 spec 结构。",
   "record": {
     "enabled": true,
     "sourceHint": "auto",
@@ -16,12 +16,12 @@
     {
       "id": "goto-dashboard",
       "label": "回到主视图",
-      "narration": "先回到主视图，保证每次从同一处开始。",
+      "narration": "先回到主视图，保证每次演示都从同一处开始。",
       "tool": "app_goto",
       "params": {
         "view": "dashboard"
       },
-      "holdMs": 600,
+      "holdMs": 1500,
       "expect": {
         "viewState": {
           "view": "dashboard"
@@ -30,51 +30,78 @@
     },
     {
       "id": "open-settings",
-      "label": "打开设置页",
-      "narration": "首先是设置页。",
+      "label": "打开设置",
+      "narration": "设置都在这里。左边一列是分区，点哪个右边就显示哪个。",
       "tool": "app_goto",
       "params": {
         "view": "settings"
       },
-      "holdMs": 1200,
-      "expect": {
-        "viewState": {
-          "hub.open": true,
-          "hub.tab": "settings"
-        }
-      }
+      "holdMs": 3000
+    },
+    {
+      "id": "open-general",
+      "label": "通用设置",
+      "narration": "通用分区放全局开关：语言、开机自启、默认行为这些。",
+      "tool": "app_goto",
+      "params": {
+        "view": "settings",
+        "category": "general"
+      },
+      "holdMs": 2800
     },
     {
       "id": "open-model-config",
-      "label": "打开模型配置分区",
-      "narration": "模型配置在设置里。",
+      "label": "模型配置",
+      "narration": "这里是模型配置。每个用途槽位用哪个模型，都在这一页选，换模型不用改代码。",
       "tool": "app_goto",
       "params": {
         "view": "settings",
         "category": "modelConfig"
       },
-      "holdMs": 1200
+      "holdMs": 3000
     },
     {
       "id": "open-channels",
-      "label": "打开渠道分区",
-      "narration": "渠道设置在同一栏。",
+      "label": "渠道配置",
+      "narration": "渠道分区管对外连接：微信、企微、飞书这些，扫码登录也在这里。",
       "tool": "app_goto",
       "params": {
         "view": "settings",
         "category": "channels"
       },
-      "holdMs": 1200
+      "holdMs": 3000
+    },
+    {
+      "id": "open-voice",
+      "label": "语音设置",
+      "narration": "语音分区调识别和合成：唤醒词、音色、麦克风都能在这儿改。",
+      "tool": "app_goto",
+      "params": {
+        "view": "settings",
+        "category": "voice"
+      },
+      "holdMs": 2800
+    },
+    {
+      "id": "open-usage",
+      "label": "用量统计",
+      "narration": "用量分区看消耗：调了多少次、花了多少 token，心里有个数。",
+      "tool": "app_goto",
+      "params": {
+        "view": "settings",
+        "category": "usage"
+      },
+      "holdMs": 2800
     },
     {
       "id": "back-to-chat",
       "label": "回到对话",
-      "narration": "回到对话页，巡览结束。",
+      "narration": "看完回到对话页，教程就到这里。",
       "tool": "app_goto",
       "params": {
         "view": "chat"
       },
-      "holdMs": 800,
+      "holdMs": 1500,
       "expect": {
         "viewState": {
           "view": "chat"

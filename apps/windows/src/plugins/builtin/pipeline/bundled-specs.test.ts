@@ -306,6 +306,82 @@ describe('bundled-pipelines 全部 spec', () => {
     }
     expect(bad, `${bad.join(', ')}——最后一项不成立时 for 返回 1，后面 && 接的整串都不执行。改成 do if ...; then echo; fi; done`).toEqual([])
   })
+
+  /**
+   * **`expect.fields` 的路径必须从工具真实返回结构起算**。
+   *
+   * 2026-11-03 真机：`web-clone-evidence` 的 no-overflow 写 `result.overflowX`，
+   * 而 `browser_eval` 的返回是 `{ok, result:{result:{…}}}`（payload 把脚本返回值包进
+   * `result`，工具再包一层）。取到 `undefined`，断言永远失败——**页面其实完全没问题**，
+   * 而报错信息里 observed 是一大段正常数据，看着像"输出有问题"。
+   *
+   * 静态只能查**顶层字段是不是工具真会返回的**（`ok` / `result` / `error` 这几类），
+   * 更深的路由（`result.result.x`）取决于脚本自己返回什么，静态判不了。所以这里卡两件事：
+   * ① 第一段必须是顶层字段；② 不许出现 `result.result` 之外的"看起来像多套一层"的写法。
+   */
+  const TOOL_TOP_LEVEL_FIELDS: Record<string, readonly string[]> = {
+    browser_eval: ['ok', 'result', 'error'],
+    browser_navigate: ['ok', 'result', 'error'],
+    browser_screenshot: ['ok', 'result', 'error'],
+    browser_set_device: ['ok', 'result', 'error'],
+    browser_requests: ['ok', 'result', 'error'],
+    reverse_probe: [], // 纯 KEY=value 文本，没有结构化字段可断言
+  }
+
+  it.each(dirs)('%s 的 expect.fields 路径从工具真实返回的顶层字段起算', (id) => {
+    const raw = rawOf(id)
+    const problems: string[] = []
+    for (const s of toolStepsOf(raw)) {
+      const allowed = TOOL_TOP_LEVEL_FIELDS[s.tool]
+      if (!allowed) continue
+      const fields = (raw.steps as { id?: string; expect?: { fields?: Record<string, unknown> } }[])
+        ?.map((x) => ({ id: x.id, f: x.expect?.fields }))
+        .find((x) => x.id === s.id)?.f
+      for (const key of Object.keys(fields ?? {})) {
+        const top = key.split('.')[0]!
+        if (!allowed.includes(top)) {
+          problems.push(`${s.id}: "${key}" 的顶层 "${top}" 不是 ${s.tool} 的返回字段（可用：${allowed.join(' / ')}）`)
+        }
+      }
+    }
+    expect(problems, problems.join('; ')).toEqual([])
+  })
+
+  /**
+   * `app_goto` 的 view / category 必须在真实白名单里。
+   *
+   * 这类"取值域"错误静态验不出（harness 只查必填参数），只有真机跑到那一步才炸——
+   * 2026-11-03 `feature-demo-video` 的 `plugin:pipeline` 就是这么失败的。
+   * 所以白名单从**实现文件**里读，而不是在测试里再抄一份（抄一份就会漂移）。
+   */
+  it.each(dirs)('%s 的 app_goto view/category 在真实白名单里', (id) => {
+    const raw = rawOf(id)
+    const gotoSource = readFileSync(join(HERE, '..', '..', '..', '..', '..', '..', 'apps', 'windows', 'src', 'main', 'app-ui-control', 'goto.ts'), 'utf8')
+    const listed = (block: 'VALID_VIEWS' | 'VALID_CATEGORIES'): Set<string> => {
+      const start = gotoSource.indexOf(`const ${block}`)
+      const end = gotoSource.indexOf('])', start)
+      return new Set([...gotoSource.slice(start, end).matchAll(/'([A-Za-z0-9:_-]+)'/g)].map((m) => m[1]!))
+    }
+    const views = listed('VALID_VIEWS')
+    const categories = listed('VALID_CATEGORIES')
+    // 白名单读不到时先红：否则两个空集合会让下面恒过
+    expect(views.size).toBeGreaterThan(5)
+    expect(categories.size).toBeGreaterThan(5)
+
+    const problems: string[] = []
+    for (const s of toolStepsOf(raw)) {
+      if (s.tool !== 'app_goto') continue
+      const view = s.params.view
+      if (typeof view === 'string' && !view.startsWith('plugin:') && !views.has(view)) {
+        problems.push(`${s.id}: view "${view}" 不在白名单`)
+      }
+      const cat = s.params.category
+      if (typeof cat === 'string' && !categories.has(cat)) {
+        problems.push(`${s.id}: category "${cat}" 不在白名单`)
+      }
+    }
+    expect(problems, problems.join('; ')).toEqual([])
+  })
 })
 
 const TOOLS_WITHOUT_OK_FIELD = new Set(['reverse_probe'])

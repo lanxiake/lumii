@@ -113,7 +113,7 @@
       "holdMs": 200,
       "expect": {
         "fields": {
-          "result.overflowX": false
+          "result.result.overflowX": false
         }
       }
     }
