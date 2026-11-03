@@ -1,7 +1,7 @@
 {
   "id": "model-config-tutorial",
   "name": "模型配置教程",
-  "description": "带旁白走一遍「打开设置 → 进模型配置 → 回对话」，录制并烧录字幕导出 MP4。",
+  "description": "带旁白走一遍「打开设置 → 进模型配置 → 回对话」，录制并烧录字幕导出 MP4。\n\n**不覆盖**：教用户怎么选模型（本条的旁白只讲路径，不讲选型）；改完配置后的验证。",
   "record": {
     "enabled": true,
     "sourceHint": "auto",

@@ -108,3 +108,9 @@ verify/**/args/_probe_history.json
 *-this-session-is-being-continued-from-a-previous-c*.txt
 # 牌桌/大厅运行时落盘的座位记录（如 human_games.bin.rooms.jsonl），每局都会变
 *.rooms.jsonl
+
+# 流水线/红队探测的产出目录（仓库根下）。
+# 2026-11-03：`red-blue-selfcheck` 与 `web-clone` 这类流水线把产物写到 cwd 下的
+# `projects/<slug>/`，而在仓库根跑就会落在这里。里面是**探测现场数据**——
+# 登录响应、IDOR 测试记录、抓到的响应头——不该进版本库。
+/projects/

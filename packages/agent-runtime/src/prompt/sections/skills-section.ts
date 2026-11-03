@@ -50,6 +50,7 @@ export function buildSkillsSection(
       lines.push(
         "",
         "When a skill matches the task, you MUST use it instead of improvising: `skill_invoke(name)` loads its full SKILL.md.",
+        "If a pipeline covers the same task, prefer the pipeline when the deliverable shape is fixed.",
         "",
       )
       return lines
@@ -62,6 +63,13 @@ export function buildSkillsSection(
       "## Skills",
       "",
       "Available skills, ordered by usage. When a skill matches the task, you MUST use it instead of improvising the workflow.",
+      "",
+      "**If a pipeline covers the same task, use the pipeline instead** — a pipeline is the same",
+      "workflow executed as code from a fixed spec (zero LLM round-trips, same result every run);",
+      "a skill is an instruction sheet the model follows each time. Decide by **the shape of the",
+      "deliverable**: same kind of output every run (record a settings tour, evaluate a repo,",
+      "rebuild a page) → pipeline; output depends on the content → skill. Partial overlap is fine —",
+      "use the pipeline for the fixed part and the skill for the rest.",
       "",
     ]
 

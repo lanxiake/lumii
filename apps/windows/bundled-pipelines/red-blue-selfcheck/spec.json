@@ -1,7 +1,7 @@
 {
   "id": "red-blue-selfcheck",
   "name": "红蓝自检",
-  "description": "对自有产物做一次红蓝闭环：找洞 → 写规则 → 复跑验证规则真的抓得住。**前置是手工写的 security/scope.md**——没写归属就在第一步拒绝开局，这是安全域的门禁，不由流水线代劳。三步之间只靠磁盘交接（findings/ → rules/ → VERIFY.md），所以每一段都能单独跑：只想摸洞就跑前两步，拿到人工写的 Findings 可以直接从蓝队开始。**跑之前先填 inputs.json**（targetUrl 目标地址、slug 项目名），并在 projects/<slug>/security/scope.md 写明归属。",
+  "description": "对自有产物做一次红蓝闭环：找洞 → 写规则 → 复跑验证规则真的抓得住。**前置是手工写的 security/scope.md**——没写归属就在第一步拒绝开局，这是安全域的门禁，不由流水线代劳。三步之间只靠磁盘交接（findings/ → rules/ → VERIFY.md），所以每一段都能单独跑：只想摸洞就跑前两步，拿到人工写的 Findings 可以直接从蓝队开始。**跑之前先填 inputs.json**（targetUrl 目标地址、slug 项目名），并在 projects/<slug>/security/scope.md 写明归属。\n\n**不覆盖**：没有授权就不开局（scope.md 是硬门禁）；产出是检测规则与加固，不含可分发 exploit。",
   "record": {
     "enabled": false
   },

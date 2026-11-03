@@ -32,16 +32,21 @@ describe('buildPipelineSection', () => {
     expect(out).toContain('调研 → 写稿 → 生图')
   })
 
-  it('**说清流水线优先于技能**（2026-11-03：模型选了技能没选流水线）', () => {
+  it('**给的是可判定的问题，不是「优先用」**（2026-11-03：只说优先，五次都选了技能）', () => {
     const out = text(buildPipelineSection(HINTS))
-    expect(out).toContain('流水线优先于技能')
-    expect(out).toContain('可复现')
+    // 判据本身：产物形状是否固定
+    expect(out).toContain('形状是不是一样的')
+    expect(out).toContain('一样** → 用流水线')
+    expect(out).toContain('不一样** → 用技能')
+    // 并且堵住「手工更灵活」这条退路
+    expect(out).toContain('不要用「手工更灵活」当理由绕开')
   })
 
-  it('lean 档同样带优先级说明（lean 也不能只列 id）', () => {
+  it('lean 档同样带可判定判据（lean 也不能只列 id）', () => {
     const out = text(buildPipelineSection(HINTS, 'lean'))
-    expect(out).toContain('precedence over skills')
+    expect(out).toContain('shape of the deliverable is fixed')
     expect(out).toContain('content-to-assets')
+    expect(out).toContain('pipeline_run')
   })
 
   it('lean 档截断过长的描述，但仍给出一句用途', () => {

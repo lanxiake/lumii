@@ -1,7 +1,7 @@
 {
   "id": "reverse-then-clone",
   "name": "先逆向再复刻",
-  "description": "先按 reverse 技能的流程产出 projects/<slug>/analysis/，再按分析结果复刻页面并静态导出。与 web-clone 的区别：观察与重建分成两个 agent 步，中间用文件交接（analysis/），失败点可定位、可分别调预算。**跑之前先填 inputs.json**（targetUrl 目标地址、slug 产物目录名）——不填会在第一步以 bad_reference 失败。",
+  "description": "先按 reverse 技能的流程产出 projects/<slug>/analysis/，再按分析结果复刻页面并静态导出。与 web-clone 的区别：观察与重建分成两个 agent 步，中间用文件交接（analysis/），失败点可定位、可分别调预算。**跑之前先填 inputs.json**（targetUrl 目标地址、slug 产物目录名）——不填会在第一步以 bad_reference 失败。\n\n**不覆盖**：非 Electron/网页的壳；也不需要先做红蓝或取证（那是 exe-clone / web-clone-evidence）。",
   "record": {
     "enabled": false
   },

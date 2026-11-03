@@ -1,7 +1,7 @@
 {
   "id": "web-clone",
   "name": "网站复刻",
-  "description": "把一个网页按其真实内容/资源/布局重建为本地工程，并做双视口取证与关键样式回归。等同 /clone <url> 的自动化版。**跑之前先填 inputs.json**（播下来就有：targetUrl 填目标地址，slug 填产物目录名）——不填会在第一步以 bad_reference 失败，不会静默打开空地址。用法约定：① expect.fields 里只放字面量——expect 不走 resolveParams，写 {{}} 会被当成字面量静默比较；② 跨步骤数值比对走 JS 内嵌；③ 移动端是持久状态，截完必须切回桌面视口；④ bash 步的成败看退出码（非零即失败）；⑤ **别引用 browser_eval 步的产出**——它 needsPermission，彩排时会被跳过并留下空对象，下游 {{}} 必然报 bad_reference。",
+  "description": "把一个网页按其真实内容/资源/布局重建为本地工程，并做双视口取证与关键样式回归。等同 /clone <url> 的自动化版。**跑之前先填 inputs.json**（播下来就有：targetUrl 填目标地址，slug 填产物目录名）——不填会在第一步以 bad_reference 失败，不会静默打开空地址。用法约定：① expect.fields 里只放字面量——expect 不走 resolveParams，写 {{}} 会被当成字面量静默比较；② 跨步骤数值比对走 JS 内嵌；③ 移动端是持久状态，截完必须切回桌面视口；④ bash 步的成败看退出码（非零即失败）；⑤ **别引用 browser_eval 步的产出**——它 needsPermission，彩排时会被跳过并留下空对象，下游 {{}} 必然报 bad_reference。\n\n**不覆盖**：需要后端/登录态才能跑通的核心流程（静态复刻只能还原到界面）；只做取证不做重建（那是 web-clone-evidence）。",
   "record": {
     "enabled": false
   },

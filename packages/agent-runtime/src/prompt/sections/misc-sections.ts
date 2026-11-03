@@ -405,9 +405,27 @@ export function buildPipelineSection(
 
   // 模型只读提示词，不读目录。没有这一节，现成的流水线形同不存在
   // （2026-10-31 真机：用户要录教程，Agent 手工调了一路 screen_record_*）。
+
+  /**
+   * **判据必须可判定，不能是「优先用」。**
+   *
+   * 2026-11-03 实测：只写「流水线优先于技能」时，模型五次里五次都选了技能自己做，
+   * 尽管它复述了那句话。原因是「优先」不是判据——它每次都能给手工路径找到正当理由
+   * （发现已有成品、需要灵活调整）。**边界不清时，模型永远选更灵活的那个。**
+   *
+   * 所以这里给的是**一个可以当场回答的问题**：交付物的形状是不是固定的？
+   */
   const CRITERIA =
-    "三条全中才该用流水线：① 路径能预先枚举；② 每步有可断言的结果；③ 会重复跑。" +
-    "不满足就照常自己做——硬套会变成「写死的不够用的脚本」，比自己做更糟。"
+    "怎么选：问自己一个问题——**这次要的交付物，和这条流水线上次跑出来的，形状是不是一样的？**\n" +
+    "- **一样** → 用流水线。例：「把设置页走一遍录成教程」「评测这个仓库能不能跑」——\n" +
+    "  每次都是同一类产物，只是内容不同。\n" +
+    "- **不一样** → 用技能或自己做。例：「照这个项目的实际情况写篇文章」「帮我看看这段代码」\n" +
+    "  ——产物形态取决于内容，写不进 spec。\n" +
+    "- **只有一部分一样** → 一样的那段用流水线，剩下的自己做。例：内容生产用流水线出品、\n" +
+    "  发布那一步自己做（没有对应流水线）。\n" +
+    "\n" +
+    "**不要用「手工更灵活」当理由绕开**：需要灵活说明产物形状没定，那本来就不该用流水线；\n" +
+    "但形状已定时手工做只会更慢更飘，且下次跑出来的东西不一样。"
 
   if (isLeanStyle(style)) {
     // **lean 档也必须带一句「这条是干什么的」**：只列 id 的话，模型知道有三条、
@@ -422,8 +440,12 @@ export function buildPipelineSection(
         return `- \`${h.id}\`（${h.name}）${d}`
       }),
       "",
-      `When a task matches a pipeline (or the user asks to record a tutorial/demo), MUST use \`pipeline_run(id, mode)\` instead of driving the UI by hand. ` +
-        `Pipelines take precedence over skills when both cover the same task. ${CRITERIA}`,
+      "Pick a pipeline when the **shape of the deliverable is fixed** (same kind of output every run, " +
+        "only the content differs) — e.g. record a settings tour, evaluate a repo. " +
+        "Do it by hand or via a skill when the shape depends on the content.",
+      "",
+      "`pipeline_run(id, mode)`; `mode=rehearsal` first (no recording, skips permission tools, still asserts), " +
+        "`mode=record` when green.",
       "",
     ]
   }
@@ -431,13 +453,19 @@ export function buildPipelineSection(
   const lines: string[] = [
     "## Pipelines（确定性流水线）",
     "",
-    "已固化的可枚举步骤。**命中时优先用 `pipeline_run`，不要手工一步步点**——",
-    "手工路径每步都靠模型判断，既慢又飘；流水线是同一份 spec 每次跑出同样的结果。",
+    "已固化的可枚举步骤。跑一次 = 代码照着一份 spec 走一遍，**零 LLM 往返、每次结果一样**。",
     "",
-    "**流水线优先于技能**：两者描述同一件事时（比如「做一篇小红书并配图」），",
-    "先看有没有对应流水线。技能是「让模型照着一份说明书做」，流水线是「代码照着 spec 做」；",
-    "同一件事两者都有时，流水线的结果可复现，技能不可。技能只在流水线覆盖不到的环节才用",
-    "（比如发布那一步没有对应流水线）。",
+    "### 什么时候该用流水线（而不是技能或自己做）",
+    "",
+    CRITERIA,
+    "",
+    "### 与技能的分工",
+    "",
+    "同一件事两者都有时（复刻网页 / 生成小红书图文 / 录屏教程 / 红蓝自检），按上面那个问题判：",
+    "**产物形状固定 → 流水线；产物取决于内容 → 技能**。技能是让模型照着说明书做，",
+    "流水线是代码照着 spec 做——前者能随机应变，但同样的话说两遍未必得到同样的东西。",
+    "",
+    "### 可用的流水线",
     "",
   ]
   for (const h of hints) {
@@ -446,10 +474,10 @@ export function buildPipelineSection(
   }
   lines.push(
     "",
-    "用法：`pipeline_run(id, mode)`；`mode=rehearsal` 先彩排（不录屏、跳过需授权工具，但仍校验断言），",
-    "绿了再用 `mode=record` 出成片。想知道细节用 `pipeline_inspect(id)`。",
+    "### 怎么跑",
     "",
-    CRITERIA,
+    "`pipeline_run(id, mode)`：`mode=rehearsal` 先彩排（不录屏、跳过需授权工具，但仍校验断言），",
+    "绿了再用 `mode=record`。有 `{{input.x}}` 变量的先 `pipeline_inspect(id)` 看 `missingInputs`。",
     "",
   )
   return lines
