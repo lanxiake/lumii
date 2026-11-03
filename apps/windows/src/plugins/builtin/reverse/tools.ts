@@ -25,7 +25,7 @@ import type { ReverseService } from './service-api'
 import { probeApkFile } from './apk-probe'
 import { probeAabFile } from './aab-probe'
 import { probeIpaFile } from './ipa-probe'
-import { findElectronAsar, extractAsar, probeAsarFile } from './asar-probe'
+import { findElectronAsar, extractAsar, probeAsarFile, readAsarEntry } from './asar-probe'
 
 const ProbeInput = Type.Object({
   target: Type.String({
@@ -67,6 +67,13 @@ const ProbeInput = Type.Object({
   includeDeps: Type.Optional(
     Type.Boolean({
       description: 'asar 后端：解包时是否连 node_modules 一起解（默认 false）',
+    }),
+  ),
+  read: Type.Optional(
+    Type.String({
+      description:
+        'asar 后端：读容器内**单个文件**的内容（如 "out/main/index.js"，先看不带 read 的 APP_FILES 清单）。' +
+        '只读文本，上限 512KB；二进制会明确拒绝。**不要**自己写脚本解析 asar 头——偏移容易读错',
     }),
   ),
 })
@@ -177,6 +184,12 @@ export function createReverseProbeToolConfig(deps: ReverseProbeDeps): MtBotToolC
       if (backend === 'asar') {
         const asarPath = findElectronAsar(target)
         if (!asarPath) return text({ ok: false, error: `找不到 Electron 的 app.asar：${target}` })
+        // 只读单文件：不跑完整探针，省掉一遍 SHA256 全量核对
+        if (p.read?.trim()) {
+          const rd = readAsarEntry(asarPath, p.read.trim())
+          if (!rd.ok) return text({ ok: false, error: `读 ${p.read.trim()} 失败：${rd.error}` })
+          return { content: [{ type: 'text' as const, text: rd.text }], details: undefined }
+        }
         const r = probeAsarFile(asarPath, { verify: p.verify !== false })
         if (!r.ok) return text({ ok: false, error: `asar 解析失败：${r.error}` })
         if (!p.extractTo?.trim()) {

@@ -4,6 +4,7 @@ import {
   handleConversationFork,
   handleArtifactHistory,
   handleConversationList,
+  handleConversationMessages,
   handleConversationTransferAgent,
   maybeGenerateConversationTitle,
   purgeEmptyConversations,
@@ -12,6 +13,96 @@ import {
   resolveConversationChannel,
 } from './conversation-commands'
 import { EVOLUTION_CONVERSATION_ID, isEvolutionConversationId } from '@mtbot/agent-runtime'
+
+/**
+ * `content` 字段要能表达三种落库形态的正文。
+ *
+ * 2026-11-03 用 lumii-ui 实测到的缺陷：助手明明回了「2」，`conversation:messages`
+ * 返回的 `content[0].text` 是空串——因为服务端只认 `parsed.text` / `parsed.content`，
+ * 没处理 `assistant_parts` 格式（现在所有 assistant 回合都是这个格式）。
+ * UI 走共享 parser 读 `contentJson` 所以看不出来，但 CLI / 外部脚本按 `content`
+ * 读历史时看到的是空白。
+ */
+describe('conversation:messages 的正文提取', () => {
+  const makeBridge = (rows: Array<{ id: string; role: string; content_json: string; timestamp: string }>) =>
+    ({
+      setLastActiveConversation: vi.fn(),
+      conversationRepo: {
+        getConversation: () => ({ id: 'c1' }),
+        loadMessagesPage: () => ({ items: rows, hasMore: false }),
+      },
+    }) as never
+
+  const run = (rows: Parameters<typeof makeBridge>[0]) =>
+    handleConversationMessages(makeBridge(rows), {
+      type: 'conversation:messages',
+      sessionKey: 'c1',
+    } as never) as unknown as {
+      items: readonly { role: string; content: readonly { text: string }[] }[]
+    }
+
+  it('assistant_parts 格式要拼出正文（这是原先漏掉的那种）', () => {
+    const r = run([
+      {
+        id: 'm2',
+        role: 'assistant',
+        timestamp: '2026-11-03T00:00:00.000Z',
+        content_json: JSON.stringify({
+          type: 'assistant_parts',
+          parts: [
+            { type: 'thinking', text: '想一下' },
+            { type: 'text', text: '2', status: 'done' },
+          ],
+        }),
+      },
+    ])
+    // 只取 text 段，不把 thinking 混进正文
+    expect(r.items[0]!.content[0]!.text).toBe('2')
+  })
+
+  it('多个 text 段按顺序拼接', () => {
+    const r = run([
+      {
+        id: 'm3',
+        role: 'assistant',
+        timestamp: '2026-11-03T00:00:00.000Z',
+        content_json: JSON.stringify({
+          type: 'assistant_parts',
+          parts: [
+            { type: 'text', text: '第一段。' },
+            { type: 'tool', name: 'bash' },
+            { type: 'text', text: '第二段。' },
+          ],
+        }),
+      },
+    ])
+    expect(r.items[0]!.content[0]!.text).toBe('第一段。第二段。')
+  })
+
+  it('用户消息的 {type:text} 形态不受影响', () => {
+    const r = run([
+      {
+        id: 'm1',
+        role: 'user',
+        timestamp: '2026-11-03T00:00:00.000Z',
+        content_json: JSON.stringify({ type: 'text', text: '你好' }),
+      },
+    ])
+    expect(r.items[0]!.content[0]!.text).toBe('你好')
+  })
+
+  it('只有工具调用的回合仍是空正文（不兜成 JSON）', () => {
+    const r = run([
+      {
+        id: 'm4',
+        role: 'assistant',
+        timestamp: '2026-11-03T00:00:00.000Z',
+        content_json: JSON.stringify({ type: 'assistant_parts', parts: [{ type: 'tool', name: 'bash' }] }),
+      },
+    ])
+    expect(r.items[0]!.content[0]!.text).toBe('')
+  })
+})
 
 describe('conversation:list Agent 归属归一化', () => {
   /** 造一个只含会话列表所需方法的 bridge */

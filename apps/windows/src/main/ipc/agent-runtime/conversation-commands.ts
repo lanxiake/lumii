@@ -822,6 +822,14 @@ export function handleConversationMessages(
       }
       // 仅工具调用、无正文的 assistant 回合 text 为空，此时不能兜到 JSON.stringify，
       // 否则 null 会渲染成字面量 "null"、tool_result 会渲染成整坨 JSON。
+      // 正文提取：三种落库形态都要认。
+      // - 字符串：老消息
+      // - `{ type:'text', text }`：用户消息
+      // - **`{ type:'assistant_parts', parts:[{type:'text',text}] }`**：现在所有 assistant 回合
+      //
+      // 第三种原先没处理，于是 `content` 恒为空串——UI 侧走共享 parser 读 `contentJson`
+      // 所以看不出来，但 CLI / 外部脚本按 `content` 读历史时看到的是空白
+      // （2026-11-03 用 lumii-ui 实测：助手明明回了「2」，`content[0].text` 是 ""）。
       contentText =
         typeof parsed === 'string'
           ? parsed
@@ -829,7 +837,12 @@ export function handleConversationMessages(
             ? parsed.text
             : typeof parsed?.content === 'string'
               ? parsed.content
-              : ''
+              : Array.isArray((parsed as { parts?: unknown })?.parts)
+                ? ((parsed as { parts: Array<{ type?: unknown; text?: unknown }> }).parts)
+                    .filter((p) => p?.type === 'text' && typeof p.text === 'string')
+                    .map((p) => p.text as string)
+                    .join('')
+                : ''
       // 读取存库的 thinkingText（新格式）
       if (
         parsed &&

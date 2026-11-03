@@ -234,6 +234,95 @@ function readJsonEntry(fd: number, header: AsarHeader, want: string): unknown {
   }
 }
 
+export interface AsarReadResult {
+  readonly ok: true
+  readonly text: string
+}
+export interface AsarReadFailure {
+  readonly ok: false
+  readonly error: string
+}
+
+/**
+ * 读 asar 内**单个文件**的内容。
+ *
+ * 为什么需要它：只给文件清单时，模型想「看看这个 bundle 里有什么」会怎么做？
+ * 2026-11-03 真机实测：它自己写了个 node 脚本手搓 asar 头，**读错了偏移**
+ * （`dataStart` 是 `8+u32@4`，它从 12 开始读），吐了 976KB 乱码。
+ * 工具没给的路，模型会自己铺，而且铺错。
+ *
+ * 边界：只读文本；二进制（含 NUL 字节）直接拒绝并说明，不做 base64 塞进上下文。
+ * 单次上限 512KB——再大就该用 extractTo 解出来用 file_read 分段读。
+ */
+export function readAsarEntry(
+  filePath: string,
+  entryPath: string,
+  opts: { maxBytes?: number } = {},
+): AsarReadResult | AsarReadFailure {
+  try {
+    const abs = path.resolve(filePath)
+    if (!realFs.existsSync(abs)) return { ok: false, error: `文件不存在：${abs}` }
+    const want = entryPath.startsWith('/') ? entryPath : `/${entryPath.replace(/^\.?\//, '')}`
+    const fd = realFs.openSync(abs, 'r')
+    try {
+      const fileSize = realFs.fstatSync(fd).size
+      const head = Buffer.allocUnsafe(Math.min(fileSize, 64 * 1024 * 1024))
+      realFs.readSync(fd, head, 0, head.length, 0)
+      const header = readAsarHeader(head)
+      const e = header.entries.find((x) => x.path === want)
+      if (!e) {
+        // 给出近似提示：路径写错是最常见的原因
+        const near = header.entries
+          .filter((x) => x.path.toLowerCase().includes(want.toLowerCase().slice(1, 12)))
+          .slice(0, 8)
+          .map((x) => x.path)
+        return {
+          ok: false,
+          error:
+            `asar 里没有 ${want}。` +
+            (near.length ? `\n相近的条目：\n${near.join('\n')}` : '\n先用不带 read 的调用看 APP_FILES 清单。'),
+        }
+      }
+      const max = opts.maxBytes && opts.maxBytes > 0 ? Math.min(opts.maxBytes, 512 * 1024) : 512 * 1024
+      if (e.size > max) {
+        return {
+          ok: false,
+          error:
+            `${want} 有 ${e.size} 字节，超过单次读取上限 ${max}。` +
+            `\n用 extractTo 把它解出来再用 file_read 分段读，或用 grep 在解出的目录里定位。`,
+        }
+      }
+      let buf: Buffer
+      if (e.unpacked) {
+        const src = path.join(`${abs}.unpacked`, want.replace(/^\/+/, ''))
+        if (!realFs.existsSync(src)) return { ok: false, error: `${want} 声明为 unpacked 但实体文件缺失：${src}` }
+        buf = realFs.readFileSync(src)
+      } else {
+        buf = Buffer.allocUnsafe(e.size)
+        if (e.size > 0) realFs.readSync(fd, buf, 0, e.size, header.dataStart + e.offset)
+      }
+      if (buf.includes(0)) {
+        return {
+          ok: false,
+          error: `${want} 看起来是二进制（含 NUL 字节），不按文本返回。要分析它请用 reverse_probe 直接指向该文件，或 extractTo 后按需处理。`,
+        }
+      }
+      const lines = [
+        `PROGRAM=asar-read`,
+        `ENTRY=${want}`,
+        `BYTES=${e.size}`,
+        '--- CONTENT ---',
+        buf.toString('utf8'),
+      ]
+      return { ok: true, text: lines.join('\n') }
+    } finally {
+      realFs.closeSync(fd)
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 /**
  * 用 asar 头自带的 integrity 核一块内存里的字节。返回 null = 头部没写 integrity，无法判。
  * 分块规则：第 i 块是 `[i*blockSize, min((i+1)*blockSize, size))`。

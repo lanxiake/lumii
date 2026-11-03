@@ -11,7 +11,14 @@ import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { findElectronAsar, extractAsar, probeAsarFile, readAsarHeader, verifyAsarBytes } from './asar-probe'
+import {
+  findElectronAsar,
+  extractAsar,
+  probeAsarFile,
+  readAsarEntry,
+  readAsarHeader,
+  verifyAsarBytes,
+} from './asar-probe'
 
 interface FakeFile {
   /** asar 内路径，以 `/` 开头 */
@@ -318,6 +325,81 @@ describe('extractAsar', () => {
     // 没写到输出目录的祖先里去
     expect(fs.existsSync(path.join(dir, 'escaped.js'))).toBe(false)
     expect(fs.existsSync(path.join(dir, 'deep', 'escaped.js'))).toBe(false)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+/**
+ * 读单个文件：模型没有这条路时会自己写脚本手搓 asar 头，而且读错偏移。
+ * 2026-11-03 真机就是这么吐了 976KB 乱码的。所以这条路要能走通、走错时要给得出提示。
+ */
+describe('readAsarEntry', () => {
+  it('读出文本内容，带路径与字节数', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([
+        { path: '/package.json', data: Buffer.from('{"name":"demo"}') },
+        { path: '/out/main/index.js', data: Buffer.from('console.log("hi")') },
+      ]),
+    )
+    const r = readAsarEntry(file, '/out/main/index.js')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.text).toContain('ENTRY=/out/main/index.js')
+    expect(r.text).toContain('console.log("hi")')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('省略前导斜杠也能读', () => {
+    const { dir, file } = writeTemp(buildAsar([{ path: '/a.txt', data: Buffer.from('AAA') }]))
+    const r = readAsarEntry(file, 'a.txt')
+    expect(r.ok && r.text).toContain('AAA')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('路径写错时给出相近条目，不是只说「没有」', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([
+        { path: '/out/main/index.js', data: Buffer.from('x') },
+        { path: '/out/preload/index.js', data: Buffer.from('y') },
+      ]),
+    )
+    const r = readAsarEntry(file, '/out/mian/index.js') // 拼错
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toMatch(/没有/)
+      expect(r.error).toMatch(/out\//)
+    }
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('超过上限时指向 extractTo，而不是硬塞进上下文', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([{ path: '/big.js', data: Buffer.alloc(2048, 0x61) }]),
+    )
+    const r = readAsarEntry(file, '/big.js', { maxBytes: 1024 })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/extractTo/)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('二进制明确拒绝，不返回乱码', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([{ path: '/native.node', data: Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x00, 0x01]) }]),
+    )
+    const r = readAsarEntry(file, '/native.node')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/二进制/)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('unpacked 条目从 app.asar.unpacked/ 读', () => {
+    const { dir, file } = writeTemp(
+      buildAsar([{ path: '/x.txt', data: Buffer.from(''), unpacked: true }]),
+    )
+    fs.mkdirSync(`${file}.unpacked`, { recursive: true })
+    fs.writeFileSync(path.join(`${file}.unpacked`, 'x.txt'), 'FROM-UNPACKED')
+    const r = readAsarEntry(file, '/x.txt')
+    expect(r.ok && r.text).toContain('FROM-UNPACKED')
     fs.rmSync(dir, { recursive: true, force: true })
   })
 })
