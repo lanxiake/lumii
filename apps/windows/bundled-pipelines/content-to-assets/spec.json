@@ -1,7 +1,7 @@
 {
   "id": "content-to-assets",
   "name": "内容生产到成片素材",
-  "description": "围绕一个主题产出可直接发布的素材包：调研 → 写正文 → 生配图 → 生封面 → 按平台规格校验。**到成片为止，不含发布**——抖音/快手/B站/视频号在客户端里没有实现，小红书发布依赖外部 `sau` CLI，两者发布后都不可撤回且效果不可断言，不适合做成确定性流水线。**跑之前先填 `inputs.json` 的主题**。判据：正文文件非空、图片数 = 计划数、封面尺寸精确符合 3:4。",
+  "description": "围绕一个主题产出可直接发布的素材包：抓素材 → 提炼 → 写正文 → 渲染图卡 → 截图 → 规格校验。**图卡用本地 HTML 渲染再截图**，不用 AI 生图——生图不收宽高、出不了 3:4，还会把中文画成乱码。**到成片为止，不含发布**：抖音/快手/B站/视频号在客户端里没有实现，小红书的发布依赖外部 sau CLI，两者发布后都不可撤回且效果不可断言，不适合做成确定性流水线。**跑之前先填 inputs.json 的主题**。",
   "record": {
     "enabled": false
   },
@@ -76,40 +76,35 @@
       "holdMs": 200
     },
     {
-      "id": "illustrations",
-      "label": "生成 3 张配图（提示词来自正文的配图计划）",
+      "id": "render-cards",
+      "label": "渲染图卡 HTML（1080×1440，尺寸写死在 CSS 里，不靠生图）",
+      "tool": "bash",
+      "params": {
+        "command": "node pipelines/content-to-assets/render-cards.cjs \"outputs/content-{{input.slug}}/note.md\" \"outputs/content-{{input.slug}}\"",
+        "timeoutMs": 30000
+      },
+      "holdMs": 200
+    },
+    {
+      "id": "shoot-cards",
+      "label": "逐张截图为 PNG（每张都必须落在 content-<slug>/images/）",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "读 outputs/content-{{input.slug}}/note.md 的「## 配图计划」小节，那里有 3 条画面描述。\n\n对每一条调用一次 image_generate：\n- prompt：用那条中文描述，并补上「画面干净，不要文字」\n- filename：img1 / img2 / img3\n- **不要传 width/height**：实测带上会 400（服务端 imageSize 字段歧义），去掉才能出图\n\n**image_generate 会把文件落到 outputs/<当天日期>/，不是你指定的目录**（它只收 filename）。\n所以每张生成后立刻用 bash 搬进目标目录：\n```\nmkdir -p outputs/content-{{input.slug}}/images\ncp \"<image_generate 返回的路径>\" outputs/content-{{input.slug}}/images/imgN.<扩展名>\n```\n（用 cp 不用 mv：返回的路径可能被其它步骤引用。）\n\n三次调用**串行**做，每张搬完立刻用 bash 确认目标文件存在且 > 10KB。\n\n**预算纪律**：每次 image_generate 要花 2-4 轮，所以一张失败最多重试 1 次，\n再失败就记下原因继续下一张。不要为了看图去 file_read 图片。\n\n最后把三张图的**最终路径**写成 outputs/content-{{input.slug}}/images/PATHS.txt（一行一个），\n并汇报成功 N/3。",
+      "prompt": "把 outputs/content-{{input.slug}}/cards.html 里的每张卡片截成 PNG。\n\n**先做一次视口设置**：调用 browser_set_device（width: 1080, height: 1440，不要传 name），让视口正好等于卡片尺寸。这样一张卡正好占满一屏，截图不需要裁剪。\n\n卡片与目标文件一一对应（n 从 1 开始，一共几张看 cards.html 里的 .card 数量）：\n- cover 卡 → outputs/content-{{input.slug}}/images/cover.png\n- 第 n 张正文卡 → outputs/content-{{input.slug}}/images/imgN.png\n\n每张都这样做：\n1. browser_navigate 打开 `file://<cards.html 的绝对路径>?only=cover`（或 ?only=<卡片 id>）——\n   带 only 参数时页面只显示那一张卡，正好铺满视口；\n2. 等一拍：bash `sleep 1`（字体与排版需要渲染）；\n3. browser_screenshot 截图；把返回的图片路径用 bash `cp` 成目标文件名；\n4. 立刻确认目标文件存在且 > 50KB。\n\n卡片 id 从 render-cards 步的输出里读（它会打印 #card-cover / #card-1 ..）；读不到就用 browser_eval 取：\n`(() => Array.from(document.querySelectorAll(\".card\")).map(e => e.id))()`\n\n**硬约束**：\n- 文案不要自己改，渲染脚本已经排好版，你只负责截图。\n- browser_screenshot 不支持裁剪，所以**必须**用 only 参数 + 1080×1440 视口，不要靠事后裁。\n- 截不到就如实报告哪一张、卡在哪一步，**不要用生图去凑**。\n\n最后一行汇报：成功 N 张，以及每张的实测像素尺寸。",
       "allowedTools": [
         "bash",
-        "file_read",
-        "file_write",
-        "image_generate"
+        "browser_navigate",
+        "browser_eval",
+        "browser_screenshot",
+        "file_read"
       ],
       "rehearsal": "skip",
       "maxTurns": 45,
       "holdMs": 300
     },
     {
-      "id": "cover",
-      "label": "生成封面（**3:4 是硬判据**：小红书封面的实际展示比例）",
-      "kind": "agent",
-      "agentType": "assistant",
-      "prompt": "为 outputs/content-{{input.slug}}/note.md 的标题生成一张封面图。\n\n读正文里的标题与正文，提炼一个视觉概念，调用 image_generate：\n- prompt：中文描述 + 「封面构图，主体居中，留出标题位置，画面干净，不要文字」\n- filename: cover\n- **不要传 width/height**（实测会 400）\n\n生成后把文件从 outputs/<当天日期>/ 搬进 outputs/content-{{input.slug}}/images/，\n文件名保持 cover.<原扩展名>。\n\n注意：**成品会是服务商默认比例，不一定是 768x1024**。不要为了凑尺寸去裁剪或缩放——\n裁坏比尺寸不对更糟。如实在汇报里写明实测尺寸。\n\n最后一行汇报：封面路径与实测尺寸。",
-      "allowedTools": [
-        "bash",
-        "file_read",
-        "file_write",
-        "image_generate"
-      ],
-      "rehearsal": "skip",
-      "maxTurns": 20,
-      "holdMs": 300
-    },
-    {
       "id": "verify-assets",
-      "label": "判据：配图 ≥2 张可用、封面实测为 3:4（脚本 check-assets.cjs，尺寸读 PNG 头）",
+      "label": "判据：配图 ≥2 张可用、封面实测 1080×1440（3:4，读图片头）",
       "tool": "bash",
       "params": {
         "command": "node pipelines/content-to-assets/check-assets.cjs \"outputs/content-{{input.slug}}/images\"",
@@ -122,7 +117,7 @@
       "label": "打素材包清单（发布前的人工检查点）",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "为 outputs/content-{{input.slug}}/ 写一份 README.md 作为**交付清单**：\n\n1. 标题与正文摘要（从 note.md 抄，不要改写）\n2. 素材清单：note.md、research.md、配图 N 张、封面 1 张——每项给路径与实际尺寸/字节\n3. **发布前必须人工确认的三件事**：\n   - 正文里的事实是否仍有出处（research.md 里 UNVERIFIED 的有几条）\n   - 图片是否可用（有没有画错、有没有文字乱码）\n   - 封面在 3:4 裁切下标题是否还在可视区\n4. **明确写出：本流水线不发布**。抖音/快手/B站/视频号在客户端里没有实现，小红书发布依赖外部 sau CLI——发布这一步请人工完成。\n\n硬约束：素材清单里的每个路径都要先用 bash 确认存在，不许列不存在的文件。\n\n最后一行汇报：素材总数、UNVERIFIED 条数。",
+      "prompt": "为 outputs/content-{{input.slug}}/ 写一份 README.md 作为**交付清单**：\n\n1. 标题与正文摘要（从 note.md 抄，不要改写）\n2. 素材清单：note.md、research.md、配图数按实际 PNG 计、封面 1 张——每项给路径与实际尺寸/字节\n3. **发布前必须人工确认的三件事**：\n   - 正文里的事实是否仍有出处（research.md 里 UNVERIFIED 的有几条）\n   - 图片是否可用（有没有画错、有没有文字乱码）\n   - 封面在 3:4 裁切下标题是否还在可视区\n4. **明确写出：本流水线不发布**。抖音/快手/B站/视频号在客户端里没有实现，小红书发布依赖外部 sau CLI——发布这一步请人工完成。\n\n硬约束：素材清单里的每个路径都要先用 bash 确认存在，不许列不存在的文件。\n\n最后一行汇报：素材总数、UNVERIFIED 条数。",
       "allowedTools": [
         "bash",
         "file_read",

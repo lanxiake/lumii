@@ -422,7 +422,8 @@ export function buildPipelineSection(
         return `- \`${h.id}\`（${h.name}）${d}`
       }),
       "",
-      `When a task matches a pipeline (or the user asks to record a tutorial/demo), MUST use \`pipeline_run(id, mode)\` instead of driving the UI by hand. ${CRITERIA}`,
+      `When a task matches a pipeline (or the user asks to record a tutorial/demo), MUST use \`pipeline_run(id, mode)\` instead of driving the UI by hand. ` +
+        `Pipelines take precedence over skills when both cover the same task. ${CRITERIA}`,
       "",
     ]
   }
@@ -432,6 +433,11 @@ export function buildPipelineSection(
     "",
     "已固化的可枚举步骤。**命中时优先用 `pipeline_run`，不要手工一步步点**——",
     "手工路径每步都靠模型判断，既慢又飘；流水线是同一份 spec 每次跑出同样的结果。",
+    "",
+    "**流水线优先于技能**：两者描述同一件事时（比如「做一篇小红书并配图」），",
+    "先看有没有对应流水线。技能是「让模型照着一份说明书做」，流水线是「代码照着 spec 做」；",
+    "同一件事两者都有时，流水线的结果可复现，技能不可。技能只在流水线覆盖不到的环节才用",
+    "（比如发布那一步没有对应流水线）。",
     "",
   ]
   for (const h of hints) {
