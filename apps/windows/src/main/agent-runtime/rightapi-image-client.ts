@@ -16,6 +16,8 @@
  */
 
 import { agentRuntimeLog as log } from './bridge-utils'
+import { fetch as undiciFetch } from 'undici'
+import { resolveLocalProxyDispatcher } from './tool-providers/local-proxy'
 
 /** RightAPI 默认绘图基础地址（含 /draw/v1） */
 export const DEFAULT_RIGHTAPI_BASE_URL = 'https://www.rightapi.ai/draw/v1'
@@ -147,6 +149,14 @@ function parseUpstreamErrorMessage(status: number, errText: string): string {
 
 /**
  * 带超时与中断的 fetch 包装。
+ *
+ * **直连失败时降级到本机代理再试一次**（2026-11-03）。动因：本机 `www.rightapi.ai`
+ * 直连 21s 超时，走 10808 代理拿到 401（401 才是正常的"缺 key"，说明链路通），
+ * 而生图全程 `fetch failed` —— `fetch` 不读系统代理，这一步不补就永远跑不通。
+ *
+ * 三条边界沿用 `local-proxy` 的既有约定：**只在直连失败后用**（直连能通绝不改道）、
+ * **只认本机地址**、**代理本身要先自证**。`AbortSignal` 中止时不做代理重试
+ * （那是用户取消，不是网络问题）。
  */
 async function fetchWithTimeout(
   url: string,
@@ -164,6 +174,8 @@ async function fetchWithTimeout(
     if (signal?.aborted || (err as Error).name === 'AbortError') {
       throw Object.assign(new Error('图片生成已被用户中断'), { code: 'ABORTED' })
     }
+    const viaProxy = await retryThroughLocalProxy(url, init, timeoutMs)
+    if (viaProxy) return viaProxy
     throw Object.assign(
       new Error(`RightAPI 网络错误: ${err instanceof Error ? err.message : String(err)}`),
       { code: 'PROVIDER_ERROR' },
@@ -171,6 +183,39 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+/**
+ * 直连失败后的代理重试。返回 null 表示没有可用代理（或代理也没通）。
+ *
+ * 单独提出来是为了能单测：真跑的代价是一次端口扫描，而这里要钉的是
+ * **请求体（POST body）必须原样带过去**——生图是 POST，丢了 body 就等于发空请求。
+ */
+async function retryThroughLocalProxy(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response | null> {
+  let picked: Awaited<ReturnType<typeof resolveLocalProxyDispatcher>>
+  try {
+    picked = await resolveLocalProxyDispatcher(url)
+  } catch {
+    return null
+  }
+  if (!picked) return null
+  try {
+    const resp = await undiciFetch(url, {
+      ...(init as Parameters<typeof undiciFetch>[1]),
+      dispatcher: picked.dispatcher,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    log.info(`[rightapi] 经代理取回 ${url} status=${resp.status} via=${picked.via}`)
+    // undici 的 Response 与 DOM 的类型不兼容，但这里只调用 `.ok/.status/.text()`
+    return resp as unknown as Response
+  } catch (err) {
+    log.warn(`[rightapi] 经代理仍然失败: ${err instanceof Error ? err.message : String(err)}`)
+    return null
   }
 }
 

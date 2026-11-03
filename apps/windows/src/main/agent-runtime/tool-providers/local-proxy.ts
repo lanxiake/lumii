@@ -196,3 +196,53 @@ export function __resetProxyCacheForTest(): void {
   cachedProxy = null
   lastExhaustedAt = 0
 }
+
+/**
+ * 给**任意请求**拿一个可用的本机代理 dispatcher。
+ *
+ * 与 `retryViaLocalProxy` 的分工：那个是「拿一个 URL 去取内容」（GET、只回文本），
+ * 这里只回答「该用哪个出口」——调用方自己发请求，因此 POST/流式/二进制下载都能用。
+ *
+ * **动因**：`rightapi-image-client` 的生图请求是 POST + 轮询 + 下载图片，套不进
+ * 「取回一段文本」那个形状。实测（2026-11-03）`www.rightapi.ai` 直连 21s 超时、
+ * 走 10808 代理 401（401 才是正常的"缺 key"，说明链路通），而生图全程 `fetch failed`。
+ *
+ * **先自证再返回**：端口上有人监听不等于它是代理（这正是文件头第 3 条边界）。
+ * 所以真的发一次探测请求，只认「拿到了任意 HTTP 响应」的那个候选。
+ *
+ * @param probeUrl 用来探测的地址；缺省用调用方要访问的 URL
+ * @returns dispatcher 与 `via`（出处，供上层写日志）；没有可用代理时 null
+ */
+export async function resolveLocalProxyDispatcher(
+  probeUrl: string,
+  candidates?: ProxyCandidate[],
+): Promise<{ dispatcher: ProxyAgent; via: string } | null> {
+  // 命中过的代理直接复用，不再扫一遍：它扛过真实流量，已经是自证过的
+  if (cachedProxy) return { dispatcher: cachedProxy.agent, via: `上次成功的代理（${cachedProxy.url}）` }
+  if (!candidates && Date.now() - lastExhaustedAt < RESCAN_COOLDOWN_MS) return null
+
+  const list = candidates ?? (await collectProxyCandidates())
+  for (const candidate of list) {
+    const agent = new ProxyAgent(candidate.url)
+    try {
+      // 任何响应（含 4xx/5xx）都算这条出口通了——状态码是目标站给的，不是代理的问题
+      await undiciFetch(probeUrl, {
+        method: 'GET',
+        dispatcher: agent,
+        signal: AbortSignal.timeout(PROXY_ATTEMPT_TIMEOUT_MS),
+      })
+      void cachedProxy?.agent.close().catch(() => undefined)
+      cachedProxy = { url: candidate.url, agent }
+      log.info(`选定代理出口 ${candidate.url}（${candidate.source}）`)
+      return { dispatcher: agent, via: `${candidate.source}（${candidate.url}）` }
+    } catch (err) {
+      log.warn(
+        `探测 ${candidate.url} 失败（${candidate.source}）: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      void agent.close().catch(() => undefined)
+    }
+  }
+
+  lastExhaustedAt = Date.now()
+  return null
+}

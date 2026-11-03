@@ -108,6 +108,25 @@ const PIPELINE_TOOL_DEF = {
   canSpawnSubAgents: false,
   isActive: true,
 } as unknown as AgentDefinition
+
+/**
+ * 流水线步骤用的工具上下文：**摘掉 `callLLM`**。
+ *
+ * bash 工具在截止前 60s 会问一个嵌套 LLM「要不要续期」，答 renew 就把 deadline
+ * 往后推（单次最多 600s，可反复）。对交互对话这是好意；对流水线是灾难——
+ * 2026-11-03 真机：`open-source-eval` 的 test 步写了 `timeoutMs: 540000`，实际跑了
+ * 1095866ms，而 journal、页面、工具返回**没有任何痕迹**说它被延长过。spec 声明的
+ * 时限被静默突破，"确定性执行"就成了空话。
+ *
+ * 摘掉后 bash 走 `onApproachingTimeout: undefined` 分支，原 deadline 上的 killTimer
+ * 照常生效。需要更长时间就写进 spec，不要靠运行时猜。
+ *
+ * 独立成函数是为了可测：`bridge-pipeline-timeout.test.ts` 直接断言它返回的上下文
+ * 里没有 callLLM，而其余方法原样保留。
+ */
+export function pipelineStepToolContext<T extends { callLLM?: unknown }>(ctx: T): T {
+  return { ...ctx, callLLM: undefined }
+}
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer, type ToolDefinitionLite } from './context-usage-breakdown.js'
 import { clearAgentRuntimeRepos, setAgentRuntimeRepos, setWikiLibraryMigrate } from './accessors.js'
 import type { ContextBudgetSnapshot, ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
@@ -4108,7 +4127,20 @@ export class AgentRuntimeBridge {
     const { runner, tools } = assembleTools({
       tools: [tool],
       definition: PIPELINE_TOOL_DEF,
-      toolContext: this.toolContext,
+      /**
+       * **去掉 `callLLM`：流水线步骤里的 bash 不允许自动续期。**
+       *
+       * bash 工具在 deadline 前 60s 会问一个嵌套 LLM「要不要续期」，答 renew 就把
+       * 截止时间往后推（最多 600s，可反复）。对交互对话这是好意；对流水线是灾难——
+       * 2026-11-03 真机：`open-source-eval` 的 test 步写了 `timeoutMs: 540000`，
+       * 实际跑了 1095866ms，而 journal、页面、工具返回**都没有任何痕迹**说它被延长过。
+       * spec 声明的时限被静默突破，"确定性执行"就成了空话。
+       *
+       * 去掉它之后走到 `onApproachingTimeout: undefined` 分支，工具直接返回
+       * `{extendMs: 0}`，原 deadline 上的 killTimer 照常生效。
+       * 需要更长时间就写进 spec，不要靠运行时猜。
+       */
+      toolContext: pipelineStepToolContext(this.toolContext),
       featureFlags: this.featureFlags,
       permissionGate: {
         definition: PIPELINE_TOOL_DEF,
