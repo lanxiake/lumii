@@ -30,8 +30,21 @@ const KNOWN_TOOLS = new Set([
   'reverse_probe',
 ])
 
-/** 内置 spec 引用的 Agent；取 bridge 侧 knownAgents 的同名集合 */
-const KNOWN_AGENTS = new Set(['assistant', 'builtin:explore', 'builtin:plan', 'builtin:verify', 'code-dev'])
+/**
+ * 内置 spec 引用的 Agent；取 bridge 侧 knownAgents 的同名集合。
+ *
+ * `security`（灵栖安全）在 `BUILTIN_AGENT_DEFINITIONS` 里是 `isActive: true`，
+ * 所以它**在** `knownAgents` 里、spec 引用它不会被加载期拒；它只是不进团队列表
+ * （不能被自动路由），这不影响流水线显式指定它。
+ */
+const KNOWN_AGENTS = new Set([
+  'assistant',
+  'builtin:explore',
+  'builtin:plan',
+  'builtin:verify',
+  'code-dev',
+  'security',
+])
 
 let dirs: string[] = []
 try {

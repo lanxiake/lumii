@@ -10,11 +10,14 @@
 | [`2026-11-01-P1实施总结.md`](2026-11-01-P1实施总结.md) | P1 交付物、真实站点复刻暴露的 8 处问题、真机证据、遗留项 | 已完成 |
 | [`2026-11-02-P2组合与导出-实施计划.md`](2026-11-02-P2组合与导出-实施计划.md) | P2：静态导出 + 双栏对照 + `capability_export` + 产物卡 + `reverse-then-clone` 样板 | 已完成 |
 | [`2026-11-02-P2实施总结.md`](2026-11-02-P2实施总结.md) | P2 交付物、五条判据证据、真机暴露并修掉的 5 处问题、遗留项 | 已完成 |
-| [`2026-11-02-P3-Ghidra接入-实施记录.md`](2026-11-02-P3-Ghidra接入-实施记录.md) | P3 第一块：以**插件**（`com.lumii.reverse`，默认关闭）接入 Ghidra headless + APK/IPA 内置解析 | 已完成 |
+| [`2026-11-02-P3-Ghidra接入-实施记录.md`](2026-11-02-P3-Ghidra接入-实施记录.md) | P3：以**插件**（`com.lumii.reverse`，默认关闭）接入 Ghidra headless + APK/AAB/IPA/asar 内置解析 + C1-c 流水线 + P4 两个安全原子与 `security` Agent | 已完成 |
 
 设计文档：[`2026-11-02-P3-EXE与APP复刻设计.md`](../../design/逆向与复刻/2026-11-02-P3-EXE与APP复刻设计.md) ——
-EXE/APP 复刻分四层，L0 观察已有、L1 解包（asar）已完成（C1-a/C1-b）、
-L2 复刻配方待定（C1-c）、L3 行为对齐需沙箱，本机实测无。
+EXE/APP 复刻分四层，L0 观察已有、L1 解包（asar）已完成（C1-a/C1-b/C1-c）、
+L2 复刻配方已完成（`exe-clone`）、L3 行为对齐需沙箱，本机实测无。
+
+**P4 安全域**：`redteam` / `blueteam` 两个原子 + `security` 专用 Agent 已完成。
+设计 §8.5 的可选红蓝流水线见 [`bundled-pipelines/red-blue-selfcheck`](../../../apps/windows/bundled-pipelines/red-blue-selfcheck/spec.json)。
 
 **分期与原子对应**（完整表见设计 §8）：
 
