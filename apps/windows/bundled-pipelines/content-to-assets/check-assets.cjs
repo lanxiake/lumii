@@ -44,15 +44,48 @@ if (!cover) {
 
 const buf = fs.readFileSync(path.join(dir, cover))
 let dim = 'unknown'
-if (buf.slice(1, 4).toString() === 'PNG') {
-  dim = `${buf.readUInt32BE(16)}x${buf.readUInt32BE(20)}`
-} else {
-  console.error('封面不是 PNG，尺寸无法静态核对（JPEG 要解 SOF 段，这里不猜）')
+
+/**
+ * 读图片尺寸。PNG 读 IHDR；JPEG 扫 SOF 段。
+ *
+ * **JPEG 必须支持**：`image_generate` 默认出 JPG（2026-11-03 实测）。第一版只认 PNG，
+ * 于是"封面明明在"却被报成 `unknown`，用户拿不到任何可操作的信息。
+ */
+function readDim(b) {
+  if (b.slice(1, 4).toString() === 'PNG') {
+    return `${b.readUInt32BE(16)}x${b.readUInt32BE(20)}`
+  }
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    // JPEG：从 2 开始逐段走，SOF0/1/2（C0/C1/C2）里带宽高
+    let i = 2
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) {
+        i++
+        continue
+      }
+      const marker = b[i + 1]
+      const len = b.readUInt16BE(i + 2)
+      if (marker >= 0xc0 && marker <= 0xc2) {
+        return `${b.readUInt16BE(i + 7)}x${b.readUInt16BE(i + 5)}`
+      }
+      i += 2 + len
+    }
+  }
+  return 'unknown'
 }
+
+dim = readDim(buf)
 console.log(`COVER=${cover} ${dim}`)
 
 if (dim !== wantDim) {
   console.error(`封面实测 ${dim} ≠ ${wantDim}——发出去会被裁`)
+  if (dim !== 'unknown') {
+    console.error(
+      `提示：image_generate 不支持指定宽高（传 width/height 会 400），只能出服务商默认比例。` +
+        `要 3:4 就在发布前用任意图片工具裁一次——**这条判据不会为了放行而放宽**：` +
+        `尺寸不对的封面发出去就是会被平台裁掉标题。`,
+    )
+  }
   process.exit(1)
 }
 console.log('COVER_RATIO=ok')

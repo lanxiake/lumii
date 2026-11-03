@@ -52,6 +52,18 @@ function makePng(file: string, w: number, h: number, noise = false): void {
   )
 }
 
+/** 造一张最小合法 JPEG（只有 SOI + SOF0 段，够读尺寸） */
+function makeJpeg(file: string, w: number, h: number): void {
+  const sof = Buffer.alloc(19)
+  sof.writeUInt16BE(0xffc0, 0)      // SOF0
+  sof.writeUInt16BE(17, 2)          // 段长
+  sof[4] = 8                        // 精度
+  sof.writeUInt16BE(h, 5)           // 高
+  sof.writeUInt16BE(w, 7)           // 宽
+  sof[9] = 3                        // 分量数
+  fs.writeFileSync(file, Buffer.concat([Buffer.from([0xff, 0xd8]), sof, Buffer.from([0xff, 0xd9])]))
+}
+
 let dir: string
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-assets-')) })
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
@@ -109,6 +121,22 @@ describe('check-assets', () => {
     makePng(path.join(dir, 'img2.png'), 1024, 1536, true)
     const r = run()
     expect(r.out).toContain('没有 cover.* 封面文件')
+    expect(r.code).toBe(1)
+  })
+
+  /**
+   * **JPEG 也要能读尺寸**。
+   *
+   * 真机（2026-11-03）：image_generate 默认出 JPG，第一版脚本只认 PNG，
+   * 于是「封面明明在」却被报成 unknown，用户拿不到任何可操作信息。
+   */
+  it('封面是 JPEG 时同样读得出尺寸并照常判', () => {
+    makePng(path.join(dir, 'img1.png'), 1024, 1536, true)
+    makePng(path.join(dir, 'img2.png'), 1024, 1536, true)
+    makeJpeg(path.join(dir, 'cover.jpg'), 1024, 1024)
+    const r = run()
+    expect(r.out).toContain('COVER=cover.jpg 1024x1024')
+    expect(r.out).toContain('≠ 768x1024')
     expect(r.code).toBe(1)
   })
 
