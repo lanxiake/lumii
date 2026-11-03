@@ -24,6 +24,18 @@ export interface PipelineDetail {
   readonly specHash: string
   readonly runs: readonly RunMeta[]
   readonly lastJournal?: readonly JournalLine[]
+  /** `<pipelines>/<id>/inputs.json` 的当前内容（文件不存在时为 undefined） */
+  readonly inputs?: Readonly<Record<string, string>>
+  /** 缺哪些变量：跑之前必须先补上，否则引用它的那一步会失败 */
+  readonly missingInputs?: readonly string[]
+}
+
+/** 端口：IPC 与工具两条路都用它，保证「跑的是同一份 inputs」 */
+export interface PipelineRunOptions {
+  readonly mode: 'record' | 'rehearsal'
+  readonly resumeRunId?: string
+  /** 覆盖 inputs.json 的变量（缺省读 inputs.json） */
+  readonly inputs?: Record<string, string>
 }
 
 export interface PipelineRunResult {
@@ -57,9 +69,6 @@ export interface PipelineRunResult {
 export interface PipelineService {
   list(): Promise<PipelineSummary[]>
   detail(id: string): Promise<PipelineDetail | null>
-  run(
-    id: string,
-    opts: { mode: 'record' | 'rehearsal'; resumeRunId?: string },
-  ): Promise<PipelineRunResult>
+  run(id: string, opts: PipelineRunOptions): Promise<PipelineRunResult>
   cancel(runId: string): void
 }

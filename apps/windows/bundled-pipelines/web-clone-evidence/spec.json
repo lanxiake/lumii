@@ -1,48 +1,81 @@
 {
   "id": "web-clone-evidence",
   "name": "网页取证（复刻第一步）",
-  "description": "对一个页面做复刻前取证：全页截图 + 资源清单 + 关键样式读数。用途仅限自有/开源站点或已获授权的目标；目标与授权写在 target 字段（purpose=自有/开源站点迁移或学习, authorization=unspecified）。**跑之前先替换 spec 里的目标地址与项目名**，否则会打开一个无效地址。写法说明：① 外部输入用占位符而不是 {{user.x}}——{{}} 会被当成 step id，加载期就拒；② expect.fields 里只放字面量，因为 expect 不走 resolveParams、也不做引用校验；③ 移动端单独一步、截完立刻切回，因为截图工具不收 device、设备是持久状态；④ 复位用 width/height 而不是 name:\"Desktop Chrome\"，只改尺寸、不动 UA。",
-  "record": { "enabled": false },
+  "description": "对一个页面做复刻前取证：全页截图 + 资源清单 + 关键样式读数。用途仅限自有/开源站点或已获授权的目标。**跑之前先填 inputs.json**（targetUrl 目标地址、slug 产物目录名）。写法说明：① expect.fields 里只放字面量，因为 expect 不走 resolveParams、也不做引用校验；② 移动端单独一步、截完立刻切回，因为截图工具不收 device、设备是持久状态；③ 复位用 width/height 而不是 name:\"Desktop Chrome\"，只改尺寸、不动 UA。",
+  "record": {
+    "enabled": false
+  },
   "steps": [
     {
       "id": "open",
       "label": "打开目标页",
       "tool": "browser_navigate",
-      "params": { "url": "__TARGET_URL__" },
+      "params": {
+        "url": "{{input.targetUrl}}"
+      },
       "holdMs": 1500,
-      "expect": { "fields": { "ok": true } }
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
     },
     {
       "id": "shot-desktop",
       "label": "桌面全页截图",
       "tool": "browser_screenshot",
-      "params": { "fullPage": true },
+      "params": {
+        "fullPage": true
+      },
       "holdMs": 500,
-      "expect": { "fields": { "ok": true } }
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
     },
     {
       "id": "set-mobile",
       "label": "切到移动端视口（iPhone 14，持久状态，截完必须切回）",
       "tool": "browser_set_device",
-      "params": { "name": "iPhone 14" },
+      "params": {
+        "name": "iPhone 14"
+      },
       "holdMs": 800,
-      "expect": { "fields": { "ok": true } }
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
     },
     {
       "id": "shot-mobile",
       "label": "移动端全页截图",
       "tool": "browser_screenshot",
-      "params": { "fullPage": true },
+      "params": {
+        "fullPage": true
+      },
       "holdMs": 500,
-      "expect": { "fields": { "ok": true } }
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
     },
     {
       "id": "reset-desktop",
       "label": "切回桌面视口（只改尺寸、不动 UA）",
       "tool": "browser_set_device",
-      "params": { "width": 1440, "height": 900 },
+      "params": {
+        "width": 1440,
+        "height": 900
+      },
       "holdMs": 300,
-      "expect": { "fields": { "ok": true } }
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
     },
     {
       "id": "assets",
@@ -50,7 +83,11 @@
       "tool": "browser_requests",
       "params": {},
       "holdMs": 300,
-      "expect": { "fields": { "ok": true } }
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
     },
     {
       "id": "styles",
@@ -60,7 +97,11 @@
         "script": "(() => { const pick = (sel) => { const el = document.querySelector(sel); if (!el) return null; const s = getComputedStyle(el); return { font: s.fontFamily, size: s.fontSize, weight: s.fontWeight, lineHeight: s.lineHeight, letterSpacing: s.letterSpacing, color: s.color }; }; return { h1: pick('h1'), body: pick('body'), maxWidth: getComputedStyle(document.querySelector('main') ?? document.body).maxWidth, overflowX: document.documentElement.scrollWidth > innerWidth }; })()"
       },
       "holdMs": 300,
-      "expect": { "fields": { "ok": true } }
+      "expect": {
+        "fields": {
+          "ok": true
+        }
+      }
     },
     {
       "id": "no-overflow",
@@ -70,7 +111,11 @@
         "script": "(() => ({ overflowX: document.documentElement.scrollWidth > innerWidth }))()"
       },
       "holdMs": 200,
-      "expect": { "fields": { "result.overflowX": false } }
+      "expect": {
+        "fields": {
+          "result.overflowX": false
+        }
+      }
     }
   ],
   "postCleanup": []

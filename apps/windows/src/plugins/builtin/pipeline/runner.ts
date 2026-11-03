@@ -33,6 +33,12 @@ export interface RunOptions {
     label?: string
     status: 'ok' | 'failed'
   }) => void
+  /**
+   * 运行时变量（`{{input.xxx}}`）。缺了 spec 引用到的变量时，用到它的那一步会以
+   * `bad_reference: input.xxx（运行时没传这个变量）` 失败——**不静默替换成空串**，
+   * 否则会拿去 clone 一个空地址，失败点被推后十几步。
+   */
+  readonly inputs?: Readonly<Record<string, string>>
 }
 
 export interface StepResult {
@@ -78,29 +84,47 @@ function deref(root: unknown, path: string): unknown {
   return cur
 }
 
-/** 解析 params 里的 `{{stepId.path}}`；解析失败抛 `bad_reference` */
-function resolveParams(value: unknown, outputs: Map<string, unknown>): unknown {
+/** 解析 params 里的 `{{stepId.path}}` 与 `{{input.name}}`；解析失败抛 `bad_reference` */
+function resolveParams(
+  value: unknown,
+  outputs: Map<string, unknown>,
+  inputs: Readonly<Record<string, string>>,
+): unknown {
+  const lookup = (ref: string, path: string): { found: boolean; got: unknown } => {
+    // `{{input.x}}`：变量是字符串，没有更深的路由
+    if (ref === 'input') {
+      const name = path.split('.')[1]
+      if (!name || path.split('.').length !== 2 || !(name in inputs)) {
+        return { found: false, got: undefined }
+      }
+      return { found: true, got: inputs[name] }
+    }
+    if (!outputs.has(ref)) throw new Error(`bad_reference: unknown step "${ref}"`)
+    const got = deref(outputs.get(ref), path)
+    return { found: got !== undefined, got }
+  }
+  const describe = (ref: string, path: string) =>
+    ref === 'input' ? `input${path}（运行时没传这个变量）` : `${ref}${path} 解析不到`
+
   if (typeof value === 'string') {
     const full = value.match(/^\{\{\s*([A-Za-z0-9_-]+)((?:\.[A-Za-z0-9_-]+|\[\d+\])*)\s*\}\}$/)
     if (full) {
-      const [, stepId, path] = full as unknown as [string, string, string]
-      if (!outputs.has(stepId)) throw new Error(`bad_reference: unknown step "${stepId}"`)
-      const got = deref(outputs.get(stepId), path)
-      if (got === undefined) throw new Error(`bad_reference: ${stepId}${path} 解析不到`)
+      const [, ref, path] = full as unknown as [string, string, string]
+      const { found, got } = lookup(ref, path)
+      if (!found) throw new Error(`bad_reference: ${describe(ref, path)}`)
       return got
     }
     // 内嵌引用：逐个替换
-    return value.replace(/\{\{\s*([A-Za-z0-9_-]+)((?:\.[A-Za-z0-9_-]+|\[\d+\])*)\s*\}\}/g, (_m, stepId, path) => {
-      if (!outputs.has(stepId)) throw new Error(`bad_reference: unknown step "${stepId}"`)
-      const got = deref(outputs.get(stepId), path)
-      if (got === undefined) throw new Error(`bad_reference: ${stepId}${path} 解析不到`)
+    return value.replace(/\{\{\s*([A-Za-z0-9_-]+)((?:\.[A-Za-z0-9_-]+|\[\d+\])*)\s*\}\}/g, (_m, ref, path) => {
+      const { found, got } = lookup(ref, path)
+      if (!found) throw new Error(`bad_reference: ${describe(ref, path)}`)
       return typeof got === 'string' ? got : JSON.stringify(got)
     })
   }
-  if (Array.isArray(value)) return value.map((v) => resolveParams(v, outputs))
+  if (Array.isArray(value)) return value.map((v) => resolveParams(v, outputs, inputs))
   if (value && typeof value === 'object') {
     const o = value as Record<string, unknown>
-    return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, resolveParams(v, outputs)]))
+    return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, resolveParams(v, outputs, inputs)]))
   }
   return value
 }
@@ -115,6 +139,7 @@ function resolveParams(value: unknown, outputs: Map<string, unknown>): unknown {
 async function runAgentStep(
   step: Extract<PipelineSpec['steps'][number], { kind: 'agent' }>,
   outputs: Map<string, unknown>,
+  inputs: Readonly<Record<string, string>>,
   deps: RunnerDeps,
   signal?: AbortSignal,
 ): Promise<{ ok: boolean; data?: unknown; error?: string }> {
@@ -123,7 +148,7 @@ async function runAgentStep(
   }
   let prompt: string
   try {
-    const resolved = resolveParams(step.prompt, outputs)
+    const resolved = resolveParams(step.prompt, outputs, inputs)
     // 整串是单个引用且解析出非字符串时，resolveParams 会原样返回对象——
     // 提示词必须是字符串，所以统一在这里序列化
     prompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved)
@@ -177,6 +202,7 @@ function assertExpect(
 
 export async function runPipeline(opts: RunOptions): Promise<RunResult> {
   const { spec, specHash, mode, runDir, deps } = opts
+  const inputs = opts.inputs ?? {}
   const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   // `mode:'record'` 是**用户的明确意图**（点了「录制运行」/ 模型调 pipeline_run record）。
   // `spec.record.enabled` 只能**否决**它（作者刻意声明「这条永远不录」），不能静默把它变成
@@ -205,6 +231,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     startedAt: deps.now(),
     status: 'running',
     ...(spec.provenance?.target ? { provenance: { target: spec.provenance.target } } : {}),
+    ...(Object.keys(inputs).length ? { inputs } : {}),
   }
   writeMeta(runDir, meta)
 
@@ -213,7 +240,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     // postCleanup 无论成败都跑，且**在 stop 之前**（清理动作不能录进成片）
     for (const c of spec.postCleanup ?? []) {
       try {
-        await deps.callTool(c.tool, (resolveParams(c.params ?? {}, outputs) as Record<string, unknown>) ?? {})
+        await deps.callTool(c.tool, (resolveParams(c.params ?? {}, outputs, inputs) as Record<string, unknown>) ?? {})
       } catch (err) {
         console.warn(`[pipeline] postCleanup "${c.id}" 失败（已忽略）:`, err instanceof Error ? err.message : err)
       }
@@ -302,7 +329,7 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
     // 这里兜底是为防万一——抛出去会让整条 run reject，而那时 meta 还停在 running。
     let preParams: Record<string, unknown>
     try {
-      preParams = (resolveParams(p.params ?? {}, outputs) as Record<string, unknown>) ?? {}
+      preParams = (resolveParams(p.params ?? {}, outputs, inputs) as Record<string, unknown>) ?? {}
     } catch (err) {
       return finish({
         ok: false,
@@ -391,11 +418,11 @@ export async function runPipeline(opts: RunOptions): Promise<RunResult> {
 
     let r: { ok: boolean; data?: unknown; error?: string }
     if (step.kind === 'agent') {
-      r = await runAgentStep(step, outputs, deps, opts.signal)
+      r = await runAgentStep(step, outputs, inputs, deps, opts.signal)
     } else {
       let params: Record<string, unknown>
       try {
-        params = (resolveParams(step.params ?? {}, outputs) as Record<string, unknown>) ?? {}
+        params = (resolveParams(step.params ?? {}, outputs, inputs) as Record<string, unknown>) ?? {}
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err)
         appendJournal(runDir, { i, id: step.id, tool: toolName, startedAt, ms: 0, ok: false, error })

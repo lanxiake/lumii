@@ -1,0 +1,119 @@
+{
+  "id": "content-to-assets",
+  "name": "内容生产到成片素材",
+  "description": "围绕一个主题产出可直接发布的素材包：调研 → 写正文 → 生配图 → 生封面 → 按平台规格校验。**到成片为止，不含发布**——抖音/快手/B站/视频号在客户端里没有实现，小红书发布依赖外部 `sau` CLI，两者发布后都不可撤回且效果不可断言，不适合做成确定性流水线。**跑之前先填 `inputs.json` 的主题**。判据：正文文件非空、图片数 = 计划数、封面尺寸精确符合 3:4。",
+  "record": {
+    "enabled": false
+  },
+  "preconditions": [],
+  "steps": [
+    {
+      "id": "init",
+      "label": "建产物目录并确认写权限（先失败在第一步，别浪费后面几次模型往返）",
+      "tool": "bash",
+      "params": {
+        "command": "D='outputs/content-{{input.slug}}'; mkdir -p \"$D/images\" && test -w \"$D\" && echo \"OUT=$D\" && echo \"TOPIC={{input.topic}}\"",
+        "timeoutMs": 30000
+      },
+      "holdMs": 200
+    },
+    {
+      "id": "research",
+      "label": "调研：找出该主题 5 条可核实的要点",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "主题：{{input.topic}}\n\n做一次**有出处的**调研，写成 outputs/content-{{input.slug}}/research.md：\n- 5 条要点，每条一行，后面跟来源（URL 或「公开共识」）\n- 用 web_search 至少搜 2 个不同角度的查询；搜不到就把来源写成 UNVERIFIED 并说明\n- 允许使用已有常识，但**必须标明哪些没有实时核实**\n\n硬约束：不许编造数据、统计数字、引语。拿不准就写 UNVERIFIED。\n\n最后一行汇报：5 条要点里 N 条有实时来源。",
+      "allowedTools": [
+        "web_search",
+        "web_fetch",
+        "file_write",
+        "file_read"
+      ],
+      "rehearsal": "skip",
+      "maxTurns": 20,
+      "holdMs": 300
+    },
+    {
+      "id": "draft",
+      "label": "写正文（emoji + 标签，小红书图文规格）",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "主题：{{input.topic}}\n\n先读 outputs/content-{{input.slug}}/research.md，据此写一篇小红书图文笔记，落到 outputs/content-{{input.slug}}/note.md：\n\n格式（**严格按这个结构，后面的步骤按它解析**）：\n```\n# 标题\n（20 字以内，带钩子）\n\n## 正文\n（300-600 字，分段，适度 emoji，真实体感，不吹）\n\n## 标签\n#标签1 #标签2 #标签3 #标签4 #标签5\n\n## 配图计划\n1. 图1 的中文描述（要画什么、什么风格）\n2. 图2 的中文描述\n3. 图3 的中文描述\n```\n\n硬约束：\n- 正文里的每条事实都要能在 research.md 找到依据；没有依据的删掉。\n- 配图计划**恰好 3 条**，每条是一句可执行的画面描述（后面生图直接拿它当 prompt）。\n- 不要写发布建议、不要写发布时间。\n\n最后汇报：标题、正文字数、配图计划条数。",
+      "allowedTools": [
+        "file_read",
+        "file_write"
+      ],
+      "rehearsal": "skip",
+      "maxTurns": 15,
+      "holdMs": 300
+    },
+    {
+      "id": "body-exists",
+      "label": "判据：正文非空且三段结构齐全",
+      "tool": "bash",
+      "params": {
+        "command": "F='outputs/content-{{input.slug}}/note.md'; test -s \"$F\" || { echo \"正文没写出来: $F\" >&2; exit 1; }; for h in '## 正文' '## 标签' '## 配图计划'; do grep -q \"$h\" \"$F\" || { echo \"缺少「$h」小节——下一步解析不出来\" >&2; exit 1; }; done; echo \"NOTE_OK=$(wc -c < \"$F\") bytes\"",
+        "timeoutMs": 30000
+      },
+      "holdMs": 200
+    },
+    {
+      "id": "illustrations",
+      "label": "生成 3 张配图（提示词来自正文的配图计划）",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "读 outputs/content-{{input.slug}}/note.md 的「## 配图计划」小节，那里有 3 条画面描述。\n\n对每一条调用一次 image_generate：\n- prompt：用那条中文描述，并补上「竖版 3:4 构图，画面干净，不要文字」\n- filename：`img1` / `img2` / `img3`\n- width: 1024, height: 1536\n\n三次调用**串行**做，每张拿到路径后立刻用 bash 确认文件存在且 > 10KB，失败就重试一次（仍失败则记录并继续下一张，不要卡死）。\n\n最后把三张图的绝对路径写成 outputs/content-{{input.slug}}/images/PATHS.txt（一行一个）。\n\n最后一行汇报：成功 N/3，各自路径。",
+      "allowedTools": [
+        "bash",
+        "file_read",
+        "file_write",
+        "image_generate"
+      ],
+      "rehearsal": "skip",
+      "maxTurns": 15,
+      "holdMs": 300
+    },
+    {
+      "id": "cover",
+      "label": "生成封面（**3:4 是硬判据**：小红书封面的实际展示比例）",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "为 outputs/content-{{input.slug}}/note.md 的标题生成一张封面图。\n\n读正文里的标题与正文，提炼一个视觉概念，调用 image_generate：\n- prompt：中文描述 + 「竖版 3:4 封面构图，主体居中，留出标题位置，画面干净」\n- filename: `cover`\n- **width: 768, height: 1024**（这是 3:4；生成后用 bash 核对真实像素）\n\n生成后必须用 bash 核对实际尺寸（node 读 PNG/JPEG 头，或 `file` 命令），把结论写到 outputs/content-{{input.slug}}/images/COVER.txt，格式：`<绝对路径> <宽>x<高>`。\n\n尺寸不是 768x1024 时**如实写实际值**，不要假装对——下一步会判。\n\n最后一行汇报：封面路径与实测尺寸。",
+      "allowedTools": [
+        "bash",
+        "file_read",
+        "file_write",
+        "image_generate"
+      ],
+      "rehearsal": "skip",
+      "maxTurns": 12,
+      "holdMs": 300
+    },
+    {
+      "id": "verify-assets",
+      "label": "判据：配图 ≥2 张可用、封面实测为 3:4（脚本 check-assets.cjs，尺寸读 PNG 头）",
+      "tool": "bash",
+      "params": {
+        "command": "node pipelines/content-to-assets/check-assets.cjs \"outputs/content-{{input.slug}}/images\"",
+        "timeoutMs": 60000
+      },
+      "holdMs": 300
+    },
+    {
+      "id": "package",
+      "label": "打素材包清单（发布前的人工检查点）",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "为 outputs/content-{{input.slug}}/ 写一份 README.md 作为**交付清单**：\n\n1. 标题与正文摘要（从 note.md 抄，不要改写）\n2. 素材清单：note.md、research.md、配图 N 张、封面 1 张——每项给路径与实际尺寸/字节\n3. **发布前必须人工确认的三件事**：\n   - 正文里的事实是否仍有出处（research.md 里 UNVERIFIED 的有几条）\n   - 图片是否可用（有没有画错、有没有文字乱码）\n   - 封面在 3:4 裁切下标题是否还在可视区\n4. **明确写出：本流水线不发布**。抖音/快手/B站/视频号在客户端里没有实现，小红书发布依赖外部 sau CLI——发布这一步请人工完成。\n\n硬约束：素材清单里的每个路径都要先用 bash 确认存在，不许列不存在的文件。\n\n最后一行汇报：素材总数、UNVERIFIED 条数。",
+      "allowedTools": [
+        "bash",
+        "file_read",
+        "file_write"
+      ],
+      "rehearsal": "skip",
+      "maxTurns": 15,
+      "holdMs": 300
+    }
+  ],
+  "postCleanup": []
+}

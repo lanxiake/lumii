@@ -13,7 +13,35 @@ import {
   type PipelineStep,
   type PipelinePrecondition,
   type CleanupStep,
+  type PipelineInput,
 } from './types'
+
+/** `{{input.repoUrl}}` 的提取器；与 REF_PATTERN 同形，靠 stepId === 'input' 区分 */
+const INPUT_REF = /\{\{\s*input\.([A-Za-z0-9_-]+)\s*\}\}/g
+
+/**
+ * 从 spec 里出现的所有 `{{input.xxx}}` 推出变量名，并给每个变量找一个「格式样例」。
+ *
+ * **作者不用声明变量**：写一次引用就算声明过了，少一处能忘的地方。样例取自该变量
+ * 第一次出现时的原样文本（`{{input.repoUrl}}` → 模板里是字符串 `{{input.repoUrl}}`），
+ * 因为作者看到自己的写法才知道该填成什么形状。
+ *
+ * 递归遍历整份 raw，所以 `params` / `prompt` / `postCleanup` / `preconditions` 都覆盖到。
+ */
+export function collectInputNames(raw: unknown): Map<string, string> {
+  const out = new Map<string, string>()
+  const walk = (v: unknown): void => {
+    if (typeof v === 'string') {
+      for (const m of v.matchAll(INPUT_REF)) if (!out.has(m[1]!)) out.set(m[1]!, m[0])
+    } else if (Array.isArray(v)) {
+      for (const x of v) walk(x)
+    } else if (v && typeof v === 'object') {
+      for (const x of Object.values(v)) walk(x)
+    }
+  }
+  walk(raw)
+  return out
+}
 
 export type ValidateResult =
   | { ok: true; spec: PipelineSpec; specHash: string }
@@ -207,11 +235,14 @@ export function validateSpec(
   })
 
   // ── 引用完整性：只能向后 + 无环 ──
+  // `input` 是运行时变量，不是步骤：不参与向后校验，否则每个变量引用都会被判成坏引用。
+  const isInputRef = (ref: string) => ref === 'input'
   const order = new Map(steps.map((s, i) => [s.id, s]))
   steps.forEach((s, i) => {
     // agent 节点的 prompt 同样能引用上游；两边一起查，否则 prompt 里的坏引用会跑到运行期才炸
     const refs = [...refsIn(s.kind === 'agent' ? s.prompt : s.params)]
     for (const ref of refs) {
+      if (isInputRef(ref)) continue
       if (!order.has(ref)) {
         errors.push(`steps[${i}] (${s.id}) 引用了不存在的 step "${ref}"`)
       } else if (steps.findIndex((x) => x.id === ref) >= i) {
@@ -269,13 +300,16 @@ export function validateSpec(
   // 整条 run reject，而非干净的 precondition 失败）。
   const checkRefs = (where: string, id: string, params: Record<string, unknown> | undefined) => {
     for (const ref of refsIn(params)) {
+      if (isInputRef(ref)) continue
       if (!order.has(ref)) errors.push(`${where} (${id}) 引用了不存在的 step "${ref}"`)
     }
   }
   postCleanup.forEach((c) => checkRefs('postCleanup', c.id, c.params))
   preconditions.forEach((p) => checkRefs('preconditions', p.id, p.params))
 
-  // provenance.target 是双栏对照左栏的唯一来源：写了却是空的，预览会静默少一半，加载期就拒
+  // provenance.target 是双栏对照左栏的唯一来源：写了却是空的，预览会静默少一半，加载期就拒。
+  // 允许它引用 `{{input.*}}`（复刻类 spec 的源站地址本来就是每次不同的变量）——
+  // 此时不做非空判断，因为值要到 run 时才解析；解析不出来会在运行期显式失败。
   let provenance: PipelineSpec['provenance']
   if (raw.provenance !== undefined) {
     if (!isObj(raw.provenance)) errors.push('provenance 必须是对象')
@@ -292,11 +326,47 @@ export function validateSpec(
   }
 
   if (errors.length > 0) return { ok: false, errors }
+
+  // ── 运行时变量 ──
+  // 名字集合 = 显式声明 ∪ 代码里实际引用到的。两边都算，是因为：
+  // 声明了却没用是作者的自述（UI 照实显示），用了却没声明是常态（作者只写引用）。
+  const referenced = collectInputNames(raw)
+  const declared: PipelineInput[] = []
+  if (raw.inputs !== undefined) {
+    if (!Array.isArray(raw.inputs)) errors.push('inputs 必须是数组')
+    else
+      raw.inputs.forEach((v, i) => {
+        if (!isObj(v)) return errors.push(`inputs[${i}] 不是对象`)
+        if (!nonBlank(v.name)) return errors.push(`inputs[${i}] 缺少非空的 name`)
+        declared.push({
+          name: String(v.name).trim(),
+          ...(nonBlank(v.description) ? { description: String(v.description).trim() } : {}),
+        })
+      })
+  }
+  if (errors.length > 0) return { ok: false, errors }
+  const inputs: PipelineInput[] = [...declared]
+  for (const name of referenced.keys()) {
+    if (!declared.some((d) => d.name === name)) inputs.push({ name })
+  }
+
+  // 模板：显式声明优先，缺的从引用里的原样文本补。没有变量就不写这个字段。
+  let inputTemplate: Record<string, string> | undefined
+  if (inputs.length > 0) {
+    inputTemplate = {}
+    for (const inp of inputs) {
+      const explicit = isObj(raw.inputTemplate) ? raw.inputTemplate[inp.name] : undefined
+      inputTemplate[inp.name] = typeof explicit === 'string' ? explicit : (referenced.get(inp.name) ?? '')
+    }
+  }
+
   const spec: PipelineSpec = {
     id: String(raw.id),
     name: typeof raw.name === 'string' ? raw.name : undefined,
     description: typeof raw.description === 'string' ? raw.description : undefined,
     source: isObj(raw.source) ? (raw.source as PipelineSpec['source']) : undefined,
+    ...(inputs.length ? { inputs } : {}),
+    ...(inputTemplate ? { inputTemplate } : {}),
     provenance,
     preview,
     record: isObj(raw.record) ? (raw.record as unknown as PipelineSpec['record']) : undefined,

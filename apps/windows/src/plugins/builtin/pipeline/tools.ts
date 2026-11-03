@@ -44,6 +44,14 @@ const RunInput = Type.Object({
     }),
   ),
   resumeRunId: Type.Optional(Type.String({ description: '从某次失败的 run 续跑（跳过已 ok 的步骤）' })),
+  inputs: Type.Optional(
+    Type.Record(Type.String(), Type.String(), {
+      description:
+        '运行时变量，补齐 spec 里的 `{{input.xxx}}` 引用（例：{"repoUrl":"https://github.com/..."}）。' +
+        '缺省读 `pipelines/<id>/inputs.json`；两边都有时以这里为准。' +
+        '**先 pipeline_inspect 看 missingInputs**——缺的变量不会让整条拒绝，会在用到它的那一步失败。',
+    }),
+  ),
 })
 type RunInputT = Static<typeof RunInput>
 
@@ -109,7 +117,7 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
         return fail(`mode 只能是 rehearsal 或 record，收到 "${String(p.mode)}"`)
       }
       try {
-        const res = await service.run(id, { mode, resumeRunId: p.resumeRunId })
+        const res = await service.run(id, { mode, resumeRunId: p.resumeRunId, inputs: p.inputs })
         if (!res.ok) {
           return fail(res.error ?? `流水线在第 ${(res.failedAt?.i ?? -1) + 1} 步失败`, {
             runId: res.runId,
@@ -142,7 +150,8 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
     description:
       '看一条流水线的 spec 摘要与最近一次 run 的 journal（每步耗时 / 断言结果 / 失败点）。' +
       '排「上次为什么失败」用这个——报错文本在 journal 的 failedAt 里，不在别处。' +
-      WHEN_TO_USE,
+      '**跑之前必须看一次**：`inputs.missingInputs` 非空说明变量没填齐，' +
+      '直接跑会在用到那个变量的那一步失败。',
     parameters: InspectInput,
     isReadOnly: true,
     needsPermission: false,
@@ -157,6 +166,13 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
           specId: id,
           stepCount: d.spec.steps.length,
           runs: d.runs.length,
+          // variables 是「这条流水线要填什么」，missingInputs 是「现在还差什么」。
+          // 两者分开给：只看 missingInputs 空就以为没事，会把「这条根本不需要变量」与
+          // 「需要的都填了」混成同一句话，模型也就没法告诉用户"要填哪几个"。
+          variables: d.spec.inputs ?? [],
+          ...(d.inputs ? { inputs: d.inputs } : {}),
+          ...(d.missingInputs ? { missingInputs: d.missingInputs } : {}),
+          lastRunInputs: d.runs[0]?.inputs,
           journal: d.lastJournal ?? [],
         })
       } catch (err) {

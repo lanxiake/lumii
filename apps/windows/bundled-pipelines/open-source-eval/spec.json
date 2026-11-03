@@ -1,0 +1,124 @@
+{
+  "id": "open-source-eval",
+  "name": "开源项目评测",
+  "description": "对一个 GitHub/Gitee 仓库做可复现的评测：拉取 → 装依赖 → 构建 → 跑测试 → 截图 → 写报告。**判据全是硬的**：clone 退出码、构建产物文件、测试通过数、截图文件数、报告文件。测试不过不算「评测失败」——报告里如实写通过率，那才是评测的产出。**跑之前先填 inputs.json**（播下来就有：repoUrl 仓库地址、slug 产物目录名、proxy 代理）。",
+  "record": {
+    "enabled": false
+  },
+  "provenance": {
+    "target": "{{input.repoUrl}}"
+  },
+  "preconditions": [],
+  "steps": [
+    {
+      "id": "clone",
+      "label": "拉取仓库（已存在就复用，不重拉）",
+      "tool": "bash",
+      "params": {
+        "command": "D='projects/{{input.slug}}'; mkdir -p projects; LOG=\"$TMPDIR/clone-{{input.slug}}.log\"; if [ -d \"$D/.git\" ]; then echo \"REUSED=$D\"; (cd \"$D\" && echo \"HEAD=$(git rev-parse --short HEAD)\"); else P='{{input.proxy}}'; ok=0; if [ -n \"$P\" ]; then echo 'TRY=直接（带代理）'; git -c http.proxy=\"$P\" -c https.proxy=\"$P\" clone --depth 1 '{{input.repoUrl}}' \"$D\" > \"$LOG\" 2>&1 && ok=1; else echo 'TRY=直接'; git clone --depth 1 '{{input.repoUrl}}' \"$D\" > \"$LOG\" 2>&1 && ok=1; fi; if [ \"$ok\" -eq 0 ]; then rm -rf \"$D\"; if [ -n \"$P\" ]; then echo \"TRY=仅代理 $P\"; git -c http.proxy=\"$P\" -c https.proxy=\"$P\" clone --depth 1 '{{input.repoUrl}}' \"$D\" > \"$LOG\" 2>&1 && ok=1; fi; fi; if [ \"$ok\" -eq 0 ]; then echo 'git clone 失败：' >&2; tail -10 \"$LOG\" >&2; exit 1; fi; echo \"CLONED=$D\"; tail -3 \"$LOG\"; fi; test -d \"$D\" || { echo \"目录没建出来: $D\" >&2; exit 1; }; test -f \"$D/README.md\" || test -f \"$D/Readme.md\" || test -f \"$D/readme.md\" || echo 'WARN=no README'; echo CLONE_OK",
+        "timeoutMs": 300000
+      },
+      "holdMs": 300
+    },
+    {
+      "id": "inspect",
+      "label": "识别技术栈与构建/测试入口（只看不跑）",
+      "tool": "bash",
+      "params": {
+        "command": "cd 'projects/{{input.slug}}' || exit 1; echo '--- files ---'; ls -A | head -40; echo '--- manifests ---'; for f in package.json pyproject.toml requirements.txt Cargo.toml go.mod pom.xml build.gradle Makefile; do if [ -f \"$f\" ]; then echo \"HAS=$f\"; fi; done; echo '--- scripts ---'; if [ -f package.json ]; then node -e \"const p=require('./package.json');console.log(JSON.stringify({name:p.name,scripts:p.scripts||{}},null,1))\"; fi; echo INSPECT_OK",
+        "timeoutMs": 60000
+      },
+      "holdMs": 300
+    },
+    {
+      "id": "deps",
+      "label": "安装依赖（失败不终止：构建那步会如实炸出来）",
+      "tool": "bash",
+      "params": {
+        "command": "cd 'projects/{{input.slug}}' || exit 1; LOG=\"$TMPDIR/deps-{{input.slug}}.log\"; if [ -f pnpm-lock.yaml ]; then RUN='pnpm install --frozen-lockfile'; elif [ -f yarn.lock ]; then RUN='yarn install --frozen-lockfile'; elif [ -f package.json ]; then RUN='npm install'; elif [ -f requirements.txt ]; then RUN='pip install -r requirements.txt'; elif [ -f pyproject.toml ]; then RUN='pip install -e .'; else echo 'NO_DEPS=1'; LOG=/dev/null; fi; if [ -n \"$RUN\" ]; then echo \"RUN=$RUN\"; if sh -c \"$RUN\" > \"$LOG\" 2>&1; then echo \"DEPS=ok\"; else echo \"DEPS=failed（不终止：构建那步会如实炸出来）\"; fi; fi; tail -8 \"$LOG\" 2>/dev/null; echo DEPS_DONE",
+        "timeoutMs": 600000
+      },
+      "holdMs": 300
+    },
+    {
+      "id": "build",
+      "label": "构建（没有 build 脚本时如实记 SKIP，不假装通过）",
+      "tool": "bash",
+      "params": {
+        "command": "cd 'projects/{{input.slug}}' || exit 1; if ! [ -f package.json ]; then echo 'BUILD=SKIP（无 package.json）'; exit 0; fi; if ! node -e \"process.exit(require('./package.json').scripts && require('./package.json').scripts.build ? 0 : 1)\"; then echo 'BUILD=SKIP（无 build 脚本）'; exit 0; fi; LOG=\"$TMPDIR/build-{{input.slug}}.log\"; if npm run build > \"$LOG\" 2>&1; then echo \"BUILD=ok\"; else echo \"BUILD=failed\"; fi; tail -15 \"$LOG\"; echo BUILD_DONE",
+        "timeoutMs": 900000
+      },
+      "holdMs": 300
+    },
+    {
+      "id": "test",
+      "label": "跑测试（**通过率是产出，不是门槛**：失败只记录，不终止）",
+      "tool": "bash",
+      "params": {
+        "command": "cd 'projects/{{input.slug}}' || exit 1; OUT='../../outputs/{{input.slug}}'; mkdir -p \"$OUT\"; if ! [ -f package.json ]; then echo 'TEST=SKIP（无 package.json）'; exit 0; fi; LOG=\"$OUT/test.log\"; START=$(date +%s); timeout 480 sh -c \"npm test\" > \"$LOG\" 2>&1; RC=$?; END=$(date +%s); echo \"TEST_SECONDS=$((END-START)) TEST_EXIT=$RC\" | tee -a \"$LOG\"; if [ \"$RC\" -eq 0 ]; then echo \"TEST=passed\"; elif [ \"$RC\" -eq 124 ] || [ \"$RC\" -eq 137 ]; then echo \"TEST=timeout（超过 480s 被截断，通过率不完整）\"; else echo \"TEST=failed（记下来，不终止）\"; fi; tail -40 \"$LOG\"; echo TEST_DONE",
+        "timeoutMs": 540000
+      },
+      "holdMs": 300
+    },
+    {
+      "id": "screenshot",
+      "label": "若构建出了可静态打开的页面就截一张（截不到不算失败）",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "在 projects/{{input.slug}} 里找一个可以直接用浏览器打开的 HTML 入口（常见位置：dist/index.html、build/index.html、out/index.html、public/index.html）。\n\n找到的话：用 browser_navigate 打开它（file:// 绝对路径），browser_screenshot 截一张存下来，然后用 bash 确认截图文件存在、大小 > 0。\n找不到（比如这是 CLI 库/后端服务）就**直接结束**，在结论里写「无可截图的界面」，不要为了截图去改代码或起 dev server。\n\n汇报最后三行：入口路径（或「无」）、截图路径（或「无」）、截图字节数。",
+      "allowedTools": [
+        "bash",
+        "browser_navigate",
+        "browser_screenshot"
+      ],
+      "rehearsal": "skip",
+      "maxTurns": 20,
+      "holdMs": 500
+    },
+    {
+      "id": "report",
+      "label": "写评测报告（判据：文件存在且含实测数字）",
+      "kind": "agent",
+      "agentType": "assistant",
+      "prompt": "为 projects/{{input.slug}} 写一份评测报告到 outputs/{{input.slug}}/REPORT.md。\n\n**素材来源**：只读磁盘上已经存在的东西——README、package.json、输出目录里的 test.log、上一段截图路径。不要重跑构建或测试（那已花过时间，重跑只是重复计费）。\n\n报告必须包含这五节，每节都要有**实测数字或实测结论**，没有就写 UNRESOLVED：\n1. 项目是什么（一句话，依据 README）\n2. 技术栈与规模（语言、依赖数、源码文件数——用 bash 数）\n3. 能否跑起来（依赖安装 / 构建 / 测试各自的退出码与结论）\n4. 测试通过率（从 test.log 里数 passed/failed；没有测试写「无测试」）\n5. 上手体验与风险（构建耗时、依赖体积、文档是否够用）\n\n硬约束：\n- **不许编造通过率**。test.log 里没有数字就写 UNRESOLVED 并说明缺什么。\n- 每条结论标注依据（文件名/命令输出）。\n- 结尾一行：`VERDICT: 推荐 / 谨慎 / 不推荐 —— 理由一句话`。\n\n最后五行汇报：报告路径、通过率、构建耗时、截图有无、UNRESOLVED 条数。",
+      "allowedTools": [
+        "bash",
+        "file_read",
+        "file_write"
+      ],
+      "rehearsal": "skip",
+      "maxTurns": 30,
+      "holdMs": 500
+    },
+    {
+      "id": "report-exists",
+      "label": "交付判据：报告文件真的落盘了",
+      "tool": "bash",
+      "params": {
+        "command": "F='outputs/{{input.slug}}/REPORT.md'; if [ -s \"$F\" ]; then echo \"REPORT_OK=$F $(wc -c < \"$F\") bytes\"; grep -c '^#' \"$F\" | xargs -I{} echo \"SECTIONS={}\"; else echo \"报告没写出来：$F 不存在或为空\" >&2; exit 1; fi",
+        "timeoutMs": 30000
+      },
+      "holdMs": 300
+    }
+  ],
+  "postCleanup": [],
+  "inputs": [
+    {
+      "name": "repoUrl",
+      "description": "要评测的仓库地址（完整 https URL）"
+    },
+    {
+      "name": "slug",
+      "description": "产物目录名（projects/<slug> 与 outputs/<slug>）"
+    },
+    {
+      "name": "proxy",
+      "description": "git 用的 HTTP 代理，如 http://127.0.0.1:10808；直连可用就留空"
+    }
+  ],
+  "inputTemplate": {
+    "repoUrl": "{{input.repoUrl}}",
+    "slug": "{{input.slug}}",
+    "proxy": "http://127.0.0.1:10808"
+  }
+}

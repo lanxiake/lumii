@@ -10,7 +10,7 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { listPipelines, createRunDir, readSpec } from './store'
+import { listPipelines, createRunDir, readSpec, readInputsFile, missingInputs } from './store'
 import { runPipeline } from './runner'
 import { computeResume, readJournal, readMeta, writeMeta } from './journal'
 import type { PipelineService, PipelineDetail, PipelineSummary } from './service-api'
@@ -70,11 +70,15 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
           .sort((a, b) => b.startedAt - a.startedAt)
       : []
     const last = runs[0]
+    const iv = readInputsFile(root(), id)
+    const provided = iv.ok ? iv.inputs : {}
     return {
       spec: r.spec,
       specHash: r.specHash,
       runs,
       lastJournal: last ? readJournal(path.join(runsDir, last.runId)).lines : undefined,
+      ...(iv.ok ? { inputs: provided } : {}),
+      ...(r.spec.inputs?.length ? { missingInputs: missingInputs(r.spec, provided) } : {}),
     }
   }
 
@@ -88,6 +92,19 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
     async run(id, opts) {
       const r = readSpec(root(), id, deps.knownTools(), deps.knownAgents())
       if ('error' in r) return { ok: false, runId: '', journalPath: '', steps: [], error: r.error }
+
+      // 变量来源：调用方传入优先，缺的从 inputs.json 补。
+      // **不检查"齐全"再开跑**——缺变量会在真正用到它的那一步以 bad_reference 失败，
+      // 前几步照样跑完。这比在这里一律拒绝更有用：用户能看到"spec 本身对不对"，
+      // 而不是因为漏填一个值连第一步都不让跑。
+      let inputs: Record<string, string> = {}
+      if (r.spec.inputs?.length) {
+        const fromFile = readInputsFile(root(), id)
+        if (!fromFile.ok) {
+          return { ok: false, runId: '', journalPath: '', steps: [], error: fromFile.error }
+        }
+        inputs = { ...fromFile.inputs, ...(opts.inputs ?? {}) }
+      }
 
       let runDir: string
       let resumeSkip: ReadonlySet<string> | undefined
@@ -120,6 +137,13 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
       const runId = path.basename(runDir)
       const ac = new AbortController()
       running.set(runId, ac)
+      // provenance 也能带变量：`{{input.repoUrl}}` 之类的地址补成真值再交给对照视图，
+      // 否则左栏会显示一串花括号。解析不出来时原样保留（对照视图至少能显示"这里本该是什么"）。
+      const provTarget = (() => {
+        const t = r.spec.provenance?.target
+        if (!t) return undefined
+        return t.replace(/\{\{\s*input\.([A-Za-z0-9_-]+)\s*\}\}/g, (_m, n: string) => inputs[n] ?? `{{input.${n}}}`)
+      })()
       try {
         const out = await runPipeline({
           spec: r.spec,
@@ -130,6 +154,7 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
           isRehearsalBlocked: (tool) => needsPermission(tool),
           resumeSkip,
           signal: ac.signal,
+          inputs,
           onProgress: (e) => deps.onProgress?.({ runId, ...e }),
         })
         deps.onFinished?.({ runId, ok: out.ok, failedAt: out.failedAt })
@@ -138,7 +163,7 @@ export function createPipelineService(deps: PipelineServiceDeps): PipelineServic
           ...out,
           runId,
           journalPath: path.join(runDir, 'journal.jsonl'),
-          ...(r.spec.provenance?.target ? { provenanceTarget: r.spec.provenance.target } : {}),
+          ...(provTarget ? { provenanceTarget: provTarget } : {}),
           ...(previewPath ? { previewPath } : {}),
         }
       } finally {

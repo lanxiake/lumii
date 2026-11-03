@@ -122,3 +122,42 @@ export function readSpec(
     return { error: `读取失败: ${err instanceof Error ? err.message : String(err)}` }
   }
 }
+
+/**
+ * 读 `{workspace}/pipelines/<id>/inputs.json`。
+ *
+ * 位置刻意与 spec.json 同级而不是放进 runs/：它是**下一次要跑的输入**，跟 spec 一样
+ * 随工作区走 git 与云同步，换设备后填一次就能再跑。跟着 run 走就成了历史记录。
+ *
+ * 文件不存在**不算错误**——没变量的流水线压根不会有这个文件。
+ * 但文件存在却读不动（坏 JSON / 不是对象）必须报错：静默当成「没有变量」
+ * 会让引用它的步骤在跑到第 3 步时才炸，而真正的原因（文件写坏了）被埋掉。
+ */
+export function readInputsFile(
+  pipelinesRoot: string,
+  pipelineId: string,
+): { ok: true; inputs: Record<string, string> } | { ok: false; error: string } {
+  const p = path.join(pipelinesRoot, pipelineId, 'inputs.json')
+  if (!fs.existsSync(p)) return { ok: true, inputs: {} }
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(p, 'utf8'))
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { ok: false, error: `inputs.json 必须是对象 {"变量名": "值"}，实际是 ${Array.isArray(raw) ? '数组' : typeof raw}` }
+    }
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      // 数字/布尔一并转成字符串：模板里它们最终都是拼进命令与提示词的文本，
+      // 保留 JSON 类型只会在 resolveParams 的 `typeof got === 'string'` 分支里被 JSON.stringify。
+      if (v == null) continue
+      out[k] = typeof v === 'string' ? v : String(v)
+    }
+    return { ok: true, inputs: out }
+  } catch (err) {
+    return { ok: false, error: `inputs.json 解析失败: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
+/** 缺哪些变量（spec 引用到的 - 已提供的）。空数组 = 齐了 */
+export function missingInputs(spec: PipelineSpec, provided: Record<string, string>): string[] {
+  return (spec.inputs ?? []).map((i) => i.name).filter((n) => !(n in provided))
+}

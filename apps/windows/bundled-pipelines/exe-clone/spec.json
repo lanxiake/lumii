@@ -1,12 +1,12 @@
 {
   "id": "exe-clone",
   "name": "桌面应用复刻（先解包再重建）",
-  "description": "对一个 Electron 桌面应用做 L1 解包 → L2 界面重建。只处理 Electron 套壳（资源里有 resources/app.asar）；其它壳或原生程序会明确停在分析层，不假装能复刻。**彩排的局限**：needsPermission 的工具（bash / reverse_probe / file_write）在 rehearsal 下会被跳过并记 skipped，所以彩排只能验 spec 结构，验不出「目标不是 Electron」这类运行时判定——那要 record 模式。",
+  "description": "对一个 Electron 桌面应用做 L1 解包 → L2 界面重建。只处理 Electron 套壳（资源里有 resources/app.asar）；其它壳或原生程序会明确停在分析层，不假装能复刻。**跑之前先填 inputs.json**（target 指向 exe 或 asar 路径、slug 产物目录名）。**彩排的局限**：needsPermission 的工具（bash / reverse_probe / file_write）在 rehearsal 下会被跳过并记 skipped，所以彩排只能验 spec 结构，验不出「目标不是 Electron」这类运行时判定——那要 record 模式。",
   "record": {
     "enabled": false
   },
   "provenance": {
-    "target": "__TARGET__"
+    "target": "{{input.target}}"
   },
   "preconditions": [
     {
@@ -24,7 +24,7 @@
       "label": "L1 前置：确认这是 Electron 套壳（不是的话在这里就失败，别往下跑）",
       "tool": "bash",
       "params": {
-        "command": "T='__TARGET__'; D=\"$T\"; [ -f \"$T\" ] && D=$(dirname \"$T\"); A=\"$D/resources/app.asar\"; [ -f \"$A\" ] || A=\"$D/app.asar\"; if [ \"${T##*.}\" = \"asar\" ]; then A=\"$T\"; fi; if [ -f \"$A\" ]; then echo \"ASAR=$A\"; exit 0; fi; echo \"这不是 Electron 套壳：同目录/上级都找不到 resources/app.asar。目标可能是原生程序、PyInstaller、.NET 或 Flutter——那些壳本流水线不做（见设计 §3.1 判据表）。先用 reverse_probe 做 L0 观察。\" >&2; exit 1",
+        "command": "T='{{input.target}}'; D=\"$T\"; [ -f \"$T\" ] && D=$(dirname \"$T\"); A=\"$D/resources/app.asar\"; [ -f \"$A\" ] || A=\"$D/app.asar\"; if [ \"${T##*.}\" = \"asar\" ]; then A=\"$T\"; fi; if [ -f \"$A\" ]; then echo \"ASAR=$A\"; exit 0; fi; echo \"这不是 Electron 套壳：同目录/上级都找不到 resources/app.asar。目标可能是原生程序、PyInstaller、.NET 或 Flutter——那些壳本流水线不做（见设计 §3.1 判据表）。先用 reverse_probe 做 L0 观察。\" >&2; exit 1",
         "timeoutMs": 30000
       },
       "holdMs": 200
@@ -34,8 +34,8 @@
       "label": "L1 解包 + 逐条校验（工具本身失败即该步失败，不额外断 expect）",
       "tool": "reverse_probe",
       "params": {
-        "target": "__TARGET__",
-        "extractTo": "projects/__SLUG__/unpacked"
+        "target": "{{input.target}}",
+        "extractTo": "projects/{{input.slug}}/unpacked"
       },
       "holdMs": 500
     },
@@ -44,7 +44,7 @@
       "label": "L2 取证：读解出的 bundle，产出 brief / assets / states",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "你在做桌面应用复刻的观察阶段，只取证、不建工程。\n\n解包产物在 projects/__SLUG__/unpacked/（asar 已解出，node_modules 默认没解——依赖清单以 unpacked/package.json 为准）。\n\n先看结构：unpacked/package.json 的 main 字段指出主进程入口，渲染层一般在 out/ 或 dist/ 下（找 index.html 与 assets/*.js）。\n\n然后按 skills/逆向与复刻/clone/SKILL.md 的 Observe 一步取证，写到 projects/__SLUG__/docs/research/：\n- brief.md：界面/视图清单、每屏的区块顺序、字体/颜色/间距/圆角（**带出处**：哪个文件、哪个 CSS 类或内联样式）\n- assets.md：资源清单（字体/图片/图标），真实格式与用途\n- states.md：能静态读出来的交互状态（路由表、可见的 i18n 文案键、事件名）\n\n硬约束：\n1. **压缩产物没有 sourcemap 时读不出的逻辑，写 UNRESOLVED 并说明卡在哪**，不要猜；\n2. 文案以 bundle 里的真实字符串为准，不要编；\n3. 不要试图运行这个应用（没有沙箱），只做静态取证；\n4. 不要直接把 bundle 当产物——它是**证据源**。\n\n最后五行内汇报：三份文件路径、真实文案条数、UNRESOLVED 项。",
+      "prompt": "你在做桌面应用复刻的观察阶段，只取证、不建工程。\n\n解包产物在 projects/{{input.slug}}/unpacked/（asar 已解出，node_modules 默认没解——依赖清单以 unpacked/package.json 为准）。\n\n先看结构：unpacked/package.json 的 main 字段指出主进程入口，渲染层一般在 out/ 或 dist/ 下（找 index.html 与 assets/*.js）。\n\n然后按 skills/逆向与复刻/clone/SKILL.md 的 Observe 一步取证，写到 projects/{{input.slug}}/docs/research/：\n- brief.md：界面/视图清单、每屏的区块顺序、字体/颜色/间距/圆角（**带出处**：哪个文件、哪个 CSS 类或内联样式）\n- assets.md：资源清单（字体/图片/图标），真实格式与用途\n- states.md：能静态读出来的交互状态（路由表、可见的 i18n 文案键、事件名）\n\n硬约束：\n1. **压缩产物没有 sourcemap 时读不出的逻辑，写 UNRESOLVED 并说明卡在哪**，不要猜；\n2. 文案以 bundle 里的真实字符串为准，不要编；\n3. 不要试图运行这个应用（没有沙箱），只做静态取证；\n4. 不要直接把 bundle 当产物——它是**证据源**。\n\n最后五行内汇报：三份文件路径、真实文案条数、UNRESOLVED 项。",
       "holdMs": 500,
       "maxTurns": 120
     },
@@ -53,7 +53,7 @@
       "label": "拉起工程骨架（先建到临时目录再并入，避免与 unpacked/ 撞非空目录）",
       "tool": "bash",
       "params": {
-        "command": "cd projects && rm -rf __SLUG__-scaffold && npx --yes create-next-app@latest __SLUG__-scaffold --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes && mkdir -p __SLUG__ && for f in __SLUG__-scaffold/* __SLUG__-scaffold/.[!.]*; do [ -e \"$f\" ] && mv \"$f\" __SLUG__/; done && rmdir __SLUG__-scaffold",
+        "command": "cd projects && rm -rf {{input.slug}}-scaffold && npx --yes create-next-app@latest {{input.slug}}-scaffold --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes && mkdir -p {{input.slug}} && for f in {{input.slug}}-scaffold/* {{input.slug}}-scaffold/.[!.]*; do [ -e \"$f\" ] && mv \"$f\" {{input.slug}}/; done && rmdir {{input.slug}}-scaffold",
         "timeoutMs": 600000
       },
       "holdMs": 800
@@ -63,7 +63,7 @@
       "label": "打开静态导出 + 相对资源前缀",
       "tool": "file_write",
       "params": {
-        "filePath": "projects/__SLUG__/next.config.ts",
+        "filePath": "projects/{{input.slug}}/next.config.ts",
         "content": "import type { NextConfig } from \"next\";\n\nconst nextConfig: NextConfig = {\n  output: \"export\",\n  assetPrefix: \".\",\n  images: { unoptimized: true },\n  reactCompiler: true,\n  turbopack: {\n    rules: {\n      \"*.css\": {\n        loaders: [\"@tailwindcss/turbopack\"],\n        as: \"*.css\",\n      },\n    },\n  },\n};\n\nexport default nextConfig;\n"
       },
       "holdMs": 300
@@ -73,7 +73,7 @@
       "label": "按 research 重建界面（循环：改一块 → 与证据核对 → 修最大差异）",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "按 projects/__SLUG__/docs/research/ 下的 brief.md / assets.md / states.md 重建界面，工程骨架已就绪（projects/__SLUG__）。\n\n规范：\n1. 用解包产物里的真实文案与真实资源（字体/图片从 unpacked/ 拷进 public/），不许占位符；research 里标 UNRESOLVED 的项，宁可留空也不要猜；\n2. 先建共享字体/色板/容器宽度，再逐区块实现；\n3. 每完成一个区块，用 browser_navigate 打开本地产物截图，与 brief.md 里记的证据逐项核对，修最大差异项；\n4. 站内路由用 Next 路由，外链保留；\n5. **产物是静态导出**（next.config.ts 已设 output:'export' + assetPrefix:'.'）：不要用 API 路由、server actions、cookies/headers。\n\n完成标准：主结构、排版、资源对上，记录仍未实现的部分。**不要**声称像素级完美。\n注意：目标应用本身不能运行，所以对比对象是 research 里的静态证据，不是运行中的原程序。",
+      "prompt": "按 projects/{{input.slug}}/docs/research/ 下的 brief.md / assets.md / states.md 重建界面，工程骨架已就绪（projects/{{input.slug}}）。\n\n规范：\n1. 用解包产物里的真实文案与真实资源（字体/图片从 unpacked/ 拷进 public/），不许占位符；research 里标 UNRESOLVED 的项，宁可留空也不要猜；\n2. 先建共享字体/色板/容器宽度，再逐区块实现；\n3. 每完成一个区块，用 browser_navigate 打开本地产物截图，与 brief.md 里记的证据逐项核对，修最大差异项；\n4. 站内路由用 Next 路由，外链保留；\n5. **产物是静态导出**（next.config.ts 已设 output:'export' + assetPrefix:'.'）：不要用 API 路由、server actions、cookies/headers。\n\n完成标准：主结构、排版、资源对上，记录仍未实现的部分。**不要**声称像素级完美。\n注意：目标应用本身不能运行，所以对比对象是 research 里的静态证据，不是运行中的原程序。",
       "holdMs": 500,
       "maxTurns": 240
     },
@@ -82,7 +82,7 @@
       "label": "产线检查：构建 + 静态导出 + 资源路径相对化（非零退出即失败）",
       "tool": "bash",
       "params": {
-        "command": "cd projects/__SLUG__ && npm run build && test -f out/index.html && ! grep -qE '(src|href)=\"/(_next|assets)' out/index.html && echo 'static export ok'",
+        "command": "cd projects/{{input.slug}} && npm run build && test -f out/index.html && ! grep -qE '(src|href)=\"/(_next|assets)' out/index.html && echo 'static export ok'",
         "timeoutMs": 600000
       },
       "holdMs": 500
@@ -92,7 +92,7 @@
       "label": "断言解包证据仍在（别为了「干净」把证据删了）",
       "tool": "bash",
       "params": {
-        "command": "cd projects/__SLUG__ && test -d unpacked && test -f unpacked/package.json && test -n \"$(ls docs/research/*.md 2>/dev/null)\" && echo 'evidence kept'",
+        "command": "cd projects/{{input.slug}} && test -d unpacked && test -f unpacked/package.json && test -n \"$(ls docs/research/*.md 2>/dev/null)\" && echo 'evidence kept'",
         "timeoutMs": 60000
       },
       "holdMs": 300
@@ -102,7 +102,7 @@
       "label": "断言产物里没有残留占位符",
       "tool": "bash",
       "params": {
-        "command": "cd projects/__SLUG__ && if grep -rInE 'lorem ipsum|TODO: replace|placeholder-text|__SLUG__|__TARGET__' app components 2>/dev/null; then echo '发现残留占位符' >&2; exit 1; fi; echo 'clean'",
+        "command": "cd projects/{{input.slug}} && if grep -rInE 'lorem ipsum|TODO: replace|placeholder-text|{{input.slug}}|{{input.target}}' app components 2>/dev/null; then echo '发现残留占位符' >&2; exit 1; fi; echo 'clean'",
         "timeoutMs": 60000
       },
       "holdMs": 300
@@ -111,7 +111,7 @@
       "id": "report",
       "label": "交付说明",
       "kind": "agent",
-      "prompt": "为 projects/__SLUG__/ 写 README.md：\n1. 这是从什么应用复刻的、用的哪一层能力（Electron / asar 解包），以及**这不是该应用的源码**；\n2. 视图清单与运行方式（npm run dev / npm run build 静态导出到 out/）；\n3. 引用的证据（unpacked/ 与 docs/research/ 里的具体文件）；\n4. **如实列出剩余差异与未实现项**（没有就写「未发现主结构差异」）；\n5. 写明未做动态验证：目标应用没有被运行，所有结论来自静态证据。\n\n最后把「剩余差异」的条数用一行报出来。",
+      "prompt": "为 projects/{{input.slug}}/ 写 README.md：\n1. 这是从什么应用复刻的、用的哪一层能力（Electron / asar 解包），以及**这不是该应用的源码**；\n2. 视图清单与运行方式（npm run dev / npm run build 静态导出到 out/）；\n3. 引用的证据（unpacked/ 与 docs/research/ 里的具体文件）；\n4. **如实列出剩余差异与未实现项**（没有就写「未发现主结构差异」）；\n5. 写明未做动态验证：目标应用没有被运行，所有结论来自静态证据。\n\n最后把「剩余差异」的条数用一行报出来。",
       "holdMs": 500,
       "maxTurns": 60
     }

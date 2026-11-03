@@ -9,6 +9,8 @@
  * 三条写死的约束（设计 §4.3）：
  * - 不做条件分支、循环、并发。**需要分支说明路径不能枚举，那就不该做成流水线**。
  * - `{{}}` 引用只能**向后**（引用先前步骤），循环在加载期拒。
+ *   例外是 `{{input.xxx}}`：它指向 run 时传入的变量，不是步骤，因此不参与向后校验
+ *   （否则任何变量引用都会被判成"引用了不存在的 step"）。
  * - `postCleanup` 无论成败都跑，失败只记日志不抛。
  *
  * agent 节点不改变这三条：**路径仍由 spec 写死**，agent 的产出只是数据，不参与路由。
@@ -87,6 +89,18 @@ export interface CleanupStep {
   readonly params?: Record<string, unknown>
 }
 
+/**
+ * 一条运行时变量（`{{input.repoUrl}}`）。
+ *
+ * 为什么需要它：spec 是**数据**，一个文件只描述一条固定的路径。但「评测哪个仓库」
+ * 「写什么主题」这类东西每跑一次就变——没有变量，内置一条 spec 就等于内置一个模板，
+ * 用户必须手工改文件才能用（`web-clone` 的 7 次运行里 2 次成功，一次就是占位符没换）。
+ */
+export interface PipelineInput {
+  readonly name: string
+  readonly description?: string
+}
+
 export interface RecordBlock {
   readonly enabled: boolean
   readonly sourceHint?: string
@@ -100,6 +114,21 @@ export interface PipelineSpec {
   readonly description?: string
   /** 从哪条轨迹蒸馏而来（`pipeline_draft` 写的），便于回溯（计划风险表） */
   readonly source?: { sessionKey: string; range: { fromMessageId: string; toMessageId: string } }
+
+  /**
+   * 运行时变量名清单。**不写也可以**——`collectInputNames()` 会从 spec 里的
+   * `{{input.xxx}}` 引用自动推出来，所以作者只写引用、不写这份声明。
+   *
+   * 明写它的唯一理由是**给出除了名字以外的东西**（说明文字），UI 用 `inputs[].description`。
+   */
+  readonly inputs?: readonly PipelineInput[]
+  /**
+   * 空输入时用哪些变量名装满一个可编辑的 `inputs.json` 模板。
+   *
+   * 值取自 `params` / `prompt` 里该变量第一次出现的原样文本——作者拿到的是一份
+   * 「照这个格式填」的样例，而不是空字符串。**只影响首次生成的模板，不参与执行。**
+   */
+  readonly inputTemplate?: Readonly<Record<string, string>>
   /**
    * 产物溯源（只读，不参与执行）。复刻类 spec 用 `target` 标源站，
    * 双栏对照的左栏地址就取自这里——不从 agent 的产出里猜。
@@ -129,6 +158,8 @@ export interface JournalLine {
   readonly observed?: unknown
   readonly assertOk?: boolean
   readonly holdMs?: number
+  /** 这次 run 用的变量（首次写入 journal 的那一行带上，便于回溯「那次跑的是哪个仓库」） */
+  readonly inputs?: Readonly<Record<string, string>>
   /** 失败行才有 */
   readonly error?: string
   readonly expected?: unknown
@@ -146,6 +177,8 @@ export interface RunMeta {
   artifact?: { mp4Path?: string; burned?: boolean; dubbed?: boolean; durationMs?: number; cueCount?: number }
   /** 从 spec 抄来的溯源信息；read-only，执行逻辑不读它 */
   readonly provenance?: { readonly target?: string }
+  /** 这次 run 用的变量快照。spec 没变、变量变了，回看时全靠它 */
+  readonly inputs?: Readonly<Record<string, string>>
 }
 
 /** agent 节点一次执行的入参（与 bridge 的 spawnAgent 对齐，但不含编排层细节） */

@@ -62,6 +62,27 @@ describe('parseGotoInput', () => {
     expect(parseGotoInput({ view: '' })).toEqual({ ok: false, error: 'usage' })
   })
 
+  /**
+   * 插件页 `plugin:<id>` 必须能到。
+   *
+   * 2026-11-03 真机：`feature-demo-video` 的 `app_goto {view:"plugin:pipeline"}`
+   * 返回 `{"ok":false,"error":"usage"}`，整条录制失败（前 3 步全绿）——而侧栏点得到，
+   * 说明只是白名单没跟上。按**形状**放行（插件是动态的，抄 id 会漂移）。
+   */
+  it('plugin:<id> 走形状校验，不按枚举', () => {
+    expect(parseGotoInput({ view: 'plugin:pipeline' })).toEqual({
+      ok: true,
+      input: { view: 'plugin:pipeline' },
+    })
+    expect(parseGotoInput({ view: 'plugin:com.lumii.pipeline' })).toEqual({
+      ok: false,
+      error: 'usage',
+    })
+    // 只认 `plugin:` 前缀，别把任意字符串放过去
+    expect(parseGotoInput({ view: 'plugins:pipeline' })).toEqual({ ok: false, error: 'usage' })
+    expect(parseGotoInput({ view: 'plugin:' })).toEqual({ ok: false, error: 'usage' })
+  })
+
   it('非法 category 返回 usage', () => {
     expect(parseGotoInput({ view: 'settings', category: 'invalid' })).toEqual({
       ok: false,

@@ -1,0 +1,79 @@
+{
+  "id": "feature-demo-video",
+  "name": "功能演示成片",
+  "description": "依次打开四个功能区并停留，录制后按步骤旁白烧录字幕、导出 MP4。**这是零输入的一条**：路径写死在 spec 里，换演示内容就改 steps，不用填 inputs.json。判据是硬的——每次有旁白的步骤必须有一条字幕，字幕起点必须等于该步骤的打点时刻（同一份 step 对象，不可能错位）。",
+  "record": {
+    "enabled": true,
+    "sourceHint": "auto",
+    "includeMic": false,
+    "narrate": {
+      "dub": false,
+      "subtitleMode": "burn",
+      "exportMp4": true
+    }
+  },
+  "preconditions": [],
+  "steps": [
+    {
+      "id": "goto-dashboard",
+      "label": "回到主视图",
+      "narration": "先回到主视图，保证每次演示都从同一处开始。",
+      "tool": "app_goto",
+      "params": {
+        "view": "dashboard"
+      },
+      "holdMs": 1200,
+      "expect": {
+        "viewState": {
+          "view": "dashboard"
+        }
+      }
+    },
+    {
+      "id": "open-skills",
+      "label": "打开技能页",
+      "narration": "这里是技能库，装好的技能按领域分组，点一个就能看怎么用。",
+      "tool": "app_goto",
+      "params": {
+        "view": "skills"
+      },
+      "holdMs": 2200
+    },
+    {
+      "id": "open-cron",
+      "label": "打开定时任务",
+      "narration": "定时任务让同一件事每天到点自动跑，不用每次开口。",
+      "tool": "app_goto",
+      "params": {
+        "view": "cron"
+      },
+      "holdMs": 2200
+    },
+    {
+      "id": "open-pipelines",
+      "label": "打开流水线页",
+      "narration": "流水线把一长串固定步骤写死成数据，执行交给代码，模型只在出错时被叫回来。",
+      "tool": "app_goto",
+      "params": {
+        "view": "plugin:pipeline"
+      },
+      "holdMs": 2500
+    },
+    {
+      "id": "back-to-chat",
+      "label": "回到对话",
+      "narration": "回到对话页，演示结束。",
+      "tool": "app_goto",
+      "params": {
+        "view": "chat"
+      },
+      "holdMs": 1200,
+      "expect": {
+        "viewState": {
+          "view": "chat"
+        }
+      }
+    }
+  ],
+  "postCleanup": []
+}

@@ -1,15 +1,15 @@
 {
   "id": "reverse-then-clone",
   "name": "先逆向再复刻",
-  "description": "先按 reverse 技能的流程产出 projects/<slug>/analysis/，再按分析结果复刻页面并静态导出。与 web-clone 的区别：观察与重建分成两个 agent 步，中间用文件交接（analysis/），失败点可定位、可分别调预算。**跑之前先替换 spec 里的路径占位符**（目标地址与项目名），否则会打开一个无效地址；外部输入不写 {{}}（本期没有运行时变量）。",
+  "description": "先按 reverse 技能的流程产出 projects/<slug>/analysis/，再按分析结果复刻页面并静态导出。与 web-clone 的区别：观察与重建分成两个 agent 步，中间用文件交接（analysis/），失败点可定位、可分别调预算。**跑之前先填 inputs.json**（targetUrl 目标地址、slug 产物目录名）——不填会在第一步以 bad_reference 失败。",
   "record": {
     "enabled": false
   },
   "provenance": {
-    "target": "__TARGET_URL__"
+    "target": "{{input.targetUrl}}"
   },
   "preview": {
-    "htmlPath": "projects/__SLUG__/out/index.html"
+    "htmlPath": "projects/{{input.slug}}/out/index.html"
   },
   "preconditions": [
     {
@@ -27,7 +27,7 @@
       "label": "打开目标页（后续分析都基于这次会话）",
       "tool": "browser_navigate",
       "params": {
-        "url": "__TARGET_URL__",
+        "url": "{{input.targetUrl}}",
         "timeoutMs": 60000
       },
       "holdMs": 1200,
@@ -42,7 +42,7 @@
       "label": "逆向取证：产出 analysis/ 三份文件",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "你在执行 reverse 技能的静态/动态观察阶段，只分析、不建工程。\n\n目标：__TARGET_URL__（浏览器已打开该页）。\n\n先读工作区里的技能说明：skills/逆向与复刻/reverse/SKILL.md，以及 references/frontend.md（只读这一份；目标是移动/桌面时再读对应参考）。然后按它的五步走，把结论写到 projects/__SLUG__/analysis/：\n- overview.md：这个站点是什么、怎么工作、关键结论（每条带证据）\n- evidence.md：命令、原始输出、选择器、computed style 读数\n- assets.md：资源 URL、content-type、用途、外部服务\n\n可用工具：browser_navigate / browser_snapshot / browser_eval / browser_requests / browser_response_body / grep / file_read / file_write / list_dir。\n读不到就写 UNRESOLVED 并说明卡在哪，不许猜。最后五行内汇报：文件路径、未完成项。",
+      "prompt": "你在执行 reverse 技能的静态/动态观察阶段，只分析、不建工程。\n\n目标：{{input.targetUrl}}（浏览器已打开该页）。\n\n先读工作区里的技能说明：skills/逆向与复刻/reverse/SKILL.md，以及 references/frontend.md（只读这一份；目标是移动/桌面时再读对应参考）。然后按它的五步走，把结论写到 projects/{{input.slug}}/analysis/：\n- overview.md：这个站点是什么、怎么工作、关键结论（每条带证据）\n- evidence.md：命令、原始输出、选择器、computed style 读数\n- assets.md：资源 URL、content-type、用途、外部服务\n\n可用工具：browser_navigate / browser_snapshot / browser_eval / browser_requests / browser_response_body / grep / file_read / file_write / list_dir。\n读不到就写 UNRESOLVED 并说明卡在哪，不许猜。最后五行内汇报：文件路径、未完成项。",
       "holdMs": 500,
       "maxTurns": 120
     },
@@ -51,7 +51,7 @@
       "label": "拉起工程骨架（先建到临时目录再把 analysis/ 并回去）",
       "tool": "bash",
       "params": {
-        "command": "cd projects && rm -rf __SLUG__-scaffold && npx --yes create-next-app@latest __SLUG__-scaffold --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes && mkdir -p __SLUG__ && for f in __SLUG__-scaffold/* __SLUG__-scaffold/.[!.]*; do [ -e \"$f\" ] && mv \"$f\" __SLUG__/; done && rmdir __SLUG__-scaffold",
+        "command": "cd projects && rm -rf {{input.slug}}-scaffold && npx --yes create-next-app@latest {{input.slug}}-scaffold --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes && mkdir -p {{input.slug}} && for f in {{input.slug}}-scaffold/* {{input.slug}}-scaffold/.[!.]*; do [ -e \"$f\" ] && mv \"$f\" {{input.slug}}/; done && rmdir {{input.slug}}-scaffold",
         "timeoutMs": 600000
       },
       "holdMs": 800
@@ -61,7 +61,7 @@
       "label": "打开静态导出 + 相对资源前缀",
       "tool": "file_write",
       "params": {
-        "filePath": "projects/__SLUG__/next.config.ts",
+        "filePath": "projects/{{input.slug}}/next.config.ts",
         "content": "import type { NextConfig } from \"next\";\n\nconst nextConfig: NextConfig = {\n  output: \"export\",\n  assetPrefix: \".\",\n  images: { unoptimized: true },\n  reactCompiler: true,\n  turbopack: {\n    rules: {\n      \"*.css\": {\n        loaders: [\"@tailwindcss/turbopack\"],\n        as: \"*.css\",\n      },\n    },\n  },\n};\n\nexport default nextConfig;\n"
       },
       "holdMs": 300
@@ -71,7 +71,7 @@
       "label": "按 analysis/ 重建页面（文件交接，不靠内存摘要）",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "按逆向阶段的产出重建页面，工程骨架已就绪（projects/__SLUG__）。\n\n**先读文件交接的产物**：\n- projects/__SLUG__/analysis/overview.md（站点结构与关键结论）\n- projects/__SLUG__/analysis/evidence.md（选择器、样式读数、命令输出）\n- projects/__SLUG__/analysis/assets.md（真实资源与外部服务）\n\n再把可执行的实现要点整理到 projects/__SLUG__/docs/research/（brief.md / assets.md / states.md，格式参考 skills/逆向与复刻/clone/SKILL.md），然后逐区块实现。\n\n规范：\n1. 用真实文案与资源，不许占位符；analysis/ 里标了 UNRESOLVED 的项，宁可留空也不要猜；\n2. 先建共享字体/色板/容器宽度，再逐区块实现；\n3. 每完成一个区块就对比——用 browser_navigate 打开本地产物、截图，与源站同视口同滚动位置对照，修最大差异项；\n4. 站内链接改写为本地路由，外链保留；\n5. **产物是静态导出**（next.config.ts 已设 output:'export' + assetPrefix:'.'）：不要用 API 路由、server actions、cookies/headers；本地图片放 public/ 并用相对路径引用。\n\n完成标准：主结构、排版、资源对上，记录仍未实现的部分。**不要**声称像素级完美。",
+      "prompt": "按逆向阶段的产出重建页面，工程骨架已就绪（projects/{{input.slug}}）。\n\n**先读文件交接的产物**：\n- projects/{{input.slug}}/analysis/overview.md（站点结构与关键结论）\n- projects/{{input.slug}}/analysis/evidence.md（选择器、样式读数、命令输出）\n- projects/{{input.slug}}/analysis/assets.md（真实资源与外部服务）\n\n再把可执行的实现要点整理到 projects/{{input.slug}}/docs/research/（brief.md / assets.md / states.md，格式参考 skills/逆向与复刻/clone/SKILL.md），然后逐区块实现。\n\n规范：\n1. 用真实文案与资源，不许占位符；analysis/ 里标了 UNRESOLVED 的项，宁可留空也不要猜；\n2. 先建共享字体/色板/容器宽度，再逐区块实现；\n3. 每完成一个区块就对比——用 browser_navigate 打开本地产物、截图，与源站同视口同滚动位置对照，修最大差异项；\n4. 站内链接改写为本地路由，外链保留；\n5. **产物是静态导出**（next.config.ts 已设 output:'export' + assetPrefix:'.'）：不要用 API 路由、server actions、cookies/headers；本地图片放 public/ 并用相对路径引用。\n\n完成标准：主结构、排版、资源对上，记录仍未实现的部分。**不要**声称像素级完美。",
       "holdMs": 500,
       "maxTurns": 240
     },
@@ -80,7 +80,7 @@
       "label": "产线检查：构建 + 静态导出 + 资源路径相对化（非零退出即失败）",
       "tool": "bash",
       "params": {
-        "command": "cd projects/__SLUG__ && npm run build && test -f out/index.html && ! grep -qE '(src|href)=\"/(_next|assets)' out/index.html && echo 'static export ok'",
+        "command": "cd projects/{{input.slug}} && npm run build && test -f out/index.html && ! grep -qE '(src|href)=\"/(_next|assets)' out/index.html && echo 'static export ok'",
         "timeoutMs": 600000
       },
       "holdMs": 500
@@ -90,7 +90,7 @@
       "label": "断言产物里没有残留占位符",
       "tool": "bash",
       "params": {
-        "command": "cd projects/__SLUG__ && if grep -rInE 'lorem ipsum|TODO: replace|placeholder-text|__SLUG__|__TARGET_URL__' app components 2>/dev/null; then echo '发现残留占位符' >&2; exit 1; fi; echo 'clean'",
+        "command": "cd projects/{{input.slug}} && if grep -rInE 'lorem ipsum|TODO: replace|placeholder-text|{{input.slug}}|{{input.targetUrl}}' app components 2>/dev/null; then echo '发现残留占位符' >&2; exit 1; fi; echo 'clean'",
         "timeoutMs": 60000
       },
       "holdMs": 300
@@ -99,7 +99,7 @@
       "id": "report",
       "label": "交付说明",
       "kind": "agent",
-      "prompt": "为 projects/__SLUG__/ 写 README.md：\n1. 源→本地 route map 与运行方式（npm run dev 调试 / npm run build 静态导出到 out/）；\n2. 逆向阶段的结论摘要（引用 analysis/ 里的事实，不要另起结论）；\n3. 已实现交互，以及**如实列出剩余差异与未实现项**（不夸大；没有就写「未发现主结构差异」）。\n\n若 out/index.html 存在，写明可直接在客户端双栏预览；不存在就写明静态导出失败的原因与「需自行 npm run dev」。\n确认 analysis/ 三份文件与 docs/research/ 三份文件都在且非空。\n最后把「剩余差异」的条数用一行报出来。",
+      "prompt": "为 projects/{{input.slug}}/ 写 README.md：\n1. 源→本地 route map 与运行方式（npm run dev 调试 / npm run build 静态导出到 out/）；\n2. 逆向阶段的结论摘要（引用 analysis/ 里的事实，不要另起结论）；\n3. 已实现交互，以及**如实列出剩余差异与未实现项**（不夸大；没有就写「未发现主结构差异」）。\n\n若 out/index.html 存在，写明可直接在客户端双栏预览；不存在就写明静态导出失败的原因与「需自行 npm run dev」。\n确认 analysis/ 三份文件与 docs/research/ 三份文件都在且非空。\n最后把「剩余差异」的条数用一行报出来。",
       "holdMs": 500,
       "maxTurns": 60
     }
