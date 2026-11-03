@@ -18,19 +18,27 @@
       "holdMs": 200
     },
     {
+      "id": "gather",
+      "label": "抓确定性素材（固定榜单接口，不依赖 agent 临场选站点）",
+      "tool": "bash",
+      "params": {
+        "command": "D=\"outputs/content-{{input.slug}}\"; mkdir -p \"$D\"; OUT=\"$D/sources.md\"; : > \"$OUT\"; TOPIC=\"{{input.topic}}\"; echo \"# 素材：$TOPIC\" >> \"$OUT\"; echo >> \"$OUT\"; P=\"{{input.proxy}}\"; for U in \"https://sspai.com/feed\" \"https://www.ithome.com/rss/\" \"https://www.ruanyifeng.com/blog/atom.xml\" \"https://news.ycombinator.com/rss\"; do   echo \"## $U\" >> \"$OUT\";   if curl -sS --max-time 20 -L \"$U\" 2>/dev/null | head -c 6000 > \"$OUT.t\"; then     if [ -s \"$OUT.t\" ]; then cat \"$OUT.t\" >> \"$OUT\"; else       if [ -n \"$P\" ]; then curl -sS --max-time 20 -L --proxy \"$P\" \"$U\" 2>/dev/null | head -c 6000 >> \"$OUT\"; fi;     fi;   fi;   echo >> \"$OUT\"; rm -f \"$OUT.t\"; done; echo \"GATHER_OK=$(wc -c < \"$OUT\") bytes\"",
+        "timeoutMs": 90000
+      },
+      "holdMs": 200
+    },
+    {
       "id": "research",
-      "label": "调研：找出该主题 5 条可核实的要点",
+      "label": "提炼：从底稿里挑 5 条可核实的要点",
       "kind": "agent",
       "agentType": "assistant",
-      "prompt": "主题：{{input.topic}}\n\n做一次**有出处的**调研，写成 outputs/content-{{input.slug}}/research.md：\n- 5 条要点，每条一行，后面跟来源（URL 或「公开共识」）\n- 用 web_search 至少搜 2 个不同角度的查询；搜不到就把来源写成 UNVERIFIED 并说明\n- 允许使用已有常识，但**必须标明哪些没有实时核实**\n\n硬约束：不许编造数据、统计数字、引语。拿不准就写 UNVERIFIED。\n\n**写盘纪律**：每查到一条就立刻用 file_write 追加进 research.md，不要等到最后一次性写——那样中途结束就一条都没留下（已发生过一次）。文件必须用**相对工作区的路径** `outputs/content-{{input.slug}}/research.md`。\n\n最后一行汇报：5 条要点里 N 条有实时来源。",
+      "prompt": "主题：{{input.topic}}\n\n底稿已经抓好在 outputs/content-{{input.slug}}/sources.md（来自固定信源的最近内容）。\n\n**只读这份底稿**，挑出与本主题相关的 5 条要点，写成 outputs/content-{{input.slug}}/research.md：\n- 每条一行，格式：`- 要点 —— 依据（底稿里的哪段/哪个信源）`\n- 与主题无关的内容直接跳过，不要硬凑\n- 底稿里相关内容不足 5 条时，**有几条写几条**，并在末尾说明「底稿仅支撑 N 条」\n\n硬约束：\n1. **不要调用 web_fetch / web_search 去抓本站以外的内容**——已经发生过两次把整步时间\n   耗在反复重试网页抓取上、最后一个字都没写出来的情况。\n2. 不许编造数据、统计数字、引语。底稿里没有的就不要写。\n3. **每挑出一条就立刻用 file_write 追加进 research.md**，不要攒到最后一次性写。\n\n最后一行汇报：写了几条、底稿里有多少内容与主题相关。",
       "allowedTools": [
-        "web_search",
-        "web_fetch",
-        "file_write",
-        "file_read"
+        "file_read",
+        "file_write"
       ],
       "rehearsal": "skip",
-      "maxTurns": 25,
+      "maxTurns": 10,
       "holdMs": 300
     },
     {
@@ -125,5 +133,22 @@
       "holdMs": 300
     }
   ],
-  "postCleanup": []
+  "postCleanup": [],
+  "inputs": [
+    {
+      "name": "slug",
+      "description": "产物目录名"
+    },
+    {
+      "name": "topic",
+      "description": "内容主题"
+    },
+    {
+      "name": "proxy",
+      "description": "素材抓取用的 HTTP 代理；直连可用就留空"
+    }
+  ],
+  "inputTemplate": {
+    "proxy": "http://127.0.0.1:10808"
+  }
 }
