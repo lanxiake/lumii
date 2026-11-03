@@ -21,9 +21,13 @@ metadata: { "mtbot": { "emoji": "🔬" } }
 | 桌面可执行（PE / ELF / Mach-O） | 桌面二进制线 | [`references/desktop.md`](references/desktop.md) |
 | APK / IPA / AAB | 移动端线 | [`references/mobile.md`](references/mobile.md) |
 | 脚本 / 库 / 数据文件 | 通用二进制线 | [`references/binary.md`](references/binary.md) |
+| **卡住了 / 不知道用什么工具** | 工具与知识库索引 | [`references/toolkit-index.md`](references/toolkit-index.md) |
 
 **只加载对应当前目标的那一份参考**（移动/桌面各一份，别把三份都塞进上下文）。
 判不准就先用 `binary.md` 的 triage（文件头 / 大小 / 字符串）判断它到底是什么，再决定。
+
+**卡住时先查 `toolkit-index.md`**：它按「PE/ELF、Android、iOS、桌面壳、格式识别、前端」
+分好类，每个工具都标了**本机有没有**，还有权威知识库的链接。比临场猜用什么工具快得多。
 
 ## 五步
 

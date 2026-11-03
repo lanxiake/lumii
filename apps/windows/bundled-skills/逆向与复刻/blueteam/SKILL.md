@@ -31,6 +31,7 @@ spawn_agent({ agentType: "security", mode: "sync", prompt: "<Findings 路径与�
 | 输入 | 例子 |
 |---|---|
 | `security/findings/F-*.md`（红队产出） | 本仓库标准格式 |
+| `security/findings/CHAIN-*.md`（组合影响） | **优先读它**——链条告诉你先补哪一刀，规则与补丁的优先级从这里来 |
 | 人工写的一段描述 | 「我们的搜索接口有存储型 XSS，用户输入直接进了 innerHTML」 |
 | 扫描器报告 | 贴关键几行就行 |
 
