@@ -381,6 +381,12 @@ export class AgentRuntimeBridge {
 
   /** 当前正在执行工具的实例 ID（Ref 盒子，与 BridgeInstanceFactory 共享） */
   private readonly currentToolExecutorInstanceIdRef: { value: string | undefined } = { value: undefined }
+  /**
+   * 本次 `pipeline_run` 的父实例。理由见 `runPipelineAgentStage`：
+   * 共享 ref 会被子 Agent 的工具栈清空行为冲刷，而流水线的父实例在整个 run 里不变。
+   * **每次从对话发起的新 run 都会重置**（见 `callPipelineTool` 的开头）。
+   */
+  private pipelineParentInstanceId: string | undefined
   /** toolCallId → instanceId 映射 */
   private readonly toolCallInstanceMap = new Map<string, string>()
 
@@ -4122,6 +4128,15 @@ export class AgentRuntimeBridge {
     const tool = this.toolRegistry.get(name)
     if (!tool) return { ok: false, error: `unknown tool: ${name}` }
     if (!this.toolContext) return { ok: false, error: 'toolContext 未初始化' }
+    /**
+     * 每条新的 `pipeline_run` 都重新取父实例。
+     *
+     * 不重置的话，上一条流水线缓存的实例会一直用于下一条——用户换了会话再跑，
+     * 子 Agent 的产物与权限归属都会记到旧会话上。**只在解析得到时才覆盖**，
+     * 解析不到交给 `runPipelineAgentStage` 明确失败。
+     */
+    const current = this.currentToolExecutorInstanceIdRef.value
+    this.pipelineParentInstanceId = current
     // 用一个「流水线」定义装配一遍，拿到带权限闸门/审计/logging 的 runner。
     // 不复用某实例的 runner：流水线不是那个实例的回合，借用会让权限归属记错会话。
     const { runner, tools } = assembleTools({
@@ -4174,6 +4189,9 @@ export class AgentRuntimeBridge {
       return res.isError ? { ok: false, data, error: text.slice(0, 400) } : { ok: true, data }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      // run 结束就丢掉父实例缓存：下一次 run 必须重新解析，不能沿用上一条流水线的归属
+      this.pipelineParentInstanceId = undefined
     }
   }
 
@@ -4210,7 +4228,25 @@ export class AgentRuntimeBridge {
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; data?: import('../../plugins/builtin/pipeline/types').RunAgentStageData; error?: string }> {
     if (signal?.aborted) return { ok: false, error: '已取消（cancelled）' }
-    const parentId = this.currentToolExecutorInstanceIdRef.value
+    /**
+     * 父实例必须能解析到——**取一次就记住**。
+     *
+     * 2026-11-02 真机：`web-clone` 的 brief 步（第 8 个 agent 步）成功、build 步（第 11 个）
+     * 却报「无法解析发起流水线的 Agent 实例」。同一个 run、同一次 `pipeline_run` 调用。
+     *
+     * 根因在共享 ref 的语义：`currentToolExecutorInstanceId` 是**全局单值**，由
+     * `toolLifecycle.afterActualToolExecute` 在子 Agent 的每个工具调用结束后写回栈顶。
+     * 子 Agent 跑完、它自己的栈空了，写回的就是 `undefined` —— 而流水线的父工具调用
+     * 还在进行中。于是「第一次 agent 步能跑、之后永远解析不到」。
+     *
+     * `pipeline_run` 是一个递归深度不变的长调用，父实例在整个 run 里是同一个。
+     * 所以首次拿到就缓存，避免被子 Agent 冲刷。**只在真的拿到时缓存**：拿不到仍明确失败，
+     * 不猜（猜错会把子 Agent 挂到无主会话上，产物落错地方且事后无从追溯）。
+     */
+    if (!this.pipelineParentInstanceId) {
+      this.pipelineParentInstanceId = this.currentToolExecutorInstanceIdRef.value
+    }
+    const parentId = this.pipelineParentInstanceId
     if (!parentId) {
       return { ok: false, error: '无法解析发起流水线的 Agent 实例（流水线可能不是从对话里触发的）' }
     }

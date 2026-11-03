@@ -134,7 +134,7 @@
       "label": "拉起工程骨架",
       "tool": "bash",
       "params": {
-        "command": "cd projects && npx --yes create-next-app@latest {{input.slug}} --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes",
+        "command": "cd projects && rm -rf {{input.slug}}-scaffold && npx --yes create-next-app@latest {{input.slug}}-scaffold --ts --app --tailwind --eslint --no-src-dir --import-alias \"@/*\" --use-npm --yes && mkdir -p {{input.slug}} && for f in {{input.slug}}-scaffold/* {{input.slug}}-scaffold/.[!.]*; do [ -e \"$f\" ] && mv \"$f\" {{input.slug}}/; done && rmdir {{input.slug}}-scaffold && echo SCAFFOLD_OK",
         "timeoutMs": 600000
       },
       "holdMs": 1000
