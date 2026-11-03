@@ -44,7 +44,7 @@
       "label": "红队：按 redteam 技能找洞并复现（写 findings/ 与 evidence/）",
       "kind": "agent",
       "agentType": "security",
-      "prompt": "先读 projects/__SLUG__/security/scope.md，**只在这个范围内工作**——超出范围的发现写进报告的「未验证的怀疑」小节，不要动手验证。\n\n然后加载 redteam 技能（skill_invoke { skillName: \"redteam\" }），按它的五步走：定范围（scope.md 已有，核对即可）→ 摸面 → 逐类验证 → 写 Finding → 交回蓝队。\n\n目标：__TARGET_URL__\n\n产物落 projects/__SLUG__/security/：\n- findings/F-<序号>-<短名>.md：每条必须有位置、影响、前提、**可照做的复现步骤**、证据文件路径、根因（有源码就给文件与行号）\n- evidence/E-*.md 或截图：每条 Finding 都要有证据\n- scope.md 里已经写过的排除项，不要碰\n\n硬约束：\n1. **只写复现出来的**。理论可能性写进「未验证的怀疑」小节并明确标注未复现。\n2. **不写利用链**。一条 Finding 说清一个洞就够。\n3. **不做**免杀 payload、C2、持久化、可直接分发的 exploit。\n4. 不用端口扫描器、不做大规模爆破；证明限流缺失构造 5-10 次就够。\n\n最后五行内汇报：N 个 Finding（高危 a / 中危 b / 低危 c）、M 类不适用、UNRESOLVED 项。",
+      "prompt": "先读 projects/__SLUG__/security/scope.md，**只在这个范围内工作**——超出范围的发现写进报告的「未验证的怀疑」小节，不要动手验证。\n\n然后加载 redteam 技能（skill_invoke { skillName: \"redteam\" }），按它的五步走：定范围（scope.md 已有，核对即可）→ 摸面 → 逐类验证 → 写 Finding → 交回蓝队。\n\n目标：__TARGET_URL__\n\n产物落 projects/__SLUG__/security/：\n- findings/F-<序号>-<短名>.md：每条必须有位置、影响、前提、**可照做的复现步骤**、证据文件路径、根因（有源码就给文件与行号）\n- evidence/E-*.md 或截图：每条 Finding 都要有证据\n- scope.md 里已经写过的排除项，不要碰\n\n硬约束：\n1. **只写复现出来的**。理论可能性写进「未验证的怀疑」小节并明确标注未复现。\n2. **不写利用链**。一条 Finding 说清一个洞就够。\n3. **不做**免杀 payload、C2、持久化、可直接分发的 exploit。\n4. 不用端口扫描器、不做大规模爆破；证明限流缺失构造 5-10 次就够。\n\n**缺信息时不要问人**——这条流水线是无人值守的，ask_user_question 已被摘掉。目标连不上、没有源码、需要凭据这类情况，直接**停下来并如实失败**：在 findings/ 下写一份 UNABLE-TO-START.md 说明缺什么、需要调用方补什么前置条件，然后结束本轮。这比编造发现或空转有用。最后五行内汇报：N 个 Finding（高危 a / 中危 b / 低危 c）、M 类不适用、UNRESOLVED 项。",
       "holdMs": 500,
       "maxTurns": 120
     },
