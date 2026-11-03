@@ -129,7 +129,8 @@ export const reverseExtension = {
     name: '逆向工具链',
     version: '0.1.0',
     description:
-      '把已装的逆向工具链接成结构化分析（现在支持 Ghidra）：函数数、按能力归类的导入、可疑字符串、反编译',
+      '逆向分析工具链：APK / AAB / IPA / Electron(asar) 内置解析（无需外部工具），' +
+      '原生 PE / ELF / Mach-O 走 Ghidra（需自装）',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
     /**
