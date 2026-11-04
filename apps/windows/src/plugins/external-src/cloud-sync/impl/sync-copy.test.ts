@@ -57,6 +57,27 @@ describe('sync-copy', () => {
     expect(fs.existsSync(path.join(dst, 'repo', '.git'))).toBe(false)
   })
 
+  /**
+   * **回归**：排除回调收到的是「相对复制根目录」的路径，不是当前层文件名。
+   * 2026-11-04 实测：旧实现的 rel 永远是文件名，`runs/` 目录规则失效，
+   * 流水线 runs 每轮被重新拷回 sync 仓库。
+   */
+  it('shouldSkipFile 收到根目录相对路径，嵌套目录规则能命中', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(path.join(src, 'p1', 'runs', 'run1'), { recursive: true })
+    fs.writeFileSync(path.join(src, 'p1', 'runs', 'run1', 'journal.jsonl'), '{}')
+    fs.writeFileSync(path.join(src, 'p1', 'spec.json'), '{}')
+
+    const result = copySyncDirectory(src, dst, {
+      shouldSkipFile: (rel) => rel.split('/').includes('runs'),
+    })
+
+    expect(result.skippedExcluded).toBe(1)
+    // 目录会先建出来（git 不跟踪空目录），关键是文件没被复制
+    expect(fs.existsSync(path.join(dst, 'p1', 'runs', 'run1', 'journal.jsonl'))).toBe(false)
+    expect(fs.existsSync(path.join(dst, 'p1', 'spec.json'))).toBe(true)
+  })
+
   it('超过 maxSize 的文件跳过且不报错', () => {
     const { src, dst } = makePair()
     fs.writeFileSync(path.join(src, 'small.txt'), 'hi')

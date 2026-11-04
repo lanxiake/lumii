@@ -188,7 +188,7 @@ export function copySyncDirectory(
  * 复制一层：先逐项复制，再比对目标侧多出的条目记入 ctx.stale。
  * 源目录读不出时直接返回 —— 该子树既不复制也不删。
  */
-function copyLevel(src: string, dst: string, ctx: CopyContext): void {
+function copyLevel(src: string, dst: string, ctx: CopyContext, relPrefix = ''): void {
   const { options, result } = ctx
 
   let entries: fs.Dirent[]
@@ -222,6 +222,11 @@ function copyLevel(src: string, dst: string, ctx: CopyContext): void {
     srcNames.add(entry.name)
     const srcPath = path.join(src, entry.name)
     const dstPath = path.join(dst, entry.name)
+    // **_相对复制根目录_的路径**（不是相对当前层）：排除规则写的是 `runs/`、
+    // `**/target/**` 这类跨层路径。旧实现用 `path.relative(src, srcPath)` 而 src
+    // 是当前层，算出来永远是文件名本身，导致目录规则全部失效（2026-11-04 实测：
+    // 流水线 runs/ 每轮都被重新拷回仓库，200 个文件清不掉）。
+    const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
 
     if (entry.isDirectory()) {
       if (shouldSkipSyncCopyDir(entry.name)) {
@@ -231,13 +236,12 @@ function copyLevel(src: string, dst: string, ctx: CopyContext): void {
         removeEntry(dstPath, result)
         continue
       }
-      copyLevel(srcPath, dstPath, ctx)
+      copyLevel(srcPath, dstPath, ctx, rel)
       continue
     }
 
     try {
       const srcStat = fs.statSync(srcPath)
-      const rel = path.relative(src, srcPath).split(path.sep).join('/')
 
       // 同步范围排除：名字已留在 srcNames → 不触发镜像删除
       if (options?.shouldSkipFile?.(rel)) {

@@ -335,6 +335,27 @@ export interface GcDecisionInput {
  * 2. 松散对象过多/过大——isomorphic-git 提交只写松散对象，不会自动打包；
  * 3. 单包超限——iso 读 pack 是整包进内存，GB 级包会让读路径全废。
  */
+/**
+ * 无关历史合并时，要不要把本地旧链整个 squash 掉（只留远端做父提交）。
+ *
+ * 2026-11-04 现场：重建仓库产生了一个孤立根，但本地分支仍停在旧链（7398 个提交），
+ * 远端是干净的 2 个提交。原来的「双亲合并」把 9.5GB 旧媒体历史又接了回来，
+ * 下一轮 push 推进不动，仓库从 66MB 涨回 11GB。
+ *
+ * 判据刻意简单：远端只有极短历史 = 重建后的新仓库，以它为准；本地历史远长于它，
+ * 说明本地是被重建前的旧链。纯函数，便于单测。
+ */
+export const SQUASH_REMOTE_MAX_COMMITS = 5
+export const SQUASH_LOCAL_RATIO = 20
+
+export function shouldSquashLocalHistory(localCommits: number, remoteCommits: number): boolean {
+  return (
+    remoteCommits > 0 &&
+    remoteCommits <= SQUASH_REMOTE_MAX_COMMITS &&
+    localCommits >= remoteCommits * SQUASH_LOCAL_RATIO
+  )
+}
+
 export function shouldRunObjectStoreGc(input: GcDecisionInput): boolean {
   const { packCount, looseCount, looseSizeKib, packBytes } = input
   // 稳态包数 = 总体积按 packSizeLimit 折算，再留「按比例」的余量吸收 fetch 新落的小包。
@@ -1371,8 +1392,9 @@ export class CloudSyncManager extends EventEmitter {
    *
    * 旧实现（adoptRemote）把分支直接钉到远端 HEAD，本地 git 历史丢失，
    * 本地独有文件只能靠 import 的「只增不删」侥幸留下。现在改为：
-   * 远端独有的文件补入本地（**本地优先，同名不覆盖**），再提交一个
-   * parent 为 [localOid, remoteOid] 的合并提交，两条历史都保留。
+   * 远端独有的文件补入本地（**本地优先，同名不覆盖**），再提交一个合并提交。
+   * 两条历史都保留；但若远端是重建后的极短历史，则以远端为父（squash 本地旧链），
+   * 见 shouldSquashLocalHistory。
    *
    * 为什么不用 isomorphic-git 的 `merge({ allowUnrelatedHistories: true })`：
    * 它以**空树**作 merge base，于是两边都存在的同名文件一律判定为
@@ -1406,19 +1428,56 @@ export class CloudSyncManager extends EventEmitter {
     })
     const mergeExport = await exporter.export()
 
-    // 4. stage 后提交双亲 commit（不传 tree：commit 会从 index 生成，index 此刻就是本地状态）
+    // 4. stage 后提交（不传 tree：commit 会从 index 生成，index 此刻就是本地状态）
     //    排除跳过的大文件：它们在 HEAD 里但不在工作区，不排除会被判成删除
     await this.stageAllChanges(p, mergeExport.skippedLargePaths)
+
+    // 远端只有极短历史 = 重建后的新仓库：以远端为基线 squash 本地旧链，
+    // 否则双亲提交会把 9.5GB 旧历史接回来（见 shouldSquashLocalHistory）。
+    const squashLocal = await this.isRemoteRebuiltHistory(p, localOid, remoteOid)
     await git.commit({
       ...p,
       ref: localRef,
-      parent: [localOid, remoteOid],
-      message: '合并无关历史的远端数据',
+      parent: squashLocal ? [remoteOid] : [localOid, remoteOid],
+      message: squashLocal ? '合并无关历史的远端数据（重建远端为基线）' : '合并无关历史的远端数据',
       author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
     })
     // 挂回分支指针，避免 detached（否则后续 commit 落到游离提交、push 推空）
     await this.attachHeadToBranch(p, localRef)
     logger.info('[mergeUnrelatedHistory] 已提交双亲合并，本地历史保留')
+  }
+
+  /**
+   * 远端是不是「重建后的极短历史」：是则本地旧链不该接回去。
+   *
+   * 只数到阈值就停（`depth`），长历史不遍历全量；判定失败时退回双亲合并，
+   * 行为与改动前一致。
+   */
+  private async isRemoteRebuiltHistory(
+    p: GitParams,
+    localOid: string,
+    remoteOid: string,
+  ): Promise<boolean> {
+    try {
+      const remoteCommits = (
+        await git.log({ ...p, ref: remoteOid, depth: SQUASH_REMOTE_MAX_COMMITS + 1 })
+      ).length
+      if (remoteCommits > SQUASH_REMOTE_MAX_COMMITS) return false
+      const localCap = remoteCommits * SQUASH_LOCAL_RATIO + 1
+      const localCommits = (await git.log({ ...p, ref: localOid, depth: localCap })).length
+      const squash = shouldSquashLocalHistory(localCommits, remoteCommits)
+      if (squash) {
+        logger.warn(
+          `[mergeUnrelatedHistory] 远端仅 ${remoteCommits} 个提交、本地至少 ${localCommits} 个：以重建远端为基线，squash 本地旧链`,
+        )
+      }
+      return squash
+    } catch (err) {
+      logger.warn(
+        `[mergeUnrelatedHistory] 历史规模判定失败，退回双亲合并: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return false
+    }
   }
 
   /**

@@ -795,6 +795,37 @@ describe('CloudSyncManager', () => {
     expect(backups.length).toBe(1)
   })
 
+  /**
+   * **回归**：2026-11-04 重建仓库后，本地分支停在旧链（7398 个提交），远端是干净的
+   * 2 个提交。双亲合并把 9.5GB 旧历史接了回来，仓库从 66MB 涨回 11GB。
+   */
+  it('无关历史且远端是重建后的短历史 → 以远端为基线 squash 本地旧链', async () => {
+    fs.mkdirSync(syncDir, { recursive: true })
+    await git.init({ ...syncParams(), defaultBranch: 'main' })
+    writeSync('local-only.md', 'L')
+    await commitSync('local root')
+    for (let i = 0; i < 20; i++) {
+      writeSync(`bulk-${i}.md`, String(i))
+      await commitSync(`local ${i}`)
+    }
+
+    await git.init({ fs: REMOTE_FS, dir: remoteDir, gitdir: remoteGitdir, defaultBranch: 'main' })
+    await commitRemote('remote-only.md', 'R')
+    const remoteTip = await remoteHead()
+
+    manager = new CloudSyncManager()
+    const r = await manager.sync()
+    expect(r.success).toBe(true)
+
+    // 本地内容保留，且推送成功
+    expect(readSync('local-only.md')).toBe('L')
+    expect(await localHead()).toBe(await remoteHead())
+
+    // 只有远端一个父提交：旧链不接回来
+    const { commit } = await git.readCommit({ ...syncParams(), oid: await localHead() })
+    expect(commit.parent).toEqual([remoteTip])
+  })
+
   it('conflict 期间再调 sync → 直接返回不重试', async () => {
     await setupBase()
     writeSync('shared.md', 'local')

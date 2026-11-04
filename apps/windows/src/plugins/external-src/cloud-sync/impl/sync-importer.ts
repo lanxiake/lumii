@@ -630,27 +630,44 @@ export class SyncImporter {
   }
 
   /**
-   * 导入用户文件：files + outputs 两个子树
+   * 导入用户文件：files + outputs + pipelines 三个子树
    *
    * 绝不使用扫描式镜像 —— 删除只按 `changes.delete`（来自 git 树差异）执行，
    * 无基线时（`'all'`）只增不删。
    */
   private async importUserFiles(changes: FileChangeSet): Promise<number> {
-    return this.applyFileChanges(changes, 'files') + this.applyFileChanges(changes, 'outputs')
+    return (
+      this.applyFileChanges(changes, 'files') +
+      this.applyFileChanges(changes, 'outputs') +
+      this.applyFileChanges(changes, 'pipelines')
+    )
   }
 
   /**
    * 把变更集应用到本地某个同步子目录。
    *
+   * `pipelines` 是后加的：导出端一直有 `exportPipelines`，导入端漏了，导致流水线
+   * 只上云不下云（2026-11-04 现场：另一台机器看不到「开源项目推荐短视频」）。
+   * runs/ 是本机运行记录，不参与同步 —— 复制与删除都跳过。
+   *
    * @param sub 相对 `workspace/` 的子目录名
    */
-  private applyFileChanges(changes: FileChangeSet, sub: 'files' | 'outputs'): number {
+  private applyFileChanges(
+    changes: FileChangeSet,
+    sub: 'files' | 'outputs' | 'pipelines',
+  ): number {
     const srcRoot = path.join(this.options.syncDir, 'workspace', sub)
     const dstRoot = path.join(this.options.workspaceDir, sub)
+    const isPipelineRun = (rel: string) =>
+      sub === 'pipelines' && rel.split('/').includes('runs')
 
     if (changes === 'all') {
       if (!fs.existsSync(srcRoot)) return 0
-      return copySyncDirectory(srcRoot, dstRoot).copied
+      return copySyncDirectory(
+        srcRoot,
+        dstRoot,
+        sub === 'pipelines' ? { shouldSkipFile: isPipelineRun } : undefined,
+      ).copied
     }
 
     const prefix = `workspace/${sub}/`
@@ -658,6 +675,7 @@ export class SyncImporter {
 
     for (const rel of changes.copy) {
       if (!rel.startsWith(prefix)) continue
+      if (isPipelineRun(rel)) continue
       const src = path.join(srcRoot, rel.slice(prefix.length))
       const dst = path.join(dstRoot, rel.slice(prefix.length))
       try {
@@ -673,6 +691,7 @@ export class SyncImporter {
 
     for (const rel of changes.delete) {
       if (!rel.startsWith(prefix)) continue
+      if (isPipelineRun(rel)) continue
       const dst = path.join(dstRoot, rel.slice(prefix.length))
       try {
         if (!fs.existsSync(dst)) continue
