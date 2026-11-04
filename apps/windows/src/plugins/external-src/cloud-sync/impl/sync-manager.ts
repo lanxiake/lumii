@@ -90,23 +90,36 @@ const REFRESH_FETCH_TIMEOUT_MS = 20 * 60_000
 const REMOTE_INFO_TIMEOUT_MS = 60_000
 
 /**
- * 包数触发 gc 的「超出稳态」余量。
+ * 包数触发 gc 的「超出稳态」比例。
  *
  * 不能再用固定包数阈值（原值 3）：那是在「不限包大小」年代定的，
  * 而 `pack.packSizeLimit=64m` 生效后，GB 级对象库**按设计就是多包**
  * （2.8GB ≈ 45 个 64MB 包）——固定阈值 3 会让每轮同步都跑一次全量 gc
  * （2026-10-08 实测：49 包恒大于 3，gc 完成下一秒又触发，每次 2.5 分钟
- * 反复重打包 2.8GB）。改为与 packSizeLimit 一致的动态界：包数超过
- * 「总体积折算的稳态包数 + 余量」才算有东西可并。
+ * 反复重打包 2.8GB）。
+ *
+ * **2026-11-04 再调：固定值 4 → 25% 比例。**
+ * 原固定值的实测问题是「只差 3 个包也触发」：稳态 75、实际 78 → 跑 10 分钟 gc，
+ * 而 gc 根本合并不出更少的包（4.5GB ÷ 64MiB 就是需要 ~70 个），
+ * 于是包数在 75~147 之间震荡、每轮同步都在 gc。
+ * 改成比例后，「正常浮动」随仓库规模一起放大，不再对几十个包的波动敏感。
  */
-const PACK_GC_SLACK = 4
+const PACK_GC_SLACK_RATIO = 0.25
+/** 比例算出来不足这个数时按这个来（小仓库不该因为 1 个新包就 gc） */
+const PACK_GC_SLACK_MIN = 8
 
 /** 松散对象触发 gc 的数量/体积阈值（isomorphic-git 的提交只写松散对象，不会自动打包） */
 const LOOSE_COUNT_THRESHOLD = 1500
 const LOOSE_SIZE_KIB_THRESHOLD = 200 * 1024
 
-/** git gc 超时：GB 级对象库重打包在 Windows 上可达数分钟 */
-const GC_TIMEOUT_MS = 600_000
+/**
+ * git gc 超时：GB 级对象库重打包在 Windows 上可达数分钟。
+ *
+ * **2026-11-04 由 10 分钟放到 20 分钟**：实测 9.5GB 仓库的一次全量 gc 常常
+ * 跑不完就被 kill，留下「拆了一半的 pack + 未清理的旧 pack」并存，
+ * 反而让包数继续涨（147 个）。宁可让它跑完。
+ */
+const GC_TIMEOUT_MS = 1_200_000
 
 /**
  * gc 产出单包的上限。
@@ -135,6 +148,19 @@ const GC_TIMEOUT_MS = 600_000
 const PACK_SIZE_LIMIT = '64m'
 /** 解析成字节，供 gc 后自检用 */
 const PACK_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+
+/**
+ * 「算超限」的判定阈值 = 上限 × 1.25。
+ *
+ * **不能直接用 `PACK_SIZE_LIMIT_BYTES` 判定**（2026-11-04 实测）：
+ * `git repack --max-pack-size=64m` 产出的包会**略超 64MiB**——本机实测 69,755,753 字节
+ * （≈66.5MiB）。于是拆包后自检仍判它超限，`packs.some(bytes > LIMIT)` 恒为真，
+ * **每轮同步都要跑一次 5-10 分钟的全量 gc**，gc 又拆不出更小的包，形成死循环。
+ *
+ * 留 25% 余量：既容得下 git 的溢出，又仍能在真的出 GB 级单包时（1.25 倍远小于它）触发。
+ * isomorphic-git 的内存风险是对 GB 级包而言的，多出十几 MB 不改变那件事。
+ */
+const PACK_OVERSIZE_BYTES = Math.round(PACK_SIZE_LIMIT_BYTES * 1.25)
 
 /** 分级参数兜底（正常由 DEFAULT_CLOUD_SYNC_CONFIG 提供；旧配置文件缺字段时用） */
 const FALLBACK_SMALL_THRESHOLD_BYTES = 5 * 1024 * 1024
@@ -287,6 +313,41 @@ function isPushTimeout(err: unknown): boolean {
 /** 「远端没有该分支」与「拉取失败」的区分：前者是首次同步，后者必须报错等下轮 */
 function isNotFoundError(err: unknown): boolean {
   return (err as { code?: string } | null)?.code === 'NotFoundError'
+}
+
+export interface GcDecisionInput {
+  /** 当前 pack 数 */
+  packCount: number
+  /** 松散对象数 */
+  looseCount: number
+  /** 松散对象体积（KiB） */
+  looseSizeKib: number
+  /** 每个 pack 的字节数 */
+  packBytes: readonly number[]
+}
+
+/**
+ * 要不要跑一次全量 gc。**提成纯函数是为了可测**——它藏在 4000 行的类里，
+ * 而判错的代价是「每轮同步都 gc 10 分钟」（2026-11-04 实测的死循环）。
+ *
+ * 三条触发条件：
+ * 1. pack 数超过稳态（总体积折算 + 余量）——有东西可并；
+ * 2. 松散对象过多/过大——isomorphic-git 提交只写松散对象，不会自动打包；
+ * 3. 单包超限——iso 读 pack 是整包进内存，GB 级包会让读路径全废。
+ */
+export function shouldRunObjectStoreGc(input: GcDecisionInput): boolean {
+  const { packCount, looseCount, looseSizeKib, packBytes } = input
+  // 稳态包数 = 总体积按 packSizeLimit 折算，再留「按比例」的余量吸收 fetch 新落的小包。
+  // 用比例而非固定值：固定 4 在 4.5GB 仓库上是「只差 3 个包也跑 10 分钟 gc」。
+  const byVolume = Math.ceil(packBytes.reduce((sum, b) => sum + b, 0) / PACK_SIZE_LIMIT_BYTES)
+  const slack = Math.max(PACK_GC_SLACK_MIN, Math.ceil(byVolume * PACK_GC_SLACK_RATIO))
+  const steadyPacks = byVolume + slack
+  return (
+    packCount > steadyPacks ||
+    looseCount > LOOSE_COUNT_THRESHOLD ||
+    looseSizeKib > LOOSE_SIZE_KIB_THRESHOLD ||
+    packBytes.some((b) => b > PACK_OVERSIZE_BYTES)
+  )
 }
 
 export class CloudSyncManager extends EventEmitter {
@@ -896,21 +957,15 @@ export class CloudSyncManager extends EventEmitter {
     }
 
     const packs = this.listPacks()
-    // 稳态包数 = 总体积按 packSizeLimit 折算，再留 PACK_GC_SLACK 余量吸收 fetch 新落的小包。
-    // 只有超出这个界（或下面两条硬信号）才值得付一次全量 gc 的代价。
-    const steadyPacks = Math.max(
-      8,
-      Math.ceil(packs.reduce((sum, pk) => sum + pk.bytes, 0) / PACK_SIZE_LIMIT_BYTES) + PACK_GC_SLACK,
-    )
-    const needGc =
-      packCount > steadyPacks ||
-      looseCount > LOOSE_COUNT_THRESHOLD ||
-      looseSizeKib > LOOSE_SIZE_KIB_THRESHOLD ||
-      // **单包超限也要 gc**：真 git fetch 落下来的每个 pack 都是几百 MB~GB 级
-      // （不是 isomorphic-git 那种一个个小 pack），只看数量永远达不到阈值，
-      // 而 iso 读 pack 是整包进内存 —— 一个 2.9GB 的包会让它的读路径全废。
-      packs.some((pk) => pk.bytes > PACK_SIZE_LIMIT_BYTES)
-    if (!needGc) return
+    // 判据提成纯函数（shouldRunObjectStoreGc），理由见那里的注释
+    if (
+      !shouldRunObjectStoreGc({
+        packCount,
+        looseCount,
+        looseSizeKib,
+        packBytes: packs.map((pk) => pk.bytes),
+      })
+    ) return
 
     logger.warn(
       `[maybePruneObjectStore] packs=${packCount} loose=${looseCount}(${Math.round(looseSizeKib / 1024)}MB)，执行 git gc…`,
@@ -998,7 +1053,7 @@ export class CloudSyncManager extends EventEmitter {
    * isomorphic-git 读 pack 是整包进内存，超限包会直接报 too large to read into memory。
    */
   private async ensurePacksWithinSizeLimit(): Promise<void> {
-    const oversize = this.listPacks().filter((p) => p.bytes > PACK_SIZE_LIMIT_BYTES)
+    const oversize = this.listPacks().filter((p) => p.bytes > PACK_OVERSIZE_BYTES)
     if (!oversize.length) return
 
     const maxMb = Math.round(Math.max(...oversize.map((p) => p.bytes)) / 1048576)
@@ -1024,7 +1079,7 @@ export class CloudSyncManager extends EventEmitter {
       { cwd: this.syncDir, timeout: GC_TIMEOUT_MS, windowsHide: true },
     )
 
-    const stillOver = this.listPacks().filter((p) => p.bytes > PACK_SIZE_LIMIT_BYTES)
+    const stillOver = this.listPacks().filter((p) => p.bytes > PACK_OVERSIZE_BYTES)
     if (stillOver.length) {
       // 单对象本身超过上限时 git 会产出超限单包，只能告警；其余情况应已拆干净
       logger.warn(

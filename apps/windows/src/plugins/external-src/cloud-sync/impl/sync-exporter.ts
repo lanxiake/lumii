@@ -76,6 +76,45 @@ export function pruneStaleWikiExports(
   return removed
 }
 
+/**
+ * 删除 `sync/workspace/pipelines/<id>/runs/`（历史残留），返回清理的流水线条数。
+ *
+ * **为什么需要主动删**：`shouldSkipFile` 只做到「不复制」，而 `mirror: true` 的待删集合
+ * **不包含被跳过的文件**——这是刻意的（排除规则不该导致删除）。后果是：规则加上之前
+ * 已经被复制进 dst 的 runs/ 会**永远留在那儿**，而且已经进了 git 历史
+ * （2026-11-04 实测 156 个文件）。runs/ 是运行记录（journal/meta/spec 快照），
+ * 每次跑都变，不该参与同步。
+ *
+ * 只删**深度恰好为 2** 的 runs 目录（`<id>/runs`），不会误伤用户在别的层级建的目录。
+ * 失败只记日志——清理是尽力而为，不该让整轮导出失败。
+ */
+export function removeLegacyPipelinesRuns(dstPipelinesDir: string): number {
+  if (!fs.existsSync(dstPipelinesDir)) return 0
+  let ids: string[]
+  try {
+    ids = fs
+      .readdirSync(dstPipelinesDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+  } catch {
+    return 0
+  }
+  let removed = 0
+  for (const id of ids) {
+    const runsDir = path.join(dstPipelinesDir, id, 'runs')
+    try {
+      if (!fs.existsSync(runsDir)) continue
+      fs.rmSync(runsDir, { recursive: true, force: true })
+      removed++
+    } catch (err) {
+      logger.warn(
+        `[exportPipelines] 清理历史 runs 失败（已忽略）${id}/runs: ${err instanceof Error ? err.message : err}`,
+      )
+    }
+  }
+  return removed
+}
+
 export interface SyncExportOptions {
   dbPath: string
   syncDir: string
@@ -421,15 +460,26 @@ export class SyncExporter {
       const rows = db.prepare(`SELECT * FROM ${tableName}`).all() as unknown[]
       const jsonlFile = path.join(outputDir, `${tableName}.jsonl`)
 
-      if (rows.length === 0) {
-        // 空表写入空文件
-        fs.writeFileSync(jsonlFile, '')
-        return
+      const content = rows.length === 0 ? '' : rows.map((row) => JSON.stringify(row)).join('\n') + '\n'
+
+      /**
+       * **内容没变就不写**（2026-11-04）。
+       *
+       * 原实现无条件 `writeFileSync`，哪怕一个字节都没变也会刷新 mtime。
+       * 对 git 来说这不算新 blob（内容哈希相同），但下面这条链条会踩到：
+       * 每次全量重写几十 MB 的 `wiki_sources.jsonl` → 每轮都产生新文件写入 →
+       * 与 `skipUnchanged`/mtime 相关的判断全部失效 → 同步端每轮都重新 stage。
+       *
+       * 更重要的是**它把「没变化」这件事变得不可见**：日志里看不出这一轮到底
+       * 有没有新数据，而 466 个历史版本（9.3GB）正是这么堆出来的。
+       */
+      try {
+        if (fs.existsSync(jsonlFile) && fs.readFileSync(jsonlFile, 'utf8') === content) return
+      } catch {
+        // 读旧文件失败就当它变了，照常写（不能因为读不了就跳过导出）
       }
 
-      // 每行一条记录
-      const lines = rows.map((row) => JSON.stringify(row)).join('\n')
-      fs.writeFileSync(jsonlFile, lines + '\n') // 末尾加换行符，符合 JSONL 规范
+      fs.writeFileSync(jsonlFile, content)
     } catch (err) {
       // 表不存在或查询失败：保持 sync 侧现有文件不动。
       // 绝不写空文件 —— 空 jsonl 与「整表已删」无法区分，会把导出故障放大成数据事故。
@@ -468,12 +518,16 @@ export class SyncExporter {
           ORDER BY created_at ASC
         `).all()
 
-        if (memories.length === 0) {
-          fs.writeFileSync(jsonlFile, '')
-        } else {
-          const lines = memories.map((m) => JSON.stringify(m)).join('\n')
-          fs.writeFileSync(jsonlFile, lines + '\n')
+        // 内容没变就不写（同 exportTableToJsonl 的理由，见那处注释）
+        const content =
+          memories.length === 0 ? '' : memories.map((m) => JSON.stringify(m)).join('\n') + '\n'
+        let unchanged = false
+        try {
+          unchanged = fs.existsSync(jsonlFile) && fs.readFileSync(jsonlFile, 'utf8') === content
+        } catch {
+          /* 读不了就当它变了 */
         }
+        if (!unchanged) fs.writeFileSync(jsonlFile, content)
 
         db.exec('COMMIT')
       } catch (err) {
@@ -539,6 +593,21 @@ export class SyncExporter {
     const src = path.join(this.options.workspaceDir, 'pipelines')
     const dst = path.join(this.options.syncDir, 'workspace/pipelines')
     if (!fs.existsSync(src)) return errors
+    /**
+     * **先清掉 dst 里历史遗留的 `runs/`**（2026-11-04）。
+     *
+     * `shouldSkipFile` 只做到「不复制」，而 `mirror: true` 的待删集合
+     * **不包含被跳过的文件**——这是刻意的（排除规则不该导致删除）。
+     * 后果是：规则加上之前已经被复制进 dst 的 runs/ 会**永远留在那儿**，
+     * 而且已经进了 git 历史（实测 156 个文件）。
+     *
+     * runs/ 是运行记录（journal/meta/spec 快照），每次跑都变，**不该参与同步**。
+     * 这里主动删一次 dst 侧的残留，让下一轮 export+commit 把它们从树上移除。
+     */
+    const legacyRuns = removeLegacyPipelinesRuns(dst)
+    if (legacyRuns > 0) {
+      logger.info(`[exportPipelines] 已清理 ${legacyRuns} 条流水线的历史 runs/（运行记录不参与同步）`)
+    }
     const copyOpts = this.options.confirmedMassDeleteFingerprint
       ? { confirmedFingerprint: this.options.confirmedMassDeleteFingerprint }
       : {}
