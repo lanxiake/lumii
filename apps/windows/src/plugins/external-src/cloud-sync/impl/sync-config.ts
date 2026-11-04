@@ -17,6 +17,35 @@ const logger = createLogger('cloud-sync/config')
 const configFile = (): string =>
   path.join(resolveWindowsClientDataRoot(), 'config', 'cloud-sync.json')
 
+/**
+ * 默认排除：**只同步文本/代码/文档，不同步多媒体与压缩包**（2026-11-04）。
+ *
+ * 动因是实测出来的：仓库 11GB 里 9.5GB 是历史，其中 `wiki_sources.jsonl` 的
+ * 466 个版本占 7.9GB（当前文件才 4MB），`outputs/` 的 17797 个历史 blob 占 4GB
+ * （当前 3286 个）。二进制文件每次改动都在 git 里留一个完整新副本，而它们
+ * 本来就不该走版本控制——这些是作品产物，不是源数据。
+ *
+ * 基准是 `workspace/outputs` 的相对路径（见 sync-scope 的说明）。
+ * 用「排除扩展名」而不是「只允许白名单」：白名单会让用户新建的
+ * `.md`/`.json` 之类意外漏同步，而漏同步比多同步更难发现。
+ */
+const MEDIA_EXCLUDES = [
+  // 视频 / 音频
+  '**/*.mp4', '**/*.mkv', '**/*.mov', '**/*.avi', '**/*.webm', '**/*.flv',
+  '**/*.mp3', '**/*.wav', '**/*.m4a', '**/*.aac', '**/*.flac', '**/*.ogg', '**/*.silk',
+  // 图片（图卡/封面/素材都属作品产物；需要跨设备时另行归档，不走 git）
+  '**/*.png', '**/*.jpg', '**/*.jpeg', '**/*.gif', '**/*.webp', '**/*.bmp',
+  '**/*.ico', '**/*.svg', '**/*.psd', '**/*.ai', '**/*.sketch', '**/*.fig',
+  // 压缩包与镜像
+  '**/*.zip', '**/*.7z', '**/*.rar', '**/*.tar', '**/*.gz', '**/*.bz2', '**/*.xz',
+  '**/*.iso', '**/*.dmg', '**/*.exe', '**/*.msi', '**/*.apk', '**/*.ipa',
+  // 下载中间产物
+  '**/*.part', '**/*.download', '**/*.tmp', '**/*.crdownload',
+  // 模型与二进制库
+  '**/*.onnx', '**/*.bin', '**/*.gguf', '**/*.safetensors', '**/*.pth', '**/*.pt',
+  '**/*.dll', '**/*.so', '**/*.dylib', '**/*.node',
+]
+
 export const DEFAULT_CLOUD_SYNC_CONFIG: CloudSyncConfig = {
   enabled: false,
   provider: 'gitcode',
@@ -27,8 +56,8 @@ export const DEFAULT_CLOUD_SYNC_CONFIG: CloudSyncConfig = {
   // 几十秒即可到位），更大者交给阶段二队列分批传（T4.4 已就绪）
   smallFileThresholdBytes: 1024 * 1024,
   largeFileBatchBytes: 50 * 1024 * 1024,
-  // 同步范围规则默认空：不清空任何既有行为，用户按需添加
-  syncExcludePatterns: [],
+  // 只同步文本/代码/文档（见 MEDIA_EXCLUDES 的注释）
+  syncExcludePatterns: MEDIA_EXCLUDES,
   syncForceIncludePatterns: [],
 }
 
@@ -54,7 +83,13 @@ export function decryptToken(enc?: string): string {
 export function loadCloudSyncConfig(): CloudSyncConfig {
   try {
     const raw = JSON.parse(fs.readFileSync(configFile(), 'utf-8')) as Partial<CloudSyncConfig>
-    return { ...DEFAULT_CLOUD_SYNC_CONFIG, ...raw }
+    // **排除规则是「默认 + 用户追加」，不是「用户覆盖默认」**（2026-11-04）。
+    // 老配置文件里存的是空数组 `[]`，直接展开会让默认的多媒体排除规则失效——
+    // 那正是这轮要修的问题（11GB 仓库里 9.5GB 是历史多媒体）。
+    // 用户想放行某个类型，加进 syncForceIncludePatterns（排除优先，需两边都改）。
+    const userExcludes = Array.isArray(raw.syncExcludePatterns) ? raw.syncExcludePatterns : []
+    const merged = [...new Set([...MEDIA_EXCLUDES, ...userExcludes])]
+    return { ...DEFAULT_CLOUD_SYNC_CONFIG, ...raw, syncExcludePatterns: merged }
   } catch {
     return { ...DEFAULT_CLOUD_SYNC_CONFIG }
   }
