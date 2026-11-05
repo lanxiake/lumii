@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LocalArtifactEdit } from '../../../../../shared/artifact-edit-types'
 import { buildArtifactLedger, type LedgerMessageLike } from './ledger'
-import { mergeLocalEdits } from './local-edits'
+import { mergeLocalEdits, applyPathRenames, isMediaPath, renamePath } from './local-edits'
 
 function edit(overrides: Partial<LocalArtifactEdit> = {}): LocalArtifactEdit {
   return {
@@ -153,5 +153,58 @@ describe('mergeLocalEdits', () => {
   it('没有本地编辑时原样返回，避免无谓重建', () => {
     const ledger = buildArtifactLedger([assistant('m1', 1000, ['outputs/demo/doc.md'])])
     expect(mergeLocalEdits(ledger, [])).toBe(ledger)
+  })
+})
+
+/**
+ * 产物卡右键「重命名」的三个纯函数。
+ *
+ * 现场（2026-11-05，用户报）：产物列表的文件不能像工作区文件那样改名/复制路径。
+ * 改名后卡片若仍指着旧路径，缩略图会变成「文件已不在磁盘」——所以台账必须跟着换名。
+ */
+describe('产物重命名', () => {
+  it('renamePath 只换最后一段，拒绝带分隔符的新名字', () => {
+    expect(renamePath('outputs/demo/a.png', 'b.png')).toBe('outputs/demo/b.png')
+    expect(renamePath('top.md', 'renamed.md')).toBe('renamed.md')
+    // 带路径 = 挪到别的目录，不是这个入口的职责
+    expect(renamePath('outputs/demo/a.png', 'sub/b.png')).toBeNull()
+    expect(renamePath('outputs/demo/a.png', '  ')).toBeNull()
+  })
+
+  it('isMediaPath 认图片/音视频，不认文档代码', () => {
+    for (const p of ['a.png', 'b.JPG', 'c.webp', 'd.mp4', 'e.webm', 'f.mp3', 'g.svg']) {
+      expect(isMediaPath(p), p).toBe(true)
+    }
+    for (const p of ['a.md', 'b.json', 'c.ts', 'd.html', 'e.zip']) {
+      expect(isMediaPath(p), p).toBe(false)
+    }
+  })
+
+  it('applyPathRenames 换名后卡片仍可用，且计数与分组不丢', () => {
+    const ledger = buildArtifactLedger([
+      assistant('m1', 1000, ['outputs/demo/a.png', 'outputs/demo/b.png']),
+    ])
+    const renamed = applyPathRenames(ledger, new Map([['outputs/demo/a.png', 'outputs/demo/c.png']]))
+
+    const paths = renamed.groups.flatMap((g) => g.deliverables).map((item) => item.path)
+    expect(paths).toContain('outputs/demo/c.png')
+    expect(paths).not.toContain('outputs/demo/a.png')
+    expect(renamed.counts.deliverables).toBe(ledger.counts.deliverables)
+  })
+
+  it('改名撞上已有路径时去重，不产生两张同路径的卡', () => {
+    const ledger = buildArtifactLedger([
+      assistant('m1', 1000, ['outputs/demo/a.png']),
+      assistant('m2', 2000, ['outputs/demo/b.png']),
+    ])
+    // 两张卡分别来自不同组；把 a 改成 b 的路径
+    const renamed = applyPathRenames(ledger, new Map([['outputs/demo/a.png', 'outputs/demo/b.png']]))
+    const all = renamed.groups.flatMap((g) => g.deliverables).map((item) => item.path)
+    expect(all.filter((p) => p === 'outputs/demo/b.png')).toHaveLength(1)
+  })
+
+  it('没有改名时原样返回，避免每帧重建台账', () => {
+    const ledger = buildArtifactLedger([assistant('m1', 1000, ['outputs/demo/a.png'])])
+    expect(applyPathRenames(ledger, new Map())).toBe(ledger)
   })
 })

@@ -495,6 +495,14 @@ export interface FilePreviewModalProps {
   variant?: 'modal' | 'window' | 'embedded'
   /** @deprecated 使用 variant='embedded' */
   embedded?: boolean
+  /**
+   * 左右切换相邻文件（图片/视频/音频等媒体）。
+   *
+   * 有它就显示「‹ / ›」按钮并接 ←/→ 键；**换文件由父层改 filePath 完成**
+   * ——调用方通常还要同步工作台的 `selectedPath`，让 rail 的高亮跟着走，
+   * 自己切会两边不同步。
+   */
+  onNavigate?: (direction: -1 | 1) => void
 }
 
 /** 读取对话区边界，供全屏预览覆盖整个对话框 */
@@ -544,6 +552,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   onPoppedOut,
   variant: variantProp,
   embedded = false,
+  onNavigate,
 }) => {
   const variant = variantProp ?? (embedded ? 'embedded' : 'modal')
   const isWindow = variant === 'window'
@@ -691,6 +700,18 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         }
         return
       }
+      // ← / → 切相邻媒体；编辑态、有输入焦点、或在播放器里按方向键（调进度）时不抢
+      if (onNavigate && !isEditingMarkdown && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        const target = e.target
+        const inField =
+          target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            ['INPUT', 'TEXTAREA', 'SELECT', 'VIDEO', 'AUDIO'].includes(target.tagName))
+        if (inField) return
+        e.preventDefault()
+        onNavigate(e.key === 'ArrowLeft' ? -1 : 1)
+        return
+      }
       if (isWindow) return // 独立窗由系统关闭 / 顶栏关闭
       if (e.key !== 'Escape') return
       if (isEditingMarkdown) {
@@ -706,7 +727,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isFullscreen, isEditingMarkdown, onClose, isWindow, zoomSupported, zoomBy])
+  }, [isFullscreen, isEditingMarkdown, onClose, isWindow, zoomSupported, zoomBy, onNavigate])
 
   /**
    * 缩放：仅 Ctrl/Cmd + 滚轮触发（与浏览器/编辑器一致）。
@@ -1231,6 +1252,28 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
         {/* 内容区 */}
         <div className={styles.body} ref={bodyRef}>
+          {onNavigate && !isEditingMarkdown && (
+            <>
+              <button
+                type="button"
+                className={clsx(styles.navBtn, styles.navPrev)}
+                onClick={() => onNavigate(-1)}
+                title="上一个（←）"
+                aria-label="上一个"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className={clsx(styles.navBtn, styles.navNext)}
+                onClick={() => onNavigate(1)}
+                title="下一个（→）"
+                aria-label="下一个"
+              >
+                ›
+              </button>
+            </>
+          )}
           {loading && (
             <div className={styles.center}>
               <span className={styles.spinner} />

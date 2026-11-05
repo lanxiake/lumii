@@ -35,7 +35,7 @@ import type {
   SlideEditProposal,
   SlideOutlineItem,
 } from '../../../../shared/artifact-slide-types'
-import { mergeLocalEdits } from '../components/WorkspaceArtifactsPanel/local-edits'
+import { mergeLocalEdits, applyPathRenames, isMediaPath } from '../components/WorkspaceArtifactsPanel/local-edits'
 import { EditProposalPanel } from '../components/WorkspaceArtifactsPanel/EditProposalPanel'
 import { CheckpointDialog } from '../components/WorkspaceArtifactsPanel/CheckpointDialog'
 import {
@@ -264,10 +264,12 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     [ledger, sidecarMetas],
   )
   // 本地编辑（工作台改写 / 手工保存）不在消息里：合并成卡片，但不伪造 turn
+  /** 本地改名（会话内有效）：旧路径 → 新路径，见 applyPathRenames */
+  const [pathRenames, setPathRenames] = useState<ReadonlyMap<string, string>>(new Map())
   const { edits: localEdits } = useArtifactEdits(sessionKey, workbench.open)
   const mergedLedger = useMemo(
-    () => mergeLocalEdits(enrichedLedger, localEdits),
-    [enrichedLedger, localEdits],
+    () => applyPathRenames(mergeLocalEdits(enrichedLedger, localEdits), pathRenames),
+    [enrichedLedger, localEdits, pathRenames],
   )
   /** 清理时保护「声明/派生为成品」的路径；即使路径长得像过程文件也不删 */
   const protectedPaths = useMemo(
@@ -335,6 +337,33 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       : toAbsolutePath(selected)
     : undefined
   const selectedName = absoluteSelected?.split(/[\\/]/).pop() ?? absoluteSelected
+
+  /**
+   * ←/→ 在当前范围内切相邻的**图片/视频**（桌面看图的肌肉记忆）。
+   *
+   * 范围取「台账里可见的媒体」，按当前分组顺序展平——用户在产物列表里看到的
+   * 上一张/下一张，就是这两个按钮去的地方。只选中一个非媒体文件时不出现。
+   */
+  const mediaSiblings = useMemo(() => {
+    if (!selected || isAbsolutePath(selected)) return []
+    const out: string[] = []
+    for (const group of mergedLedger.groups) {
+      for (const item of group.deliverables) if (isMediaPath(item.path)) out.push(item.path)
+      for (const item of group.intermediates) if (isMediaPath(item.path)) out.push(item.path)
+    }
+    return out
+  }, [mergedLedger, selected])
+
+  const navigateMedia = useMemo(() => {
+    if (!selected || !mediaSiblings.includes(selected)) return undefined
+    const index = mediaSiblings.indexOf(selected)
+    if (mediaSiblings.length < 2) return undefined
+    return (direction: -1 | 1): void => {
+      const next = (index + direction + mediaSiblings.length) % mediaSiblings.length
+      const target = mediaSiblings[next]
+      if (target) onSelect(target)
+    }
+  }, [selected, mediaSiblings, onSelect])
 
   // 对比模式：main 换成并排视图；退出（Esc / 点某一格 / 关闭工作台）回普通预览
   const [comparePaths, setComparePaths] = useState<readonly string[]>([])
@@ -450,6 +479,36 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       return next
     })
   }, [])
+
+  /**
+   * 卡片被改名：磁盘已经改完，这里只跟上 UI 状态。
+   *
+   * `trashedPaths` 是按旧路径记的删除记录，改名后要把它一并换名，
+   * 否则刚改完名的文件会重新按「已删除」被隐藏。
+   */
+  const handleRenamed = useCallback(
+    (oldPath: string, newPath: string) => {
+      setPathRenames((previous) => {
+        const next = new Map(previous)
+        next.set(oldPath, newPath)
+        return next
+      })
+      setTrashedPaths((previous) => {
+        if (!previous.has(oldPath)) return previous
+        const next = new Set(previous)
+        next.delete(oldPath)
+        next.add(newPath)
+        return next
+      })
+      setComparePaths((previous) =>
+        previous.includes(oldPath)
+          ? previous.map((path) => (path === oldPath ? newPath : path))
+          : previous,
+      )
+      if (workbench.selectedPath === oldPath) onSelect(newPath)
+    },
+    [workbench.selectedPath, onSelect],
+  )
 
   // main 用渲染函数：对比视图要知道当前工作台宽度（<860 只并排 2 项）
   // inspector 只对「选中且来自台账」的产物出现：文件面板里的普通文件没有版本历史
@@ -1198,6 +1257,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         {...(selectedArtifact?.kind === 'slides'
           ? { onPptxPageChange: handlePptxPageChange }
           : {})}
+        {...(navigateMedia ? { onNavigate: navigateMedia } : {})}
         onPoppedOut={restoreChatAfterPopup}
         onClose={() => onSelect(undefined)}
       />
@@ -1377,6 +1437,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
               {...(onFollowChange ? { onFollowChange } : {})}
               trashedPaths={trashedPaths}
               onTrashed={handleTrashed}
+              onRenamed={handleRenamed}
               {...(progress ? { progress } : {})}
               onAbort={onAbort}
               cards={cards}

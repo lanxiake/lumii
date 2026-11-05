@@ -109,6 +109,37 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px 2px;
+  /*
+   * 必须限高：工具连续失败时这里会堆十几张卡，每张带一行报错，
+   * 不封顶就把下面的筛选/搜索和产物列表整体挤出可视区（2026-11-05 现场）。
+   * 封顶后自己滚，主界面始终留在原位。
+   */
+  max-height: min(40vh, 260px);
+  overflow-y: auto;
+}
+
+/* 折叠/展开这一块的头（只在有卡时出现） */
+.pendingHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: var(--mt-fg-3);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pendingHeader:hover {
+  color: var(--mt-fg-1);
+}
+
+.pendingHeaderCount {
+  color: var(--mt-fg-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .pendingCard {
@@ -172,6 +203,12 @@
   flex-basis: 100%;
   color: var(--mt-error);
   font-size: 10px;
+  /* 报错常带整段堆栈/JSON：最多两行，点标题看全文（别再往下撑高） */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .pendingMeta {
@@ -185,6 +222,47 @@
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+}
+
+/* ── 产物卡右键菜单（与「工作区文件」树同一套动作） ── */
+.cardMenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: var(--mt-radius-md, 8px);
+  background: var(--mt-surface-2);
+  box-shadow: var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35));
+}
+
+.cardMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mt-fg-1);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cardMenuItem:hover {
+  background: color-mix(in srgb, var(--mt-accent-500) 16%, transparent);
+}
+
+.cardMenuItemDanger {
+  color: var(--mt-error);
+}
+
+.cardMenuDivider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--mt-border-hairline);
 }
 
 .pendingActions button {

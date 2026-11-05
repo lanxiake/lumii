@@ -6,12 +6,18 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Search } from 'lucide-react'
+import { Search, Eye, Edit3, FolderOpen, Copy, Trash2 } from 'lucide-react'
 import { stageOfTool, type ArtifactKind } from '../../../../../shared/artifact-rules'
 import { actionsForCard, type ArtifactCardState } from '../../../../../shared/card-state'
 import { ArtifactCard } from './ArtifactCard'
 import { ArtifactFoldRow } from './ArtifactFoldRow'
+import { PromptInputModal } from '../../../../components/ui/Modal/PromptInputModal'
+import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+import { renamePath } from './local-edits'
+import { moveFile } from '../../../../services/file-service'
+import { showItemInFolder } from '../../../../services/app-service'
 import { applySelect, type ToggleMode } from './selection'
 import { groupStatusOf, GROUP_STATUS_LABEL } from './status'
 import { groupBySections, sectionOf } from './time-sections'
@@ -116,6 +122,11 @@ export interface WorkspaceArtifactsPanelProps {
   trashedPaths?: ReadonlySet<string>
   /** 删除成功后上抛，父层负责隐藏卡片并提供刷新入口 */
   onTrashed?: (relativePaths: readonly string[]) => void
+  /**
+   * 文件在磁盘上被改名：父层要同步 `selectedPath` 与已登记路径。
+   * 不传则右键菜单不提供「重命名」（改名后 rail 与预览会两边对不上）。
+   */
+  onRenamed?: (oldRelativePath: string, newRelativePath: string) => void
   /** 选中集变化（动作条「对比」要合并 rail 里的多选） */
   onSelectionChange?: (paths: readonly string[]) => void
   /** 「上次查看工作台」的时间：组列表里插一条分隔行 */
@@ -165,6 +176,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   onCompare,
   trashedPaths,
   onTrashed,
+  onRenamed,
   onSelectionChange,
   scope = 'session',
   onScopeChange,
@@ -207,6 +219,8 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
    */
   const [groupOverrides, setGroupOverrides] = useState<ReadonlyMap<string, boolean>>(new Map())
   const [expandedFolds, setExpandedFolds] = useState<ReadonlySet<string>>(new Set())
+  /** 工具卡区默认展开；用户收起来后保持收起（刷屏时能一键让出位置） */
+  const [cardsOpen, setCardsOpen] = useState(true)
   /** 一次最多铺 200 张过程卡；再多先给按钮（1114 张全铺 ≈ 6800 节点） */
   const [showAllFolds, setShowAllFolds] = useState<ReadonlySet<string>>(new Set())
   // 默认只展开最新一组；但筛选/搜索时把所有命中组展开，否则用户看不到结果
@@ -282,6 +296,73 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   }, [visibleOrder])
 
   const toast = useOptionalToast()
+
+  /**
+   * 右键菜单：与「工作区文件」树对齐（预览 / 重命名 / 复制路径 / 显示 / 删除）。
+   *
+   * 产物卡此前只有左键选中与双击开窗，用户想改名或复制路径必须切到文件视图再翻目录。
+   */
+  const [menu, setMenu] = useState<{
+    x: number
+    y: number
+    path: string
+    absolutePath: string
+  } | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ path: string; absolutePath: string } | null>(
+    null,
+  )
+
+  useEffect(() => {
+    if (!menu) return
+    const close = (): void => setMenu(null)
+    // 捕获阶段：卡片自己的 click 会先触发选中，菜单应当在这一下之后就消失
+    document.addEventListener('click', close, true)
+    document.addEventListener('keydown', close)
+    return () => {
+      document.removeEventListener('click', close, true)
+      document.removeEventListener('keydown', close)
+    }
+  }, [menu])
+
+  const handleCardContextMenu = (
+    event: React.MouseEvent,
+    artifact: Artifact,
+    absolutePath: string,
+  ): void => {
+    setMenu({ x: event.clientX, y: event.clientY, path: artifact.path, absolutePath })
+  }
+
+  const handleRenameConfirm = async (newName: string): Promise<void> => {
+    const target = renameTarget
+    setRenameTarget(null)
+    if (!target) return
+    const next = renamePath(target.path, newName)
+    if (!next || next === target.path) return
+    const nextAbsolute = target.absolutePath.replace(/[^\\/]+$/, newName.trim())
+    try {
+      await moveFile(target.absolutePath, nextAbsolute)
+      onRenamed?.(target.path, next)
+      toast.success(`已重命名为 ${newName.trim()}`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '重命名失败')
+    }
+  }
+
+  const handleMenuDelete = async (absolutePath: string, relativePath: string): Promise<void> => {
+    const api = window.electronAPI?.artifact
+    if (!api?.trash) return
+    try {
+      const result = await api.trash([absolutePath])
+      if (!result.ok) {
+        toast.error(result.error ?? '删除失败')
+        return
+      }
+      onTrashed?.([relativePath])
+      toast.success('已移入回收站（可在「清理…」里恢复）')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败')
+    }
+  }
 
   const handleCardSelect = (artifact: Artifact, mode?: 'add' | 'range'): void => {
     // 用户自己点卡片 = 交出控制权：跟随模式停在这里
@@ -398,6 +479,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
       selected={selectedPath === artifact.path || selection.has(artifact.path)}
       onSelect={(path, mode) => handleCardSelect(artifact, mode)}
       {...(onOpenWindow ? { onOpenWindow } : {})}
+      onContextMenu={handleCardContextMenu}
     />
   )
 
@@ -543,51 +625,74 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
       )}
 
       {cards.length > 0 && (
-        <div className={styles.pendingList}>
-          {cards.map((card) => {
-            const actions = actionsForCard(card)
-            return (
-              <div
-                key={card.id}
-                className={clsx(styles.pendingCard, styles[`pending--${card.lifecycle}`])}
-                data-card-lifecycle={card.lifecycle}
-              >
-                <span className={styles.pendingBadge}>
-                  {card.lifecycle === 'running'
-                    ? '进行中'
-                    : card.lifecycle === 'failed'
-                      ? '失败'
-                      : '已中断'}
-                </span>
-                <span className={styles.pendingTitle} title={card.title}>
-                  {card.title ?? card.kind}
-                </span>
-                {card.placeholder?.prompt && (
-                  <span className={styles.pendingPrompt}>{card.placeholder.prompt}</span>
-                )}
-                {card.error && <span className={styles.pendingError}>{card.error}</span>}
-                {card.lifecycle === 'running' && progress && (
-                  <span className={styles.pendingMeta}>
-                    {progress.total > 0 ? `${progress.done}/${progress.total} · ` : ''}
-                    {formatElapsed(elapsed)}
-                  </span>
-                )}
-                <div className={styles.pendingActions}>
-                  {actions.includes('abort') && onAbort && (
-                    <button type="button" onClick={onAbort}>
-                      中断
-                    </button>
-                  )}
-                  {actions.includes('retry') && card.retry?.prompt && onRetryPrompt && (
-                    <button type="button" onClick={() => onRetryPrompt(card.retry!.prompt!)}>
-                      重试
-                    </button>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+        <>
+          <button
+            type="button"
+            className={styles.pendingHeader}
+            onClick={() => setCardsOpen((open) => !open)}
+            aria-expanded={cardsOpen}
+            title={cardsOpen ? '收起运行状态' : '展开运行状态'}
+          >
+            <span>{cardsOpen ? '▾' : '▸'}</span>
+            <span>运行状态</span>
+            <span className={styles.pendingHeaderCount}>
+              {runningCards.length > 0 && `${runningCards.length} 进行中`}
+              {runningCards.length > 0 && cards.length > runningCards.length && ' · '}
+              {cards.length > runningCards.length && `${cards.length - runningCards.length} 已结束`}
+            </span>
+          </button>
+          {cardsOpen && (
+            <div className={styles.pendingList}>
+              {cards.map((card) => {
+                const actions = actionsForCard(card)
+                return (
+                  <div
+                    key={card.id}
+                    className={clsx(styles.pendingCard, styles[`pending--${card.lifecycle}`])}
+                    data-card-lifecycle={card.lifecycle}
+                  >
+                    <span className={styles.pendingBadge}>
+                      {card.lifecycle === 'running'
+                        ? '进行中'
+                        : card.lifecycle === 'failed'
+                          ? '失败'
+                          : '已中断'}
+                    </span>
+                    <span className={styles.pendingTitle} title={card.error ?? card.title}>
+                      {card.title ?? card.kind}
+                    </span>
+                    {card.placeholder?.prompt && (
+                      <span className={styles.pendingPrompt}>{card.placeholder.prompt}</span>
+                    )}
+                    {card.error && (
+                      <span className={styles.pendingError} title={card.error}>
+                        {card.error}
+                      </span>
+                    )}
+                    {card.lifecycle === 'running' && progress && (
+                      <span className={styles.pendingMeta}>
+                        {progress.total > 0 ? `${progress.done}/${progress.total} · ` : ''}
+                        {formatElapsed(elapsed)}
+                      </span>
+                    )}
+                    <div className={styles.pendingActions}>
+                      {actions.includes('abort') && onAbort && (
+                        <button type="button" onClick={onAbort}>
+                          中断
+                        </button>
+                      )}
+                      {actions.includes('retry') && card.retry?.prompt && onRetryPrompt && (
+                        <button type="button" onClick={() => onRetryPrompt(card.retry!.prompt!)}>
+                          重试
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
 
       {onScopeChange && (
@@ -724,6 +829,9 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
                           absolutePath={toAbsolutePath(item.path)}
                           selected={false}
                           onSelect={() => onOpenAll?.(item)}
+                          onContextMenu={(event, artifact, absolutePath) =>
+                            handleCardContextMenu(event, artifact, absolutePath)
+                          }
                         />
                       ))}
                     </div>
@@ -915,6 +1023,121 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
           </button>
         </div>
       )}
+
+      {/* 右键菜单：与「工作区文件」树同一套动作 */}
+      {menu &&
+        createPortal(
+          <div
+            className={styles.cardMenu}
+            style={{
+              left: Math.min(menu.x, window.innerWidth - 200),
+              top: Math.min(menu.y, window.innerHeight - 260),
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className={styles.cardMenuItem}
+              onClick={() => {
+                onSelect(menu.path)
+                setMenu(null)
+              }}
+            >
+              <Eye size={13} />
+              预览
+            </button>
+            {onRenamed && (
+              <button
+                type="button"
+                className={styles.cardMenuItem}
+                onClick={() => {
+                  setRenameTarget({ path: menu.path, absolutePath: menu.absolutePath })
+                  setMenu(null)
+                }}
+              >
+                <Edit3 size={13} />
+                重命名
+              </button>
+            )}
+            <button
+              type="button"
+              className={styles.cardMenuItem}
+              onClick={() => {
+                void showItemInFolder(menu.absolutePath)
+                setMenu(null)
+              }}
+            >
+              <FolderOpen size={13} />
+              在资源管理器中显示
+            </button>
+            <div className={styles.cardMenuDivider} />
+            <button
+              type="button"
+              className={styles.cardMenuItem}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(menu.path)
+                  .then(() => toast.success('已复制相对路径'))
+                  .catch(() => toast.error('复制失败'))
+                setMenu(null)
+              }}
+            >
+              <Copy size={13} />
+              复制相对路径
+            </button>
+            <button
+              type="button"
+              className={styles.cardMenuItem}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(menu.absolutePath)
+                  .then(() => toast.success('已复制绝对路径'))
+                  .catch(() => toast.error('复制失败'))
+                setMenu(null)
+              }}
+            >
+              <Copy size={13} />
+              复制绝对路径
+            </button>
+            <button
+              type="button"
+              className={styles.cardMenuItem}
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(menu.path.split('/').pop() ?? menu.path)
+                  .then(() => toast.success('已复制文件名'))
+                  .catch(() => toast.error('复制失败'))
+                setMenu(null)
+              }}
+            >
+              <Copy size={13} />
+              复制文件名
+            </button>
+            <div className={styles.cardMenuDivider} />
+            <button
+              type="button"
+              className={clsx(styles.cardMenuItem, styles.cardMenuItemDanger)}
+              onClick={() => {
+                const target = menu
+                setMenu(null)
+                void handleMenuDelete(target.absolutePath, target.path)
+              }}
+            >
+              <Trash2 size={13} />
+              删除
+            </button>
+          </div>,
+          document.body,
+        )}
+
+      <PromptInputModal
+        open={renameTarget !== null}
+        title="重命名"
+        defaultValue={renameTarget?.path.split('/').pop() ?? ''}
+        confirmText="确定"
+        onConfirm={(value) => void handleRenameConfirm(value)}
+        onCancel={() => setRenameTarget(null)}
+      />
     </div>
   )
 }

@@ -304,6 +304,37 @@
   color: #fff;
 }
 
+/* 左右切相邻媒体：贴边悬浮，半透明底保证在亮/暗画面上都看得见 */
+.navBtn {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 32px;
+  height: 56px;
+  margin-top: -28px;
+  border: 0;
+  border-radius: var(--mt-radius-lg, 8px);
+  background: color-mix(in srgb, var(--mt-surface-3) 72%, transparent);
+  color: var(--mt-fg-1);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.navBtn:hover {
+  opacity: 1;
+}
+
+.navPrev {
+  left: 8px;
+}
+
+.navNext {
+  right: 8px;
+}
+
 [data-theme='light'] .body ::selection {
   background-color: var(--mt-accent-300);
   color: #0f172a;

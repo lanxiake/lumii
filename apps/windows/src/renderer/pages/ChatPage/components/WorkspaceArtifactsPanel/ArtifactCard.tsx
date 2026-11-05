@@ -71,6 +71,8 @@ export interface ArtifactCardProps {
   onSelect: (relativePath: string, mode?: 'add' | 'range') => void
   /** 双击：开独立预览窗 */
   onOpenWindow?: (absolutePath: string, fileName: string) => void
+  /** 右键：与工作区的文件树同一套菜单（预览/重命名/复制路径/显示/删除） */
+  onContextMenu?: (event: React.MouseEvent, artifact: Artifact, absolutePath: string) => void
 }
 
 export const ArtifactCard: React.FC<ArtifactCardProps> = ({
@@ -79,6 +81,7 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
   selected = false,
   onSelect,
   onOpenWindow,
+  onContextMenu,
 }) => {
   const name = fileNameOf(artifact.path)
   const isImage = artifact.kind === 'image' || artifact.kind === 'image-set'
@@ -135,6 +138,11 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
       onDoubleClick={() => {
         if (missing) return
         onOpenWindow?.(absolutePath, name)
+      }}
+      onContextMenu={(event) => {
+        if (!onContextMenu) return
+        event.preventDefault()
+        onContextMenu(event, artifact, absolutePath)
       }}
       title={missing ? `${artifact.path}（文件已不在磁盘）` : artifact.path}
       aria-pressed={selected}
