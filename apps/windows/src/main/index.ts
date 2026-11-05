@@ -1145,12 +1145,24 @@ async function prepareAppShell(flags: ReturnType<typeof readStartupFlags>): Prom
   // 所有自定义 scheme 的 privileges 必须一次注册完（分批调用是替换语义，只有最后一批生效）
   registerAllSchemePrivileges()
 
-  // 窗口录制：改用 Windows Graphics Capture，支持被遮挡窗口，减少黑屏
+  // 窗口录制：**刻意不开 AllowWgcWindowCapturer**（2026-11-05 实测）。
+  //
+  // 开着的后果不是「画质更好」，是**窗口源一律录不了**：本机 GPU 合成走软件回退
+  // （DXGI duplicator 初始化失败），WGC 窗口捕获启动即失败，Chromium 把它变成
+  // `NotReadableError: Could not start video source` —— 24 个窗口源逐个试，全灭；
+  // 而 `getSources` 的缩略图仍然正常，所以面板里源列得出来、点了却立刻结束。
+  // 关掉这条 feature 后 LiteShell / 记事本等窗口源立刻可录（见
+  // verify/screen-record/probe-windows.cjs 与 probe-capture.cjs）。
+  //
+  // 代价：被遮挡的窗口录到的是遮挡后的画面（老 WGC 之外的路径没有「隐形捕获」）。
+  // 想要回 WGC：先确认 `app.getGPUFeatureStatus().gpu_compositing` 不是 disabled_software。
   if (process.platform === 'win32') {
     app.commandLine.appendSwitch(
       'enable-features',
-      'AllowWgcDesktopCapturer,AllowWgcScreenCapturer,AllowWgcWindowCapturer',
+      'AllowWgcDesktopCapturer,AllowWgcScreenCapturer',
     )
+    // 光从 enable-features 里去掉不够：默认就带这条，必须显式禁用
+    app.commandLine.appendSwitch('disable-features', 'AllowWgcWindowCapturer')
   }
 
   // 禁用 Electron 安全警告（桌面应用运行在受信任的本地环境中）

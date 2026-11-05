@@ -33,6 +33,8 @@ export interface ScreenRecordPanelProps {
   lastRecording: { path: string; durationMs: number; bytes: number } | null
   /** 目标窗口最小化/遮挡，画面已冻结 */
   targetHidden?: boolean
+  /** 上一次录制异常结束（开始录制失败 / 中途被打断）的用户可读原因 */
+  lastError?: { code: string; message: string } | null
   /** 录制完成后需要在成片库定位的路径 */
   focusRecordingPath?: string | null
   /** 定位完成回调（清除一次性焦点） */
@@ -118,6 +120,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   enabled,
   lastRecording,
   targetHidden = false,
+  lastError = null,
   focusRecordingPath = null,
   onFocusConsumed,
   onRefreshSources,
@@ -321,6 +324,13 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
                 {active && targetHidden && (
                   <p className={styles.hintWarn}>
                     目标窗口已最小化或被隐藏，画面已冻结为最后一帧；恢复窗口后会自动继续录制。
+                  </p>
+                )}
+
+                {/* 上一次为什么没录成：没有这行，用户只能反复重试（2026-11-05 现场） */}
+                {!active && lastError && (
+                  <p className={styles.hintWarn} role="alert">
+                    上次录制没有成功：{lastError.message || lastError.code}
                   </p>
                 )}
 

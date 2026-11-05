@@ -120,6 +120,7 @@ export const ScreenRecordRoot: React.FC = () => {
     setPanelOpen,
     pendingConfirm,
     targetHidden,
+    lastError,
     focusRecordingPath,
     clearFocusRecording,
     refreshSources,
@@ -187,6 +188,7 @@ export const ScreenRecordRoot: React.FC = () => {
         enabled={screenRecord.enabled}
         lastRecording={lastRecording}
         targetHidden={targetHidden}
+        lastError={lastError}
         focusRecordingPath={focusRecordingPath}
         onFocusConsumed={clearFocusRecording}
         onRefreshSources={refreshSources}

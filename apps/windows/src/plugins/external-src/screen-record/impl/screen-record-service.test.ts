@@ -450,8 +450,38 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     expect(detail.ok && Boolean(detail.targetHidden)).toBe(false)
   })
 
-  it('成片写盘完成后通知渲染层（自动打开面板定位）', async () => {
-    const notify = vi.fn()
+  /**
+   * 现场（2026-11-05）：选窗口点开始，录制立刻结束且界面没有任何提示。
+   * 根因之一是 WGC 窗口捕获在本机不可用（见 main/index.ts 的开关注释）；
+   * 另一个是**失败原因没有出口**——状态机回 idle 后前端只知道「没了」。
+   * 这里钉住出口：异常结束后 getStatus 必须带 lastError/lastErrorMessage，
+   * 且下一次成功开录要清掉它（否则红字会一直挂着）。
+   */
+  it('采集中途失败：回 idle 时带回可读原因，重新开录后清空', async () => {
+    const d = makeFakeDeps()
+    const s = createScreenRecordService(d)
+    await s.start({ sourceId: 'lumii-id' })
+    await s.handleCaptureError({
+      sessionId: sessionIdOf(s),
+      reason: 'NotReadableError: Could not start video source',
+    })
+
+    expect(statusOf(s)).toBe('idle')
+    const detail = s.getStatus()
+    expect(detail.ok).toBe(true)
+    if (detail.ok) {
+      expect(detail.lastError).toBe('capture_failed')
+      // 不能把原始英文错误名直接甩给用户
+      expect(detail.lastErrorMessage).toContain('抓不到')
+      expect(detail.lastErrorMessage).not.toContain('NotReadableError')
+    }
+
+    await s.start({ sourceId: 'lumii-id' })
+    const after = s.getStatus()
+    expect(after.ok && after.lastError).toBeFalsy()
+  })
+
+  it('成片写盘完成后通知渲染层（自动打开面板定位）', async () => {    const notify = vi.fn()
     const d = makeFakeDeps({ notifyRendererRecordingSaved: notify })
     const s = createScreenRecordService(d)
     await s.start({ sourceId: 'lumii-id' })

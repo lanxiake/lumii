@@ -42,6 +42,8 @@ export interface ScreenRecordState {
   targetHidden: boolean
   /** 需要在成片库中定位高亮的路径（录制完成后自动跳转） */
   focusRecordingPath: string | null
+  /** 上一次录制异常结束的原因（成功开录时清空） */
+  lastError: { code: string; message: string } | null
 }
 
 const INITIAL: ScreenRecordState = {
@@ -53,6 +55,7 @@ const INITIAL: ScreenRecordState = {
   pendingConfirm: null,
   targetHidden: false,
   focusRecordingPath: null,
+  lastError: null,
 }
 
 let state: ScreenRecordState = INITIAL
@@ -102,6 +105,10 @@ function startEffects(): void {
           sessionId: detail.sessionId,
           sourceName: detail.sourceName,
           targetHidden: detail.targetHidden === true,
+          // 主进程在回 idle 时带上失败原因；录制中/确认中不带，保持原值不影响
+          ...(detail.lastError
+            ? { lastError: { code: detail.lastError, message: detail.lastErrorMessage ?? '' } }
+            : {}),
         }
         if (detail.status === 'idle') patch.pendingConfirm = null
         setStatus(patch)
@@ -143,6 +150,9 @@ function startEffects(): void {
       elapsedMs: s.elapsedMs ?? 0,
       sessionId: s.sessionId,
       sourceName: s.sourceName,
+      ...(s.lastError
+        ? { lastError: { code: s.lastError, message: s.lastErrorMessage ?? '' } }
+        : {}),
     }
     if (s.status === 'pending_confirm' && s.pendingConfirm && s.sessionId) {
       // 刷新窗口后恢复确认弹窗（主进程确认态与定时器仍在）；
@@ -219,9 +229,15 @@ export async function refreshSources(includeThumbnail = false) {
 export async function startScreenRecord(params: ScreenRecordStartParams) {
   const r = await screenRecordApi.start(params)
   if (r.ok && r.status === 'recording') {
-    setStatus({ status: 'recording', sessionId: r.sessionId })
+    setStatus({ status: 'recording', sessionId: r.sessionId, lastError: null })
   } else if (r.ok && r.status === 'needs_confirmation') {
     setStatus({ status: 'pending_confirm', sessionId: r.sessionId })
+  } else if (!r.ok) {
+    // start 本身就失败（源不可用 / 磁盘不够 / 采集层拒绝）：别静默，面板要能显示
+    setState({
+      lastError: { code: r.error, message: r.message ?? '' },
+      status: 'idle',
+    })
   }
   return r
 }

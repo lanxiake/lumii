@@ -213,6 +213,15 @@ function createIdleState(): InternalState {
 export function createScreenRecordService(deps: ScreenRecordServiceDeps): ScreenRecordService {
   let state = createIdleState()
 
+  /**
+   * 上一次录制**异常结束**的原因（跨 resetToIdle 存活）。
+   *
+   * 采集层失败时状态机直接回 idle：渲染层只看到「开始了→立刻没了」，
+   * 没有任何提示，用户没法自救（2026-11-05 现场：选 LiteShell 点开始，录制立刻结束）。
+   * 这里记住原因并随 status 回传，面板显示一行红字；下一次成功开录时清空。
+   */
+  let lastFailure: { code: ScreenRecordErrorCode; message?: string } | null = null
+
   /** 截图确认槽（与录屏 pending_confirm 解耦） */
   let screenshotPending: {
     sessionId: string
@@ -273,10 +282,47 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     state = createIdleState()
   }
 
+  /**
+   * 记住一次异常结束，并广播状态（回 idle 时带上原因）。
+   *
+   * 「录制 1 秒就没了」是本插件最难受的一种故障：不落日志、界面不提示，
+   * 用户只能反复重试。任何走到这里的路径都必须留下可读原因。
+   */
+  function noteFailure(code: ScreenRecordErrorCode, message?: string): void {
+    lastFailure = { code, ...(message ? { message } : {}) }
+  }
+
+  /** capture-error 的 reason 里既有错误码也有异常 message，统一翻成可读文案 */
+  function describeCaptureReason(reason: string): { code: ScreenRecordErrorCode; message: string } {
+    if (reason === 'NotReadableError' || reason.startsWith('NotReadableError')) {
+      return {
+        code: 'capture_failed',
+        message:
+          '这个窗口的画面抓不到（系统级捕获失败）。先确认窗口没有被最小化；仍不行就改录「整个屏幕」。',
+      }
+    }
+    if (reason === 'renderer_gone') {
+      return { code: 'capture_failed', message: '采集进程意外退出，录制已中止。' }
+    }
+    if (reason === 'echoCancellation' || reason.toLowerCase().includes('no webm encoder')) {
+      return { code: 'capture_failed', message: '编码器不可用，无法录制。' }
+    }
+    return { code: 'capture_failed', message: reason }
+  }
+
   /** 构建当前 status 快照 */
   function buildStatusDetail(): ScreenRecordStatusResult {
     if (state.status === 'idle' && !state.sessionId) {
-      return { ok: true, status: 'idle' }
+      return {
+        ok: true,
+        status: 'idle',
+        ...(lastFailure
+          ? {
+              lastError: lastFailure.code,
+              ...(lastFailure.message ? { lastErrorMessage: lastFailure.message } : {}),
+            }
+          : {}),
+      }
     }
     const now = deps.nowMs()
     const elapsedMs =
@@ -313,6 +359,12 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       includeMic: state.includeMic,
       targetHidden: state.targetHidden || undefined,
       ...confirmRestore,
+      ...(lastFailure && state.status === 'idle'
+        ? {
+            lastError: lastFailure.code,
+            ...(lastFailure.message ? { lastErrorMessage: lastFailure.message } : {}),
+          }
+        : {}),
     }
   }
 
@@ -389,6 +441,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       opts.maxDurationSec,
       opts.includeSystemAudio,
     )
+    // 成功开录 = 上一次失败已翻篇，别让红字一直挂着
+    lastFailure = null
     scheduleMaxDurationTimer()
     emitStatus()
     return { ok: true, status: 'recording', sessionId: opts.sessionId, startedAt }
@@ -465,7 +519,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
           ? path
             ? '目标窗口已关闭，已保存已录片段'
             : '目标窗口已关闭，未能保存有效片段'
-          : reason
+          : lastFailure?.message ?? reason
       return {
         ok: false,
         error: finalized.error,
@@ -969,6 +1023,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       return
     }
     state.captureFailedReason = p.reason
+    const described = describeCaptureReason(p.reason)
+    noteFailure(described.code, described.message)
     if (state.status === 'recording' || state.status === 'paused') {
       await stopInternal('capture_failed')
     }
@@ -985,6 +1041,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     }
     if (state.status === 'recording' || state.status === 'paused' || state.status === 'stopping') {
       state.captureFailedReason = 'renderer_gone'
+      const described = describeCaptureReason('renderer_gone')
+      noteFailure(described.code, described.message)
       await stopInternal('capture_failed')
       return
     }

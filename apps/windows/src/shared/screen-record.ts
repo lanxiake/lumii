@@ -232,6 +232,15 @@ export type ScreenRecordStatusResult =
       purpose?: 'record' | 'screenshot'
       /** 确认恢复用：发起方（刷新窗口后重建弹窗时仍要能区分 AI / 用户） */
       initiator?: 'user' | 'agent'
+      /**
+       * 上一次录制**异常结束**的用户可读原因。
+       *
+       * 采集中途失败（源打不开、编码器起不来、目标窗口关闭）时状态机会直接回 idle，
+       * 渲染层只看到「开始了→马上没了」，没有任何提示。这里把原因带上，
+       * 面板据此显示一行红字；下一次成功开始录制时清空。
+       */
+      lastError?: ScreenRecordErrorCode
+      lastErrorMessage?: string
     }
   | { ok: false; error: ScreenRecordErrorCode }
 
