@@ -1150,6 +1150,8 @@ export interface ElectronAPI {
       endLine?: number
       mdBasePath?: string
       editablePath?: string
+      navigateList?: string[]
+      navigateIndex?: number
     }) => Promise<{ ok: boolean }>
     close: () => Promise<{ ok: boolean }>
     getPayload: () => Promise<{
@@ -1174,6 +1176,8 @@ export interface ElectronAPI {
         editablePath?: string
       }) => void,
     ) => () => void
+    /** 左右切换相邻文件（-1 上一个 / 1 下一个）；清单在主进程 */
+    navigate: (direction: -1 | 1) => Promise<{ ok: boolean; error?: string }>
   }
   /** 插件中心 API（通用：按 id 分发） */
   plugins: {
@@ -1531,6 +1535,8 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.removeListener('file-preview:payload-updated', listener)
       }
     },
+    /** 左右切换相邻文件（-1 上一个 / 1 下一个）；清单在主进程 */
+    navigate: (direction: -1 | 1) => ipcRenderer.invoke('file-preview:navigate', direction),
   },
   /** 插件中心 API */
 

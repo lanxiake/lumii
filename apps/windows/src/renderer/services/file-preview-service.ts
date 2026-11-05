@@ -27,3 +27,14 @@ export function onFilePreviewPayloadUpdated(
 ): () => void {
   return window.electronAPI.filePreview.onPayloadUpdated(callback)
 }
+
+/**
+ * 在独立预览窗内左右切换相邻文件。
+ *
+ * **清单在主进程**：它随 open 的载荷一起过去（预览窗是另一个 BrowserWindow，
+ * 够不到主窗的产物台账）。这里只发方向。
+ */
+export async function navigateFilePreviewWindow(direction: -1 | 1): Promise<boolean> {
+  const result = await window.electronAPI.filePreview.navigate(direction)
+  return result?.ok === true
+}

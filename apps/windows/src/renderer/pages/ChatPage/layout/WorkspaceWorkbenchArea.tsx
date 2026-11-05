@@ -322,12 +322,43 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     if (workbench.preset === 'full') onPresetChange('half')
   }, [workbench.preset, onPresetChange])
 
+  /**
+   * 台账里可左右切换的媒体路径（按分组顺序展平）。
+   *
+   * 一处定义、两处用：主区预览的 ←/→，以及开独立窗口时带过去的翻页清单——
+   * 两处若各算各的，用户会发现「主区能翻的」和「弹出去能翻的」不是同一组。
+   */
+  const ledgerMediaPaths = useMemo(() => {
+    const out: string[] = []
+    for (const group of mergedLedger.groups) {
+      for (const item of group.deliverables) if (isMediaPath(item.path)) out.push(item.path)
+      for (const item of group.intermediates) if (isMediaPath(item.path)) out.push(item.path)
+    }
+    return out
+  }, [mergedLedger])
+
+  /**
+   * 打开独立预览窗，并带上「能左右翻哪些」的清单。
+   *
+   * 跨进程：预览窗是另一个 BrowserWindow，够不到这里的台账。
+   * 不传清单的话，用户在主区能 ←/→ 翻页、弹出窗口后就翻不了了——
+   * 同一个预览的两个入口，能力不该不一样。
+   */
   const openWindow = useCallback(
     (absolutePath: string, fileName: string) => {
-      void openFilePreviewWindow({ filePath: absolutePath, fileName })
+      const siblings = ledgerMediaPaths.map(toAbsolutePath)
+      const index = siblings.indexOf(absolutePath)
+      void openFilePreviewWindow({
+        filePath: absolutePath,
+        fileName,
+        // 只把**媒体**给出去：在窗口里翻到一张 .md 没有意义（那要看上下文，不是看邻居）
+        ...(siblings.length > 1 && index >= 0
+          ? { navigateList: siblings, navigateIndex: index }
+          : {}),
+      })
       restoreChatAfterPopup()
     },
-    [restoreChatAfterPopup],
+    [restoreChatAfterPopup, toAbsolutePath, ledgerMediaPaths],
   )
 
   const selected = workbench.selectedPath
@@ -341,18 +372,20 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   /**
    * ←/→ 在当前范围内切相邻的**图片/视频**（桌面看图的肌肉记忆）。
    *
-   * 范围取「台账里可见的媒体」，按当前分组顺序展平——用户在产物列表里看到的
-   * 上一张/下一张，就是这两个按钮去的地方。只选中一个非媒体文件时不出现。
+   * 范围取 `ledgerMediaPaths`（台账里可见的媒体，按当前分组顺序展平）——
+   * 用户在产物列表里看到的上一张/下一张，就是这两个按钮去的地方。
+   * 只选中一个非媒体文件时不出现。
    */
-  const mediaSiblings = useMemo(() => {
-    if (!selected || isAbsolutePath(selected)) return []
-    const out: string[] = []
-    for (const group of mergedLedger.groups) {
-      for (const item of group.deliverables) if (isMediaPath(item.path)) out.push(item.path)
-      for (const item of group.intermediates) if (isMediaPath(item.path)) out.push(item.path)
-    }
-    return out
-  }, [mergedLedger, selected])
+  const mediaSiblings = useMemo(
+    () => (selected && !isAbsolutePath(selected) ? ledgerMediaPaths : []),
+    [ledgerMediaPaths, selected],
+  )
+
+  /** 当前文件在媒体清单里的下标（-1 = 不在清单里，弹窗不该给翻页） */
+  const ledgerMediaIndex = useMemo(
+    () => (absoluteSelected ? ledgerMediaPaths.map(toAbsolutePath).indexOf(absoluteSelected) : -1),
+    [absoluteSelected, ledgerMediaPaths, toAbsolutePath],
+  )
 
   const navigateMedia = useMemo(() => {
     if (!selected || !mediaSiblings.includes(selected)) return undefined
@@ -1258,6 +1291,14 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
           ? { onPptxPageChange: handlePptxPageChange }
           : {})}
         {...(navigateMedia ? { onNavigate: navigateMedia } : {})}
+        {...(absoluteSelected && ledgerMediaIndex >= 0
+          ? {
+              popOutNavigation: {
+                list: ledgerMediaPaths.map(toAbsolutePath),
+                index: ledgerMediaIndex,
+              },
+            }
+          : {})}
         onPoppedOut={restoreChatAfterPopup}
         onClose={() => onSelect(undefined)}
       />

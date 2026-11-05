@@ -503,6 +503,13 @@ export interface FilePreviewModalProps {
    * 自己切会两边不同步。
    */
   onNavigate?: (direction: -1 | 1) => void
+  /**
+   * 弹出独立窗口时带过去的翻页清单。
+   *
+   * 独立窗是另一个 BrowserWindow，够不到这里的台账——不带过去，用户在主区能
+   * ←/→ 翻页、点「弹出独立窗口」后就翻不了。由调用方给（它才知道邻居有哪些）。
+   */
+  popOutNavigation?: { list: string[]; index: number }
 }
 
 /** 读取对话区边界，供全屏预览覆盖整个对话框 */
@@ -553,6 +560,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   variant: variantProp,
   embedded = false,
   onNavigate,
+  popOutNavigation,
 }) => {
   const variant = variantProp ?? (embedded ? 'embedded' : 'modal')
   const isWindow = variant === 'window'
@@ -623,13 +631,29 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         endLine,
         mdBasePath,
         editablePath,
+        // 独立窗够不到调用方的台账，翻页清单必须随载荷带过去
+        ...(popOutNavigation && popOutNavigation.list.length > 1
+          ? { navigateList: popOutNavigation.list, navigateIndex: popOutNavigation.index }
+          : {}),
       })
       onPoppedOut?.()
       onClose()
     } catch (err) {
       console.error('[FilePreviewModal] 弹出独立窗口失败:', err)
     }
-  }, [fileName, fileId, filePath, userId, startLine, endLine, mdBasePath, editablePath, onClose, onPoppedOut])
+  }, [
+    fileName,
+    fileId,
+    filePath,
+    userId,
+    startLine,
+    endLine,
+    mdBasePath,
+    editablePath,
+    popOutNavigation,
+    onClose,
+    onPoppedOut,
+  ])
 
   const route = useMemo(
     () =>

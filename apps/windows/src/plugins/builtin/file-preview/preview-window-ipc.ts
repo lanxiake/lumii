@@ -43,5 +43,14 @@ export function registerFilePreviewWindowIpc(
 
   registrar.handle(FILE_PREVIEW_IPC.getPayload, () => manager.getPayload() ?? null)
 
+  // 左右翻页：清单在主进程，渲染层只发方向（见 FILE_PREVIEW_IPC.navigate 的注释）
+  registrar.handle(FILE_PREVIEW_IPC.navigate, (_evt, direction: unknown) => {
+    if (direction !== -1 && direction !== 1) {
+      return { ok: false as const, error: 'usage' }
+    }
+    const result = manager.navigate(direction)
+    return result.ok ? { ok: true as const } : { ok: false as const, error: 'no_navigation' }
+  })
+
   return { dispose: () => manager.close() }
 }

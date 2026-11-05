@@ -13,6 +13,7 @@ import { ThemeProvider } from '../../../../renderer/contexts/ThemeContext/ThemeC
 import {
   closeFilePreviewWindow,
   getFilePreviewPayload,
+  navigateFilePreviewWindow,
   onFilePreviewPayloadUpdated,
 } from '../../../../renderer/services/file-preview-service'
 import type { FilePreviewWindowPayload } from '../../../../shared/file-preview-window'
@@ -34,15 +35,21 @@ export const FilePreviewWindowApp: React.FC = () => {
 const FilePreviewWindowInner: React.FC = () => {
   const [props, setProps] = useState<PreviewProps | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** 可左右翻页时才显示 ‹ ›（清单由主窗随载荷带过来） */
+  const [canNavigate, setCanNavigate] = useState(false)
 
   /** 将 IPC 载荷映射为预览组件 props */
   const applyPayload = useCallback((payload: FilePreviewWindowPayload | null) => {
     if (!payload) {
       setError('未收到预览文件信息')
       setProps(null)
+      setCanNavigate(false)
       return
     }
     setError(null)
+    setCanNavigate(
+      (payload.navigateList?.length ?? 0) > 1 && (payload.navigateIndex ?? -1) >= 0,
+    )
     setProps({
       fileName: payload.fileName,
       fileId: payload.fileId,
@@ -79,6 +86,19 @@ const FilePreviewWindowInner: React.FC = () => {
   const handleClose = useCallback(() => {
     void closeFilePreviewWindow()
   }, [])
+
+  /**
+   * 左右翻页 → 主进程改载荷 → 推回来。
+   *
+   * 不在渲染层本地切：清单归主进程所有（它才知道当前索引），本地切会和主窗
+   * 后来的改动（删文件、重新筛选）对不上。
+   */
+  const handleNavigate = useCallback(
+    (direction: -1 | 1) => {
+      void navigateFilePreviewWindow(direction)
+    },
+    [],
+  )
 
   if (error) {
     return (
@@ -121,6 +141,7 @@ const FilePreviewWindowInner: React.FC = () => {
       key={props.filePath ?? props.fileId ?? props.fileName}
       {...props}
       variant="window"
+      {...(canNavigate ? { onNavigate: handleNavigate } : {})}
       onClose={handleClose}
     />
   )

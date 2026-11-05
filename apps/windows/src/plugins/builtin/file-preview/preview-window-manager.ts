@@ -61,6 +61,40 @@ export class PreviewWindowManager {
     this.payload = null
   }
 
+  /**
+   * 在窗口内左右切换相邻文件。
+   *
+   * 清单由打开方随载荷给过来（见 FilePreviewWindowPayload.navigateList 的注释）：
+   * 预览窗自己够不到主窗的台账。这里只负责算出目标、换载荷、推给渲染层——
+   * 与 `open()` 走同一条推送路径，窗口侧无需区分「首次打开」和「翻页」。
+   *
+   * 循环切换：翻到最后一张再按「下一个」回到第一张，与主区预览一致。
+   */
+  navigate(direction: -1 | 1): { ok: true; payload: FilePreviewWindowPayload } | { ok: false } {
+    const current = this.payload
+    const list = current?.navigateList
+    const index = current?.navigateIndex
+    if (!current || !list || list.length < 2 || index === undefined || index < 0) {
+      return { ok: false }
+    }
+    const nextIndex = ((index + direction) % list.length + list.length) % list.length
+    const filePath = list[nextIndex]
+    if (!filePath) return { ok: false }
+
+    const next: FilePreviewWindowPayload = {
+      ...current,
+      filePath,
+      fileName: filePath.split(/[\\/]/).pop() ?? filePath,
+      navigateIndex: nextIndex,
+      // 行号范围属于上一份文件，切过去必须清掉，否则新文件会被截成一段
+      startLine: undefined,
+      endLine: undefined,
+    }
+    this.payload = next
+    this.getWindow()?.webContents.send('file-preview:payload-updated', next)
+    return { ok: true, payload: next }
+  }
+
   /** 取存活窗口 */
   getWindow(): BrowserWindow | null {
     if (!this.win || this.win.isDestroyed()) return null

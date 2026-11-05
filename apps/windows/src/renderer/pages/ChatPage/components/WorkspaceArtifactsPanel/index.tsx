@@ -374,7 +374,11 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
       mode: (mode ?? 'toggle') as ToggleMode,
       anchor,
     })
-    setSelection(result.selected)
+    // 普通点击 = 单选。若不走 applySelect 把集合收敛成 [path]，上一张的「选中」
+    // 会留在集合里，卡片上就同时出现两个框（用户看到的是「被选中的文件多了个框」）。
+    // 预览里的 ←/→ 只调 onSelect、不经过这里，所以靠这次收敛来清掉旧框。
+    const keepSelection = mode !== undefined
+    setSelection(keepSelection ? result.selected : new Set())
     setAnchor(result.anchor)
     // 普通点击就是「看这个」；多选时只改选中集，不打断当前预览
     if (!mode) onSelect(artifact.path)
@@ -532,36 +536,56 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
     ) : (
       <div className={styles.listRows}>
         {items.map((item) =>
-          renderListRow(
-            item.path,
-            item.path.split('/').pop() ?? item.path,
-            rowMeta(item),
-            selectedPath === item.path || selection.has(item.path),
-            () => handleCardSelect(item),
-            item.path,
-          ),
+          renderListRow({
+            artifact: item,
+            name: item.path.split('/').pop() ?? item.path,
+            meta: rowMeta(item),
+            active: selectedPath === item.path || selection.has(item.path),
+            onClick: () => handleCardSelect(item),
+            title: item.path,
+          }),
         )}
       </div>
     )
 
-  const renderListRow = (
-    key: string,
-    name: string,
-    meta: string,
-    active: boolean,
-    onClick: () => void,
-    title: string,
-  ): React.ReactNode => (
+  /**
+   * 列表行：**与网格卡同一套交互**（普通点击选中、修饰键多选、右键菜单）。
+   *
+   * 之前它只是个裸 button：列表模式下右键什么都不弹，用户以为功能没了——
+   * 而两种模式只是呈现密度不同，能力不该不一样。
+   */
+  const renderListRow = (row: {
+    artifact: Artifact
+    absolutePath?: string
+    name: string
+    meta: string
+    active: boolean
+    onClick: () => void
+    title: string
+  }): React.ReactNode => (
     <button
-      key={key}
+      key={row.artifact.path}
       type="button"
-      className={clsx(styles.listRow, active && styles.listRowActive)}
-      onClick={onClick}
-      title={title}
-      aria-pressed={active}
+      className={clsx(styles.listRow, row.active && styles.listRowActive)}
+      onClick={(event) => {
+        // 修饰键在这里翻成意图，合并规则与网格一致（selection.ts）
+        if (event.shiftKey) handleCardSelect(row.artifact, 'range')
+        else if (event.ctrlKey || event.metaKey) handleCardSelect(row.artifact, 'add')
+        else row.onClick()
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        handleCardContextMenu(
+          event,
+          row.artifact,
+          row.absolutePath ?? toAbsolutePath(row.artifact.path),
+        )
+      }}
+      title={row.title}
+      aria-pressed={row.active}
     >
-      <span className={styles.listName}>{name}</span>
-      <span className={styles.listMeta}>{meta}</span>
+      <span className={styles.listName}>{row.name}</span>
+      <span className={styles.listMeta}>{row.meta}</span>
     </button>
   )
 
@@ -838,14 +862,15 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
                   ) : (
                     <div className={styles.listRows}>
                       {items.map((item) =>
-                        renderListRow(
-                          item.path,
-                          item.fileName,
-                          `${KIND_TEXT[item.kind]} · ${formatClock(item.createdAt)}`,
-                          false,
-                          () => onOpenAll?.(item),
-                          item.path,
-                        ),
+                        renderListRow({
+                          artifact: asArtifact(item),
+                          absolutePath: toAbsolutePath(item.path),
+                          name: item.fileName,
+                          meta: `${KIND_TEXT[item.kind]} · ${formatClock(item.createdAt)}`,
+                          active: false,
+                          onClick: () => onOpenAll?.(item),
+                          title: item.path,
+                        }),
                       )}
                     </div>
                   )}
