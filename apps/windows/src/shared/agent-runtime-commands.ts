@@ -218,12 +218,38 @@ interface ConversationSearchCommand {
 }
 
 /**
+ * 正文搜索的**逐条**命中（搜索下拉列表用）。
+ *
+ * 与 `conversation:search` 的区别：那个按会话折叠（每个会话一段），用来过滤侧栏；
+ * 这个一条消息一行，带 `messageId`，点一下能跳到那句话上。
+ */
+interface ConversationSearchHitsCommand {
+  readonly type: 'conversation:search-hits'
+  readonly query: string
+  /** 最多返回多少条命中（默认 60） */
+  readonly limit?: number
+}
+
+/**
  * 一条搜索命中：会话 id + 命中处附近的正文片段。
  * `snippet` 为空串表示这个词落在 thinking / 工具结果里、可见正文中并不存在——
  * 会话照样返回（不然「搜得到」会静默退化），只是没有片段可展示。
  */
 export interface ConversationSearchMatch {
   readonly conversationId: string
+  readonly snippet: string
+}
+
+/** 逐条命中：一条消息一个（侧栏搜索下拉） */
+export interface ConversationSearchHit {
+  readonly conversationId: string
+  /** 点击后按它定位到具体那一行消息 */
+  readonly messageId: string
+  /** user / assistant */
+  readonly role: string
+  /** ISO 时间串 */
+  readonly timestamp: string
+  /** 命中处附近的正文（已压平空白，两端可能带省略号） */
   readonly snippet: string
 }
 
@@ -1729,6 +1755,7 @@ export type AgentRuntimeCommand =
   | ConversationCloseCommand
   | ConversationListCommand
   | ConversationSearchCommand
+  | ConversationSearchHitsCommand
   | ConversationMessagesCommand
   | ArtifactHistoryCommand
   | ConversationContextUsageCommand
@@ -1929,6 +1956,7 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       channel?: string
     }[]
   : T extends 'conversation:search' ? readonly ConversationSearchMatch[]
+  : T extends 'conversation:search-hits' ? readonly ConversationSearchHit[]
   : T extends 'conversation:messages' ? {
       /** 按时间升序的一页消息 */
       items: readonly ConversationMessageNewEvent['message'][]

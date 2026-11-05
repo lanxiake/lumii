@@ -15,6 +15,8 @@ import type {
   ToolAssistantPart,
 } from "./assistant-parts.js";
 import { finalizeAssistantParts } from "./assistant-parts.js";
+import { ConversationSearchIndex, type ConversationHitRecord } from "./conversation-search-index.js";
+export type ConversationHit = ConversationHitRecord;
 import {
   assistantUsageOf,
   parseMessageContentJson,
@@ -34,6 +36,8 @@ export {
 /** 搜索片段取词窗口：关键词前后各截多少字符（改动见 searchConversationsByContent） */
 const SNIPPET_CONTEXT_BEFORE = 24;
 const SNIPPET_CONTEXT_AFTER = 48;
+
+/** 一条正文命中：某条消息里的关键词位置（侧栏搜索下拉用） */
 
 export interface ConversationRow {
   readonly id: string;
@@ -185,7 +189,65 @@ export class ConversationRepo {
   private readonly conversationCache = new LruCache<string, ConversationRow>(100);
   private readonly messageCache = new LruCache<string, MessageRow[]>(10);
 
+  /**
+   * 会话正文的内存检索索引（见 conversation-search-index.ts 的实测对比）。
+   *
+   * 未就绪（启动装载中）时搜索退回 SQL——宁可慢，不能搜不到。
+   * 由 `attachSearchIndex` 注入；不注入时整个类行为与以前一致。
+   */
+  private searchIndex: ConversationSearchIndex | null = null;
+
   constructor(private readonly db: DatabaseAdapter) {}
+
+  /** 注入内存检索索引（bridge 启动时装配并异步装载）；传 null 摘除（装载失败时退回 SQL） */
+  attachSearchIndex(index: ConversationSearchIndex | null): void {
+    this.searchIndex = index;
+  }
+
+  /**
+   * 装载索引的一批数据（按 rowid 游标分页）。
+   *
+   * 用 rowid 而不是 OFFSET：后者在万行级每次都要跳着扫前 N 行，越到后面越慢；
+   * rowid 是主键，天然有序且稳定。
+   *
+   * @returns 本批条数；0 表示装载完成
+   */
+  loadSearchIndexBatch(batchSize = 400, afterRowid = 0): {
+    loaded: number;
+    lastRowid: number;
+  } {
+    if (!this.searchIndex) return { loaded: 0, lastRowid: afterRowid };
+    const rows = this.db
+      .prepare<{
+        rowid: number;
+        id: string;
+        conversation_id: string;
+        role: string;
+        timestamp: string;
+        content_json: string;
+      }>(
+        `SELECT rowid, id, conversation_id, role, timestamp, content_json FROM messages
+          WHERE rowid > ? ORDER BY rowid ASC LIMIT ?`,
+      )
+      .all(afterRowid, batchSize);
+    if (rows.length === 0) return { loaded: 0, lastRowid: afterRowid };
+
+    this.searchIndex.loadBatch(
+      rows.map((row) => ({
+        id: row.id,
+        conversationId: row.conversation_id,
+        role: row.role,
+        timestamp: row.timestamp,
+        text: extractMessageText(row.content_json),
+      })),
+    );
+    return { loaded: rows.length, lastRowid: Number(rows[rows.length - 1]!.rowid) };
+  }
+
+  /** 索引里有多少条（启动日志用） */
+  searchIndexSize(): number {
+    return this.searchIndex?.size() ?? 0;
+  }
 
   // ── 对话生命周期 ──
 
@@ -998,6 +1060,14 @@ export class ConversationRepo {
 
     this.conversationCache.delete(params.conversationId);
     this.messageCache.deleteWhere((k) => k.startsWith(`${params.conversationId}|`));
+    // 索引同步：新消息只加一条，O(1)
+    this.searchIndex?.upsert({
+      id,
+      conversationId: params.conversationId,
+      role: params.role,
+      timestamp: now,
+      text: extractMessageText(contentStr),
+    });
 
     return {
       id,
@@ -1064,6 +1134,15 @@ export class ConversationRepo {
     });
     this.conversationCache.delete(params.conversationId);
     this.messageCache.deleteWhere((k) => k.startsWith(`${params.conversationId}|`));
+    // 索引同步：流式持久化会反复覆盖同一条 id，upsert 是幂等的。
+    // role 沿用已索引的那条（同一 id 不会换角色），没索引过就按 assistant 记。
+    this.searchIndex?.upsert({
+      id: params.messageId,
+      conversationId: params.conversationId,
+      role: this.searchIndex.roleOf(params.messageId) ?? "assistant",
+      timestamp: rowTimestamp,
+      text: extractMessageText(contentStr),
+    });
     // 返回受影响行数：0 表示目标消息不在，调用方必须据此判断，别再无条件往下走
     return changes;
   }
@@ -1201,6 +1280,7 @@ export class ConversationRepo {
       .run(messageId, conversationId);
     this.conversationCache.delete(conversationId);
     this.messageCache.deleteWhere((k) => k.startsWith(`${conversationId}|`));
+    this.searchIndex?.remove(messageId);
   }
 
   /**
@@ -1286,6 +1366,7 @@ export class ConversationRepo {
     this.db.prepare("DELETE FROM conversations WHERE id = ?").run(conversationId);
     this.conversationCache.delete(conversationId);
     this.messageCache.deleteWhere((k) => k.startsWith(`${conversationId}|`));
+    this.searchIndex?.removeConversation(conversationId);
   }
 
   /**
@@ -1307,26 +1388,51 @@ export class ConversationRepo {
   }
 
   /**
-   * 按正文子串反查命中的会话，附上命中处附近的正文片段（侧栏搜索用）。
+   * 按正文子串反查命中的会话，附上命中处附近的正文片段（侧栏列表过滤用）。
    *
-   * 先用 LIKE 在 `content_json` 上粗筛（不解析 JSON、不建 FTS 表）。选 LIKE 而不是
-   * FTS5 的理由是中文：unicode61 分词器切不动中文（整段算一个 token），trigram 又
-   * 要求查询至少 3 个字符，都盖不住「搜一个字」这种输入。messages 实测 7300 行 /
-   * 1.1 亿字符全表扫一次只要 6~31ms。
-   *
-   * 筛出来的每条**再解析一次**取可见正文（`extractMessageText`）——不能直接切
-   * `content_json`，那样会把 `","text":"` 这类 JSON 结构当正文显示出来。
-   *
-   * 已知天花板：粗筛匹配的是 JSON 编码后的字面量，用户按原文搜 `\` 或 `"` 会漏
-   * （库里存的是 `\\` / `\"`）。要补这一块就得放弃 LIKE 改成解析后逐条比对。
-   * ponytail: 全表 LIKE + 每会话解析一条，messages 涨到十万级再换 FTS5 trigram。
+   * 走内存索引（实测 0.2–5ms）；索引还没装载完时退回 SQL LIKE（170–430ms，
+   * 见 verify/conversation-search/ 的对照）。宁可慢，不能搜不到。
    */
   searchConversationsByContent(
     keyword: string,
     limit = 200,
   ): readonly { conversationId: string; snippet: string }[] {
+    if (!keyword.trim()) return [];
+    if (this.searchIndex?.isReady()) {
+      return this.searchIndex.searchByConversation(keyword, limit);
+    }
+    return this.searchConversationsByContentSql(keyword, limit);
+  }
+
+  /**
+   * 逐条命中（侧栏搜索下拉用）：一条消息一行，带 messageId 供点击定位。
+   *
+   * 与 `searchConversationsByContent` 的分工：那个按会话折叠，用来过滤侧栏；
+   * 这个用来把「那句话在哪」摊开给用户看。
+   */
+  searchConversationHits(keyword: string, limit = 200): readonly ConversationHit[] {
+    if (!keyword.trim()) return [];
+    if (this.searchIndex?.isReady()) {
+      return this.searchIndex.search(keyword, limit);
+    }
+    return this.searchConversationHitsSql(keyword, limit);
+  }
+
+  /**
+   * SQL 版会话级搜索（索引未就绪时的兜底，也是索引的等价性对照）。
+   *
+   * 先用 LIKE 在 `content_json` 上粗筛（不解析 JSON、不建 FTS 表）。筛出来的每条
+   * **再解析一次**取可见正文——不能直接切 `content_json`，那样会把 `","text":"`
+   * 这类 JSON 结构当正文显示出来。
+   *
+   * 已知天花板：粗筛匹配的是 JSON 编码后的字面量，用户按原文搜 `\` 或 `"` 会漏。
+   */
+  private searchConversationsByContentSql(
+    keyword: string,
+    limit: number,
+  ): readonly { conversationId: string; snippet: string }[] {
     // LIKE 的通配符必须转义，否则用户输入一个 `%` 会命中全部会话
-    const pattern = `%${keyword.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const pattern = `%${keyword.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     // 每个会话只取最近的一条命中消息：同一件事往往在会话里反复出现，列表里堆满
     // 同一段话没有意义（微信也是每条会话给一段）。
     const rows = this.db
@@ -1362,6 +1468,46 @@ export class ConversationRepo {
     return matches;
   }
 
+  /** SQL 版逐条命中（索引未就绪时的兜底） */
+  private searchConversationHitsSql(keyword: string, limit: number): readonly ConversationHit[] {
+    const trimmed = keyword.trim();
+    const pattern = `%${trimmed.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const rows = this.db
+      .prepare<{
+        id: string;
+        conversation_id: string;
+        role: string;
+        timestamp: string;
+        content_json: string;
+      }>(
+        `SELECT id, conversation_id, role, timestamp, content_json
+           FROM messages
+          WHERE content_json LIKE ? ESCAPE '\\'
+          ORDER BY timestamp DESC
+          LIMIT ?`,
+      )
+      .all(pattern, limit);
+
+    const needle = trimmed.toLowerCase();
+    const hits: ConversationHit[] = [];
+    for (const row of rows) {
+      const flat = extractMessageText(row.content_json).replace(/\s+/g, " ");
+      const idx = flat.toLowerCase().indexOf(needle);
+      // 命中落在 thinking / 工具结果里：下拉里点它跳到一行没有关键词的消息，不显示
+      if (idx < 0) continue;
+      const start = Math.max(0, idx - SNIPPET_CONTEXT_BEFORE);
+      const end = Math.min(flat.length, idx + trimmed.length + SNIPPET_CONTEXT_AFTER);
+      hits.push({
+        conversationId: row.conversation_id,
+        messageId: row.id,
+        role: row.role,
+        timestamp: row.timestamp,
+        snippet: `${start > 0 ? "…" : ""}${flat.slice(start, end)}${end < flat.length ? "…" : ""}`,
+      });
+    }
+    return hits;
+  }
+
   /**
    * 直接用原始 JSON 字符串更新消息内容（仅供迁移使用）。
    */
@@ -1370,6 +1516,17 @@ export class ConversationRepo {
       .prepare("UPDATE messages SET content_json = ? WHERE id = ?")
       .run(contentJson, messageId);
     this.messageCache.deleteWhere((k) => k.includes("|"));
+    // 只更新文本；role / conversationId / timestamp 沿用已索引的（同一行不会变）
+    const hit = this.searchIndex?.searchById(messageId);
+    if (hit) {
+      this.searchIndex!.upsert({
+        id: messageId,
+        conversationId: hit.conversationId,
+        role: hit.role,
+        timestamp: hit.timestamp,
+        text: extractMessageText(contentJson),
+      });
+    }
   }
 
   deleteMalformedMessages(): number {

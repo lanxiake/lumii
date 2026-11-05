@@ -278,6 +278,7 @@ export {
   sqliteConnectionPragmaStatements,
   applySqliteConnectionPragmas,
   ConversationRepo,
+  ConversationSearchIndex,
   TaskRepo,
   AuditRepo,
   BashCommandRepo,

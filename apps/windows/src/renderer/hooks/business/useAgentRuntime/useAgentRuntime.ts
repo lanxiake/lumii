@@ -26,6 +26,7 @@ import {
 } from './agent-runtime-store'
 import { sendUserMessage } from './send-user-message'
 import type {
+  ConversationSearchHit,
   ConversationSearchMatch,
   SessionContextUsageResult,
 } from '../../../../shared/agent-runtime-commands'
@@ -371,6 +372,29 @@ export function useAgentRuntimeActions() {
       return []
     }
   }, [])
+
+  /**
+   * 侧栏搜索下拉：逐条命中（一条消息一行，带 messageId）。
+   * 失败返回空集——同 searchSessions，搜索是旁路功能。
+   */
+  const searchSessionHits = useCallback(
+    async (query: string): Promise<readonly ConversationSearchHit[]> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand || !query.trim()) return []
+      try {
+        const result = await api.sendCommand({ type: 'conversation:search-hits', query })
+        if (isCommandError(result)) {
+          console.warn('[useAgentRuntime] conversation:search-hits 返回错误', result)
+          return []
+        }
+        return Array.isArray(result) ? (result as readonly ConversationSearchHit[]) : []
+      } catch (err) {
+        console.warn('[useAgentRuntime] conversation:search-hits 调用异常', err)
+        return []
+      }
+    },
+    [],
+  )
 
   /**
    * 切换会话
@@ -777,6 +801,7 @@ export function useAgentRuntimeActions() {
       loadOlderMessages,
       listSessions,
       searchSessions,
+      searchSessionHits,
       deleteMessage,
       editMessage,
       forkConversation,
@@ -802,6 +827,7 @@ export function useAgentRuntimeActions() {
       loadOlderMessages,
       listSessions,
       searchSessions,
+      searchSessionHits,
       deleteMessage,
       editMessage,
       forkConversation,

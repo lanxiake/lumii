@@ -28,6 +28,7 @@ import {
   PalaceVectorIndex,
   MemoryManager,
   ConversationRepo,
+  ConversationSearchIndex,
   SegmentRepo,
   TaskRepo,
   AuditRepo,
@@ -891,9 +892,43 @@ export class AgentRuntimeBridge {
     await step('7-finalize', () => this.finalizeInitialize())
   }
 
+  /**
+   * 装载会话搜索的内存索引（见 conversation-search-index.ts 的实测对比）。
+   *
+   * 分批 + 每批让出一拍：老库上万行、单行 JSON 可达 1MB，一次性跑完会把主进程
+   * 按住 1 秒以上——那正是这个改动要解决的那类卡顿。
+   * 没装完时搜索退回 SQL，所以中途用户搜到的东西不会丢。
+   */
+  private async loadConversationSearchIndex(repo: ConversationRepo): Promise<void> {
+    const index = new ConversationSearchIndex()
+    repo.attachSearchIndex(index)
+    const started = Date.now()
+    let cursor = 0
+    let loaded = 0
+    try {
+      for (;;) {
+        const { loaded: n, lastRowid } = repo.loadSearchIndexBatch(400, cursor)
+        if (n === 0) break
+        loaded += n
+        cursor = lastRowid
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      index.markReady()
+      log.info(
+        `[initialize] 会话搜索索引装载完成：${loaded} 条 / ${Date.now() - started}ms`,
+      )
+    } catch (err) {
+      // 半成品索引比没有更糟（搜得到一部分、其余静默消失），直接摘掉退回 SQL
+      repo.attachSearchIndex(null)
+      log.warn(
+        `[initialize] 会话搜索索引装载失败（${loaded} 条后中断），退回 SQL 检索`,
+        err,
+      )
+    }
+  }
+
   /** initialize() 子块 1/7：开库、创建 Repos、恢复禁用工具集合、段落记忆服务、中断检测、finalize 残留流式消息 */
-  private async initializeDatabaseAndRepos(): Promise<void> {
-    const dbPath = this.config.dbPath ?? this.getDefaultDbPath()
+  private async initializeDatabaseAndRepos(): Promise<void> {    const dbPath = this.config.dbPath ?? this.getDefaultDbPath()
     log.info(`[initialize] 准备打开数据库: ${dbPath}`)
     this.ensureDirectory(path.dirname(dbPath))
     this.resolvedDbPath = dbPath
@@ -969,6 +1004,10 @@ export class AgentRuntimeBridge {
     }
 
     this._conversationRepo = new ConversationRepo(db)
+    // 会话搜索走内存索引：SQL LIKE 在本机实测 170–430ms（还要把命中的整段 JSON
+    // 搬进 JS，最高 1.2s），而用户每敲一个字都要付一次。装载在后台做，
+    // 没装完之前搜索退回 SQL（宁可慢，不能搜不到）。
+    void this.loadConversationSearchIndex(this._conversationRepo)
     const segmentRepo = new SegmentRepo(db)
     this._segmentRepo = segmentRepo
     this._memoryManager = new MemoryManager(this._memoryRepo, {
@@ -2380,6 +2419,7 @@ export class AgentRuntimeBridge {
             runWorkspaceCleanup: async () => {
               const { runScheduledCleanup } = await import('../workspace-cleanup-runner')
               const { getStorageCleanupPrefs } = await import('../storage-cleanup-prefs')
+              const { notifyEphemeralCleanupPending } = await import('../workspace-cleanup-notify')
               const { powerMonitor } = await import('electron')
               const { resolveLogsDir } = await import('../paths')
               const result = await runScheduledCleanup({
@@ -2390,11 +2430,15 @@ export class AgentRuntimeBridge {
                 logDir: resolveLogsDir(),
               })
               if (!result.ran) return `workspace cleanup skipped: ${result.reason ?? 'unknown'}`
+              notifyEphemeralCleanupPending(result.ephemeralPending)
               const parts = [
                 `TTL ${result.ttlRemoved} 个`,
                 `配额 ${result.quotaRemoved} 个`,
                 `回收站 ${result.trashRemoved} 批`,
               ]
+              if (result.ephemeralPending) {
+                parts.push(`临时待确认 ${result.ephemeralPending.count} 个`)
+              }
               if (result.errors.length > 0) parts.push(`错误 ${result.errors.length} 条`)
               return `workspace cleanup done: ${parts.join(' · ')}`
             },

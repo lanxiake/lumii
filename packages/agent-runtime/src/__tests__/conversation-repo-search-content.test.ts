@@ -135,3 +135,68 @@ describe("searchConversationsByContent", () => {
     expect(repo.searchConversationsByContent("共同关键词", 2)).toHaveLength(2);
   });
 });
+
+/**
+ * 逐条命中（侧栏搜索下拉，2026-11-05）。
+ *
+ * 用户要的不只是「哪些会话提过」，还有「那句话在哪」——所以要 messageId 能点过去，
+ * 而且要**不按会话折叠**：同一会话里的三处命中应该能看到三条。
+ */
+describe("searchConversationHits", () => {
+  it("同一会话的多条命中各占一行，带 messageId 供点击定位", () => {
+    const db = createMigratedTestDb();
+    insertConversation(db, "conv-a");
+    insertMessage(db, "m1", "conv-a", textMessage("微信附件发不出去"));
+    insertMessage(db, "m2", "conv-a", textMessage("微信还是不行"));
+
+    const repo = new ConversationRepo(db);
+    const hits = repo.searchConversationHits("微信");
+    expect(hits).toHaveLength(2);
+    expect(hits.map((h) => h.messageId).sort()).toEqual(["m1", "m2"]);
+    expect(hits.every((h) => h.conversationId === "conv-a")).toBe(true);
+    expect(hits[0].snippet).toContain("微信");
+    expect(hits[0].role).toBe("user");
+    expect(hits[0].timestamp).toBe(TS);
+  });
+
+  it("按时间倒序返回（最近说的排在前面）", () => {
+    const db = createMigratedTestDb();
+    insertConversation(db, "conv-a");
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
+       VALUES (?, ?, NULL, 'user', ?, ?)`,
+    ).run("old", "conv-a", textMessage("关键词 旧"), "2026-06-01T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
+       VALUES (?, ?, NULL, 'user', ?, ?)`,
+    ).run("new", "conv-a", textMessage("关键词 新"), "2026-06-30T00:00:00.000Z");
+
+    const hits = new ConversationRepo(db).searchConversationHits("关键词");
+    expect(hits.map((h) => h.messageId)).toEqual(["new", "old"]);
+  });
+
+  it("命中落在 thinking 里时不出空片段行（点了会跳到没有关键词的一行）", () => {
+    const db = createMigratedTestDb();
+    insertConversation(db, "conv-a");
+    insertMessage(
+      db,
+      "m1",
+      "conv-a",
+      JSON.stringify({
+        type: "assistant_parts",
+        parts: [{ type: "thinking", id: "th-1", text: "用户可能在找 jlvpsogs 那个节点" }],
+      }),
+    );
+
+    expect(new ConversationRepo(db).searchConversationHits("jlvpsogs")).toEqual([]);
+  });
+
+  it("空白查询返回空集，不当成「匹配一切」", () => {
+    const db = createMigratedTestDb();
+    insertConversation(db, "conv-a");
+    insertMessage(db, "m1", "conv-a", textMessage("随便什么"));
+    const repo = new ConversationRepo(db);
+    expect(repo.searchConversationHits("   ")).toEqual([]);
+    expect(repo.searchConversationHits("")).toEqual([]);
+  });
+});

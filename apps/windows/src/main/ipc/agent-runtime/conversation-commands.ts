@@ -6,6 +6,7 @@
 
 import type {
   AgentRuntimeCommand,
+  ConversationSearchHit,
   ConversationSearchMatch,
 } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -358,6 +359,23 @@ export function handleConversationSearch(
   const query = command.query.trim()
   if (!query) return []
   return bridge.conversationRepo.searchConversationsByContent(query, SEARCH_MAX_HITS)
+}
+
+/**
+ * 侧栏搜索下拉：逐条命中（一条消息一行），带 messageId 供点击定位。
+ *
+ * 与 `handleConversationSearch` 的分工：那个按会话折叠，用来过滤侧栏列表；
+ * 这个用来把「那句话在哪」摊开给用户看。上限比会话级小——下拉里放几十条就够，
+ * 再多也是让人滚动而不是让人找到。
+ */
+export function handleConversationSearchHits(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'conversation:search-hits' }>,
+): readonly ConversationSearchHit[] {
+  const query = command.query.trim()
+  if (!query) return []
+  const limit = Math.min(Math.max(command.limit ?? 60, 1), SEARCH_MAX_HITS)
+  return bridge.conversationRepo.searchConversationHits(query, limit)
 }
 
 export function handleConversationDelete(

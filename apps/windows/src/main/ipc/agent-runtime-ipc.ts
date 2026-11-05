@@ -70,6 +70,7 @@ import {
   handleConversationClose,
   handleConversationList,
   handleConversationSearch,
+  handleConversationSearchHits,
   handleConversationDelete,
   handleConversationRename,
   handleConversationPinToggle,
@@ -800,6 +801,9 @@ export async function handleCommand(
 
       case 'conversation:search':
         return handleConversationSearch(bridge, command)
+
+      case 'conversation:search-hits':
+        return handleConversationSearchHits(bridge, command)
 
       case 'conversation:delete':
         return handleConversationDelete(bridge, command)
