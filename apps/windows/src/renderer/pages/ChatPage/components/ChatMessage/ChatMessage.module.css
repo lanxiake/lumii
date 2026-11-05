@@ -1682,3 +1682,28 @@
 .parts-timeline .message-text {
   margin-bottom: 0;
 }
+
+/*
+ * 会话搜索命中高亮（气泡内 / 侧栏命中列表 / 对话内搜索共用）
+ *
+ * 深色主题下蓝色调（--mt-accent-500）在深底气泡上几乎看不出边界——用户反馈
+ * 「有点看不清楚」。改用琥珀色实底 + 深色字：明度高、与蓝紫色气泡形成互补对比，
+ * 浅色主题同样成立（深色字压在琥珀底上对比度约 8:1）。
+ */
+.search-hit-mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--mt-warning);
+  color: #1a1206;
+  font-weight: 600;
+  /* 深色气泡里本身的 text-shadow / 描边会糊住字，这里清掉 */
+  text-shadow: none;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* 当前定位到的那一条：外圈再亮一档，扫一眼就能找到「是哪一条」 */
+.search-hit-mark--current {
+  background: var(--mt-warning-light);
+  outline: 1px solid color-mix(in srgb, var(--mt-warning-dark) 55%, transparent);
+}

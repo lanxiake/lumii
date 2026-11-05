@@ -84,6 +84,12 @@ interface ChatMessageProps {
   /** 当前正在回放的消息 ID */
   replayMessageId?: string | null
   /**
+   * 要在本条消息里高亮的关键词（对话内搜索 / 侧栏命中定位）。
+   *
+   * 只影响**纯文本**片段；代码块里高亮会与语法着色打架，故意跳过。
+   */
+  highlightKeyword?: string
+  /**
    * 挂在本条消息下的子 Agent 运行（由 ChatContainer 按 instanceId 归组，见
    * components/ChatContainer/sub-agent-runs.ts）。
    *
@@ -136,6 +142,66 @@ function rehypePluginsFor(text: string): MarkdownPluginList {
 }
 
 const ARTIFACT_LANGS = new Set(['html', 'javascript', 'js', 'svg'])
+
+/**
+ * 递归把文本节点按关键词切开，命中处包 `<mark>`。
+ *
+ * 为什么递归：markdown 交给 ReactMarkdown 之后，一个段落里通常是
+ * `["前文", <strong>关键词</strong>, "后文"]` 这种混合数组——只对顶层 string
+ * 替换会漏掉加粗/斜体/链接里的命中，而那恰恰是最常被搜到的地方。
+ *
+ * 为什么不用 dangerouslySetInnerHTML：这条路径上全是模型输出，任何 html 注入
+ * 都是直接落到用户界面。这里只做纯文本替换，React 负责转义。
+ */
+function highlightChildren(
+  children: React.ReactNode,
+  keyword?: string,
+): React.ReactNode {
+  if (!keyword) return children
+  const needle = keyword.toLowerCase()
+  const markNode = (text: string, key: string): React.ReactNode => {
+    if (!text) return text
+    const lower = text.toLowerCase()
+    if (!lower.includes(needle)) return text
+    const parts: React.ReactNode[] = []
+    let from = 0
+    let at = lower.indexOf(needle)
+    let i = 0
+    while (at >= 0) {
+      if (at > from) parts.push(text.slice(from, at))
+      parts.push(
+        <mark key={`${key}-${i++}`} className={styles['search-hit-mark']}>
+          {text.slice(at, at + needle.length)}
+        </mark>,
+      )
+      from = at + needle.length
+      if (needle.length === 0) break
+      at = lower.indexOf(needle, from)
+    }
+    if (from < text.length) parts.push(text.slice(from))
+    return <>{parts}</>
+  }
+
+  if (typeof children === 'string') return markNode(children, 't')
+  if (Array.isArray(children)) {
+    return children.map((child, index) =>
+      typeof child === 'string'
+        ? markNode(child, `t${index}`)
+        : React.isValidElement(child) && child.props
+          ? // 只往「带 children 的元素」里递归，避免把 <img>/<br/> 这类改坏
+            React.cloneElement(
+              child as React.ReactElement<{ children?: React.ReactNode }>,
+              {},
+              highlightChildren(
+                (child.props as { children?: React.ReactNode }).children,
+                keyword,
+              ),
+            )
+          : child,
+    )
+  }
+  return children
+}
 
 /**
  * Markdown 正文中的图片：外部 URL 与本地路径统一点开 ImageLightbox
@@ -195,7 +261,7 @@ function extractCodeText(children: React.ReactNode): string {
 }
 
 /** 构建 Markdown 组件覆盖 — isStreaming 决定 ArtifactBlock 是否延迟预览 */
-function buildMarkdownComponents(isStreaming: boolean): Components {
+function buildMarkdownComponents(isStreaming: boolean, highlightKeyword?: string): Components {
   return {
     code({ className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || '')
@@ -247,6 +313,13 @@ function buildMarkdownComponents(isStreaming: boolean): Components {
     img({ src, alt }) {
       return <MarkdownInlineImage src={src} alt={alt} />
     },
+    // 正文段落/列表项/标题里的文本：搜索命中要在气泡里就标出来，
+    // 否则用户只知道「这条消息对」，还得自己在这一屏字里找。
+    // 只挂在这几个容器上——代码块走 code 渲染器（语法着色，不掺高亮）。
+    p: ({ children }) => <p>{highlightChildren(children, highlightKeyword)}</p>,
+    li: ({ children }) => <li>{highlightChildren(children, highlightKeyword)}</li>,
+    strong: ({ children }) => <strong>{highlightChildren(children, highlightKeyword)}</strong>,
+    em: ({ children }) => <em>{highlightChildren(children, highlightKeyword)}</em>,
     table({ children }) {
       return (
         <div className={styles['table-wrapper']}>
@@ -659,6 +732,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   replayMessageId,
   subAgentRuns,
   todoProgress,
+  highlightKeyword,
 }) => {
   // 复制/编辑/删除/重新生成/回放/文件变更定位等消息级动作由 Context 提供，
   // 不再逐层 props 穿透（见 ChatMessageActionsContext 的稳定性契约）
@@ -792,8 +866,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   // 根据当前流式状态构建 markdown 组件映射（流式时 Artifact 不自动预览）
   // useMemo 确保引用稳定，避免 ReactMarkdown 不必要的重渲染
   const markdownComponents = React.useMemo(
-    () => buildMarkdownComponents(!!message.isStreaming),
-    [message.isStreaming]
+    () => buildMarkdownComponents(!!message.isStreaming, highlightKeyword),
+    [message.isStreaming, highlightKeyword]
   )
 
   const renderTextContent = (content: string) => {

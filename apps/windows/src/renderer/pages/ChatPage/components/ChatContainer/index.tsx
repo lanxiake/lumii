@@ -123,6 +123,14 @@ interface ChatContainerProps {
    */
   focusMessageId?: string | null
   onFocusHandled?: () => void
+  /**
+   * 要在气泡里标出关键词的那条消息。
+   *
+   * **与 focusMessageId 分开**：定位是一次性的（滚到就清空、1.6 秒褪色），
+   * 高亮要一直挂着，直到用户换词或关掉搜索。合用一个 prop 的后果实测过——
+   * 定位一完成高亮就跟着没了。
+   */
+  keywordHighlight?: { messageId: string; keyword: string } | null
   /** 本会话的长耗时后台任务（远程视频生成等），渲染为对话流内任务卡 */
   backgroundTasks?: readonly BackgroundTask[]
   /** 本会话的活动实例（含主 Agent），≥2 个子 Agent 时渲染并行看板 */
@@ -163,6 +171,8 @@ interface ChatMessageRowProps {
   subAgentRuns?: readonly SubAgentRun[]
   /** 当前会话任务列表完成度（供「执行过程」折叠态进度联动） */
   todoProgress?: { done: number; total: number } | null
+  /** 只有这条消息需要高亮的关键词（对话内搜索 / 侧栏命中定位）；其余行为 undefined */
+  highlightKeyword?: string
 }
 
 /**
@@ -182,6 +192,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
   workflowToolItems,
   subAgentRuns,
   todoProgress,
+  highlightKeyword,
 }) => {
   const message: ChatMessageType = useMemo(() => ({
     id: item.id,
@@ -250,6 +261,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
       replayMessageId={replayMessageId}
       subAgentRuns={subAgentRuns}
       todoProgress={todoProgress}
+      {...(highlightKeyword ? { highlightKeyword } : {})}
     />
   )
 }
@@ -273,6 +285,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   onLoadOlderMessages,
   focusMessageId,
   onFocusHandled,
+  keywordHighlight,
   backgroundTasks,
   activeAgents,
   onCancelAgent,
@@ -738,6 +751,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           workflowToolItems={workflowToolItems}
           subAgentRuns={subAgentRunsByParent.get(item.id)}
           todoProgress={todoProgress}
+          {...(keywordHighlight && item.id === keywordHighlight.messageId
+            ? { highlightKeyword: keywordHighlight.keyword }
+            : {})}
         />
         {turnTasks && (
           <div className={styles['session-meta-inline']}>

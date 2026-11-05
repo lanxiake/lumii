@@ -43,6 +43,8 @@ import {
 } from './utils/image-processing-strategy'
 import { WorkspaceWorkbenchArea } from './layout/WorkspaceWorkbenchArea'
 import { ChatSidebarArea } from './layout/ChatSidebarArea'
+import { ChatSearchBar } from './components/ChatSearchBar'
+import { useChatSearch } from './hooks/useChatSearch'
 import { computeClearGroupPlan, type ClearGroupHistoryRequest } from './clearGroupPlan'
 import { useSessionDrafts } from './hooks/useSessionDrafts'
 import { useWorkspacePanels } from './hooks/useWorkspacePanels'
@@ -156,7 +158,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   // 本地 Agent Runtime hooks（Feature Flag 开启时生效）
   const runtimeActions = useAgentRuntimeActions()
   /** listSessions 为 useCallback 稳定引用，仅依赖它可避免把整个 runtimeActions 放进 deps 导致 effect 异常抖动 */
-  const { listSessions, searchSessions } = runtimeActions
+  const { listSessions, searchSessions, searchSessionHits } = runtimeActions
   const runtimeIsStreaming = useAgentRuntimeState((s) => s.isStreaming)
   const runtimeThinkingLive = useAgentRuntimeState((s) => s.currentThinkingText)
   const runtimeMessages = useAgentRuntimeState((s) => s.messages)
@@ -523,6 +525,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const handleGoToMessage = useCallback((messageId: string) => {
     setFocusMessageId(messageId)
   }, [])
+
+  /**
+   * 侧栏搜索点进来的一次性定位：记下「要跳到哪条、标哪个词」。
+   * 用户之后手动操作（做别的搜索 / 关掉）就不该再挂着。
+   */
+  const [externalHit, setExternalHit] = useState<{ messageId: string; keyword: string } | null>(
+    null,
+  )
+  /**
+   * 对话内搜索（Ctrl+F）。可搜文本用 message.content（+助手思考不参与——
+   * 用户搜的是「看到的话」，不是模型内部推理）。
+   */
+  const chatSearchMessages = useMemo(
+    () =>
+      (localRuntimeSession?.messages ?? []).map((m) => ({ id: m.id, text: m.content ?? '' })),
+    [localRuntimeSession?.messages],
+  )
+  const chatSearch = useChatSearch(chatSearchMessages, externalHit)
   /**
    * pendingAttachments 存储当前待发附件的元信息：
    * - fileName / filePath / category 来自策略层
@@ -1617,6 +1637,41 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [onViewChange, switchSessionAndSyncModel, selectedModelId])
 
   /**
+   * 侧栏搜索点命中：**先切会话，等它真的切过去再定位**。
+   *
+   * 两条消息同时发出去的话，ChatContainer 会先拿「旧会话的消息列表」跑一遍定位：
+   * 里面没有这个 id → 当成「翻到底也没找到」→ 调 onFocusHandled 把请求清掉。
+   * 等新会话的消息到了，请求已经没了，用户看到的是「切过去了但没跳」。
+   *
+   * 所以这里盯住 currentSessionKey 的变化：切过去才 setFocusMessageId。
+   */
+  const pendingFocusRef = useRef<{ sessionKey: string; messageId: string; keyword: string } | null>(
+    null,
+  )
+  const handleFocusHit = useCallback(
+    (sessionKey: string, messageId: string, keyword: string) => {
+      // 已经在目标会话里（切会话是 no-op）：直接定位，别等一个不会发生的变化
+      if (runtimeCurrentSessionKey === sessionKey) {
+        pendingFocusRef.current = null
+        setExternalHit({ messageId, keyword })
+        setFocusMessageId(messageId)
+        return
+      }
+      pendingFocusRef.current = { sessionKey, messageId, keyword }
+      handleSelectSidebarSession(sessionKey)
+    },
+    [handleSelectSidebarSession, runtimeCurrentSessionKey],
+  )
+  useEffect(() => {
+    const pending = pendingFocusRef.current
+    if (!pending || runtimeCurrentSessionKey !== pending.sessionKey) return
+    pendingFocusRef.current = null
+    // 消息列表还没换完时 ChatContainer 会自己等（messages.length === 0 直接 return）
+    setExternalHit({ messageId: pending.messageId, keyword: pending.keyword })
+    setFocusMessageId(pending.messageId)
+  }, [runtimeCurrentSessionKey])
+
+  /**
    * 侧栏底部「新建对话」：跟随当前打开会话的 Agent（无会话时为系统默认）。
    */
   const handleCreateSidebarSession = useCallback(() => {
@@ -2183,6 +2238,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         slot={sessionSlot}
         sessions={localRuntimeSessionsAsChatSessions}
         onSearchSessions={searchSessions}
+        onSearchHits={searchSessionHits}
+        onFocusMessage={handleFocusHit}
         activeSessionId={runtimeCurrentSessionKey ?? null}
         onSelectSession={handleSelectSidebarSession}
         onCreateSession={handleCreateSidebarSession}
@@ -2194,6 +2251,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       />
 
       <div className={styles['chat-main']} data-chat-dialog>
+        <ChatSearchBar
+          open={chatSearch.open}
+          query={chatSearch.query}
+          matchCount={chatSearch.hits.length}
+          activeIndex={chatSearch.activeIndex}
+          onQueryChange={chatSearch.setQuery}
+          onStep={chatSearch.step}
+          onClose={chatSearch.close}
+        />
         {/* 消息层：全屏滚动，顶部/底部浮层可透视；字号跟全局 --chat-font-size */}
         <div className={styles['chat-main-body']}>
           <ChatMessageActionsProvider value={chatMessageActions}>
@@ -2211,6 +2277,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
               replayMessageId={conversationReplay.replayMessageId}
               focusMessageId={focusMessageId}
               onFocusHandled={clearFocusMessage}
+              {...(chatSearch.keywordHighlight
+                ? { keywordHighlight: chatSearch.keywordHighlight }
+                : {})}
               todoCalls={sessionTodoCalls}
               hasMoreHistory={runtimeHistoryPaging?.hasMore ?? false}
               isLoadingHistory={runtimeHistoryPaging?.isLoading ?? false}

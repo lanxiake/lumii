@@ -8,7 +8,7 @@ import { useAgents } from '../../../../hooks/business/useAgents/useAgents'
 import { useSettingsHub } from '../../../../components/SettingsHub'
 import { isMainAgentSession } from '../../utils/main-agent-session'
 import type { ClearGroupHistoryRequest } from '../../clearGroupPlan'
-import type { ConversationSearchMatch } from '../../../../../shared/agent-runtime-commands'
+import type { ConversationSearchHit, ConversationSearchMatch } from '../../../../../shared/agent-runtime-commands'
 import type { ChatSession } from '../../../../hooks/business/useChat'
 import styles from './ChatSidebar.module.css'
 
@@ -42,11 +42,20 @@ const CHANNEL_META: readonly ChannelMeta[] = [
 
 /** 正文检索的防抖窗口：一次全表 LIKE 约 30ms 且在主进程里同步执行，逐字发会把主进程刷满 */
 const SEARCH_DEBOUNCE_MS = 200
+/** 下拉里最多显示多少条命中（再多也是让人滚动而不是让人找到） */
+const SEARCH_HITS_MAX = 40
 
 interface ChatSidebarProps {
   sessions: ChatSession[]
   /** 按正文反查命中的会话及片段；不传则只支持标题 / 预览匹配 */
   onSearchSessions?: (query: string) => Promise<readonly ConversationSearchMatch[]>
+  /**
+   * 按正文反查**逐条**命中（一条消息一行，带 messageId）。
+   * 传了才显示搜索下拉；点一条会先切到那个会话，再定位到那句话。
+   */
+  onSearchHits?: (query: string) => Promise<readonly ConversationSearchHit[]>
+  /** 点命中项后定位到那条消息（先切会话，再滚动+高亮+标出关键词）；不传则只切会话 */
+  onFocusMessage?: (sessionKey: string, messageId: string, keyword: string) => void
   activeSessionId: string | null
   onSelectSession: (sessionId: string) => void
   onCreateSession: () => void
@@ -62,6 +71,52 @@ interface ChatSidebarProps {
 /**
  * 归一化会话渠道（兼容旧数据 / 空值）。
  */
+/**
+ * 把关键词在片段里**全部**标出来（不止第一个）。
+ *
+ * SessionItem 里的单行高亮只标首个命中是因为那条片段本来就短；
+ * 下拉里的片段是完整一段话，同一处出现两次关键词只亮一个会显得没对齐。
+ */
+function renderHighlightAll(text: string, query: string): React.ReactNode {
+  if (!query) return text
+  const lower = text.toLowerCase()
+  const needle = query.toLowerCase()
+  const parts: React.ReactNode[] = []
+  let from = 0
+  let at = lower.indexOf(needle)
+  let key = 0
+  while (at >= 0) {
+    if (at > from) parts.push(text.slice(from, at))
+    parts.push(
+      <mark key={key++} className={styles['search-hit-mark']}>
+        {text.slice(at, at + needle.length)}
+      </mark>,
+    )
+    from = at + needle.length
+    // 空关键词会死循环；上面已经挡了，这里再兜一层
+    if (needle.length === 0) break
+    at = lower.indexOf(needle, from)
+  }
+  if (from < text.length) parts.push(text.slice(from))
+  return parts
+}
+
+/** 命中时间：今天给 HH:mm，更早给「N 天前」/ 日期，一列宽度里排得开 */
+function formatHitTime(iso: string): string {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return ''
+  const now = new Date()
+  const sameDay =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  if (sameDay) return `${pad(at.getHours())}:${pad(at.getMinutes())}`
+  const days = Math.floor((now.getTime() - at.getTime()) / 86_400_000)
+  if (days > 0 && days < 7) return `${days} 天前`
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
+}
+
 function normalizeChannel(channel?: string): SessionChannel {
   if (
     channel === 'wechat' ||
@@ -194,6 +249,8 @@ function resolveSidebarEmptyDesc(agentId: string | null, fallback?: string): str
 const ChatSidebar: React.FC<ChatSidebarProps> = ({
   sessions,
   onSearchSessions,
+  onSearchHits,
+  onFocusMessage,
   activeSessionId,
   onSelectSession,
   onCreateSession,
@@ -206,6 +263,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('')
   /** 正文命中的会话 → 命中片段（空串＝命中不可见内容，只列会话不给片段）；防抖后到位 */
   const [contentMatches, setContentMatches] = useState<ReadonlyMap<string, string>>(() => new Map())
+  /** 逐条命中（一条消息一行）；`hitsLoading` 覆盖「有查询但还没回来」的中间态 */
+  const [searchHits, setSearchHits] = useState<readonly ConversationSearchHit[]>([])
+  const [hitsLoading, setHitsLoading] = useState(false)
   /** 已折叠的渠道 key */
   const [collapsedChannels, setCollapsedChannels] = useState<Set<string>>(() => new Set())
   /** 已展开的 Agent 分组 key（默认只展开系统默认组，其余收起） */
@@ -262,6 +322,46 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       clearTimeout(timer)
     }
   }, [searchQuery, onSearchSessions])
+
+  /**
+   * 逐条命中：与上面的会话级检索并行发，共用同一个防抖窗口。
+   *
+   * 两者用途不同——会话级用来过滤侧栏列表，逐条用来看「那句话在哪」。
+   * 合并成一次查询会让侧栏要么丢掉标题匹配、要么把每会话一段变成几十行。
+   */
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (!query || !onSearchHits) {
+      setSearchHits([])
+      setHitsLoading(false)
+      return
+    }
+    let cancelled = false
+    setHitsLoading(true)
+    const timer = setTimeout(() => {
+      void onSearchHits(query)
+        .then((hits) => {
+          if (!cancelled) setSearchHits(hits)
+        })
+        .finally(() => {
+          if (!cancelled) setHitsLoading(false)
+        })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [searchQuery, onSearchHits])
+
+  /** 点一条命中：切会话 + 定位那句话（两件事的先后由父层保证） */
+  const handleHitClick = useCallback(
+    (hit: ConversationSearchHit) => {
+      onFocusMessage?.(hit.conversationId, hit.messageId, searchQuery.trim())
+      // 父层不接管定位时，至少把会话切过去
+      if (!onFocusMessage) onSelectSession(hit.conversationId)
+    },
+    [onSelectSession, onFocusMessage, searchQuery],
+  )
 
   /**
    * 搜索过滤后的会话：标题 / 最后一条预览本地即时匹配，正文命中由主进程异步补齐。
@@ -768,7 +868,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索会话..."
+            placeholder="搜索会话或聊天记录…"
             className={styles['search-input']}
           />
           {searchQuery && (
@@ -782,6 +882,59 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           )}
         </div>
       </div>
+
+      {/*
+        命中列表：一条消息一行，关键词高亮。
+        用户要的是「那句话在哪」——只列会话名时，他得点进去自己翻半天。
+      */}
+      {searchQuery.trim() && (
+        <div className={styles['search-hits']} aria-label="聊天记录命中">
+          <div className={styles['search-hits-head']}>
+            聊天记录
+            {searchHits.length > 0 && (
+              <span className={styles['search-hits-count']}>
+                {searchHits.length > SEARCH_HITS_MAX
+                  ? `前 ${SEARCH_HITS_MAX} 条 · 共 ${searchHits.length}+`
+                  : `${searchHits.length} 条`}
+              </span>
+            )}
+          </div>
+          {!onSearchHits ? (
+            <div className={styles['search-hits-empty']}>未接入正文检索</div>
+          ) : hitsLoading && searchHits.length === 0 ? (
+            <div className={styles['search-hits-empty']}>检索中…</div>
+          ) : searchHits.length === 0 ? (
+            <div className={styles['search-hits-empty']}>聊天记录里没有匹配</div>
+          ) : (
+            <div className={styles['search-hits-list']}>
+              {searchHits.slice(0, SEARCH_HITS_MAX).map((hit) => {
+                const session = sessions.find((s) => s.id === hit.conversationId)
+                return (
+                  <button
+                    key={`${hit.conversationId}:${hit.messageId}`}
+                    type="button"
+                    className={styles['search-hit']}
+                    onClick={() => handleHitClick(hit)}
+                    title={hit.snippet}
+                  >
+                    <span className={styles['search-hit-meta']}>
+                      <span className={styles['search-hit-session']}>
+                        {session?.title ?? hit.conversationId}
+                      </span>
+                      <span className={styles['search-hit-time']}>
+                        {formatHitTime(hit.timestamp)}
+                      </span>
+                    </span>
+                    <span className={styles['search-hit-text']}>
+                      {renderHighlightAll(hit.snippet, searchQuery.trim())}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={styles['conversations-list']}>
         {searchQuery.trim() && filteredSessions.length === 0 ? (

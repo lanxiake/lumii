@@ -1,0 +1,65 @@
+/* 对话内搜索条：贴在对话区右上角，不占布局高度（浮层，否则消息会跟着跳） */
+.bar {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: var(--mt-radius-lg, 8px);
+  background: var(--mt-surface-2);
+  box-shadow: var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35));
+}
+
+.input {
+  width: 200px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--mt-fg-1);
+  font-size: calc(var(--font-size-sm) * var(--app-font-scale, 1));
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--mt-fg-3);
+}
+
+/* 去掉 type=search 的原生清除按钮，避免与右侧按钮挤在一起 */
+.input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.count {
+  min-width: 52px;
+  color: var(--mt-fg-3);
+  font-size: calc(11px * var(--app-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.navBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mt-fg-2);
+  cursor: pointer;
+}
+
+.navBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mt-accent-500) 16%, transparent);
+  color: var(--mt-fg-1);
+}
+
+.navBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
