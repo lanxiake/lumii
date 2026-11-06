@@ -72,6 +72,16 @@ function readFileAsBase64(file: File): Promise<string> {
   })
 }
 
+/** 把导入失败转成给用户看的短句（IPC 的错误对象没有 message 时也能读） */
+function describeImportError(err: unknown): string {
+  if (err instanceof Error && err.message) {
+    // Electron 的 invoke 错误统一带 "Error invoking remote method ...: Error: "
+    return err.message.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '')
+  }
+  const msg = (err as { message?: unknown })?.message
+  return typeof msg === 'string' && msg ? msg : '未知错误'
+}
+
 /**
  * RuntimeMessage → ChatContainer 所需的消息形状。
  * 提到组件外定义，配合 useStableMapById：只要某条 RuntimeMessage 对象引用未变
@@ -582,38 +592,53 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
    */
   const handleFilesImport = useCallback(async (files: FileList) => {
     const attached = processFilesWithStrategies(files)
-    const imported = await Promise.all(
-      attached.map(async (a, i) => {
-        try {
-          const hasPath = a.filePath && a.filePath !== a.fileName
-          const commandPayload: Record<string, unknown> = {
-            type: 'files:import',
-            userId: 'local-user',
-            fileName: a.fileName,
-            mimeType: a.mimeType,
-          }
-          if (hasPath) {
-            commandPayload.sourcePath = a.filePath
-          } else {
-            const file = files[i]
-            if (file) {
+    const failureMessage = new Map<string, string>()
+    const imported = (
+      await Promise.all(
+        attached.map(async (a, i) => {
+          try {
+            // 空串表示「拿不到本地路径」（Electron 32+ 已移除 File.path），
+            // 必须回退成把字节读上来；旧代码拿文件名冒充路径，主进程一侧必抛
+            // 「源文件不存在」。
+            const sourcePath = a.filePath
+            const commandPayload: Record<string, unknown> = {
+              type: 'files:import',
+              userId: 'local-user',
+              fileName: a.fileName,
+              mimeType: a.mimeType,
+            }
+            if (sourcePath) {
+              commandPayload.sourcePath = sourcePath
+            } else {
+              const file = files[i]
+              if (!file) throw new Error('拿不到文件内容')
               commandPayload.fileBuffer = await readFileAsBase64(file)
             }
+            const result = await window.electronAPI?.agentRuntime?.sendCommand(commandPayload)
+            const importResult = result as { absPath: string; parsedTextPath?: string | null }
+            return {
+              fileName: a.fileName,
+              filePath: importResult.absPath,
+              category: a.category,
+              parsedTextPath: importResult.parsedTextPath ?? null,
+            }
+          } catch (err) {
+            logger.error('[handleFilesImport] files:import 失败:', err)
+            failureMessage.set(a.fileName, describeImportError(err))
+            // 导入失败的**不能**留在附件列表里：那会变成一个 chip，发送后
+            // Agent 拿到的是不存在的路径（拖入文件夹时就是这样静默坏掉的）
+            return null
           }
-          const result = await window.electronAPI?.agentRuntime?.sendCommand(commandPayload)
-          const importResult = result as { absPath: string; parsedTextPath?: string | null }
-          return {
-            fileName: a.fileName,
-            filePath: importResult.absPath,
-            category: a.category,
-            parsedTextPath: importResult.parsedTextPath ?? null,
-          }
-        } catch (err) {
-          logger.error('[handleFilesImport] files:import 失败:', err)
-          return { fileName: a.fileName, filePath: a.filePath, category: a.category, parsedTextPath: null }
-        }
-      })
-    )
+        }),
+      )
+    ).filter((a): a is NonNullable<typeof a> => a !== null)
+
+    if (failureMessage.size > 0) {
+      const [name, reason] = [...failureMessage.entries()][0]!
+      const more = failureMessage.size > 1 ? ` 等 ${failureMessage.size} 个文件` : ''
+      toast.error(`${name}${more} 导入失败：${reason}`)
+    }
+    if (imported.length === 0) return
     setPendingAttachments((prev) => [...prev, ...imported])
 
     // 异步启动图片识别策略（不阻塞 UI）

@@ -286,9 +286,24 @@ function getExtension(name: string): string {
   return name.slice(dot).toLowerCase()
 }
 
-/** Electron 环境下 File 对象上的 path 属性；其它环境退化为文件名 */
+/**
+ * 取本地文件的真实路径。
+ *
+ * Electron 32 起 `File.path` 被移除（本机 Electron 36 实测为 `undefined`），
+ * 只剩 `webUtils.getPathForFile()` 这一条路。拿不到路径时**必须**返回空串：
+ * 调用方据此回退到「把字节读成 base64」，而不是把文件名当路径传下去
+ * （那会在主进程变成「源文件不存在」，拖入大文件时还会白读一遍）。
+ *
+ * 非 Electron 环境（vitest / 浏览器）没有这个 API，同样返回空串。
+ */
 function resolvePath(file: File): string {
-  return (file as File & { path?: string }).path ?? file.name
+  const legacy = (file as File & { path?: string }).path
+  if (typeof legacy === 'string' && legacy) return legacy
+  try {
+    return window.electronAPI?.app?.getPathForFile?.(file) ?? ''
+  } catch {
+    return ''
+  }
 }
 
 /** 通用 AttachedFile 构造器 */

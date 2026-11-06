@@ -75,6 +75,34 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
   }, [onShellReady])
 
   /**
+   * 兜底拦截「拖到输入框以外」的文件拖放。
+   *
+   * 没有这层时，把文件拖到消息区 / 设置页等**不接收**的地方松手，Chromium 会按
+   * 默认行为导航到 `file://`，主窗口被整个替换掉（只能重启）。这里统一吞掉，
+   * 并给出「请拖到输入框」的提示 —— 输入框自己的 handleDrop 会先 stopPropagation
+   * 之前的默认行为，所以正常拖放不受影响。
+   */
+  useEffect(() => {
+    const isFileDrag = (e: DragEvent) => !!e.dataTransfer?.types?.includes('Files')
+    const onDragOver = (e: DragEvent) => {
+      if (!isFileDrag(e)) return
+      e.preventDefault()
+      e.dataTransfer!.dropEffect = 'none'
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!isFileDrag(e)) return
+      e.preventDefault()
+      showToast({ type: 'info', message: '请把文件拖到输入框里' })
+    }
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [showToast])
+
+  /**
    * 刷新本地模型就绪状态
    */
   const refreshModelReady = useCallback(async () => {

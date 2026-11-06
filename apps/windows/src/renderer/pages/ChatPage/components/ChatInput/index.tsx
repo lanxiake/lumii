@@ -360,6 +360,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
     const droppedFiles = e.dataTransfer.files
     if (!raw && droppedFiles.length === 0) return
     e.preventDefault()
+    // 同上：与 App 层的「拖到输入框以外」兜底互斥
+    e.stopPropagation()
     setIsDragOver(false)
     // 工作空间里拖来的引用：插 @chip，不走上传
     if (raw) {
@@ -381,6 +383,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
     const types = e.dataTransfer.types
     if (types.includes('application/x-mtbot-file') || types.includes('Files')) {
       e.preventDefault()
+      // 必须 stopPropagation：App 层有一个兜底监听，专门拦「拖到输入框以外」的
+      // 松手（否则 Chromium 会按默认行为把主窗口导航到 file://）。不在这里截停，
+      // 它会连正常拖放一起吃掉。
+      e.stopPropagation()
       e.dataTransfer.dropEffect = 'copy'
       setIsDragOver(true)
     }
@@ -388,7 +394,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     // 仅当离开整个包裹区域时取消高亮（避免子元素间移动闪烁）
-    if (e.currentTarget === e.target) setIsDragOver(false)
+    if (e.currentTarget === e.target) {
+      e.stopPropagation()
+      setIsDragOver(false)
+    }
   }, [])
 
   // streaming 结束时只收起插话面板，不清空草稿（避免多轮 tool 间隙短暂 !isStreaming 误删用户正在输入的内容）
@@ -728,7 +737,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
       : '--'
 
   return (
-    <div className={styles['chat-input-wrapper']} data-app-ui-block="composer">
+    <div
+      className={styles['chat-input-wrapper']}
+      data-app-ui-block="composer"
+      // 整块输入区（含上方 @引用/附件行、斜杠面板、状态条）都接收文件拖放：
+      // 用户不会精确对准卡片，拖到附件行或输入框边缘松手同样要能放进附件框。
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
       {!isConnected && (
         <div className={styles['connection-warning']}>未连接到服务器，无法发送消息</div>
       )}

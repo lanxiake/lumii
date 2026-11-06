@@ -4,6 +4,7 @@ import {
   mergeEditedUserMessage,
   parseMediaAttachedLine,
   parseMediaAttachments,
+  processFilesWithStrategies,
   serializeAttachments,
 } from './file-attachment-strategy'
 
@@ -114,5 +115,34 @@ describe('parseMediaAttachments', () => {
       filePath: 'D:\\ws\\uploads\\户口本拼页(1)_2.pdf',
       fileName: '证件扫描-户口本拼页(1).pdf',
     })
+  })
+})
+
+describe('processFilesWithStrategies：本地路径来源', () => {
+  // 不需要真 DataTransfer：被测代码只用到 length / 下标访问
+  const fileList = (files: File[]): FileList =>
+    Object.assign([...files], { item: (i: number) => files[i] ?? null }) as unknown as FileList
+
+  // 回归：Electron 32 起 `File.path` 被移除（本机 36 实测 undefined）。
+  // 旧实现用 `file.name` 兜底，主进程收到的是个不存在的「路径」，拖入必失败；
+  // 现在必须回落到 webUtils，拿不到就返回空串让调用方去读字节。
+  it('webUtils 可用时取真实路径', () => {
+    const api = { getPathForFile: (f: File) => 'C:/real/' + f.name }
+    ;(globalThis as { window?: unknown }).window = { electronAPI: { app: api } }
+    const [att] = processFilesWithStrategies(fileList([new File(['x'], 'a.txt')]))
+    expect(att?.filePath).toBe('C:/real/a.txt')
+    delete (globalThis as { window?: unknown }).window
+  })
+
+  it('拿不到路径时返回空串，而不是拿文件名冒充路径', () => {
+    ;(globalThis as { window?: unknown }).window = { electronAPI: { app: {} } }
+    const [att] = processFilesWithStrategies(fileList([new File(['x'], 'a.txt')]))
+    expect(att?.filePath).toBe('')
+    delete (globalThis as { window?: unknown }).window
+  })
+
+  it('非 Electron 环境（无 window）同样返回空串且不抛错', () => {
+    const [att] = processFilesWithStrategies(fileList([new File(['x'], 'a.txt')]))
+    expect(att?.filePath).toBe('')
   })
 })
