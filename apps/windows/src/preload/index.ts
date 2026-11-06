@@ -723,6 +723,7 @@ export interface ElectronAPI {
       target: 'intermediate' | 'ephemeral' | 'both'
       dryRun: boolean
       protectedPaths?: readonly string[]
+      olderThanMs?: number
     }) => Promise<import('../shared/workspace-cleanup-types').CleanupRunResult>
     /** 回收站列表（倒序） */
     cleanupListTrash: () => Promise<
@@ -740,10 +741,18 @@ export interface ElectronAPI {
       ok: boolean
       prefs: import('../main/workspace-cleanup-runner').StorageCleanupPrefs
     }>
-    /** 立即清理（不等空闲） */
+    /** 立即清理（不等空闲；临时文件一并真删） */
     cleanupRunNow: () => Promise<
       import('../main/workspace-cleanup-runner').ScheduledCleanupResult
     >
+    /** 确认清理过期临时文件（toast「清理」） */
+    cleanupConfirmEphemeral: () => Promise<
+      import('../shared/workspace-cleanup-types').CleanupRunResult
+    >
+    /** 订阅过期临时文件待确认通知；返回取消订阅 */
+    onEphemeralCleanupPending: (
+      callback: (pending: { count: number; bytes: number }) => void,
+    ) => () => void
     /** 扫描可去重的中间产物（只读，手动触发） */
     dedupePlan: (opts?: { budgetMs?: number }) => Promise<
       | import('../shared/workspace-dedupe-types').DedupePlanResult

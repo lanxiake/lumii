@@ -13,7 +13,7 @@ import { StorageSection } from '../../renderer/pages/SettingsPage/components/Sto
 const PREFS = {
   enabled: true,
   intermediateDays: 7,
-  ephemeralHours: 24,
+  ephemeralHours: 72,
   quotaGb: 10,
   targetPercent: 80,
   trashDays: 7,

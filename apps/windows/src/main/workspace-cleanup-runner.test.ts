@@ -48,12 +48,12 @@ afterEach(async () => {
 })
 
 describe('normalizeStorageCleanupPrefs', () => {
-  it('缺省走默认（开启、7 天 / 24h / 10GB→80% / 回收站 7 天）', () => {
+  it('缺省走默认（开启、中间 7 天 / 临时 72h / 10GB→80% / 回收站 7 天）', () => {
     expect(normalizeStorageCleanupPrefs(undefined)).toEqual(DEFAULT_STORAGE_CLEANUP_PREFS)
     expect(DEFAULT_STORAGE_CLEANUP_PREFS).toMatchObject({
       enabled: true,
       intermediateDays: 7,
-      ephemeralHours: 24,
+      ephemeralHours: 72,
       quotaGb: 10,
       targetPercent: 80,
       trashDays: 7,
@@ -92,11 +92,12 @@ describe('runScheduledCleanup', () => {
     expect(await exists('outputs/x/cut-1.png')).toBe(true)
   })
 
-  it('TTL：超过 7 天的中间产物被清，新文件保留；临时文件按 24h 清', async () => {
+  it('TTL：中间产物超 7 天真删；临时文件超 72h 只提议不删，待用户确认', async () => {
     await writeAt('outputs/x/cut-old.png', 8)
     await writeAt('outputs/x/cut-new.png', 1)
-    await writeAt('temp/tmp-old.txt', 2)
-    await writeAt('temp/tmp-new.txt', 0.1)
+    // 4 天 > 默认 72h → 进待确认；1 天未到期 → 不动
+    await writeAt('temp/tmp-old.txt', 4)
+    await writeAt('temp/tmp-new.txt', 1)
     await writeAt('outputs/x/final.png', 30)
 
     const result = await runScheduledCleanup({
@@ -108,16 +109,37 @@ describe('runScheduledCleanup', () => {
     expect(result.ran).toBe(true)
     expect(await exists('outputs/x/cut-old.png')).toBe(false)
     expect(await exists('outputs/x/cut-new.png')).toBe(true)
-    expect(await exists('temp/tmp-old.txt')).toBe(false)
+    // 自动路径不真删临时文件
+    expect(await exists('temp/tmp-old.txt')).toBe(true)
     expect(await exists('temp/tmp-new.txt')).toBe(true)
+    expect(result.ephemeralPending).toEqual({ count: 1, bytes: 1000 })
     // 成品永不自动删除
     expect(await exists('outputs/x/final.png')).toBe(true)
 
-    // 审计按本地日期落盘，且带 trigger=ttl
+    // 审计按本地日期落盘，且带 trigger=ttl；提议也落一条便于「今天已跑过」
     const day = new Date()
     const name = `cleanup-${day.getFullYear()}${String(day.getMonth() + 1).padStart(2, '0')}${String(day.getDate()).padStart(2, '0')}.jsonl`
     const audit = await readFile(path.join(logDir, name), 'utf8')
     expect(audit).toContain('"trigger":"ttl"')
+    expect(audit).toContain('"action":"propose"')
+  })
+
+  it('ephemeralAction=delete：临时文件按 TTL 真删（立即清理）', async () => {
+    await writeAt('temp/tmp-old.txt', 4)
+    await writeAt('temp/tmp-fresh.txt', 1)
+
+    const result = await runScheduledCleanup({
+      dir: root,
+      prefs: DEFAULT_STORAGE_CLEANUP_PREFS,
+      idleSeconds: 9999,
+      logDir,
+      ephemeralAction: 'delete',
+    })
+    expect(result.ran).toBe(true)
+    expect(result.ephemeralPending).toBeUndefined()
+    expect(await exists('temp/tmp-old.txt')).toBe(false)
+    expect(await exists('temp/tmp-fresh.txt')).toBe(true)
+    expect(result.ttlRemoved).toBeGreaterThanOrEqual(1)
   })
 
   it('配额：超过阈值时按最老优先清到目标预算', async () => {

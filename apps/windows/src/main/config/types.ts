@@ -67,7 +67,7 @@ export interface AppConfig {
   autonomousAgents?: string[]
   /** 开发类 Agent 的本机绑定列表（Agent → CLI 后端 + 工作目录） */
   codingDevAgentBindings?: AgentDevBinding[]
-  /** 工作区自动清理（缺省开启：中间 7 天 / 临时 24h / 配额 10GB→80% / 回收站 7 天） */
+  /** 工作区自动清理（缺省开启：中间 7 天 / 临时 72h 待确认 / 配额 10GB→80% / 回收站 7 天） */
   storageCleanup?: {
     enabled?: boolean
     intermediateDays?: number

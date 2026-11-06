@@ -908,12 +908,17 @@ export class CronScheduler {
       void (async () => {
         if (this.stopped) return
         try {
-          const [{ getStorageCleanupPrefs }, { hasRunCleanupToday, runScheduledCleanup }, { resolveLogsDir }] =
-            await Promise.all([
-              import('../storage-cleanup-prefs'),
-              import('../workspace-cleanup-runner'),
-              import('../paths'),
-            ])
+          const [
+            { getStorageCleanupPrefs },
+            { hasRunCleanupToday, runScheduledCleanup },
+            { resolveLogsDir },
+            { notifyEphemeralCleanupPending },
+          ] = await Promise.all([
+            import('../storage-cleanup-prefs'),
+            import('../workspace-cleanup-runner'),
+            import('../paths'),
+            import('../workspace-cleanup-notify'),
+          ])
           const logDir = resolveLogsDir()
           if (await hasRunCleanupToday(logDir)) return
           const prefs = getStorageCleanupPrefs()
@@ -926,8 +931,12 @@ export class CronScheduler {
             logDir,
           })
           if (result.ran) {
+            notifyEphemeralCleanupPending(result.ephemeralPending)
             log.info(
-              `[workspaceCleanup] 启动补跑完成：TTL ${result.ttlRemoved} · 配额 ${result.quotaRemoved} · 回收站 ${result.trashRemoved}`,
+              `[workspaceCleanup] 启动补跑完成：TTL ${result.ttlRemoved} · 配额 ${result.quotaRemoved} · 回收站 ${result.trashRemoved}` +
+                (result.ephemeralPending
+                  ? ` · 临时待确认 ${result.ephemeralPending.count}`
+                  : ''),
             )
           }
         } catch (err) {

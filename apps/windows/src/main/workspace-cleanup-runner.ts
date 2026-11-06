@@ -4,13 +4,14 @@
  * 所有删除都走 `workspace-cleanup` 的安全闸（只动过程文件、先回收站、引用跳过）；
  * 这里只负责「什么时候跑、跑几轮、阈值多少」。
  *
- * 默认策略（D7）：中间 7 天 / 临时 24 小时；工作区超过 10GB 时按最老优先清到 80%；
- * 回收站批次 7 天后真删。关闭开关 = 完全不跑（连扫描都不做）。
+ * 默认策略：中间 7 天 / 临时 72 小时（自动路径只提议、用户确认后才删）；
+ * 工作区超过 10GB 时按最老优先清到 80%；回收站批次 7 天后真删。
+ * 关闭开关 = 完全不跑（连扫描都不做）。
  */
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { purgeTrash, runCleanup, scanWorkspace } from './workspace-cleanup'
+import { appendCleanupAudit, purgeTrash, runCleanup, scanWorkspace } from './workspace-cleanup'
 import { pruneEditStore, pruneWorkspaceScratch } from './artifact-edit'
 import { recoverDedupeTemps } from './workspace-dedupe'
 import { pruneTurnVersions } from './turn-version-store'
@@ -28,7 +29,7 @@ export interface StorageCleanupPrefs {
 export const DEFAULT_STORAGE_CLEANUP_PREFS: StorageCleanupPrefs = {
   enabled: true,
   intermediateDays: 7,
-  ephemeralHours: 24,
+  ephemeralHours: 72,
   quotaGb: 10,
   targetPercent: 80,
   trashDays: 7,
@@ -56,6 +57,11 @@ export function normalizeStorageCleanupPrefs(raw: unknown): StorageCleanupPrefs 
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
 
+export interface EphemeralCleanupPending {
+  count: number
+  bytes: number
+}
+
 export interface ScheduledCleanupResult {
   ran: boolean
   /** 没跑的原因（disabled / not-idle / busy） */
@@ -67,6 +73,8 @@ export interface ScheduledCleanupResult {
   trashRemoved: number
   /** 已应用编辑里被清理掉内容副本的数量（meta 保留） */
   editsPruned: number
+  /** 自动路径下待用户确认的过期临时文件（未真删） */
+  ephemeralPending?: EphemeralCleanupPending
   errors: string[]
 }
 
@@ -74,6 +82,9 @@ export interface ScheduledCleanupResult {
  * 跑一轮自动清理。
  * `idleSeconds` 由调用方给（主进程 powerMonitor）；不足 5 分钟直接跳过——
  * 用户正在干活时不抢 IO。
+ *
+ * `ephemeralAction`：`propose`（默认）只干跑临时文件并返回 pending；
+ * `delete` 用于设置页「立即清理」等用户已显式确认的路径。
  */
 export async function runScheduledCleanup(opts: {
   dir: string
@@ -81,6 +92,7 @@ export async function runScheduledCleanup(opts: {
   idleSeconds: number
   logDir?: string
   budgetBytesForTest?: number
+  ephemeralAction?: 'propose' | 'delete'
 }): Promise<ScheduledCleanupResult> {
   const result: ScheduledCleanupResult = {
     ran: false,
@@ -95,6 +107,7 @@ export async function runScheduledCleanup(opts: {
   if (!opts.prefs.enabled) return { ...result, reason: 'disabled' }
   if (opts.idleSeconds < 300) return { ...result, reason: 'not-idle' }
 
+  const ephemeralAction = opts.ephemeralAction ?? 'propose'
   result.ran = true
   // 0) 去重崩溃残留：把 `.lumii/tmp/dedupe/` 里的临时副本放回原位
   try {
@@ -118,14 +131,42 @@ export async function runScheduledCleanup(opts: {
     result.errors.push(err instanceof Error ? err.message : String(err))
   }
   try {
-    const ephemeral = await runCleanup({
-      ...base,
-      target: 'ephemeral',
-      olderThanMs: opts.prefs.ephemeralHours * HOUR_MS,
-    })
-    result.ttlRemoved += ephemeral.removed
-    result.ttlBytes += ephemeral.bytes
-    if (!ephemeral.ok && ephemeral.error) result.errors.push(ephemeral.error)
+    const ephemeralOlderThanMs = opts.prefs.ephemeralHours * HOUR_MS
+    if (ephemeralAction === 'propose') {
+      const ephemeral = await runCleanup({
+        ...base,
+        target: 'ephemeral',
+        dryRun: true,
+        olderThanMs: ephemeralOlderThanMs,
+      })
+      if (!ephemeral.ok && ephemeral.error) {
+        result.errors.push(ephemeral.error)
+      } else if (ephemeral.removed > 0) {
+        result.ephemeralPending = { count: ephemeral.removed, bytes: ephemeral.bytes }
+        // 记一条 propose，让「今天已跑过」成立，避免启动补跑反复弹
+        if (opts.logDir) {
+          await appendCleanupAudit(opts.logDir, [
+            {
+              at: new Date().toISOString(),
+              action: 'propose',
+              role: 'ephemeral',
+              count: ephemeral.removed,
+              bytes: ephemeral.bytes,
+              trigger: 'ttl',
+            },
+          ])
+        }
+      }
+    } else {
+      const ephemeral = await runCleanup({
+        ...base,
+        target: 'ephemeral',
+        olderThanMs: ephemeralOlderThanMs,
+      })
+      result.ttlRemoved += ephemeral.removed
+      result.ttlBytes += ephemeral.bytes
+      if (!ephemeral.ok && ephemeral.error) result.errors.push(ephemeral.error)
+    }
   } catch (err) {
     result.errors.push(err instanceof Error ? err.message : String(err))
   }

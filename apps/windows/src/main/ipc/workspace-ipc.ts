@@ -12,7 +12,11 @@ import { ensureWorkspaceTempLayout } from '../workspace-paths'
 import { listTrash, restoreTrash, runCleanup, scanWorkspace } from '../workspace-cleanup'
 import { applyDedupe, planDedupe } from '../workspace-dedupe'
 import { getStorageCleanupPrefs } from '../storage-cleanup-prefs'
-import { normalizeStorageCleanupPrefs, runScheduledCleanup } from '../workspace-cleanup-runner'
+import {
+  DEFAULT_STORAGE_CLEANUP_PREFS,
+  normalizeStorageCleanupPrefs,
+  runScheduledCleanup,
+} from '../workspace-cleanup-runner'
 import { readCleanupHistory } from '../workspace-cleanup-history'
 import { resolveLogsDir } from '../paths'
 import type {
@@ -167,7 +171,7 @@ export function registerWorkspaceIpcHandlers(): void {
     'workspace:cleanup:run',
     async (
       _event,
-      payload?: { target?: unknown; dryRun?: unknown; protectedPaths?: unknown },
+      payload?: { target?: unknown; dryRun?: unknown; protectedPaths?: unknown; olderThanMs?: unknown },
     ): Promise<CleanupRunResult> => {
       const target = payload?.target
       if (target !== 'intermediate' && target !== 'ephemeral' && target !== 'both') {
@@ -178,11 +182,18 @@ export function registerWorkspaceIpcHandlers(): void {
             .filter((item): item is string => typeof item === 'string')
             .slice(0, 500)
         : undefined
+      const olderThanMs =
+        typeof payload?.olderThanMs === 'number' &&
+        Number.isFinite(payload.olderThanMs) &&
+        payload.olderThanMs > 0
+          ? payload.olderThanMs
+          : undefined
       return runCleanup({
         dir: resolveActiveWorkspaceDir(),
         target,
         dryRun: payload?.dryRun === true,
         ...(protectedPaths ? { protectedPaths } : {}),
+        ...(olderThanMs !== undefined ? { olderThanMs } : {}),
       })
     },
   )
@@ -203,12 +214,30 @@ export function registerWorkspaceIpcHandlers(): void {
     return { ok: true, prefs }
   })
 
-  /** 立即清理：用户显式点了，不等系统空闲；其余安全闸不变 */
+  /** 立即清理：用户显式点了，不等系统空闲；临时文件一并真删 */
   ipcMain.handle('workspace:cleanup:runNow', async () => {
     return runScheduledCleanup({
       dir: resolveActiveWorkspaceDir(),
       prefs: { ...getStorageCleanupPrefs(), enabled: true },
       idleSeconds: Number.MAX_SAFE_INTEGER,
+      logDir: resolveLogsDir(),
+      ephemeralAction: 'delete',
+    })
+  })
+
+  /**
+   * 确认清理过期临时文件：按当前策略 TTL 真删。
+   * toast「清理」按钮走这条，避免误清未到期文件。
+   */
+  ipcMain.handle('workspace:cleanup:confirmEphemeral', async (): Promise<CleanupRunResult> => {
+    const prefs = getStorageCleanupPrefs()
+    const hours = prefs.ephemeralHours > 0 ? prefs.ephemeralHours : DEFAULT_STORAGE_CLEANUP_PREFS.ephemeralHours
+    return runCleanup({
+      dir: resolveActiveWorkspaceDir(),
+      target: 'ephemeral',
+      dryRun: false,
+      olderThanMs: hours * 60 * 60 * 1000,
+      trigger: 'manual',
       logDir: resolveLogsDir(),
     })
   })

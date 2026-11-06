@@ -27,6 +27,7 @@ import { PluginRuntime } from '@/plugins/renderer/runtime'
 import { useAgentRuntimeActions } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { subscribeMainEvent } from './services/event-bus-service'
 import { PET_IPC } from '../shared/pet-mode'
+import { formatBytes } from './utils/format'
 import {
   removeEarlySplashIfPresent,
   shouldSkipSplash,
@@ -253,6 +254,49 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     window.addEventListener('voice:models:need-download', handler)
     return () => window.removeEventListener('voice:models:need-download', handler)
   }, [openHub, showToast])
+
+  // 过期临时文件：自动清理只提议，用户点「清理」后才真删
+  useEffect(() => {
+    const subscribe = window.electronAPI?.workspace?.onEphemeralCleanupPending
+    if (!subscribe) return
+    return subscribe((pending) => {
+      if (!pending?.count) return
+      showToast({
+        type: 'info',
+        message: `有 ${pending.count} 个过期临时文件（约 ${formatBytes(pending.bytes)}）可清理`,
+        duration: 15_000,
+        actionLabel: '清理',
+        onAction: () => {
+          void (async () => {
+            const api = window.electronAPI?.workspace
+            if (!api?.cleanupConfirmEphemeral) return
+            try {
+              const result = await api.cleanupConfirmEphemeral()
+              if (!result.ok) {
+                showToast({
+                  type: 'error',
+                  message: result.error ?? '清理临时文件失败',
+                })
+                return
+              }
+              showToast({
+                type: 'success',
+                message:
+                  result.removed > 0
+                    ? `已清理 ${result.removed} 个临时文件（约 ${formatBytes(result.bytes)}）`
+                    : '没有可清理的过期临时文件',
+              })
+            } catch (err) {
+              showToast({
+                type: 'error',
+                message: err instanceof Error ? err.message : '清理临时文件失败',
+              })
+            }
+          })()
+        },
+      })
+    })
+  }, [showToast])
 
   const themeToggleBtn = (    <button
       type="button"
