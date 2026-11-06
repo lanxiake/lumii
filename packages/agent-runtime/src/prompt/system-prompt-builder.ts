@@ -430,8 +430,8 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   // === 5.1. Messaging 指导（静态规则） ===
   emit("static", "messaging", [...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel, style })])
 
-  // A2UI 动态 UI 能力（暂时屏蔽：效果不好，待优化后重新启用）
-  // staticLines.push(...buildA2UISection(effectiveToolNames))
+  // A2UI 动态 UI 能力（组件已收敛为 Chart / DataTable；文案写的是选择规则）
+  emit("static", "a2ui", [...buildA2UISection(effectiveToolNames, style)])
 
   // ========== 动态部分（每轮可能变化） ==========
 

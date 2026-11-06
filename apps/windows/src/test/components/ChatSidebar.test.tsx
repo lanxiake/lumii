@@ -58,7 +58,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
     it('TC-4.1.1: 搜索框正常渲染', () => {
       renderSidebar()
 
-      const searchInput = screen.getByPlaceholderText('搜索会话...')
+      const searchInput = screen.getByPlaceholderText('搜索会话或聊天记录…')
       expect(searchInput).toBeInTheDocument()
     })
 
@@ -69,7 +69,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       ]
       renderSidebar({ sessions })
 
-      const searchInput = screen.getByPlaceholderText('搜索会话...')
+      const searchInput = screen.getByPlaceholderText('搜索会话或聊天记录…')
       fireEvent.change(searchInput, { target: { value: 'React' } })
 
       // 应该只显示包含"React"的会话
@@ -106,7 +106,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       ]
       renderSidebar({ sessions })
 
-      const searchInput = screen.getByPlaceholderText('搜索会话...')
+      const searchInput = screen.getByPlaceholderText('搜索会话或聊天记录…')
       fireEvent.change(searchInput, { target: { value: 'TypeScript' } })
 
       expect(screen.getByText('会话1')).toBeInTheDocument()
@@ -120,7 +120,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       ]
       renderSidebar({ sessions })
 
-      const searchInput = screen.getByPlaceholderText('搜索会话...')
+      const searchInput = screen.getByPlaceholderText('搜索会话或聊天记录…')
 
       // 先搜索
       fireEvent.change(searchInput, { target: { value: 'React' } })
@@ -136,7 +136,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       const sessions = [createMockSession({ id: 's1', title: 'React' })]
       renderSidebar({ sessions })
 
-      const searchInput = screen.getByPlaceholderText('搜索会话...')
+      const searchInput = screen.getByPlaceholderText('搜索会话或聊天记录…')
       fireEvent.change(searchInput, { target: { value: '不存在的内容' } })
 
       expect(screen.getByText('未找到匹配的会话')).toBeInTheDocument()
@@ -153,7 +153,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       )
       renderSidebar({ sessions, onSearchSessions })
 
-      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), {
+      fireEvent.change(screen.getByPlaceholderText('搜索会话或聊天记录…'), {
         target: { value: '精灵图' },
       })
       // 防抖窗口内还没发查询
@@ -174,7 +174,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       const onSearchSessions = vi.fn(async () => [{ conversationId: 's1', snippet: '' }])
       const { container } = renderSidebar({ sessions, onSearchSessions })
 
-      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), {
+      fireEvent.change(screen.getByPlaceholderText('搜索会话或聊天记录…'), {
         target: { value: 'jlvpsogs' },
       })
 
@@ -191,7 +191,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       const sessions = [createMockSession({ id: 's1', title: '会话1', messages: [] })]
       renderSidebar({ sessions, onSearchSessions })
 
-      const searchInput = screen.getByPlaceholderText('搜索会话...')
+      const searchInput = screen.getByPlaceholderText('搜索会话或聊天记录…')
       fireEvent.change(searchInput, { target: { value: '精灵' } })
       await waitFor(() => expect(pending).toHaveLength(1))
 
@@ -210,7 +210,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
     it('TC-4.1.6: 点击清除按钮清空搜索', () => {
       renderSidebar()
 
-      const searchInput = screen.getByPlaceholderText('搜索会话...') as HTMLInputElement
+      const searchInput = screen.getByPlaceholderText('搜索会话或聊天记录…') as HTMLInputElement
       fireEvent.change(searchInput, { target: { value: 'test' } })
 
       const clearBtn = screen.getByTitle('清除搜索')
@@ -256,7 +256,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         }),
       ]
       renderSidebar({ sessions })
-      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
+      fireEvent.change(screen.getByPlaceholderText('搜索会话或聊天记录…'), { target: { value: '会话' } })
 
       expect(screen.getByText('今天')).toBeInTheDocument()
     })
@@ -272,7 +272,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         }),
       ]
       renderSidebar({ sessions })
-      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
+      fireEvent.change(screen.getByPlaceholderText('搜索会话或聊天记录…'), { target: { value: '会话' } })
 
       expect(screen.getByText('昨天')).toBeInTheDocument()
     })
@@ -288,7 +288,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         }),
       ]
       renderSidebar({ sessions })
-      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
+      fireEvent.change(screen.getByPlaceholderText('搜索会话或聊天记录…'), { target: { value: '会话' } })
 
       expect(screen.getByText('更早')).toBeInTheDocument()
     })

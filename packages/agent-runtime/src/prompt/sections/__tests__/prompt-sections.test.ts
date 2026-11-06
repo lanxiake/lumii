@@ -36,6 +36,7 @@ const GUARD_TOOLS = [
   "wiki_overview",
   "wiki_search",
   "profile_memory",
+  "a2ui_guide",
 ];
 
 const GUARD_SKILLS: SkillInfo[] = [

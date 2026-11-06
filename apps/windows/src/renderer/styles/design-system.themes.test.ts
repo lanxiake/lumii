@@ -349,7 +349,6 @@ describe('图表调色板令牌化', () => {
     'pages/DashboardPage/components/UsageChart/index.tsx',
     'pages/SettingsPage/components/PerformanceDiagnostics/PerformanceDiagnostics.tsx',
     'components/A2UIRenderer/Chart.tsx',
-    'components/A2UIRenderer/MathVisualizer.tsx',
   ]
 
   it('图表调色板不写死颜色字面量', () => {

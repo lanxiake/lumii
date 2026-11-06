@@ -1,57 +1,11 @@
 /**
- * A2UI 类型定义 — MtBot 组件目录
+ * A2UI 组件类型定义
+ *
+ * 只剩 Chart / DataTable —— 收敛理由见 `validate.ts` 顶部注释。
  */
 
 // ---------------------------------------------------------------
-// 基础组件
-// ---------------------------------------------------------------
-
-export interface A2UIText {
-  type: 'Text'
-  id: string
-  content: string
-  variant?: 'body' | 'caption' | 'heading'
-}
-
-export interface A2UICard {
-  type: 'Card'
-  id: string
-  title?: string
-  subtitle?: string
-  components?: A2UIComponent[]
-}
-
-export interface A2UIImage {
-  type: 'Image'
-  id: string
-  src: string
-  alt?: string
-  width?: number
-  height?: number
-}
-
-export interface A2UIButton {
-  type: 'Button'
-  id: string
-  label: string
-  variant?: 'primary' | 'secondary' | 'outline'
-  disabled?: boolean
-}
-
-export interface A2UIList {
-  type: 'List'
-  id: string
-  items: A2UIComponent[]
-  ordered?: boolean
-}
-
-export interface A2UIDivider {
-  type: 'Divider'
-  id: string
-}
-
-// ---------------------------------------------------------------
-// 扩展组件
+// Chart
 // ---------------------------------------------------------------
 
 interface A2UIChartDataset {
@@ -70,54 +24,11 @@ export interface A2UIChart {
   }
 }
 
-export interface A2UIMathVisualizer {
-  type: 'MathVisualizer'
-  id: string
-  expression: string
-  range?: {
-    xMin?: number
-    xMax?: number
-    yMin?: number
-    yMax?: number
-  }
-  animated?: boolean
-}
-
 // ---------------------------------------------------------------
-// 富媒体组件（Phase 2）
+// DataTable
 // ---------------------------------------------------------------
 
-export interface A2UIAudioPlayer {
-  type: 'AudioPlayer'
-  id: string
-  src: string
-  title?: string
-  /** 可选波形可视化（预留，当前版本不启用） */
-  waveform?: boolean
-}
-
-export interface A2UIVideoPlayer {
-  type: 'VideoPlayer'
-  id: string
-  src: string
-  poster?: string
-  title?: string
-}
-
-export interface A2UIFilePreview {
-  type: 'FilePreview'
-  id: string
-  src: string
-  filename: string
-  /** 部分模型输出会省略，组件内会回退为 application/octet-stream */
-  mimeType?: string
-  /** 文件大小（字节），可选 */
-  size?: number
-  /** 预留 Phase 3 扩展 */
-  editable?: boolean
-}
-
-interface A2UIDataTableColumn {
+export interface A2UIDataTableColumn {
   key: string
   label: string
   sortable?: boolean
@@ -138,19 +49,7 @@ export interface A2UIDataTable {
 // 联合类型
 // ---------------------------------------------------------------
 
-export type A2UIComponent =
-  | A2UIText
-  | A2UICard
-  | A2UIImage
-  | A2UIButton
-  | A2UIList
-  | A2UIDivider
-  | A2UIChart
-  | A2UIMathVisualizer
-  | A2UIAudioPlayer
-  | A2UIVideoPlayer
-  | A2UIFilePreview
-  | A2UIDataTable
+export type A2UIComponent = A2UIChart | A2UIDataTable
 
 export interface A2UISpec {
   components: A2UIComponent[]

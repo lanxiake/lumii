@@ -36,7 +36,7 @@ function toRechartsData(data: A2UIChart['data']): Record<string, unknown>[] {
 }
 
 export const ChartComponent: React.FC<A2UIChart> = ({ chartType, title, data }) => {
-  if (!data?.labels || !data?.datasets) {
+  if (!data?.labels?.length || !data?.datasets?.length) {
     return <div className={styles['a2ui-fallback']}>图表数据格式错误</div>
   }
   const chartData = toRechartsData(data)
@@ -84,37 +84,55 @@ export const ChartComponent: React.FC<A2UIChart> = ({ chartType, title, data }) 
           </AreaChart>
         )
       case 'scatter':
+        // 散点图的两个轴都必须是数值：横轴取标签下标，纵轴取数据集的值。
+        // 直接复用类目数据会让 XAxis 变成类目轴，画出来是一张折线而不是散点。
         return (
           <ScatterChart>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-            <YAxis tick={{ fontSize: 12 }} />
+            <XAxis dataKey="x" type="number" tick={{ fontSize: 12 }} />
+            <YAxis dataKey="y" type="number" tick={{ fontSize: 12 }} />
             <Tooltip />
             <Legend />
             {datasetLabels.map((label, i) => (
-              <Scatter key={label} name={label} data={chartData} fill={COLORS[i % COLORS.length]} />
+              <Scatter
+                key={label}
+                name={label}
+                data={data.labels.map((_, idx) => ({ x: idx, y: data.datasets[i]?.values[idx] ?? 0 }))}
+                fill={COLORS[i % COLORS.length]}
+              />
             ))}
           </ScatterChart>
         )
       case 'pie': {
-        const pieData = data.labels.map((label, i) => ({
-          name: label,
-          value: data.datasets[0]?.values[i] ?? 0,
-        }))
+        // 饼图一张图只表现一个维度：按数据集逐张画，而不是静默丢弃第 2..N 个
+        const pies = data.datasets
         return (
-          <PieChart>
-            <Tooltip />
-            <Legend />
-            <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-              {pieData.map((_, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} />
-              ))}
-            </Pie>
-          </PieChart>
+          <>
+            {pies.map((ds, dsIdx) => {
+              const pieData = data.labels.map((label, i) => ({
+                name: label,
+                value: ds.values[i] ?? 0,
+              }))
+              return (
+                <div key={ds.label} className={styles['a2ui-chart-pie-wrap']}>
+                  {pies.length > 1 && <div className={styles['a2ui-chart-subtitle']}>{ds.label}</div>}
+                  <PieChart>
+                    <Tooltip />
+                    <Legend />
+                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                      {pieData.map((_, i) => (
+                        <Cell key={i} fill={COLORS[(i + dsIdx) % COLORS.length]} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </div>
+              )
+            })}
+          </>
         )
       }
       default:
-        return <div>不支持的图表类型: {chartType}</div>
+        return <div className={styles['a2ui-fallback']}>不支持的图表类型: {chartType}</div>
     }
   }
 

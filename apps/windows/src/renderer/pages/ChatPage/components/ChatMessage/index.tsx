@@ -260,8 +260,17 @@ function extractCodeText(children: React.ReactNode): string {
   return ''
 }
 
-/** 构建 Markdown 组件覆盖 — isStreaming 决定 ArtifactBlock 是否延迟预览 */
-function buildMarkdownComponents(isStreaming: boolean, highlightKeyword?: string): Components {
+/**
+ * 构建 Markdown 组件覆盖 — isStreaming 决定 ArtifactBlock 是否延迟预览。
+ *
+ * `richBlocks=false` 时把 a2ui / artifact 围栏一律当普通代码块：用户与系统消息走这条，
+ * 免得粘贴一段 HTML 示例就被执行。默认是 true（assistant 正文）。
+ */
+function buildMarkdownComponents(
+  isStreaming: boolean,
+  highlightKeyword?: string,
+  richBlocks = true,
+): Components {
   return {
     code({ className, children, ...props }) {
       const match = /language-(\w+)/.exec(className || '')
@@ -269,18 +278,28 @@ function buildMarkdownComponents(isStreaming: boolean, highlightKeyword?: string
       const lang = match?.[1]?.toLowerCase()
       // 判断是否为块级代码（含 language class 或 rehype-highlight 处理过）
       const isBlock = !!match || (className && className.includes('hljs'))
-      if (isBlock) {
-        // A2UI：模型有时把 spec 留在 markdown 代码块（未走 parseA2UIBlocks），在此兜底渲染
+      if (isBlock && richBlocks) {
+        // A2UI：模型有时把 spec 留在 markdown 代码块（未走 parseA2UIBlocks），在此兜底渲染。
+        // 外面必须包错误边界：解析器只保证形状，插件卡片仍可能抛错，而渲染期异常
+        // 会一路冒到根边界把整个界面换成「界面加载失败」。
         if (lang === 'a2ui') {
           const loose = tryParseA2UIBlockBodyLoose(codeText)
           if (loose) {
-            return <A2UIRenderer spec={loose} />
+            return (
+              <PluginErrorBoundary label="a2ui">
+                <A2UIRenderer spec={loose} />
+              </PluginErrorBoundary>
+            )
           }
         }
         if (lang === 'json') {
           const fromJson = tryParseA2UISpecFromJson(codeText)
           if (fromJson) {
-            return <A2UIRenderer spec={fromJson} />
+            return (
+              <PluginErrorBoundary label="a2ui">
+                <A2UIRenderer spec={fromJson} />
+              </PluginErrorBoundary>
+            )
           }
         }
         // 可预览的代码块使用 ArtifactBlock（含 Toolbar + IframeArtifact）
@@ -342,9 +361,10 @@ interface LargeTextBlockProps {
 /**
  * LargeTextBlock 专用的组件映射。这条路径永远不在流式期间——流式正文在
  * renderTextContent 开头就短路了——所以固定 isStreaming=false。
+ * `richBlocks=false`：超长正文只用于用户粘贴的日志/堆栈，里面的围栏是内容不是意图。
  * 模块级常量，引用天然稳定。
  */
-const LARGE_TEXT_MARKDOWN_COMPONENTS = buildMarkdownComponents(false)
+const LARGE_TEXT_MARKDOWN_COMPONENTS = buildMarkdownComponents(false, undefined, false)
 
 /**
  * 超过 PLAIN_TEXT_THRESHOLD 的正文默认按纯文本渲染，需要时再由用户切到 Markdown。
@@ -866,10 +886,26 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   // 根据当前流式状态构建 markdown 组件映射（流式时 Artifact 不自动预览）
   // useMemo 确保引用稳定，避免 ReactMarkdown 不必要的重渲染
   const markdownComponents = React.useMemo(
-    () => buildMarkdownComponents(!!message.isStreaming, highlightKeyword),
-    [message.isStreaming, highlightKeyword]
+    () => buildMarkdownComponents(!!message.isStreaming, highlightKeyword, message.role === 'assistant'),
+    [message.isStreaming, highlightKeyword, message.role]
   )
 
+  // 解析结果缓存：内容不变就不重复跑 4 条全局正则 + JSON.parse（每次重渲染都会调到这里）
+  const parseCache = React.useRef<{ input: string; segments: ReturnType<typeof parseA2UIBlocks> } | null>(null)
+  const parseSegments = (content: string) => {
+    if (parseCache.current?.input === content) return parseCache.current.segments
+    const segments = parseA2UIBlocks(content)
+    parseCache.current = { input: content, segments }
+    return segments
+  }
+
+  /**
+   * 只有 assistant 的正文才允许被提升成 A2UI / Artifact。
+   *
+   * 用户消息走同一个函数：用户粘贴一段 ```html 示例（极常见）不该被当代码执行，
+   * 粘贴的 ```a2ui 也不该被渲染成组件。
+   */
+  const allowRichBlocks = message.role === 'assistant'
   const renderTextContent = (content: string) => {
     // 流式输出中：跳过昂贵的 remark/rehype 解析，直接渲染纯文本，避免每个 delta 触发全量重解析
     if (message.isStreaming) {
@@ -880,8 +916,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       )
     }
 
-    // 超长正文（多为粘贴的日志/堆栈）：默认纯文本，解析代价留给用户显式触发（见 LargeTextBlock）
-    if (content.length > PLAIN_TEXT_THRESHOLD) {
+    // 超长正文（多为粘贴的日志/堆栈）：默认纯文本，解析代价留给用户显式触发（见 LargeTextBlock）。
+    // 例外：assistant 的长回答里若含可渲染围栏（图表/表格/artifact），不能整段降级——
+    // 闸门放在解析之前会让它们静默消失。判断用一次正则，比先跑完整解析便宜得多。
+    const richFence = /```(?:a2ui|html|svg|javascript|js|artifact:|json)\b/i.test(content)
+    if (content.length > PLAIN_TEXT_THRESHOLD && !(allowRichBlocks && richFence)) {
       return (
         <div className={styles['message-content-text']}>
           <LargeTextBlock content={content} />
@@ -889,8 +928,22 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       )
     }
 
-    const segments = parseA2UIBlocks(content)
+    // 非 assistant 的内容只走 markdown：用户/系统消息里粘贴的围栏不该被执行或变卡片
+    if (!allowRichBlocks) {
+      return (
+        <div className={styles['message-content-text']}>
+          <ReactMarkdown
+            remarkPlugins={remarkPluginsFor(content)}
+            rehypePlugins={rehypePluginsFor(content)}
+            components={markdownComponents}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      )
+    }
 
+    const segments = parseSegments(content)
     // 仅一段纯 markdown（常见路径）→ 直接渲染
     if (segments.length === 1 && segments[0].type === 'markdown') {
       return (
@@ -922,10 +975,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             )
           }
           if (seg.type === 'a2ui') {
-            return <A2UIRenderer key={i} spec={seg.spec} />
+            // 错误边界按段隔离：一张图画崩了不该带走整条消息，更不该带走整个界面
+            return (
+              <PluginErrorBoundary key={i} label="a2ui">
+                <A2UIRenderer spec={seg.spec} />
+              </PluginErrorBoundary>
+            )
           }
           // artifact 块：直接用 ArtifactBlock 渲染
-          return <ArtifactBlock key={i} content={seg.content} language={seg.language} messageStreaming={!!message.isStreaming} />
+          return (
+            <PluginErrorBoundary key={i} label="artifact">
+              <ArtifactBlock content={seg.content} language={seg.language} messageStreaming={!!message.isStreaming} />
+            </PluginErrorBoundary>
+          )
         })}
       </div>
     )

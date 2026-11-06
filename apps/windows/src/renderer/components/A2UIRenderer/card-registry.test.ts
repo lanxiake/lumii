@@ -29,7 +29,7 @@ describe('card-registry', () => {
     for (const type of BUILTIN_CARD_TYPES) {
       expect(() => registerCard(type, Fake)).toThrow(CardRegistryError)
     }
-    expect(BUILTIN_CARD_TYPES).toContain('Text')
+    expect(BUILTIN_CARD_TYPES).toContain('Chart')
     expect(BUILTIN_CARD_TYPES).toContain('DataTable')
   })
 

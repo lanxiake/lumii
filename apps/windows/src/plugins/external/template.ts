@@ -164,7 +164,7 @@ __LUMII_REGISTER_PLUGIN__(id, (api) => {
   api.React       // 用宿主的，别自带第二份 React（两份会让 hooks 抛错）
   api.ReactDOM
   api.jsx         // react/jsx-runtime
-  api.registerCard(type, renderer)   // 新增 A2UI 卡片类型
+  api.registerCard(type, renderer)   // 新增 A2UI 卡片类型（不能与内置 Chart/DataTable 同名）
   api.registerSlot(slot, entry)      // 往槽位加条目
   api.registerTimelineCard(def)      // 对话时间线里的「按工具名单独成卡」
   api.Page                           // 整页外壳（标题/副标题/操作区 + 内容区自滚）

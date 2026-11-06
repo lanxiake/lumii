@@ -17,20 +17,7 @@ export type CardRenderer = React.FC<{
  * 这些由渲染器自己实现，**不接受插件注册**——否则插件可以把 `Text`、`Button`
  * 换掉，等于劫持整个渲染面。
  */
-export const BUILTIN_CARD_TYPES: readonly string[] = [
-  'Text',
-  'Card',
-  'Image',
-  'Button',
-  'List',
-  'Divider',
-  'Chart',
-  'MathVisualizer',
-  'AudioPlayer',
-  'VideoPlayer',
-  'FilePreview',
-  'DataTable',
-]
+export const BUILTIN_CARD_TYPES: readonly string[] = ['Chart', 'DataTable']
 
 const registry = new Map<string, CardRenderer>()
 

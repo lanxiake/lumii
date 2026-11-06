@@ -31,6 +31,11 @@ export const DataTableComponent: React.FC<A2UIDataTable> = ({
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(0)
 
+  // 规格收窄后仍可能被插件直接渲染，这里保持防御：非数组一律当空
+  const safeColumns = Array.isArray(columns) ? columns : []
+  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows])
+  const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 20
+
   const toggleSort = (key: string) => {
     setSort((prev) => {
       if (prev.key !== key) return { key, order: 'asc' }
@@ -41,12 +46,12 @@ export const DataTableComponent: React.FC<A2UIDataTable> = ({
   }
 
   const filteredRows = useMemo(() => {
-    if (!filter.trim()) return rows
+    if (!filter.trim()) return safeRows
     const lower = filter.toLowerCase()
-    return rows.filter((row) =>
-      columns.some((col) => String(row[col.key] ?? '').toLowerCase().includes(lower)),
+    return safeRows.filter((row) =>
+      safeColumns.some((col) => String(row[col.key] ?? '').toLowerCase().includes(lower)),
     )
-  }, [rows, filter, columns])
+  }, [safeRows, filter, safeColumns])
 
   const sortedRows = useMemo(() => {
     if (!sort.key || !sort.order) return filteredRows
@@ -55,10 +60,10 @@ export const DataTableComponent: React.FC<A2UIDataTable> = ({
     return [...filteredRows].sort((a, b) => compareValues(a[key], b[key]) * multiplier)
   }, [filteredRows, sort])
 
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize))
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / safePageSize))
   const currentPage = Math.min(page, totalPages - 1)
-  const pagedRows = sortedRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
-  const showPagination = sortedRows.length > pageSize
+  const pagedRows = sortedRows.slice(currentPage * safePageSize, (currentPage + 1) * safePageSize)
+  const showPagination = sortedRows.length > safePageSize
 
   const renderSortIcon = (col: { key: string; sortable?: boolean }) => {
     if (!col.sortable) return null
@@ -85,7 +90,7 @@ export const DataTableComponent: React.FC<A2UIDataTable> = ({
             }}
           />
           <span className={styles['data-table-count']}>
-            {sortedRows.length} / {rows.length} 行
+            {sortedRows.length} / {safeRows.length} 行
           </span>
         </div>
       )}
@@ -93,7 +98,7 @@ export const DataTableComponent: React.FC<A2UIDataTable> = ({
         <table className={styles['data-table']}>
           <thead>
             <tr>
-              {columns.map((col) => (
+              {safeColumns.map((col) => (
                 <th
                   key={col.key}
                   className={col.sortable ? styles['data-table-th-sortable'] : undefined}
@@ -108,14 +113,14 @@ export const DataTableComponent: React.FC<A2UIDataTable> = ({
           <tbody>
             {pagedRows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className={styles['data-table-empty']}>
+                <td colSpan={safeColumns.length} className={styles['data-table-empty']}>
                   暂无数据
                 </td>
               </tr>
             ) : (
               pagedRows.map((row, i) => (
                 <tr key={i}>
-                  {columns.map((col) => (
+                  {safeColumns.map((col) => (
                     <td key={col.key}>{String(row[col.key] ?? '')}</td>
                   ))}
                 </tr>

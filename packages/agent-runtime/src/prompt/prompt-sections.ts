@@ -43,6 +43,7 @@ export type PromptSectionId =
   | "language"
   | "taskCompletion"
   | "messaging"
+  | "a2ui"
   | "wiki"
   | "browser"
   | "fileOutput"
@@ -117,6 +118,7 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "language", group: "rules", zone: "static", terse: false },
   { id: "taskCompletion", group: "rules", zone: "static", terse: false },
   { id: "messaging", group: "channel", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "weixin_send_guide" },
+  { id: "a2ui", group: "capabilities", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "a2ui_guide" },
   { id: "wiki", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "browser", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   // Cron 已无独立段：规则在 Tooling 的 TOOL_SUMMARIES/GROUP_NOTES（P2-6 清理 stale id）

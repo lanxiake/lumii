@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import styles from './IframeArtifact.module.css'
 
-// iframe 内容 CSP 已禁用（主进程禁用 CSP，iframe 也无需限制）
-// 允许加载外部资源以支持 YouTube 嵌入、GSAP 等功能
+// iframe 内联 CSP：内容来自模型，允许加载外部资源（YouTube、GSAP 等）是为了可用性；
+// 真正的隔离靠 `<iframe sandbox="allow-scripts">` 的不透明源，见下方 sandbox 属性。
 const IFRAME_CSP =
   "default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob: lumii-local:; font-src * data:; media-src * data: blob: lumii-local:; frame-src *; connect-src * ws: wss:;"
 
@@ -37,7 +37,11 @@ export function IframeArtifact({ content, language = 'html', title, fullscreen =
         <iframe
           ref={iframeRef}
           srcDoc={srcDoc}
-          sandbox="allow-scripts allow-same-origin"
+          // 只给 allow-scripts，**不给 allow-same-origin**：`srcDoc` 本会继承父文档
+          // origin，两者同开等于没有沙箱——模型生成的 HTML 能读 `parent.localStorage`
+          // 并调用 `parent.electronAPI`。去掉后文档变成不透明源，跨帧访问被拒。
+          // 代价：产物里不能用 localStorage/cookie，也不能直接读父页（本来也不该）。
+          sandbox="allow-scripts"
           className={`${styles['artifact-frame']} ${fullscreen ? styles['artifact-frame-fullscreen'] : ''}`}
           title={title ?? 'artifact'}
           onError={handleError}

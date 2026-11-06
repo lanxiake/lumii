@@ -33,34 +33,39 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
   const a2uiGuide: MtBotToolConfig = {
     name: 'a2ui_guide',
     label: 'A2UI Guide',
-    description: 'Get full A2UI component docs, JSON format and examples — call when you need to output UI components',
+    description:
+      'Get the A2UI docs (charts & data tables rendered inline in chat). Call before emitting an ```a2ui block.',
     parameters: EmptyParams as never,
     category: 'agent' as const,
     isReadOnly: true,
     needsPermission: false,
     execute: async () => {
       return jsonToolResult({
-        overview: 'A2UI: output structured UI in ```a2ui JSON blocks. Wrap components in {"components":[...]}.',
+        overview:
+          'A2UI: output structured UI in ```a2ui JSON blocks. Wrap components in {"components":[...]}. Only Chart and DataTable exist.',
         components: {
-          Chart: 'chartType: "line"|"bar"|"pie"|"scatter"|"area", title?, data: {labels: string[], datasets: [{label, values: number[]}]}',
-          DataTable: 'columns: [{key, label, sortable?}], rows: Record<string,unknown>[], pageSize?, filterable?',
-          FilePreview: 'filename: string, src: string (relative path e.g. "outputs/file.pdf"), mimeType?, size?',
-          MathVisualizer: 'expression: string, range?: {xMin?,xMax?,yMin?,yMax?}, animated?',
-          Text: 'content: string, variant?: "body"|"caption"|"heading"',
-          Card: 'title?, subtitle?, components?: A2UIComponent[]',
-          Image: 'src: string, alt?, width?, height?',
-          Button: 'label: string, variant?: "primary"|"secondary"|"outline", disabled?',
-          List: 'items: A2UIComponent[], ordered?',
-          AudioPlayer: 'src: string, title?',
-          VideoPlayer: 'src: string, poster?, title?',
+          Chart:
+            'chartType: "line"|"bar"|"pie"|"scatter"|"area", title?, data: {labels: string[], datasets: [{label: string, values: number[]}]} — values must be numbers, length matches labels',
+          DataTable:
+            'columns: [{key, label, sortable?}], rows: Record<string,unknown>[] (keys match columns[].key), pageSize?, filterable?',
+        },
+        limits: {
+          points_per_chart: 2000,
+          rows_per_table: 5000,
+          columns_per_table: 50,
+          components_per_message: 20,
+          note: '超出会被截断；字段类型不合法（如 labels 给成字符串、values 含非数字）整块不渲染',
         },
         examples: {
-          chart: '{"components":[{"type":"Chart","id":"c1","chartType":"bar","title":"销售","data":{"labels":["Q1","Q2","Q3"],"datasets":[{"label":"收入","values":[100,150,120]}]}}]}',
-          table: '{"components":[{"type":"DataTable","id":"t1","columns":[{"key":"name","label":"名称"},{"key":"val","label":"值"}],"rows":[{"name":"项目A","val":42}]}]}',
-          file_preview: '{"components":[{"type":"FilePreview","id":"fp1","filename":"报告.pdf","src":"outputs/报告.pdf"}]}',
+          chart:
+            '{"components":[{"type":"Chart","id":"c1","chartType":"bar","title":"销售","data":{"labels":["Q1","Q2","Q3"],"datasets":[{"label":"收入","values":[100,150,120]}]}}]}',
+          table:
+            '{"components":[{"type":"DataTable","id":"t1","columns":[{"key":"name","label":"名称","sortable":true},{"key":"val","label":"值"}],"rows":[{"name":"项目A","val":42}]}]}',
         },
-        artifact_sandbox: 'Output ```html / ```svg / ```javascript code blocks directly — client auto-renders in sandbox. CSP: no fetch/XHR, https images/fonts OK.',
-        selection_guide: '数据可视化 → A2UI Chart/DataTable | 文件预览 → A2UI FilePreview | 代码运行/动画 → Artifact | 文本 → Markdown | 公式 → LaTeX',
+        artifact_sandbox:
+          'Output ```html / ```svg / ```javascript code blocks directly — client auto-renders them in a sandboxed iframe (opaque origin: no localStorage/cookie or parent-page access; network requests are allowed).',
+        selection_guide:
+          '趋势/对比/占比 → A2UI Chart | ≥5 行且需排序筛选 → A2UI DataTable | ≤4 行小表或一次性罗列 → Markdown 表格 | 代码运行/动画/交互页面 → Artifact | 普通文字 → Markdown | 公式 → LaTeX。文件（图片/PDF/音视频）用 Markdown 链接或图片语法，不要用 A2UI。',
       })
     },
   }

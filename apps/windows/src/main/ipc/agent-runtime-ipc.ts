@@ -521,6 +521,29 @@ export function setIpcMainWindow(win: BrowserWindow | null): void {
  */
 let agentRuntimeCommandIpcInstalled = false
 
+/**
+ * 只接受**应用自己窗口**的主框架发来的命令。
+ *
+ * 为什么需要：这条 IPC 是渲染层的总入口，可达 `files:delete`、`conversation:delete`、
+ * `storage:deleteBackup` 等不可撤销操作，而模型生成的 HTML 产物跑在同一个渲染进程树里
+ *（artifact `<webview>` / iframe）。没有这层校验时，一个被提示注入的产物页就能直接
+ * `parent.electronAPI.agentRuntime.sendCommand(...)`。
+ *
+ * 判定用 `senderFrame === sender.mainFrame`：`<webview>` 是独立 WebContents，它的
+ * 主框架同样满足这一条，所以**再叠一层 `getType() === 'window'`** 把 webview /
+ * browserView 排除掉。渲染进程内的普通 iframe 则是同一 WebContents 的子帧，也会被
+ * 第一条挡下。
+ */
+export function isTrustedCommandSender(event: Electron.IpcMainInvokeEvent): boolean {
+  const frame = event.senderFrame
+  if (!frame || frame !== event.sender.mainFrame) return false
+  try {
+    return event.sender.getType() === 'window'
+  } catch {
+    return false
+  }
+}
+
 export function installAgentRuntimeCommandIpc(performanceMonitor?: PerfMonitorLike): void {
   if (agentRuntimeCommandIpcInstalled) {
     log.info('agent-runtime:command 已注册，跳过重复 install')
@@ -589,9 +612,14 @@ export function installAgentRuntimeCommandIpc(performanceMonitor?: PerfMonitorLi
   })
 
   const commandHandler = async (
-    _event: Electron.IpcMainInvokeEvent,
+    event: Electron.IpcMainInvokeEvent,
     command: AgentRuntimeCommand,
   ): Promise<unknown> => {
+    if (!isTrustedCommandSender(event)) {
+      // 不抛错：抛错会把调用栈暴露给不受信上下文；静默拒绝并落日志即可
+      log.warn(`[command] 拒绝非主窗口来源的命令: ${command?.type}`)
+      return { ok: false, error: 'UNTRUSTED_SENDER' }
+    }
     if (!ipcBridgeRef) {
       // 理论上不应该到达这里（因为 installAgentRuntimeCommandIpc 在 setAgentRuntimeBridgeForIpc 之后调用）
       log.warn(`[command] bridge 未就绪（不应发生）: ${command?.type}`)

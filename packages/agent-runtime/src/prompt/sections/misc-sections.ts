@@ -525,14 +525,27 @@ export function buildMcpSection(hints?: readonly McpServerHint[], style: PromptS
 
 /**
  * Build the A2UI dynamic UI capability section.
- * 渐进式加载：系统提示词只保留工具名+描述，完整文档由 a2ui_guide 工具按需返回。
+ * 渐进式加载：系统提示词只保留选择规则，完整 JSON 格式由 `a2ui_guide` 按需返回。
+ *
+ * 只写**决策规则**不写能力清单：实测模型会把「有这种组件」理解成「凡是能用的地方都用」，
+ * 于是 2 行的小表也被做成图表卡片。这里明确划出「什么时候**不要**用」。
  */
-export function buildA2UISection(toolNames: readonly string[]): string[] {
+export function buildA2UISection(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
   if (!toolNames.includes("a2ui_guide")) return []
+  if (isLeanStyle(style)) {
+    return [
+      "## Dynamic UI",
+      'Charts and sortable/filterable tables render inline via ` ```a2ui ` blocks — call `a2ui_guide` first. Plain Markdown tables for ≤4 rows; never A2UI for files.\nArtifact sandbox: ` ```html ` / ` ```svg ` / ` ```javascript ` blocks auto-render.',
+      "",
+    ]
+  }
   return [
     "",
     "## Dynamic UI",
-    "To output charts, tables, or file previews, call `a2ui_guide` for the component list and JSON format.",
+    "Charts and sortable/filterable tables render inline via ```a2ui blocks. Call `a2ui_guide` before emitting one.",
+    "Use A2UI **only** when a chart or a table that needs sorting/filtering/paging genuinely helps.",
+    "For tables with 4 rows or fewer, and for any one-off list, use a plain Markdown table instead — do not wrap it in A2UI.",
+    "Never use A2UI for files (images, PDFs, audio, video); reference them with Markdown link/image syntax.",
     "Artifact sandbox: emit ` ```html `, ` ```svg `, or ` ```javascript ` blocks and the client renders them.",
     "",
   ]
@@ -559,12 +572,6 @@ export function buildFileOutputSection(toolNames: readonly string[], style: Prom
   return [
     "## File Output Standards",
     "- When generating complete content (articles/reports/code/documents) → MUST use `file_write` to write into the current task's directory under `outputs/` (see Output Organization in the Workspace section) — never dump files flat into `outputs/` or into the workspace root, and reuse the existing task directory when continuing earlier work",
-    // A2UI FilePreview 组件提示暂时屏蔽（效果不好，待优化后重新启用）
-    // "- After writing → output a FilePreview A2UI component in the conversation for inline preview:",
-    // "  ```a2ui",
-    // "  {\"components\":[{\"type\":\"FilePreview\",\"id\":\"fp1\",\"filename\":\"文件名.ext\",\"src\":\"outputs/文件名.ext\"}]}",
-    // "  ```",
-    // "- `src` must be a relative path starting with `outputs/` — NEVER use absolute paths (e.g. C:\\\\...)",
     "- **Path discipline**: When a tool returns a file path (e.g. `image_generate`, `speech_generate`, `file_write`), use that EXACT path verbatim everywhere — references, previews, sending, and document links. NEVER invent or guess a filename based on its semantic meaning. If you are unsure whether a path exists, verify it with `file_read`/`glob` before writing it into a document.",
     "- After task completion → delete intermediate and draft files (especially anything under `temp/<task>/` in the workspace root) to keep the workspace tidy",
     "",
