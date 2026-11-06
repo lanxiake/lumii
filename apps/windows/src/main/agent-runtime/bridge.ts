@@ -278,6 +278,7 @@ import { isExtensionActive } from '../../plugins/active'
 import type { ConflictInfo } from '../../shared/cloud-sync'
 import { ensureProviderBaseUrl, resolveApiFormat } from '../provider-config'
 import { resolveModelThinking, apiForProviderType } from '../model-thinking'
+import { resolveFfmpegExecutable, runFfmpeg } from '../ffmpeg-runner'
 
 /** 单机客户端固定 userId，与 wiki-commands 一致 */
 const LOCAL_USER_ID = 'local-user'
@@ -4121,7 +4122,17 @@ export class AgentRuntimeBridge {
     knownTools: () => ReadonlySet<string>
     knownAgents: () => ReadonlySet<string>
     needsPermission: (tool: string) => boolean
-    registerTool: (config: { name: string }) => () => void
+    /**
+     * 插件把工具 config 交过来，这里用**本地的** toolContext 建实例并注册，返回 disposer。
+     *
+     * `factory` 可选：插件若不想为了一次工具注册把整个 agent-runtime 打进自己的
+     * bundle（外部扩展会被 esbuild 独立打包，实测多背 5MB），可以传入一份等价的
+     * 最小构造器；不传就用标准的 `createMtBotTool`。
+     */
+    registerTool: (
+      config: { name: string },
+      factory?: (config: any, ctx: any) => unknown,
+    ) => () => void
     /**
      * 跑 JS 子进程用的 node 解析器。
      *
@@ -4130,6 +4141,19 @@ export class AgentRuntimeBridge {
      * 插件不许 import 主进程（wiring ⑪），所以从这里注入。
      */
     resolveNode: () => { command: string; env: Record<string, string> }
+    /**
+     * 单轮 LLM 调用（不绑任何会话实例）。教学视频这类**插件自己编排多段提示词**的
+     * 场景要用它：prompt 由插件拼，这里只负责「用用户当前配置的 chat 槽跑一轮」。
+     *
+     * 注意它会按 `purpose` 记长度与耗时日志，但**不落 prompt 正文**
+     *（与 `resolveSelectionChatStream` 同一口径）。
+     */
+    callLLM: (prompt: string, purpose: string) => Promise<string>
+    /** ffmpeg 可执行文件与运行封装（与 screen_record / 视频抽帧同源解析） */
+    ffmpeg: {
+      resolve: () => Promise<string | null>
+      run: (args: readonly string[], opts?: { timeoutMs?: number }) => Promise<{ ok: boolean; stderr: string }>
+    }
     /** 进度/结束事件推给渲染层（插件不直连 ipcMain，走这里） */
     emitProgress: (e: { runId: string; i: number; total: number; stepId: string; label?: string; status: string }) => void
     emitFinished: (e: { runId: string; ok: boolean; failedAt?: unknown }) => void
@@ -4147,10 +4171,31 @@ export class AgentRuntimeBridge {
       emitProgress: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:progress', ...e } as never),
       emitFinished: (e) => this.ipcChannel.forwardIpcEvent({ type: 'pipeline:finished', ...e } as never),
       resolveNode: () => resolveNodeExec(),
-      registerTool: (config) => {
+      // 插件自己拼多段提示词（教学视频的大纲→分镜→代码），走桥的通用单轮调用。
+      // purpose 只进日志标签，不落 prompt 正文。
+      callLLM: (prompt, purpose) => this.callLLM(prompt, undefined, purpose),
+      ffmpeg: {
+        resolve: async () => {
+          try {
+            const bin = resolveFfmpegExecutable()
+            return bin && fs.existsSync(bin) ? bin : null
+          } catch {
+            return null
+          }
+        },
+        run: async (args, opts) => {
+          const r = await runFfmpeg([...args], opts)
+          return { ok: r.ok, stderr: r.ok ? '' : (r.message ?? '') }
+        },
+      },
+      registerTool: (config, factory) => {
         if (!this.toolContext) return () => {}
+        const build =
+          factory ??
+          ((c: unknown, ctx: unknown) =>
+            createMtBotTool(c as MtBotToolConfig<any, any>, ctx as ToolExecutionContext))
         this.toolRegistry.register(
-          createMtBotTool(config as MtBotToolConfig<any, any>, this.toolContext),
+          build(config, this.toolContext) as ReturnType<typeof createMtBotTool>,
         )
         // 实例在创建时按 getEnabledTools() 快照工具表 —— 只 register 不刷新，已在跑的会话
         // 到下次重启前都看不见 pipeline_*（与 installWechatTools 同一个坑，见其注释）。

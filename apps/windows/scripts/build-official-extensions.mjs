@@ -45,6 +45,13 @@ const ENTRIES = [
     version: '0.1.0',
     entry: 'src/plugins/external-src/screen-record/index.ts',
   },
+  {
+    id: 'com.lumii.code2video',
+    name: '教学视频',
+    description: '按知识点生成 3Blue1Brown 风格的教学视频（大纲→分镜→动画→合成）',
+    version: '0.1.0',
+    entry: 'src/plugins/external-src/code2video/index.ts',
+  },
 ]
 
 /** GitHub Release 上的资产名；安装时按它拼 URL */

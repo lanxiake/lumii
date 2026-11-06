@@ -1,0 +1,393 @@
+/**
+ * 教学视频生成的**纯逻辑层**：提示词、规格校验、分镜解析、布局重叠检测。
+ *
+ * 与 Code2Video（showlab/Code2Video, NeurIPS 2025 DL4C）的三段式对齐：
+ *   大纲 outline → 分镜 storyboard → 逐节代码/画面
+ * 但渲染后端不用 Manim，而是自包含 HTML（零 Python 依赖，见 `render-backend.ts`）。
+ *
+ * 这个文件**不碰文件系统、不调模型、不碰 Electron**，所以能被单测完整覆盖——
+ * 这里出错的代价是「生成了一段没法渲染的东西」，而不是「抛了个异常」。
+ */
+
+// ---------------------------------------------------------------
+// 1. 教学规格（大纲 / 分镜）
+// ---------------------------------------------------------------
+
+export interface OutlineSection {
+  id: string
+  title: string
+  /** 这一节讲什么（一句话，给后续分镜用） */
+  content: string
+}
+
+export interface TeachingOutline {
+  topic: string
+  targetAudience: string
+  sections: OutlineSection[]
+}
+
+export interface StoryboardSection {
+  id: string
+  title: string
+  /** 左侧讲义要点，每行 ≤ 10 词（原版约束） */
+  lectureLines: string[]
+  /** 右侧动画步骤，与 lectureLines 一一对应 */
+  animations: string[]
+  /**
+   * 这一节的**结构化画面**（模型只出 JSON，HTML 由 `buildSceneHtml` 拼）。
+   * 缺省时渲染器退回纯文字模板。
+   */
+  scene?: SceneStep[]
+  /**
+   * 这一节的目标时长（秒）。由服务按用户给的期望总时长均分算出；
+   * 缺省时渲染器按「每步 3 秒、至少 6 秒」自算。
+   */
+  targetSeconds?: number
+}
+
+export interface TeachingStoryboard {
+  sections: StoryboardSection[]
+}
+
+/** 规模闸门：防止模型输出撑爆渲染与耗时 */
+export const LIMITS = {
+  maxSections: 8,
+  maxLectureLines: 6,
+  maxAnimations: 8,
+  /** 单行讲义字数上限（原版是 10 words，中文按 24 字放宽） */
+  maxLectureLineChars: 24,
+} as const
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function asStringArray(v: unknown, limit: number): string[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((x): x is string => typeof x === 'string')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+/**
+ * 归档大纲：模型给的 JSON 经常少字段/多层级，这里收窄成已知形状。
+ * 收不出可用内容就返回 null（调用方应重试或降级），**不补默认值**——
+ * 凭空补出来的大纲会让后面每一步都建在假数据上。
+ */
+export function parseOutline(raw: unknown): TeachingOutline | null {
+  if (!isRecord(raw)) return null
+  const sectionsRaw = raw.sections
+  if (!Array.isArray(sectionsRaw) || sectionsRaw.length === 0) return null
+
+  const sections: OutlineSection[] = []
+  for (const item of sectionsRaw.slice(0, LIMITS.maxSections)) {
+    if (!isRecord(item)) continue
+    const title = typeof item.title === 'string' ? item.title.trim() : ''
+    if (!title) continue
+    const content =
+      typeof item.content === 'string' && item.content.trim()
+        ? item.content.trim()
+        : typeof item.example === 'string'
+          ? item.example.trim()
+          : title
+    sections.push({ id: `section_${sections.length + 1}`, title, content })
+  }
+  if (sections.length === 0) return null
+
+  const topic =
+    typeof raw.topic === 'string' && raw.topic.trim() ? raw.topic.trim() : sections[0]!.title
+  const targetAudience =
+    typeof raw.targetAudience === 'string' && raw.targetAudience.trim()
+      ? raw.targetAudience.trim()
+      : 'general audience'
+  return { topic, targetAudience, sections }
+}
+
+/** 归档分镜；要求每节至少有 1 行讲义 + 1 步动画 */
+export function parseStoryboard(raw: unknown): TeachingStoryboard | null {
+  if (!isRecord(raw)) return null
+  const sectionsRaw = raw.sections
+  if (!Array.isArray(sectionsRaw) || sectionsRaw.length === 0) return null
+
+  const sections: StoryboardSection[] = []
+  for (const item of sectionsRaw.slice(0, LIMITS.maxSections)) {
+    if (!isRecord(item)) continue
+    const title = typeof item.title === 'string' && item.title.trim() ? item.title.trim() : ''
+    if (!title) continue
+    const lectureLines = asStringArray(item.lecture_lines ?? item.lectureLines, LIMITS.maxLectureLines)
+    const animations = asStringArray(item.animations, LIMITS.maxAnimations)
+    // 动画数与讲义数对齐：多出来的丢掉（原版就是"每行讲义配一步动画"），
+    // 少了就按最后一条补齐——不对称会让渲染时某一侧空着
+    if (lectureLines.length === 0) continue
+    const aligned: string[] = []
+    for (let i = 0; i < lectureLines.length; i++) {
+      aligned.push(animations[i] ?? animations[animations.length - 1] ?? lectureLines[i]!)
+    }
+    sections.push({ id: `section_${sections.length + 1}`, title, lectureLines, animations: aligned })
+  }
+  if (sections.length === 0) return null
+  return { sections }
+}
+
+/**
+ * 超长讲义行截断。
+ *
+ * 不截断的后果不是"字小一点"，而是**溢出到右侧动画区并与元素重叠**——
+ * 那正是 Code2Video 用 6×6 网格想解决的问题。这里在数据层先收一道。
+ */
+export function clampLectureLine(line: string, maxChars: number = LIMITS.maxLectureLineChars): string {
+  const t = line.trim()
+  if (t.length <= maxChars) return t
+  return t.slice(0, Math.max(1, maxChars - 1)) + '…'
+}
+
+// ---------------------------------------------------------------
+// 2. 提示词（移植自 Code2Video prompts/stage1-3.py，改中文与 HTML 口径）
+// ---------------------------------------------------------------
+
+export function buildOutlinePrompt(topic: string, durationMinutes = 3): string {
+  return `你是一位优秀的教学设计专家。请为下面这个知识点设计一份循序渐进、有例子的教学大纲。
+
+知识点：${topic}
+
+必须输出 JSON（不要任何解释文字，不要 markdown 代码块外的内容）：
+{
+  "topic": "主题名",
+  "targetAudience": "目标受众（如高中学生、大学学生、职场新人）",
+  "sections": [
+    { "id": "section_1", "title": "小节标题", "content": "这一节讲什么，一句话" }
+  ]
+}
+
+要求：
+1. 总时长约 ${durationMinutes} 分钟，拆成 3~6 个小节。
+2. 小节之间要有递进关系，先讲需要的前置知识。
+3. 优先选择**适合视觉化**的表达方式（图、对比、逐步构建）。
+4. 每节聚焦一个概念，不要在一节里塞多个主题。`
+}
+
+export function buildStoryboardPrompt(outline: TeachingOutline): string {
+  return `你是专业的教学分镜师。请把下面这份教学大纲转写成可逐帧渲染的分镜脚本。
+
+大纲：
+${JSON.stringify(outline, null, 2)}
+
+必须输出 JSON：
+{
+  "sections": [
+    {
+      "id": "section_1",
+      "title": "小节标题",
+      "lecture_lines": ["左侧讲义第 1 行", "第 2 行"],
+      "animations": ["右侧画面第 1 步做什么", "第 2 步做什么"]
+    }
+  ]
+}
+
+要求：
+1. **lecture_lines 与 animations 数量必须相等且一一对应**——每一行讲义配一步动画。
+2. 每个小节 3~5 行讲义；重点小节可用 5 行。
+3. 每行讲义不超过 ${LIMITS.maxLectureLineChars} 个字，必须是短语，不要整句。
+4. 动画描述要具体到"什么元素、怎么出现/移动/变色"，因为后面会被直接翻译成画面。
+   例："两条平行线从左侧平移进场，颜色由白变蓝"。
+5. 不要出现 3D、外部图片、视频嵌入——只允许文字、形状、线条、坐标、公式。`
+}
+
+/**
+ * 每步画面的**结构化描述**（模型只输出这个，由我们把 JSON 渲染成 HTML）。
+ *
+ * 为什么不让模型直接吐 HTML：实测 10 次单轮调用里，只要输出目标是「一整页
+ * 100~200 行 HTML」，全部在 80~120 秒后返回**空字符串**；而同一批次里只出
+ * JSON 的大纲/分镜调用 4~19 秒正常返回。也就是说瓶颈在**长文本单次输出**，
+ * 不是内容难度。把画面拆成 JSON（每步 3~5 个元素），输出量降一个数量级，
+ * 再用本地模板拼装 HTML——画面同样有形状、位置、颜色，且完全可复现。
+ */
+export interface SceneElement {
+  /** 这一步在右区展示什么：形状/文字/公式 */
+  kind: 'text' | 'rect' | 'circle' | 'line' | 'formula'
+  /** 显示内容（text/formula 用），≤ 40 字 */
+  content?: string
+  /** 颜色（十六进制，如 #93c5fd） */
+  color?: string
+  /** 在右区的相对位置，0~100 的百分比 */
+  x?: number
+  y?: number
+  /** 尺寸（相对右区宽高的百分比）；line 用 w 当长度，角度固定水平 */
+  w?: number
+  h?: number
+}
+
+export interface SceneStep {
+  /** 与 lectureLines 下标对应的步骤 */
+  elements: SceneElement[]
+}
+
+function num(v: unknown, def: number, lo = 0, hi = 100): number {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def
+}
+
+/** 收窄模型给的画面 JSON；收不出来返回 null（调用方退回纯文字模板） */
+export function parseSceneSpec(raw: unknown, stepCount: number): SceneStep[] | null {
+  if (!isRecord(raw)) return null
+  const stepsRaw = raw.steps
+  if (!Array.isArray(stepsRaw) || stepsRaw.length === 0) return null
+
+  const KINDS = new Set(['text', 'rect', 'circle', 'line', 'formula'])
+  const steps: SceneStep[] = []
+  for (let i = 0; i < Math.min(stepsRaw.length, stepCount); i++) {
+    const item = stepsRaw[i]
+    if (!isRecord(item)) continue
+    const els = Array.isArray(item.elements) ? item.elements : []
+    const elements: SceneElement[] = []
+    for (const e of els.slice(0, 5)) {
+      if (!isRecord(e)) continue
+      const kind = typeof e.kind === 'string' && KINDS.has(e.kind) ? (e.kind as SceneElement['kind']) : null
+      if (!kind) continue
+      const content = typeof e.content === 'string' ? e.content.slice(0, 40) : undefined
+      if ((kind === 'text' || kind === 'formula') && !content) continue
+      elements.push({
+        kind,
+        ...(content ? { content } : {}),
+        ...(typeof e.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(e.color) ? { color: e.color } : {}),
+        x: num(e.x, 30),
+        y: num(e.y, 40),
+        w: num(e.w, 24, 1, 100),
+        h: num(e.h, 14, 1, 100),
+      })
+    }
+    if (elements.length === 0) continue
+    steps.push({ elements })
+  }
+  return steps.length > 0 ? steps : null
+}
+
+/**
+ * 把重叠的元素**自动挪开**。
+ *
+ * 实测模型不遵守「元素之间留间距」的约束：同一个位置会同时放「直角边 b」和
+ * 「4→b」，渲染出来是两行字压在一起。这里不复用「让模型重试」这条路——
+ * 位置是几何问题，本地就能解：逐个检查，撞了就往下挪一档，挪到不撞为止。
+ *
+ * 这是**确定性 Critic 的执行侧**：检测（`findOverlaps`）与修正（本函数）
+ * 分开，前者用于如实回告，后者用于止损。
+ */
+export function declutterSteps(steps: SceneStep[], minGapPct = 4): SceneStep[] {
+  const MIN_H = 8
+  return steps.map((step) => {
+    const placed: SceneElement[] = []
+    for (const el of step.elements) {
+      const cur: SceneElement = { ...el, h: Math.max(MIN_H, el.h ?? 14) }
+      // 最多挪 12 次；挪不下就接受重叠（总比消失好）
+      for (let tries = 0; tries < 12; tries++) {
+        const hit = placed.some((p) => boxesOverlap(p, cur, minGapPct))
+        if (!hit) break
+        cur.y = Math.min(88, (cur.y ?? 40) + MIN_H + minGapPct)
+        // 掉到底就换一列重来
+        if ((cur.y ?? 0) >= 88) {
+          cur.y = 10
+          cur.x = Math.min(88, (cur.x ?? 30) + (cur.w ?? 24) + minGapPct)
+        }
+      }
+      placed.push(cur)
+    }
+    return { elements: placed }
+  })
+}
+
+function boxesOverlap(a: SceneElement, b: SceneElement, gap: number): boolean {
+  const ax = a.x ?? 30
+  const ay = a.y ?? 40
+  const aw = a.w ?? 24
+  const ah = a.h ?? 14
+  const bx = b.x ?? 30
+  const by = b.y ?? 40
+  const bw = b.w ?? 24
+  const bh = b.h ?? 14
+  return ax < bx + bw + gap && bx < ax + aw + gap && ay < by + bh + gap && by < ay + ah + gap
+}
+
+/** 让模型输出画面 JSON 的提示词（输出量约 200 token/节，远低于整页 HTML） */
+export function buildSceneSpecPrompt(section: StoryboardSection): string {
+  return `你在为一段教学动画设计每一帧的画面布局。只输出 JSON，不要解释。
+
+小节：${section.title}
+讲义行：${JSON.stringify(section.lectureLines)}
+动画步骤：${JSON.stringify(section.animations)}
+
+右侧动画区是一个坐标系：x/y 是元素**左上角**在右区里的百分比（0~100），w/h 是宽高百分比。
+每个动画步骤一组元素，元素逐个按出现顺序摆放，**不要互相重叠**。
+
+输出格式：
+{"steps":[{"elements":[
+  {"kind":"rect","color":"#3b82f6","x":20,"y":25,"w":18,"h":18},
+  {"kind":"text","content":"a","color":"#ffffff","x":28,"y":46,"w":10,"h":8}
+]}]}
+
+约束：
+1. steps 数量必须等于 ${Math.min(section.lectureLines.length, section.animations.length)}。
+2. 每步 1~4 个元素；kind 只能是 text/rect/circle/line/formula。
+3. text/formula 必须给 content（≤20 字）；rect/circle/line 用 color 区分。
+4. 元素之间留出间距（同一行相邻元素 x 至少差 w+5）。
+5. 颜色用浅色（#93c5fd / #fca5a5 / #86efac / #fde68a 之类），背景是黑色。`
+}
+
+/**
+ * 流式接收时判断「看起来已经是一份完整 HTML」。
+ *
+ * 场景调用实测会 80~120 秒后返回空——不是模型不会写，而是长输出被上游流截断
+ *（同批次 outline/storyboard 都正常，只有 HTML 这一类复现）。这里的兜底是：
+ * 即便流末尾丢了，只要已经收到闭合的 `</html>` 或 `</body>`，就当作完整页面用。
+ */
+export function looksLikeCompleteHtml(text: string): boolean {
+  const t = text.trim()
+  if (t.length < 200) return false
+  if (!/<\/html\s*>/i.test(t) && !/<\/body\s*>/i.test(t)) return false
+  return /<html\b/i.test(t)
+}
+
+// ---------------------------------------------------------------
+// 3. 确定性 Critic：布局重叠检测
+// ---------------------------------------------------------------
+
+export interface Box {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** 两框相交面积占较小者面积的比例（0~1）；任一框面积为 0 视为不相交 */
+export function overlapRatio(a: Box, b: Box): number {
+  const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+  const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+  const inter = ix * iy
+  if (inter <= 0) return 0
+  const minArea = Math.min(a.w * a.h, b.w * b.h)
+  if (minArea <= 0) return 0
+  return inter / minArea
+}
+
+/**
+ * 找出重叠超过阈值的元素对。
+ *
+ * 为什么用确定性判据而不是 VLM：原版用 Gemini 看渲染帧给美学建议，每轮一次多模态
+ * 往返；而它想解决的首要问题是**元素互相遮挡**，这个问题几何上就能判死。
+ * 确定性的好处是零成本、可复现、失败原因能直接回灌给模型改。
+ */
+export function findOverlaps(
+  boxes: readonly { id: string; box: Box }[],
+  threshold = 0.35,
+): Array<{ a: string; b: string; ratio: number }> {
+  const out: Array<{ a: string; b: string; ratio: number }> = []
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const ratio = overlapRatio(boxes[i]!.box, boxes[j]!.box)
+      if (ratio >= threshold) {
+        out.push({ a: boxes[i]!.id, b: boxes[j]!.id, ratio: Math.round(ratio * 100) / 100 })
+      }
+    }
+  }
+  return out.sort((x, y) => y.ratio - x.ratio)
+}
