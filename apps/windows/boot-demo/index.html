@@ -1244,14 +1244,30 @@ const ACTS = [
   { id: 'gate',      from: 90, to: 100, label: 'GATE OPEN' },
 ]
 
-const CHECK_ITEMS = ['框架', '神经', '能源', '意识', '门户']
-let checkedCount = 0
+// 真实的启动阶段名称
+const BOOT_STAGES = [
+  '初始化运行时',
+  '装载核心扩展',
+  '构建主界面',
+  '创建窗口',
+  '读取配置',
+  '启动本地服务',
+  '同步内置技能',
+  '初始化技能引擎',
+  '监听技能变更',
+  '唤醒智能内核',
+  '连接外部服务',
+]
 
-function renderChecks(n) {
-  if (n === checkedCount) return
-  checkedCount = n
-  el.checks.innerHTML = CHECK_ITEMS.map((c, i) =>
-    `<div class="${i < n ? 'on' : ''}"><i>${i < n ? '◆' : '◇'}</i>${c}</div>`
+let currentStageIndex = 0
+
+function renderChecks(stageIndex) {
+  if (stageIndex === currentStageIndex) return
+  currentStageIndex = stageIndex
+
+  // 显示当前及之前的阶段
+  el.checks.innerHTML = BOOT_STAGES.map((stage, i) =>
+    `<div class="${i < stageIndex ? 'on' : ''}"><i>${i < stageIndex ? '◆' : '◇'}</i>${stage}</div>`
   ).join('')
 }
 
@@ -1475,11 +1491,12 @@ async function play() {
   progress = 0; textAssemble = 0; circuitGrow = 0; streamInflow = 0; cognitionElapsed = 0
   beatClock = 0; lastBeatNo = -1
   textParts = []; sparks = []; ringPulses = []; streams = []
-  coreGlow = 0; checkedCount = -1
+  coreGlow = 0; currentStageIndex = -1
   act = 'dark'; boot.dataset.act = 'dark'
   boot.classList.remove('fading'); boot.style.display = ''
   el.barFill.style.width = '0%'; el.pct.textContent = '0%'
   el.phase.textContent = 'STANDBY'
+  renderChecks(0)
   el.gate.classList.remove('open'); el.seam.classList.remove('open')
   el.sig.style.opacity = '0'
   el.sig.style.transform = ''
@@ -1505,6 +1522,8 @@ async function play() {
   ]
 
   let acc = 0
+  let stageIndex = 0
+
   for (let i = 0; i < timeline.length; i++) {
     if (abort) break
     const seg = timeline[i]
@@ -1515,17 +1534,20 @@ async function play() {
     const slices = 6
     for (let k = 1; k <= slices; k++) {
       if (abort) break
-      // 前五幕共占 0–90%，末段 90–100% 留给门户
       acc += 1
       progress = (acc / (timeline.length * slices)) * 90
       el.barFill.style.width = progress.toFixed(1) + '%'
       el.pct.textContent = Math.round(progress) + '%'
-      // 每推进一格，机械感的一小声
+
+      // 按进度推进启动阶段显示（11个阶段分配到5幕的进度中）
+      const progressRatio = acc / (timeline.length * slices)
+      stageIndex = Math.min(BOOT_STAGES.length - 1, Math.floor(progressRatio * BOOT_STAGES.length))
+      renderChecks(stageIndex)
+
       if (k % 2 === 0) audio?.tick(.7)
       if (i === 2 && k === 3) audio?.clunk(1)
       await sleep(seg.dur / slices)
     }
-    renderChecks(Math.min(4, Math.round(((i + 1) / timeline.length) * 4)))
   }
 
   if (abort) { running = false; return }
@@ -1536,7 +1558,7 @@ async function play() {
   progress = 100
   el.barFill.style.width = '100%'
   el.pct.textContent = '100%'
-  renderChecks(5)
+  renderChecks(BOOT_STAGES.length)
 
   // 竖缝先裂开
   el.seam.classList.add('open')
