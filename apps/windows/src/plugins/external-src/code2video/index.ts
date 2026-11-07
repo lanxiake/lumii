@@ -37,7 +37,13 @@ import { createElectronRenderer, type ElectronWindowLike } from './impl/electron
 import { createTeachingVideoService, type GenerateResult } from './impl/teaching-service'
 import { parseHexColor } from './impl/gates/frame-check'
 import { DEFAULT_STYLE } from './impl/styles/registry'
-import { createTool, teachingVideoToolConfig, toolResult } from './tool-config'
+import {
+  createTool,
+  teachingVideoPlanTool,
+  teachingVideoProduceTool,
+  teachingVideoReviseTool,
+  toolResult,
+} from './tool-config'
 
 /**
  * 本地日志器。
@@ -151,104 +157,84 @@ export const code2videoExtension = {
           },
         })
 
-        const toolConfig = {
-          ...teachingVideoToolConfig,
-          execute: async (_toolCallId: string, rawParams: unknown) => {
-            const p = rawParams as {
+        /** 从产物路径推出目录（plan 的 outputDir 要给 produce 用） */
+        const dirOf = (r: GenerateResult): string | undefined =>
+          r.storyboardPath ? r.storyboardPath.replace(/[\\/][^\\/]+$/, '') : undefined
+
+        /** 三个工具共用的告警转述 */
+        const warningsOf = (r: GenerateResult) => ({
+          ...(r.layoutIssues?.length
+            ? {
+                layoutWarnings: r.layoutIssues.map((o) => ({
+                  section: o.section,
+                  issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
+                })),
+              }
+            : {}),
+          ...(r.sceneIssues?.length
+            ? {
+                sceneWarnings: r.sceneIssues.map((o) => ({
+                  section: o.section,
+                  issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
+                })),
+              }
+            : {}),
+          ...(r.frameIssues?.length
+            ? {
+                frameWarnings: r.frameIssues.map((o) => ({
+                  section: o.section,
+                  issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
+                })),
+              }
+            : {}),
+        })
+
+        // ---- 1. plan：出草稿 ----
+        const planConfig = {
+          ...teachingVideoPlanTool,
+          execute: async (_id: string, raw: unknown) => {
+            const p = raw as {
               topic?: string
               audience?: string
               durationMinutes?: number
-              stage?: 'draft' | 'produce' | 'revise'
-              sectionIds?: number[]
-              fromDir?: string
               style?: string
             }
             if (!p.topic?.trim()) {
               return toolResult({ status: 'error', message: '缺少 topic（要讲的知识点）' })
             }
             try {
-              const result = await service.generate({
+              const r = await service.generate({
                 topic: p.topic.trim(),
                 ...(p.audience?.trim() ? { audience: p.audience.trim() } : {}),
                 ...(typeof p.durationMinutes === 'number' ? { durationMinutes: p.durationMinutes } : {}),
-                // 默认 draft：与工具描述里的推荐流程一致——先让人确认讲得对不对，再出片
-                stage: p.stage ?? 'draft',
-                ...(Array.isArray(p.sectionIds) && p.sectionIds.length
-                  ? { sectionIds: p.sectionIds.filter((n) => Number.isFinite(n)) }
-                  : {}),
-                ...(p.fromDir?.trim() ? { fromDir: p.fromDir.trim() } : {}),
                 ...(p.style?.trim() ? { style: p.style.trim() } : {}),
+                stage: 'draft',
               })
-              if (!result.ok) {
-                return toolResult({
-                  status: 'error',
-                  message: result.error ?? '生成失败',
-                  ...(result.outlinePath ? { outlinePath: result.outlinePath } : {}),
-                  ...(result.storyboardPath ? { storyboardPath: result.storyboardPath } : {}),
-                })
-              }
-              const outputDir = result.storyboardPath
-                ? result.storyboardPath.replace(/[\\/][^\\/]+$/, '')
-                : undefined
-              // draft：主要交付物是 review.md，让模型把**分节结构**转述给用户并征询意见
-              if (result.stage === 'draft') {
-                return toolResult({
-                  status: 'ok',
-                  stage: 'draft',
-                  outputDir,
-                  reviewPath: result.reviewPath,
-                  sections: result.storyboard?.sections.length ?? 0,
-                  videoSeconds: result.videoSeconds,
-                  template: result.template,
-                  visualStyle: result.visualStyle,
-                  sectionTitles: result.storyboard?.sections.map((s, i) => `${i + 1}. ${s.title}`) ?? [],
-                  hint:
-                    '这是草稿。请在回复里用中文列出这几节讲什么，问用户「这个讲法对不对、有没有漏掉的前提」，' +
-                    '**不要**直接出片。用户确认后再以 stage="produce" + fromDir=outputDir 调一次。',
-                })
+              if (!r.ok) {
+                return toolResult({ status: 'error', message: r.error ?? '生成草稿失败' })
               }
               return toolResult({
                 status: 'ok',
-                stage: result.stage,
-                videoPath: result.videoPath,
-                outputDir,
-                sections: result.storyboard?.sections.length ?? 0,
-                template: result.template,
-                visualStyle: result.visualStyle,
-                // 两个量分开给：模型曾把生成耗时当成视频时长汇报
-                videoSeconds: result.videoSeconds,
-                generationMs: result.generationMs,
-                durationNote: 'videoSeconds 是成片时长；generationMs 是本次生成耗时，不是视频长度。',
-                ...(result.layoutIssues?.length
-                  ? {
-                      layoutWarnings: result.layoutIssues.map((o) => ({
-                        section: o.section,
-                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
-                      })),
-                    }
-                  : {}),
-                ...(result.sceneIssues?.length
-                  ? {
-                      sceneWarnings: result.sceneIssues.map((o) => ({
-                        section: o.section,
-                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
-                      })),
-                    }
-                  : {}),
-                ...(result.frameIssues?.length
-                  ? {
-                      frameWarnings: result.frameIssues.map((o) => ({
-                        section: o.section,
-                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
-                      })),
-                    }
-                  : {}),
+                stage: 'draft',
+                outputDir: dirOf(r),
+                reviewPath: r.reviewPath,
+                sections: r.storyboard?.sections.length ?? 0,
+                videoSeconds: r.videoSeconds,
+                template: r.template,
+                visualStyle: r.visualStyle,
+                sectionTitles: r.storyboard?.sections.map((s, i) => `${i + 1}. ${s.title}`) ?? [],
+                sectionNarration:
+                  r.storyboard?.sections.map((s) => ({
+                    title: s.title,
+                    narration: s.narrationLines ?? s.lectureLines,
+                  })) ?? [],
                 hint:
-                  '视频已生成。用 markdown 链接指向 videoPath。' +
-                  '若用户之后指出某一节有问题，用 stage="revise" + sectionIds + fromDir=outputDir 只重做那一节，不要整条重跑。',
+                  '这是草稿，**还没有画面也没有声音**。请在回复里用中文列出每一节讲什么、每节的旁白说了什么，' +
+                  '然后主动指出问题（推导跳步？漏前提？某节可删？）。问用户「这个讲法对不对」。' +
+                  '用户确认后再调 teaching_video_produce，fromDir 用上面的 outputDir。',
               })
             } catch (err) {
-              log.error('[code2video] 生成异常:', err)
+              log.error('[code2video] plan 异常:', err)
               return toolResult({
                 status: 'error',
                 message: err instanceof Error ? err.message : String(err),
@@ -257,8 +243,124 @@ export const code2videoExtension = {
           },
         }
 
-        ctx.effect(ex.registerTool(toolConfig as unknown as { name: string }, createTool))
-        log.info('[code2video] teaching_video_generate 已注册')
+        // ---- 2. produce：出片（可选先给首帧预览）----
+        const produceConfig = {
+          ...teachingVideoProduceTool,
+          execute: async (_id: string, raw: unknown) => {
+            const p = raw as { fromDir?: string; skipPreview?: boolean }
+            if (!p.fromDir?.trim()) {
+              return toolResult({
+                status: 'error',
+                message:
+                  '缺少 fromDir。produce 必须带 plan 返回的 outputDir，否则会重新生成大纲与分镜，' +
+                  '用户刚确认的讲法就白确认了。',
+              })
+            }
+            try {
+              const common = { fromDir: p.fromDir.trim() } as const
+
+              // 第一步：首帧预览（除非用户说不用看）
+              if (!p.skipPreview) {
+                const pre = await service.generate({ topic: '', ...common, stage: 'preview' })
+                if (!pre.ok && pre.error?.includes('首节预览渲染失败')) {
+                  return toolResult({ status: 'error', message: pre.error })
+                }
+                return toolResult({
+                  status: 'ok',
+                  stage: 'preview',
+                  previewPath: pre.previewPath,
+                  outputDir: dirOf(pre),
+                  template: pre.template,
+                  visualStyle: pre.visualStyle,
+                  hint:
+                    '这是**首节预览**（只有一节、没有配音）。把它用 markdown 链接给用户看，' +
+                    '问「风格、字号、密度可以吗」。用户认可后再调本工具并传 skipPreview: true 出全片；' +
+                    '要改风格就重新调 plan 并指定 style。',
+                })
+              }
+
+              // 第二步：出全片
+              const r = await service.generate({ topic: '', ...common, stage: 'produce' })
+              if (!r.ok) {
+                return toolResult({ status: 'error', message: r.error ?? '出片失败' })
+              }
+              return toolResult({
+                status: 'ok',
+                stage: 'produce',
+                videoPath: r.videoPath,
+                outputDir: dirOf(r),
+                sections: r.storyboard?.sections.length ?? 0,
+                template: r.template,
+                visualStyle: r.visualStyle,
+                videoSeconds: r.videoSeconds,
+                generationMs: r.generationMs,
+                durationNote: 'videoSeconds 是成片时长；generationMs 是本次生成耗时，不是视频长度。',
+                ...warningsOf(r),
+                hint:
+                  '视频已生成。用 markdown 链接指向 videoPath。' +
+                  '若用户指出某一节有问题，用 teaching_video_revise + sectionIds + feedback 只重做那一节。',
+              })
+            } catch (err) {
+              log.error('[code2video] produce 异常:', err)
+              return toolResult({
+                status: 'error',
+                message: err instanceof Error ? err.message : String(err),
+              })
+            }
+          },
+        }
+
+        // ---- 3. revise：只重做指定节 ----
+        const reviseConfig = {
+          ...teachingVideoReviseTool,
+          execute: async (_id: string, raw: unknown) => {
+            const p = raw as { fromDir?: string; sectionIds?: number[]; feedback?: string }
+            if (!p.fromDir?.trim()) {
+              return toolResult({ status: 'error', message: '缺少 fromDir（上一次的 outputDir）' })
+            }
+            const ids = (p.sectionIds ?? []).filter((n) => Number.isFinite(n) && n >= 1)
+            if (ids.length === 0) {
+              return toolResult({
+                status: 'error',
+                message: '缺少 sectionIds。要改哪几节就点名，整条重跑会多花十几分钟。',
+              })
+            }
+            try {
+              const r = await service.generate({
+                topic: '',
+                fromDir: p.fromDir.trim(),
+                stage: 'revise',
+                sectionIds: ids,
+                ...(p.feedback?.trim() ? { feedback: p.feedback.trim() } : {}),
+              })
+              if (!r.ok) {
+                return toolResult({ status: 'error', message: r.error ?? '返工失败' })
+              }
+              return toolResult({
+                status: 'ok',
+                stage: 'revise',
+                videoPath: r.videoPath,
+                outputDir: dirOf(r),
+                revisedSections: ids,
+                videoSeconds: r.videoSeconds,
+                generationMs: r.generationMs,
+                ...warningsOf(r),
+                hint: `已重做第 ${ids.join('、')} 节并重新合成。用 markdown 链接把新成片给用户。`,
+              })
+            } catch (err) {
+              log.error('[code2video] revise 异常:', err)
+              return toolResult({
+                status: 'error',
+                message: err instanceof Error ? err.message : String(err),
+              })
+            }
+          },
+        }
+
+        for (const cfg of [planConfig, produceConfig, reviseConfig]) {
+          ctx.effect(ex.registerTool(cfg as unknown as { name: string }, createTool))
+          log.info(`[code2video] ${cfg.name} 已注册`)
+        }
         return true
       }
 

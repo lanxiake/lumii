@@ -1,18 +1,26 @@
 ---
 name: teaching-video
-description: 用 teaching_video_generate 工具做讲解/教学/科普短视频（MP4）。当用户要「讲清楚某个概念」「做个教学视频」「解释一下某个原理」「给孩子讲…」，或要对比、推导、流程、选型、数据解读这类**用动画讲明白**的内容时使用。走「草稿确认 → 出片 → 局部返工」三段式，不一次性跑完。
+description: 用三个工具（plan / produce / revise）做讲解、教学、科普短视频（MP4，带动画+配音+字幕）。当用户要「讲清楚某个概念」「做个教学视频」「解释一下某个原理」「给孩子讲…」，或要对比、推导、流程、选型、数据解读这类**用动画讲明白**的内容时使用。必须按 plan → produce → revise 的顺序，中间停下来让用户确认。
 metadata:
   {
     "mtbot": {
       "emoji": "🎥",
-      "requires": { "tools": ["teaching_video_generate"] }
+      "requires": {
+        "tools": ["teaching_video_plan", "teaching_video_produce", "teaching_video_revise"]
+      }
     }
   }
 ---
 
-# 教学视频（teaching_video_generate）
+# 教学视频（三个工具，按顺序用）
 
-把一个知识点做成**带动画的 MP4**：结构模板定骨架，视觉风格定长相，逐节渲染再合成。
+做一条带动画、配音、字幕的 MP4 教学视频。**三个工具是三段，不要合并调用。**
+
+| 工具 | 耗时 | 产出 | 用户此时该做什么 |
+|---|---|---|---|
+| `teaching_video_plan` | ~40 秒 | 大纲 + 分镜 + `review.md` | **确认讲法** |
+| `teaching_video_produce` | ~1 分钟 → ~6 分钟 | 首节预览 → 全片 | **确认风格** |
+| `teaching_video_revise` | ~1 分钟 | 重做的几节 | 指出问题 |
 
 ## 一、什么时候用
 
@@ -22,46 +30,67 @@ metadata:
 **不该用**：纯文字总结（用 Markdown）、真实录屏（用 `screen-tutorial-pipeline`）、
 需要实拍或 AI 生成画面的创意视频（用 `video-creation-pipeline`）。
 
-## 二、三段式流程（**必须遵守**）
+## 二、三步流程（**必须按顺序**）
 
-这是这个工具能出好片的唯一用法。**不要一次跑完**。
-
-### 第 1 段：draft —— 先让人看讲法
+### 第 1 步：`teaching_video_plan` —— 出草稿
 
 ```
-teaching_video_generate({ topic, audience?, durationMinutes? })
+teaching_video_plan({ topic, audience?, durationMinutes?, style? })
 ```
 
-不填 `stage` 就是 draft。几十秒返回，只出大纲 + 分镜 + 一份 `review.md`，**不渲染**。
+40 秒返回，**不渲染、不配音**。拿到后必须做三件事：
 
-拿到结果后，用中文**列出这几节讲什么**，并主动挑毛病。挑毛病的地方是：
+1. **列出每节讲什么**：节标题 + 每节一句话
+2. **复述旁白**：每节打算口头讲什么（结果里有 `sectionNarration`）
+3. **主动挑毛病**，然后问用户
+
+挑毛病看这几处：
 
 - **推导有没有跳步**：第一节用到的东西，前面讲过吗？
-- **有没有漏掉的前提**：比如讲「负数乘负数」，绝对值的直观讲了没有？
-- **节数与时长的匹配**：4 分钟塞 6 节是不是赶？
-- **哪一节其实可以删**：删了会不会塌？
+- **有没有漏掉的前提**：讲「负数乘负数」，绝对值的直观讲了没有？
+- **节数与时长匹配**：4 分钟塞 6 节是不是赶？
+- **哪一节可以删**：删了会不会塌？
 
-然后**问用户**「这个讲法对不对、要不要调」，**不要**直接出片。
+最后问：「这个讲法对不对，要不要调」。**不要**直接调 produce。
 
-### 第 2 段：produce —— 确认后出片
+### 第 2 步：`teaching_video_produce` —— 出片（分两次）
 
-```
-teaching_video_generate({ topic, stage: "produce", fromDir: <上次的 outputDir> })
-```
-
-`fromDir` **必须带**：它复用上一轮的大纲与分镜，不重复花 token。不带会重新生成，
-用户刚确认的内容就白确认了。
-
-出片后把 `videoPath` 用 markdown 链接给用户。
-
-### 第 3 段：revise —— 只改有问题的节
+**第一次**（不传 `skipPreview`）：只渲第一节，返回 `previewPath`。
 
 ```
-teaching_video_generate({ topic, stage: "revise", sectionIds: [2], fromDir: <同一目录> })
+teaching_video_produce({ fromDir: <plan 的 outputDir> })
 ```
 
-只重渲第 2 节，其余复用已有 mp4。**绝不为了改一节重跑全片**——那要多花十几分钟
-和几倍 token，而结果只差一节。
+把预览图给用户看，问「**风格、字号、密度可以吗**」。这一分钟是省下来的——
+等 6 分钟出全片才发现风格不对，就要整条重来。
+
+**第二次**（用户认可后）：出全片。
+
+```
+teaching_video_produce({ fromDir: <同一个 outputDir>, skipPreview: true })
+```
+
+只有用户明确说「不用看预览、直接出」时才第一次就传 `skipPreview: true`。
+
+### 第 3 步：`teaching_video_revise` —— 只改有问题的那节
+
+```
+teaching_video_revise({ fromDir: <同一个 outputDir>, sectionIds: [2], feedback: "公式太挤" })
+```
+
+- `sectionIds` **必须给**——整条重跑要多花十几分钟
+- `feedback` 写**用户的原话**，它会进场景生成的提示词。
+  只给节号不给原因，模型只能原样重画一遍
+
+## 三、人工审核的三个点
+
+这是这套流程的核心：**三个地方必须停下来等用户，不要自己往下走。**
+
+| 审核点 | 用户看什么 | 你要问什么 |
+|---|---|---|
+| plan 之后 | 分节结构 + 旁白 | 这个讲法对不对？有没有漏前提？ |
+| produce 预览后 | 首节画面 | 风格/字号/密度可以吗？ |
+| revise 之前 | 用户指出的节 | 具体哪里不对？（写进 feedback） |
 
 ## 三、结构模板：选对骨架
 
@@ -119,7 +148,7 @@ teaching_video_generate({ topic, stage: "revise", sectionIds: [2], fromDir: <同
 
 ### **不要自己写渲染脚本**（最重要的一条）
 
-**必须调用 `teaching_video_generate`**，不要自己拼 HTML、写 `_render.js`、
+**必须用这三个工具**，不要自己拼 HTML、写 `_render.js`、
 调 ffmpeg 手动截图合成。
 
 为什么这条排第一：实测有会话里 Agent 看到目录里落着 `section_N.html`，
@@ -128,12 +157,12 @@ teaching_video_generate({ topic, stage: "revise", sectionIds: [2], fromDir: <同
 而且下一轮它会学着上一轮的样继续手搓。
 
 - 工具产出的 `section_N.html` 是**中间产物**，不是让你接手渲染的入口
-- 需要改动就再用 `stage: "revise"`，不要改文件
+- 需要改动就用 `teaching_video_revise`，不要改文件
 - 如果用户说「上次那样自己渲染更快」，告诉他那样会丢配音和字幕
 
 ### 其他
 
-- **别跳过 draft**。用户没确认讲法就出片，大概率要整片重做。
+- **别跳过 plan**。用户没确认讲法就出片，大概率要整片重做。
 - **别忘 `fromDir`**。produce / revise 不带它会新建目录、重新生成，白花 token。
 - **别为改一节跑全片**。用 `sectionIds`。
 - **别把 `generationMs` 当视频时长**。`videoSeconds` 才是成片长度，

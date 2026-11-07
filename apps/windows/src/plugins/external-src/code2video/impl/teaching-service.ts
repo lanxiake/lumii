@@ -99,7 +99,7 @@ export interface TeachingVideoDeps {
  * - `revise`  只重跑指定小节（`sectionIds`），其余复用已渲染的 mp4，最后重新合并。
  *             对应原版的「人工改几行后只重渲那一小段」。
  */
-export type TeachingStage = 'draft' | 'produce' | 'revise'
+export type TeachingStage = 'draft' | 'produce' | 'revise' | 'preview'
 
 export interface GenerateInput {
   topic: string
@@ -111,7 +111,13 @@ export interface GenerateInput {
   maxRetries?: number
   /** 每节画面来源；默认跟随服务配置 */
   sceneMode?: 'llm' | 'template'
-  /** 阶段，默认 `produce` */
+  /**
+   * 阶段。
+   * - `draft`   只出大纲+分镜+review.md
+   * - `preview` 只渲第一节并截一张图，用于用户确认风格（不合成全片）
+   * - `produce` 跑完整流程
+   * - `revise`  只重做指定节
+   */
   stage?: TeachingStage
   /**
    * 视觉风格 id（如 `3b1b` / `chalkboard` / `clean` / `metro` / `tech-dark`）。
@@ -123,6 +129,11 @@ export interface GenerateInput {
    * 与 `draft` 配合：用户看完 review.md 说「第 2 节讲错了」→ 改完只重渲第 2 节。
    */
   sectionIds?: number[]
+  /**
+   * `revise` 阶段的修正要求（用户原话）。
+   * 拼进场景生成的提示词——比只给节号有效得多。
+   */
+  feedback?: string
   /**
    * 复用已有产物目录（绝对路径）。`produce`/`revise` 时用它接着上一次的
    * outline/storyboard 跑，不重新生成——原版就是靠「目录里已有文件就跳过」实现的。
@@ -137,6 +148,12 @@ export interface GenerateResult {
   /** 人审用的审阅稿（draft 阶段的主要交付物） */
   reviewPath?: string
   videoPath?: string
+  /**
+   * 首节预览视频（`stage: 'preview'` 时返回）。
+   *
+   * 只有一节、没有配音，用来看风格与密度。用户点头后再出全片。
+   */
+  previewPath?: string
   outlinePath?: string
   storyboardPath?: string
   outline?: TeachingOutline
@@ -290,7 +307,11 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
   async function generate(input: GenerateInput): Promise<GenerateResult> {
     const startedAt = Date.now()
     const topic = input.topic?.trim()
-    if (!topic) return { ok: false, error: '缺少知识点（topic）' }
+    // topic 只在**新建**时必需。produce / preview / revise 都靠 fromDir 复用已有
+    // 大纲与分镜——那时重新要 topic 既没必要，还会诱导调用方瞎填一个。
+    if (!topic && !input.fromDir?.trim()) {
+      return { ok: false, error: '缺少知识点（topic）；复用已有草稿时请传 fromDir' }
+    }
 
     const stage: TeachingStage = input.stage ?? 'produce'
     const maxRetries = Math.max(1, input.maxRetries ?? 3)
@@ -476,20 +497,27 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
           continue
         }
         const stepCount = Math.min(section.lectureLines.length, section.animations.length)
+        // revise 时把用户的修正要求拼进去。只给节号不给原因，模型只能原样重画一遍；
+        // 给了「公式太挤」它才可能换布局。
+        const feedbackBlock =
+          input.feedback?.trim() && reviseSet?.has(i + 1)
+            ? `\n## 这一版要修正的问题（用户原话）\n\n${input.feedback.trim()}\n\n在保持模板对象名册不变的前提下，针对上面这个问题调整。\n`
+            : ''
         // 模板的 example 只给第一节用：它是最标准的「好画面长什么样」，
         // 给每一节都塞会让 prompt 多背几百 token，边际收益很低
-        const prompt = buildSceneSpecPrompt(
-          section,
-          i === 0 ? templateMatch.template.example : undefined,
-          {
-            name: visualStyle.name,
-            bg: visualStyle.theme.bg,
-            text: visualStyle.theme.text,
-            element: visualStyle.theme.element,
-            accent: visualStyle.theme.accent,
-          },
-          templateMatch.template.roles,
-        )
+        const prompt =
+          buildSceneSpecPrompt(
+            section,
+            i === 0 ? templateMatch.template.example : undefined,
+            {
+              name: visualStyle.name,
+              bg: visualStyle.theme.bg,
+              text: visualStyle.theme.text,
+              element: visualStyle.theme.element,
+              accent: visualStyle.theme.accent,
+            },
+            templateMatch.template.roles,
+          ) + feedbackBlock
         let scene: SceneStep[] | null = null
         let lastIssues: SceneIssue[] = []
         /** 上次失败的具体原因，重试时回灌给模型 */
@@ -602,6 +630,41 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         if (!issue.audioPath) deps.log(`[teaching-video] 第 ${issue.step + 1} 句无音频，画面按估算时长走`)
       }
       if (sectionCues.length === 0) deps.log('[teaching-video] 全部配音失败，出无声视频')
+    }
+
+    // ---- 3.9 首帧预览（人工审核点 2）----
+    //
+    // 渲第一节、截一张图就返回。用户看这张图决定「风格/密度行不行」，
+    // 成本是一节的渲染时间（~35 秒），而不是等 6 分钟出全片才发现不对。
+    if (stage === 'preview') {
+      deps.onProgress?.({ stage: '预览', percent: 70 })
+      fs.writeFileSync(storyboardPath, JSON.stringify(storyboard, null, 2), 'utf8')
+      const firstOnly = {
+        sections: storyboard.sections.slice(0, 1),
+      }
+      const previewRes = await renderStoryboard(firstOnly, {
+        launchBrowser: deps.createBrowser,
+        ffmpeg: deps.ffmpeg,
+        outDir,
+        log: deps.log,
+        style: visualStyle,
+        // 预览不配音：只要看画面，配音会让预览慢一倍
+        onlySections: new Set([1]),
+      })
+      const previewPath = previewRes.ok ? previewRes.videoPath : undefined
+      return {
+        ok: previewRes.ok,
+        stage,
+        outline,
+        storyboard,
+        outlinePath: outlineFile,
+        storyboardPath,
+        previewPath,
+        ...(previewRes.ok ? {} : { error: previewRes.error ?? '首节预览渲染失败' }),
+        template: { id: templateMatch.template.id, name: templateMatch.template.name },
+        visualStyle: { id: visualStyle.id, name: visualStyle.name },
+        generationMs: Date.now() - startedAt,
+      }
     }
 
     // ---- 4. 渲染 ----
