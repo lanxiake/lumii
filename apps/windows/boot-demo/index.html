@@ -129,18 +129,19 @@
 
   /* 机甲装甲角：斜切而不是圆角，直角+倒角才有金属味 */
   .armor {
-    position: absolute; width: 78px; height: 78px; opacity: 0;
+    position: absolute; width: 92px; height: 92px; opacity: 0;
     transition: opacity .7s ease, transform .8s cubic-bezier(.2,.9,.25,1);
   }
   .armor::before {
     content: ''; position: absolute; inset: 0;
-    border-left: 2px solid var(--cy-dim);
-    border-top: 2px solid var(--cy-dim);
+    border-left: 2.5px solid rgba(120,232,255,.85);
+    border-top: 2.5px solid rgba(120,232,255,.85);
+    filter: drop-shadow(0 0 6px rgba(79,216,255,.55));
   }
   .armor::after {
     content: ''; position: absolute; left: 0; top: 0;
-    width: 26px; height: 2px; background: var(--cy);
-    box-shadow: 0 0 10px var(--cy);
+    width: 34px; height: 3px; background: #bff2ff;
+    box-shadow: 0 0 14px rgba(120,232,255,.95);
   }
   .armor.tl { left: 26px; top: 26px; transform: translate(-14px,-14px); }
   .armor.tr { right: 26px; top: 26px; transform: translate(14px,-14px) scaleX(-1); }
@@ -149,7 +150,7 @@
   #boot[data-act="neural"] .armor,
   #boot[data-act="energize"] .armor,
   #boot[data-act="cognition"] .armor,
-  #boot[data-act="gate"] .armor { opacity: .55; transform: none; }
+  #boot[data-act="gate"] .armor { opacity: 1; transform: none; }
 
   /* ── 精密外框：双细线 + 角部罗盘 ──────────────────────────── */
   /* 单线显得省事，双线才有「仪器面板」的层次：外粗内细，中间留一道缝。 */
@@ -159,15 +160,17 @@
   }
   .fl-top, .fl-bottom {
     left: 62px; right: 62px; height: 3px;
-    border-top: 1px solid rgba(120,235,255,.62);
-    border-bottom: 1px solid rgba(120,235,255,.20);
+    border-top: 1px solid rgba(140,240,255,.85);
+    border-bottom: 1px solid rgba(140,240,255,.3);
+    filter: drop-shadow(0 0 5px rgba(79,216,255,.4));
   }
   .fl-top { top: 62px; }
   .fl-bottom { bottom: 62px; transform: scaleY(-1); }
   .fl-left, .fl-right {
     top: 62px; bottom: 62px; width: 3px;
-    border-left: 1px solid rgba(120,235,255,.62);
-    border-right: 1px solid rgba(120,235,255,.20);
+    border-left: 1px solid rgba(140,240,255,.85);
+    border-right: 1px solid rgba(140,240,255,.3);
+    filter: drop-shadow(0 0 5px rgba(79,216,255,.4));
   }
   .fl-left { left: 62px; }
   .fl-right { right: 62px; transform: scaleX(-1); }
@@ -227,13 +230,15 @@
   .topbar {
     position: absolute; left: 46px; right: 46px; top: 46px;
     display: flex; justify-content: space-between; align-items: center;
-    font-size: 10px; letter-spacing: .26em; opacity: 0;
+    font-size: 10.5px; letter-spacing: .26em; opacity: 0;
+    color: rgba(165,225,250,.9);
+    text-shadow: 0 0 9px rgba(50,150,220,.5);
     transition: opacity .6s ease;
   }
   #boot[data-act="neural"] .topbar,
   #boot[data-act="energize"] .topbar,
   #boot[data-act="cognition"] .topbar,
-  #boot[data-act="gate"] .topbar { opacity: .5; }
+  #boot[data-act="gate"] .topbar { opacity: .95; }
 
   .led { display: inline-block; width: 6px; height: 6px; margin-right: 8px;
     background: var(--cy); box-shadow: 0 0 8px var(--cy);
@@ -242,30 +247,45 @@
   #actName { color: var(--amber); opacity: .85; }
 
   /* 左侧遥测：三条竖排读数 */
+  /* 可读性下限：正文级信息在 0.75 以上才看得清。
+     之前 0.4 且键名只有 55% 不透明度，等于把字藏进背景里。 */
   .telemetry {
     position: absolute; left: 46px; bottom: 74px;
-    font-size: 10px; letter-spacing: .1em; line-height: 1.9; opacity: 0;
+    font-size: 11px; letter-spacing: .1em; line-height: 1.95; opacity: 0;
     transition: opacity .6s ease;
   }
   #boot[data-act="neural"] .telemetry,
   #boot[data-act="energize"] .telemetry,
   #boot[data-act="cognition"] .telemetry,
-  #boot[data-act="gate"] .telemetry { opacity: .4; }
-  .telemetry .k { color: rgba(120,190,220,.55); }
-  .telemetry .v { color: var(--amber-hot); font-variant-numeric: tabular-nums; }
+  #boot[data-act="gate"] .telemetry { opacity: .92; }
+  .telemetry .k {
+    color: rgba(150,215,245,.85);
+    text-shadow: 0 0 8px rgba(60,150,220,.5);
+  }
+  .telemetry .v {
+    color: #ffd9a8; font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 10px rgba(255,157,77,.55);
+  }
 
   /* 右侧系统清单 */
   .checks {
     position: absolute; right: 46px; top: 84px;
-    font-size: 10.5px; letter-spacing: .1em; line-height: 2.15;
+    font-size: 11px; letter-spacing: .1em; line-height: 2.15;
     text-align: right; opacity: 0; transition: opacity .6s ease;
   }
   #boot[data-act="neural"] .checks,
   #boot[data-act="energize"] .checks,
   #boot[data-act="cognition"] .checks,
-  #boot[data-act="gate"] .checks { opacity: .42; }
-  .checks div { color: rgba(120,190,220,.5); transition: color .45s ease; }
-  .checks div.on { color: var(--amber-hot); }
+  #boot[data-act="gate"] .checks { opacity: .92; }
+  .checks div {
+    color: rgba(160,220,250,.78);
+    text-shadow: 0 0 8px rgba(50,140,210,.45);
+    transition: color .45s ease;
+  }
+  .checks div.on {
+    color: #ffe0b8;
+    text-shadow: 0 0 12px rgba(255,157,77,.6);
+  }
   .checks div.enter { animation: checkIn .42s cubic-bezier(.2,.9,.25,1) both; }
   @keyframes checkIn {
     from { opacity: 0; transform: translateX(10px); }
@@ -273,8 +293,8 @@
   }
   /* 进行中的那条：符号呼吸，说明「正在做」 */
   .checks div:not(.on) i { animation: checkBlink 1.1s ease-in-out infinite; }
-  @keyframes checkBlink { 0%,100% { opacity: .25; } 50% { opacity: .9; } }
-  .checks i { font-style: normal; display: inline-block; width: 14px; opacity: .35; }
+  @keyframes checkBlink { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+  .checks i { font-style: normal; display: inline-block; width: 14px; opacity: .8; }
   .checks div.on i { opacity: 1; color: var(--amber); }
 
   /* 底部进度：做成能量条，带分段刻度 */
@@ -308,10 +328,16 @@
 
   .bar-row {
     display: flex; justify-content: space-between; align-items: baseline;
-    margin-top: 11px; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+    margin-top: 11px; font-size: 11.5px; letter-spacing: .2em;
   }
-  #phaseText { color: rgba(160,220,240,.6); }
-  #pctText { color: var(--amber-hot); font-variant-numeric: tabular-nums; letter-spacing: .08em; }
+  #phaseText {
+    color: rgba(175,230,250,.9);
+    text-shadow: 0 0 9px rgba(50,150,220,.5);
+  }
+  #pctText {
+    color: #ffe0b8; font-variant-numeric: tabular-nums; letter-spacing: .08em;
+    text-shadow: 0 0 10px rgba(255,157,77,.55);
+  }
 
   /* ── 层 5：门户 ─────────────────────────────────────────── */
   .gate {
@@ -1856,7 +1882,7 @@ function animateActIn(name) {
   // 四角直接同时淡入，不错峰
   const armors = document.querySelectorAll('.hud-layer .armor')
   armors.forEach((armor) => {
-    armor.style.opacity = '0.55'
+    armor.style.opacity = '1'
     armor.style.transform = 'none'
   })
 
