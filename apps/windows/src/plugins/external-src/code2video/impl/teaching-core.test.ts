@@ -4,6 +4,7 @@ import {
   buildOutlinePrompt,
   buildReviewMarkdown,
   buildSceneSpecPrompt,
+  checkSceneLayout,
   declutterSteps,
   parseSceneSpec,
   buildStoryboardPrompt,
@@ -186,14 +187,14 @@ describe('parseSceneSpec', () => {
       { steps: [{ elements: [{ kind: 'rect', color: '#3b82f6', x: 20, y: 25, w: 18, h: 18 }] }] },
       1,
     )
-    expect(s).toHaveLength(1)
-    expect(s?.[0]?.elements[0]?.kind).toBe('rect')
+    expect(s?.steps).toHaveLength(1)
+    expect(s?.steps[0]?.elements[0]?.kind).toBe('rect')
   })
 
   it('坐标钳制在 0~100', () => {
     const s = parseSceneSpec({ steps: [{ elements: [{ kind: 'rect', x: -50, y: 300 }] }] }, 1)
-    expect(s?.[0]?.elements[0]?.x).toBe(0)
-    expect(s?.[0]?.elements[0]?.y).toBe(100)
+    expect(s?.steps[0]?.elements[0]?.x).toBe(0)
+    expect(s?.steps[0]?.elements[0]?.y).toBe(100)
   })
 
   it('未知 kind 与非法颜色被丢弃/忽略', () => {
@@ -201,13 +202,19 @@ describe('parseSceneSpec', () => {
       { steps: [{ elements: [{ kind: 'video' }, { kind: 'rect', color: 'red' }] }] },
       1,
     )
-    expect(s?.[0]?.elements).toHaveLength(1)
-    expect(s?.[0]?.elements[0]?.color).toBeUndefined()
+    expect(s?.steps[0]?.elements).toHaveLength(1)
+    expect(s?.steps[0]?.elements[0]?.color).toBeUndefined()
+  })
+
+  // 回归：被丢掉的元素要报出来，否则「画面少了一块」无从追查
+  it('不合格元素被丢弃时记 issue', () => {
+    const s = parseSceneSpec({ steps: [{ elements: [{ kind: 'video' }, { kind: 'rect' }] }] }, 1)
+    expect(s?.issues.some((i) => i.kind === 'dropped_element')).toBe(true)
   })
 
   it('text/formula 没有 content 时丢弃', () => {
     const s = parseSceneSpec({ steps: [{ elements: [{ kind: 'text' }] }, { elements: [{ kind: 'rect' }] }] }, 2)
-    expect(s).toHaveLength(1)
+    expect(s?.steps).toHaveLength(1)
   })
 
   it('步数按 stepCount 截断', () => {
@@ -215,13 +222,78 @@ describe('parseSceneSpec', () => {
       { steps: Array.from({ length: 9 }, () => ({ elements: [{ kind: 'rect' }] })) },
       3,
     )
-    expect(s).toHaveLength(3)
+    expect(s?.steps).toHaveLength(3)
+  })
+
+  // 回归：旧实现静默 slice(0,3)，实测 18% 的元素就这么没了
+  it('元素超量时报 too_many_elements（不再静默截断）', () => {
+    const s = parseSceneSpec(
+      {
+        steps: [
+          {
+            elements: [
+              { kind: 'rect' },
+              { kind: 'circle' },
+              { kind: 'line' },
+              { kind: 'text', content: '第4个' },
+            ],
+          },
+        ],
+      },
+      1,
+    )
+    expect(s?.steps[0]?.elements).toHaveLength(3)
+    const issue = s?.issues.find((i) => i.kind === 'too_many_elements')
+    expect(issue?.detail).toContain('4')
+  })
+
+  it('画面步数少于讲义行时报 short_steps', () => {
+    const s = parseSceneSpec({ steps: [{ elements: [{ kind: 'rect' }] }] }, 4)
+    expect(s?.issues.some((i) => i.kind === 'short_steps')).toBe(true)
   })
 
   it('坏形状返回 null', () => {
     expect(parseSceneSpec(null, 1)).toBeNull()
     expect(parseSceneSpec({ steps: [] }, 1)).toBeNull()
     expect(parseSceneSpec({ steps: [{ elements: [] }] }, 1)).toBeNull()
+  })
+})
+
+describe('checkSceneLayout', () => {
+  it('不重叠的元素不报问题', () => {
+    const issues = checkSceneLayout([
+      { elements: [{ kind: 'text', content: 'A', x: 10, y: 10, w: 20, h: 10 }, { kind: 'text', content: 'B', x: 60, y: 60, w: 20, h: 10 }] },
+    ])
+    expect(issues).toHaveLength(0)
+  })
+
+  it('检出真实元素重叠（此前检查的是不存在的 3×3 面板）', () => {
+    const issues = checkSceneLayout([
+      { elements: [{ kind: 'text', content: 'A', x: 20, y: 20, w: 30, h: 20 }, { kind: 'text', content: 'B', x: 22, y: 22, w: 30, h: 20 }] },
+    ])
+    expect(issues.some((i) => i.kind === 'overlap')).toBe(true)
+    expect(issues[0]?.indexes).toEqual([0, 1])
+  })
+
+  it('检出元素出界', () => {
+    const issues = checkSceneLayout([{ elements: [{ kind: 'rect', x: 80, y: 20, w: 30, h: 20 }] }])
+    expect(issues.some((i) => i.kind === 'out_of_bounds')).toBe(true)
+  })
+
+  // 回归：第 2 节把 w:80 h:8 的 rect 当数轴，渲染成空心长条
+  it('检出把 rect 当线用的极扁形状', () => {
+    const issues = checkSceneLayout([{ elements: [{ kind: 'rect', x: 10, y: 25, w: 80, h: 8 }] }])
+    expect(issues.some((i) => i.kind === 'suspicious_span')).toBe(true)
+  })
+
+  it('正常比例的形状不误报', () => {
+    const issues = checkSceneLayout([{ elements: [{ kind: 'rect', x: 10, y: 25, w: 30, h: 20 }] }])
+    expect(issues.some((i) => i.kind === 'suspicious_span')).toBe(false)
+  })
+
+  it('line 类型的极扁不算可疑（线本来就该扁）', () => {
+    const issues = checkSceneLayout([{ elements: [{ kind: 'line', x: 10, y: 25, w: 80, h: 8 }] }])
+    expect(issues.some((i) => i.kind === 'suspicious_span')).toBe(false)
   })
 })
 

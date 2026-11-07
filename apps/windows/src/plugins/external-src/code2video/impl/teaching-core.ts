@@ -56,6 +56,15 @@ export const LIMITS = {
   maxAnimations: 8,
   /** 单行讲义字数上限（原版是 10 words，中文按 24 字放宽） */
   maxLectureLineChars: 24,
+  /**
+   * 单步元素数上限。**超出的必须报错，不许静默丢弃**。
+   *
+   * 实测 9 个产物、55 步里模型给了 187 个元素，其中 33 个（18%）被旧的
+   * `slice(0, 3)` 悄悄切掉——用户看到的是「这一步少了一个标签」，而日志里
+   * 什么都没有。位置约束是本地能解的（`declutterSteps`），**要素数量不是**：
+   * 少一个元素就是画面缺一块，只能让模型重新给。
+   */
+  maxElementsPerStep: 3,
 } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -234,25 +243,57 @@ export interface SceneStep {
   elements: SceneElement[]
 }
 
+/**
+ * 画面规格的解析结果。
+ *
+ * `issues` 非空 = 模型给的画面**能用但有毛病**。调用方要按它决定重试还是照渲染：
+ * 元素超量必须重试（少一个元素就是画面缺一块），其余问题降级放行并如实回告。
+ */
+export interface SceneSpecResult {
+  steps: SceneStep[]
+  issues: SceneIssue[]
+}
+
+export interface SceneIssue {
+  /** 出问题的是第几步（0 起） */
+  step: number
+  kind: 'too_many_elements' | 'dropped_element' | 'short_steps'
+  detail: string
+}
+
 function num(v: unknown, def: number, lo = 0, hi = 100): number {
   return typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def
 }
 
-/** 收窄模型给的画面 JSON；收不出来返回 null（调用方退回纯文字模板） */
-export function parseSceneSpec(raw: unknown, stepCount: number): SceneStep[] | null {
+/**
+ * 收窄模型给的画面 JSON。
+ *
+ * 返回 null 表示**根本不能用**（不是对象、steps 为空、一步都收不出来）——
+ * 调用方应重试。`issues` 非空表示能用但有毛病，判据见 `SceneSpecResult`。
+ */
+export function parseSceneSpec(raw: unknown, stepCount: number): SceneSpecResult | null {
   if (!isRecord(raw)) return null
   const stepsRaw = raw.steps
   if (!Array.isArray(stepsRaw) || stepsRaw.length === 0) return null
 
   const KINDS = new Set(['text', 'rect', 'circle', 'line', 'formula'])
   const steps: SceneStep[] = []
+  const issues: SceneIssue[] = []
   for (let i = 0; i < Math.min(stepsRaw.length, stepCount); i++) {
     const item = stepsRaw[i]
     if (!isRecord(item)) continue
     const els = Array.isArray(item.elements) ? item.elements : []
+    // 超量**报出来**再截断：截断本身不可避免（画面放不下），但静默截断会
+    // 让「这一步少了个标签」变成无从追查的谜（实测 18% 的元素是这么没的）。
+    if (els.length > LIMITS.maxElementsPerStep) {
+      issues.push({
+        step: i,
+        kind: 'too_many_elements',
+        detail: `第 ${i + 1} 步给了 ${els.length} 个元素，上限 ${LIMITS.maxElementsPerStep}，将保留前 ${LIMITS.maxElementsPerStep} 个`,
+      })
+    }
     const elements: SceneElement[] = []
-    // 每步最多 3 个元素：实测 4~5 个时避让算法没有足够空间，必然留下重叠
-    for (const e of els.slice(0, 3)) {
+    for (const e of els.slice(0, LIMITS.maxElementsPerStep)) {
       if (!isRecord(e)) continue
       const kind = typeof e.kind === 'string' && KINDS.has(e.kind) ? (e.kind as SceneElement['kind']) : null
       if (!kind) continue
@@ -268,10 +309,28 @@ export function parseSceneSpec(raw: unknown, stepCount: number): SceneStep[] | n
         h: num(e.h, 14, 1, 100),
       })
     }
+    // 元素被丢（未知 kind、text 没 content）同样要报：模型以为自己画了，实际没有
+    const dropped = els.length - elements.length
+    if (dropped > 0 && els.length <= LIMITS.maxElementsPerStep) {
+      issues.push({
+        step: i,
+        kind: 'dropped_element',
+        detail: `第 ${i + 1} 步有 ${dropped} 个元素不合格被丢弃（未知 kind 或 text/formula 缺 content）`,
+      })
+    }
     if (elements.length === 0) continue
     steps.push({ elements })
   }
-  return steps.length > 0 ? steps : null
+  if (steps.length === 0) return null
+  // 步数不足会让后半段讲义没有画面，但渲染能跑——降级放行并回告
+  if (steps.length < stepCount) {
+    issues.push({
+      step: steps.length,
+      kind: 'short_steps',
+      detail: `只有 ${steps.length} 步画面，讲义有 ${stepCount} 行；多出的讲义行会没有对应画面`,
+    })
+  }
+  return { steps, issues }
 }
 
 /**
@@ -401,6 +460,87 @@ function boxesOverlap(a: SceneElement, b: SceneElement, gap: number): boolean {
   return ax < bx + bw + gap && bx < ax + aw + gap && ay < by + bh + gap && by < ay + ah + gap
 }
 
+/**
+ * 检查一节**真实元素**的布局问题。
+ *
+ * 这是确定性 Critic 的正身。此前 `render-backend.checkSectionLayout` 算的是
+ * `gridCell()` 的 3×3 文字模板面板——那个模板只在 `section.scene` 为空时才用，
+ * 默认的 LLM 画面模式下**根本不存在这些面板**，于是「布局告警」一直在检查
+ * 一堆不存在的框。这里改成对 `step.elements` 的真实包围盒计算。
+ *
+ * 判据只认几何，不认美观：
+ * - `overlap`：两步之间元素互相压住（`declutterSteps` 之后仍残留）
+ * - `out_of_bounds`：元素伸出画面（会被裁掉，用户看到半截）
+ * - `suspicious_span`：`w/h` 极扁/极长的矩形，是「拿 rect 当数轴/分隔线」的
+ *   典型误用（实测第 2 节把 `w:80 h:8` 的 rect 当数轴，渲染成空心长条）
+ */
+export type LayoutIssueKind = 'overlap' | 'out_of_bounds' | 'suspicious_span'
+
+export interface LayoutIssue {
+  step: number
+  kind: LayoutIssueKind
+  detail: string
+  /** 涉及的元素下标（overlap 时为两个） */
+  indexes: number[]
+}
+
+/** `w/h` 超过这个倍数就当作「一条线」而不是一个形状 */
+const SUSPICIOUS_SPAN_RATIO = 8
+
+export function checkSceneLayout(steps: readonly SceneStep[], overlapThreshold = 0.35): LayoutIssue[] {
+  const issues: LayoutIssue[] = []
+  steps.forEach((step, si) => {
+    const els = step.elements
+    for (let i = 0; i < els.length; i++) {
+      const a = els[i]!
+      const ax = a.x ?? 30
+      const ay = a.y ?? 40
+      const aw = a.w ?? 24
+      const ah = a.h ?? 14
+
+      // 出界：右/下越界会被渲染裁掉，左上越界在 CSS 里是负坐标（同样看不见）
+      if (ax + aw > 100.5 || ay + ah > 100.5) {
+        issues.push({
+          step: si,
+          kind: 'out_of_bounds',
+          detail: `第 ${si + 1} 步第 ${i + 1} 个元素伸展到 (${Math.round(ax + aw)}, ${Math.round(ay + ah)})，超出画面`,
+          indexes: [i],
+        })
+      }
+
+      // 极扁/极长的 rect：模型想画线却用了 rect，渲染出来是空心长框
+      if (a.kind === 'rect') {
+        const ratio = Math.max(aw / Math.max(ah, 0.01), ah / Math.max(aw, 0.01))
+        if (ratio >= SUSPICIOUS_SPAN_RATIO) {
+          issues.push({
+            step: si,
+            kind: 'suspicious_span',
+            detail: `第 ${si + 1} 步第 ${i + 1} 个 rect 的宽高比 ${ratio.toFixed(0)}:1，像是想画一条线`,
+            indexes: [i],
+          })
+        }
+      }
+
+      for (let j = i + 1; j < els.length; j++) {
+        const b = els[j]!
+        const ratio = overlapRatio(
+          { x: ax, y: ay, w: aw, h: ah },
+          { x: b.x ?? 30, y: b.y ?? 40, w: b.w ?? 24, h: b.h ?? 14 },
+        )
+        if (ratio >= overlapThreshold) {
+          issues.push({
+            step: si,
+            kind: 'overlap',
+            detail: `第 ${si + 1} 步第 ${i + 1} 与第 ${j + 1} 个元素重叠 ${Math.round(ratio * 100)}%`,
+            indexes: [i, j],
+          })
+        }
+      }
+    }
+  })
+  return issues
+}
+
 /** 让模型输出画面 JSON 的提示词（输出量约 200 token/节，远低于整页 HTML） */
 export function buildSceneSpecPrompt(section: StoryboardSection): string {
   return `你在为一段教学动画设计每一帧的画面布局。只输出 JSON，不要解释。
@@ -420,10 +560,12 @@ export function buildSceneSpecPrompt(section: StoryboardSection): string {
 
 约束：
 1. steps 数量必须等于 ${Math.min(section.lectureLines.length, section.animations.length)}。
-2. 每步 1~3 个元素（**超过 3 个会被丢弃**）；kind 只能是 text/rect/circle/line/formula。
+2. 每步 1~${LIMITS.maxElementsPerStep} 个元素（**超过会被打回重做**）；kind 只能是 text/rect/circle/line/formula。
 3. text/formula 必须给 content（≤20 字）；rect/circle/line 用 color 区分。
-4. 元素之间留出间距（同一行相邻元素 x 至少差 w+5）。
-5. 颜色用浅色（#93c5fd / #fca5a5 / #86efac / #fde68a 之类），背景是黑色。`
+4. 元素之间留出间距（同一行相邻元素 x 至少差 w+5），且都要完整落在 0~100 范围内。
+5. 颜色用浅色（#93c5fd / #fca5a5 / #86efac / #fde68a 之类），背景是黑色。
+6. **rect 必须同时有宽和高**（w/h 比值别超过 5:1）。要画线就用 line，别拿很扁的 rect 凑——
+   那会渲染成一个空心长框，不是一条线。`
 }
 
 /**

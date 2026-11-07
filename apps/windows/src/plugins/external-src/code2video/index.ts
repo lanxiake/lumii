@@ -184,11 +184,19 @@ export const code2videoExtension = {
                 videoSeconds: result.videoSeconds,
                 generationMs: result.generationMs,
                 durationNote: 'videoSeconds 是成片时长；generationMs 是本次生成耗时，不是视频长度。',
-                ...(result.overlaps?.length
+                ...(result.layoutIssues?.length
                   ? {
-                      layoutWarnings: result.overlaps.map((o) => ({
+                      layoutWarnings: result.layoutIssues.map((o) => ({
                         section: o.section,
-                        pairs: o.pairs,
+                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
+                      })),
+                    }
+                  : {}),
+                ...(result.sceneIssues?.length
+                  ? {
+                      sceneWarnings: result.sceneIssues.map((o) => ({
+                        section: o.section,
+                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
                       })),
                     }
                   : {}),

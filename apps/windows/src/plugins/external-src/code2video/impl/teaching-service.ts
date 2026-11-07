@@ -25,6 +25,8 @@ import {
   declutterSteps,
   parseSceneSpec,
   parseStoryboard,
+  type LayoutIssue,
+  type SceneIssue,
   type TeachingOutline,
   type SceneStep,
   type TeachingStoryboard,
@@ -100,8 +102,19 @@ export interface GenerateResult {
   storyboardPath?: string
   outline?: TeachingOutline
   storyboard?: TeachingStoryboard
-  /** 元素重叠告警（不阻断，但如实回传） */
-  overlaps?: Array<{ section: string; pairs: Array<{ a: string; b: string; ratio: number }> }>
+  /**
+   * 画面布局的几何问题（重叠/出界/疑似伪数轴）。不阻断渲染，但如实回传——
+   * 它是质量信号，之前这里算的是不存在的 3×3 面板（见 `checkSectionLayout`）。
+   */
+  layoutIssues?: Array<{ section: string; issues: LayoutIssue[] }>
+  /**
+   * 画面规格的毛病（元素超量、被丢弃、步数不足）。
+   *
+   * 与 `layoutIssues` 分开：那个是**几何**问题（位置），这个是**内容**问题
+   * （模型想画的东西没画全）。两者都要如实回传，因为用户看到的是「少了一个标签」，
+   * 而日志里如果不写，就无从追查。
+   */
+  sceneIssues?: Array<{ section: string; issues: SceneIssue[] }>
   /** **生成耗时**（不是视频时长）。字段名刻意写成 generationMs，避免与 videoSeconds 混淆 */
   generationMs?: number
   /** 成片时长（秒），由分镜的每节时长累加而来 */
@@ -341,6 +354,8 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     // ---- 3. 逐节画面（Code2Video 的 Coder 阶段）----
     deps.onProgress?.({ stage: '画面', percent: 40 })
     const sceneMode = input.sceneMode ?? deps.sceneMode ?? 'llm'
+    /** 画面规格的内容问题（元素超量/丢弃/步数不足），与几何重叠分开回传 */
+    const sceneIssues: Array<{ section: string; issues: SceneIssue[] }> = []
     // revise 阶段只重做指定小节；其余节的已渲染 mp4 直接复用
     const reviseSet =
       stage === 'revise' && input.sectionIds?.length
@@ -358,12 +373,28 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         const stepCount = Math.min(section.lectureLines.length, section.animations.length)
         const prompt = buildSceneSpecPrompt(section)
         let scene: SceneStep[] | null = null
+        let lastIssues: SceneIssue[] = []
         for (let attempt = 1; attempt <= sceneRetries; attempt++) {
           try {
             const raw = await deps.callLLM(prompt, 'scene_spec')
-            scene = parseSceneSpec(extractJson(raw), stepCount)
-            if (scene) break
-            deps.log(`[teaching-video] 第 ${i + 1} 节画面 JSON 不合格（第 ${attempt} 次）`)
+            const parsed = parseSceneSpec(extractJson(raw), stepCount)
+            if (parsed) {
+              // 元素超量是**硬门禁**：少一个元素就是画面缺一块，只能让模型重给。
+              // 其余问题（出界、步数不足、丢了个别不合格元素）降级放行并如实回告——
+              // 它们不会让这一节消失，但需要进质量报告。
+              const fatal = parsed.issues.filter((x) => x.kind === 'too_many_elements')
+              if (fatal.length === 0) {
+                scene = parsed.steps
+                lastIssues = parsed.issues
+                break
+              }
+              lastIssues = parsed.issues
+              deps.log(
+                `[teaching-video] 第 ${i + 1} 节元素超量（第 ${attempt} 次）: ${fatal.map((x) => x.detail).join('; ')}`,
+              )
+            } else {
+              deps.log(`[teaching-video] 第 ${i + 1} 节画面 JSON 不合格（第 ${attempt} 次）`)
+            }
           } catch (err) {
             deps.log(
               `[teaching-video] 第 ${i + 1} 节画面生成失败（第 ${attempt} 次）: ${err instanceof Error ? err.message : String(err)}`,
@@ -373,6 +404,9 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         // 拿不到结构化画面就退回模板——宁可画面朴素，也不要这一节消失
         // 模型给的坐标常撞在一起：先本地挪开，再交给渲染（见 declutterSteps）
         section.scene = scene ? declutterSteps(scene) : undefined
+        if (lastIssues.length > 0) {
+          sceneIssues.push({ section: section.title, issues: lastIssues })
+        }
         if (!scene) deps.log(`[teaching-video] 第 ${i + 1} 节退回模板渲染`)
         deps.onProgress?.({
           stage: '画面',
@@ -394,11 +428,11 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       ...(reviseSet ? { onlySections: reviseSet } : {}),
     })
 
-    // 重叠统计：不管渲染成没成，都回传（它是质量信号，不是失败原因）
+    // 布局统计：不管渲染成没成，都回传（它是质量信号，不是失败原因）
     const { checkSectionLayout } = await import('./render-backend')
-    const overlaps = storyboard.sections
-      .map((s) => ({ section: s.title, pairs: checkSectionLayout(s) }))
-      .filter((o) => o.pairs.length > 0)
+    const layoutIssues = storyboard.sections
+      .map((s) => ({ section: s.title, issues: checkSectionLayout(s) }))
+      .filter((o) => o.issues.length > 0)
 
     if (!renderRes.ok) {
       return {
@@ -407,7 +441,8 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         storyboardPath,
         outline,
         storyboard,
-        overlaps,
+        layoutIssues,
+        sceneIssues,
         error: renderRes.error,
       }
     }
@@ -420,7 +455,8 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       storyboardPath,
       outline,
       storyboard,
-      overlaps,
+      layoutIssues,
+      sceneIssues,
       // 两个量分开报：前者是这台机器跑这次生成花了多久，后者是成片本身的长度。
       // 之前混用一个 durationMs，模型把它当视频时长汇报过一次（203592ms vs 实际 60s）。
       generationMs: Date.now() - startedAt,

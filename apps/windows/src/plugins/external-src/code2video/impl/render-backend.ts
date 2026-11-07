@@ -14,7 +14,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import type { StoryboardSection, TeachingStoryboard } from './teaching-core'
-import { clampLectureLine, findOverlaps, type Box, type SceneElement, type SceneStep } from './teaching-core'
+import {
+  checkSceneLayout,
+  clampLectureLine,
+  findOverlaps,
+  type Box,
+  type LayoutIssue,
+  type SceneElement,
+  type SceneStep,
+} from './teaching-core'
 
 /** 画面尺寸（固定，ffmpeg 要求同尺寸才能 concat） */
 export const FRAME = { width: 1280, height: 720 } as const
@@ -298,9 +306,22 @@ export function panelBoxes(section: StoryboardSection): Array<{ id: string; box:
   return out
 }
 
-/** 这一节里元素是否互相遮挡（确定性 Critic 的入口） */
-export function checkSectionLayout(section: StoryboardSection): Array<{ a: string; b: string; ratio: number }> {
-  return findOverlaps(panelBoxes(section))
+/**
+ * 这一节的实际布局问题。
+ *
+ * **有结构化画面时检查真实元素，没有时才检查文字模板的面板。**
+ * 老实现无条件调 `panelBoxes`，而面板只在 `buildSectionHtml`（`section.scene`
+ * 为空）里存在——默认的 LLM 画面模式下这些面板根本不存在，等于一直在检查
+ * 一堆不存在的框，真实的元素重叠反而一次都没被报出来过。
+ */
+export function checkSectionLayout(section: StoryboardSection): LayoutIssue[] {
+  if (section.scene?.length) return checkSceneLayout(section.scene)
+  return findOverlaps(panelBoxes(section)).map((o) => ({
+    step: Number(o.a.replace(/\D/g, '')) - 1,
+    kind: 'overlap' as const,
+    detail: `${o.a} × ${o.b} 重叠 ${Math.round(o.ratio * 100)}%`,
+    indexes: [],
+  }))
 }
 
 /**
@@ -396,7 +417,9 @@ export async function renderStoryboard(
       // 因为面板当前是文本块，轻微重叠仍可读。真正的判据在工具结果里如实回传。
       const overlaps = checkSectionLayout(section)
       if (overlaps.length > 0) {
-        deps.log(`[render] 第 ${i + 1} 节存在元素重叠: ${overlaps.map((o) => `${o.a}×${o.b}(${o.ratio})`).join(', ')}`)
+        deps.log(
+          `[render] 第 ${i + 1} 节布局问题: ${overlaps.map((o) => `[${o.kind}] ${o.detail}`).join('; ')}`,
+        )
       }
 
       const secs = sectionSeconds(section)
