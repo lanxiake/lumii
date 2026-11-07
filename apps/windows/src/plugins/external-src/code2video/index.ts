@@ -58,6 +58,22 @@ export interface TeachingVideoToolResult extends GenerateResult {
   hint?: string
 }
 
+/**
+ * 语音服务是否就绪。
+ *
+ * 语音插件是**内置插件**、可能被用户关掉，也可能还没初始化完（它等窗口就绪）。
+ * 两种情况都不能让教学视频整个不可用——所以这里只问「现在有没有」，
+ * 没有就出无声视频。
+ */
+function voiceReady(ctx: { get: (k: typeof S.voice) => { generateAudioFile: unknown } | undefined }): boolean {
+  try {
+    const v = ctx.get(S.voice)
+    return typeof v?.generateAudioFile === 'function'
+  } catch {
+    return false
+  }
+}
+
 export const code2videoExtension = {
   manifest: {
     id: 'com.lumii.code2video',
@@ -109,6 +125,16 @@ export const code2videoExtension = {
           // 也能被产物台账/预览面板识别
           outputRoot: () => `${workspaceDir}/outputs/teaching-video`,
           log: (m) => log.info(m),
+          // 旁白：语音服务没就绪时不传，服务层会跳过配音出无声视频——
+          // 比「整个能力因 TTS 不可用而报错」好
+          ...(voiceReady(ctx)
+            ? {
+                narrate: {
+                  generateAudioFile: (text: string, destDir: string) =>
+                    ctx.get(S.voice)!.generateAudioFile(text, destDir),
+                },
+              }
+            : {}),
           onProgress: (e) => {
             try {
               ex.emitProgress({

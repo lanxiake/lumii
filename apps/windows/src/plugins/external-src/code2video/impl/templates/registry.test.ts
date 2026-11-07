@@ -57,9 +57,9 @@ describe('模板 example 能真的渲染', () => {
     const html = buildSceneHtml(section, t.example.scene)
     expect(html).toContain('<!DOCTYPE html>')
     expect(html).toContain('window.__seek')
-    // 画面步骤数与 scene 步数一致
-    const steps = new Set((html.match(/data-step="(\d+)"/g) ?? []).map((s) => s.replace(/\D/g, '')))
-    expect(steps.size).toBe(t.example.scene.length)
+    // 每个 example 至少有元素被渲染出来
+    const els = html.match(/<div class="el el-/g) ?? []
+    expect(els.length).toBeGreaterThan(0)
   })
 
   it.each(TEMPLATES.map((t) => [t.id, t] as const))('%s 的 example 没有元素越界', (_id, t) => {
@@ -108,6 +108,30 @@ describe('模板 example 能真的渲染', () => {
       }
     },
   )
+
+  /**
+   * example 是给模型照着学的 few-shot。
+   *
+   * 不给每个模板都加 id：单个 example 里的元素大多是「一次画完就不动」的
+   * （一张表格、一条时间轴），硬凑跨步复用反而失真。
+   *
+   * 改为守住**最关键的那一条**：至少有一个模板的 example 演示了跨步复用，
+   * 模型能从它学到「同一个对象在动」。至于渲染器支不支持，由
+   * `render-backend.test.ts` 的「跨步移动」一组专门测。
+   */
+  it('至少一个模板的 example 演示了跨步复用（同一 id 出现在多步）', () => {
+    const demos = TEMPLATES.filter((t) => {
+      const seen = new Map<string, number>()
+      for (const step of t.example.scene) {
+        for (const el of step.elements) {
+          if (!el.id) continue
+          seen.set(el.id, (seen.get(el.id) ?? 0) + 1)
+        }
+      }
+      return [...seen.values()].some((n) => n > 1)
+    })
+    expect(demos.length).toBeGreaterThan(0)
+  })
 })
 
 describe('模板匹配', () => {

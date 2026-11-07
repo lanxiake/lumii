@@ -21,12 +21,14 @@ import {
   buildReviewMarkdown,
   buildSceneSpecPrompt,
   buildStoryboardPrompt,
+  checkSceneLayout,
   parseOutline,
   declutterSteps,
   parseSceneSpec,
   parseStoryboard,
   type LayoutIssue,
   type SceneIssue,
+  type StoryboardSection,
   type TeachingOutline,
   type SceneStep,
   type TeachingStoryboard,
@@ -38,6 +40,13 @@ import {
   type TemplateMatch,
 } from './templates/registry'
 import type { FrameIssue } from './gates/frame-check'
+import {
+  cuesToSrt,
+  narrateSection,
+  probeMediaDurationMs,
+  stepDurationsFromCues,
+  type Cue,
+} from './gates/narrate'
 import {
   DEFAULT_STYLE,
   getStyle,
@@ -53,6 +62,15 @@ export interface TeachingVideoDeps {
   log: (msg: string) => void
   /** 进度回调（推给界面） */
   onProgress?: (e: { stage: string; detail?: string; percent?: number }) => void
+  /**
+   * 旁白能力。给了才会做配音与字幕——缺省时出无声视频（与旧行为一致）。
+   *
+   * 这里不做「TTS 不可用就报错」的判断：没配音的教学视频仍然有价值，
+   * 而让整个能力因语音服务没配好而不可用，是比没有声音更糟的失败。
+   */
+  narrate?: {
+    generateAudioFile: (text: string, destDir: string) => Promise<string>
+  }
   /**
    * 每节画面由谁产出。
    * - `llm`（默认）：调模型按 `buildSectionPrompt` 生成自包含 HTML——这是 Code2Video
@@ -445,7 +463,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         ? new Set(input.sectionIds.filter((n) => Number.isInteger(n) && n >= 1))
         : null
     if (sceneMode === 'llm') {
-      const sceneRetries = Math.max(1, deps.sceneRetries ?? 2)
+      const sceneRetries = Math.max(1, deps.sceneRetries ?? 3)
       for (let i = 0; i < storyboard.sections.length; i++) {
         const section = storyboard.sections[i]!
         // revise 模式下，没点名的节保留已存的 scene（若有），不重新调模型
@@ -469,26 +487,46 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         )
         let scene: SceneStep[] | null = null
         let lastIssues: SceneIssue[] = []
+        /** 上次失败的具体原因，重试时回灌给模型 */
+        let retryHint = ''
         for (let attempt = 1; attempt <= sceneRetries; attempt++) {
           try {
-            const raw = await deps.callLLM(prompt, 'scene_spec')
+            const raw = await deps.callLLM(
+              retryHint ? `${prompt}\n\n## 上一次没通过，必须修正\n\n${retryHint}` : prompt,
+              'scene_spec',
+            )
             const parsed = parseSceneSpec(extractJson(raw), stepCount)
             if (parsed) {
-              // 元素超量是**硬门禁**：少一个元素就是画面缺一块，只能让模型重给。
-              // 其余问题（出界、步数不足、丢了个别不合格元素）降级放行并如实回告——
-              // 它们不会让这一节消失，但需要进质量报告。
+              // 两道**硬门禁**——它们对应实测里最严重的两类问题：
+              //
+              // 1. 元素超量：少一个元素就是画面缺一块
+              // 2. **跨步重叠**：前面步骤画的元素不会消失，堆到后面和新的撞在一起。
+              //    实测 `pythagoras-three-proofs` 整屏文字重叠就是这么来的。
+              //    光在提示词里说「要复用 id、要让旧元素消失」模型不听，
+              //    必须打回重做并告诉它具体哪两处撞了。
               const fatal = parsed.issues.filter((x) => x.kind === 'too_many_elements')
-              if (fatal.length === 0) {
+              const layoutBad = checkSceneLayout(parsed.steps).filter(
+                (x) => x.kind === 'cross_step_overlap' || x.kind === 'overlap' || x.kind === 'out_of_bounds',
+              )
+              if (fatal.length === 0 && layoutBad.length === 0) {
                 scene = parsed.steps
                 lastIssues = parsed.issues
                 break
               }
               lastIssues = parsed.issues
-              deps.log(
-                `[teaching-video] 第 ${i + 1} 节元素超量（第 ${attempt} 次）: ${fatal.map((x) => x.detail).join('; ')}`,
-              )
+              const parts: string[] = []
+              if (fatal.length) parts.push(...fatal.map((x) => x.detail))
+              if (layoutBad.length) {
+                parts.push(
+                  ...layoutBad.slice(0, 5).map((x) => x.detail),
+                  '修正办法：给同类元素一个稳定的 id 让它**移动**而不是重新画；不需要的元素加 "until": 步号 让它消失。',
+                )
+              }
+              retryHint = parts.join('\n')
+              deps.log(`[teaching-video] 第 ${i + 1} 节画面不合格（第 ${attempt} 次）: ${retryHint.slice(0, 200)}`)
             } else {
               deps.log(`[teaching-video] 第 ${i + 1} 节画面 JSON 不合格（第 ${attempt} 次）`)
+              retryHint = '上一次输出的不是合法 JSON。只输出 JSON，不要任何解释文字。'
             }
           } catch (err) {
             deps.log(
@@ -511,6 +549,42 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       }
     }
 
+    // ---- 3.5 配音（先有声音，动画才跟着声音走）----
+    //
+    // 顺序很重要：**先生成语音、量出真实时长，再按它重排每一步的时长**，
+    // 而不是先算好秒数再往里塞。后者会让「3 秒的句子」和「15 秒的句子」
+    // 被切成一样长——听起来就是背书。
+    //
+    // 没有旁白能力时整段跳过，行为与旧版一致（无声视频）。
+    let sectionCues: Array<{ section: StoryboardSection; cues: Cue[]; totalMs: number }> = []
+    if (deps.narrate) {
+      deps.onProgress?.({ stage: '配音', percent: 66 })
+      for (const section of storyboard.sections) {
+        // 只重做被点名的节时，未点名的节沿用既有字幕（若有）
+        const res = await narrateSection(
+          { lines: section.lectureLines, destDir: path.join(outDir, 'audio', section.id) },
+          {
+            generateAudioFile: deps.narrate.generateAudioFile,
+            probeDurationMs: async (p) => probeMediaDurationMs(p, deps.ffmpeg),
+            log: deps.log,
+          },
+        )
+        if (!res.ok) {
+          deps.log(`[teaching-video] 第 ${section.id} 配音跳过：${res.issues.map((i) => i.detail).join('; ')}`)
+          continue
+        }
+        sectionCues.push({ section, cues: res.cues, totalMs: res.totalMs })
+        // 按语音时长重排每一步，让画面跟着话走
+        const perStep = stepDurationsFromCues(res.cues, section.scene?.length ?? section.animations.length)
+        section.stepSeconds = perStep
+        section.targetSeconds = perStep.reduce((a, b) => a + b, 0)
+      }
+      for (const issue of sectionCues.flatMap((s) => s.cues)) {
+        if (!issue.audioPath) deps.log(`[teaching-video] 第 ${issue.step + 1} 句无音频，画面按估算时长走`)
+      }
+      if (sectionCues.length === 0) deps.log('[teaching-video] 全部配音失败，出无声视频')
+    }
+
     // ---- 4. 渲染 ----
     deps.onProgress?.({ stage: '渲染', percent: 72 })
     // 画面（scene）随分镜一起落盘：revise 阶段要靠它跳过未点名的节
@@ -521,8 +595,24 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       outDir,
       log: deps.log,
       style: visualStyle,
+      ...(sectionCues.length > 0
+        ? { narration: new Map(sectionCues.map((s) => [s.section.id, s.cues])) }
+        : {}),
       ...(reviseSet ? { onlySections: reviseSet } : {}),
     })
+
+    // 整片字幕：每节字幕接在一起，时间偏移是前面各节的累计时长
+    const fullSrtPath = path.join(outDir, 'subtitles.srt')
+    if (sectionCues.length > 0) {
+      let offset = 0
+      const parts: string[] = []
+      for (const sc of sectionCues) {
+        parts.push(cuesToSrt(sc.cues, offset))
+        offset += Math.round(sc.totalMs)
+      }
+      fs.writeFileSync(fullSrtPath, parts.join('\n'), 'utf8')
+      deps.log(`[teaching-video] 整片字幕：${fullSrtPath}`)
+    }
 
     // 布局统计：不管渲染成没成，都回传（它是质量信号，不是失败原因）
     const { checkSectionLayout } = await import('./render-backend')

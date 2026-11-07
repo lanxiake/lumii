@@ -97,7 +97,9 @@ describe('真机产物渲染回归', () => {
   })
 
   it('每一步的画面都在时间轴上', () => {
-    const steps = html.match(/data-step="(\d)"/g) ?? []
-    expect(new Set(steps).size).toBe(4)
+    const steps = html.match(/T=\[\{ at: 0, step: 0 \}/g) ?? []
+    expect(steps.length).toBe(1)
+    // 四个步的时间点都在
+    expect(html).toMatch(/T=\[\{ at: 0, step: 0 \},\{ at: \d+, step: 1 \},\{ at: \d+, step: 2 \},\{ at: \d+, step: 3 \}\]/)
   })
 })

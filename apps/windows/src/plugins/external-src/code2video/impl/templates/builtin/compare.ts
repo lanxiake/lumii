@@ -53,30 +53,33 @@ export const compareTemplate: TeachingTemplate = {
     title: '3×(-2) 与 (-3)×(-2) 的对比',
     lectureLines: ['3×2：向右走 3 趟', '3×(-2)：步长翻向左', '(-3)×(-2)：趟数也翻', '两次翻转回到正向'],
     scene: [
+      // 每个元素都有 id：轴线只在第 1 步出现一次，之后一直复用；
+      // 公式和箭头是**同一个对象**在不同步改内容/改方向 —— 这是动画不是幻灯片
       {
         elements: [
-          { kind: 'tex', tex: '3 \\times 2 = 6', x: 30, y: 12, w: 40, h: 10 },
-          { kind: 'axis', x: 5, y: 40, w: 90, h: 14, axis: { from: -6, to: 6, marks: [-6, -3, 0, 3, 6] } },
+          { id: 'axis', kind: 'axis', x: 5, y: 40, w: 90, h: 14, axis: { from: -6, to: 6, marks: [-6, -3, 0, 3, 6] } },
+          { id: 'expr', kind: 'tex', tex: '3 \\times 2 = 6', x: 30, y: 12, w: 40, h: 10 },
         ],
       },
       {
         elements: [
-          { kind: 'tex', tex: '3 \\times (-2) = -6', x: 26, y: 12, w: 48, h: 10 },
-          { kind: 'axis', x: 5, y: 40, w: 90, h: 14, axis: { from: -6, to: 6, marks: [-6, -3, 0, 3, 6] } },
-          { kind: 'arrow', from: { x: 50, y: 34 }, x: 25, y: 34, color: '#fca5a5' },
+          // 同一个箭头对象，从「向右」翻成「向左」
+          { id: 'mover', kind: 'arrow', from: { x: 50, y: 34 }, x: 75, y: 34, color: '#86efac' },
+          { id: 'expr', kind: 'tex', tex: '3 \\times 2 = 6', x: 30, y: 12, w: 40, h: 10 },
         ],
       },
       {
         elements: [
-          { kind: 'tex', tex: '(-3) \\times (-2) = 6', x: 24, y: 12, w: 52, h: 10 },
-          { kind: 'axis', x: 5, y: 40, w: 90, h: 14, axis: { from: -6, to: 6, marks: [-6, -3, 0, 3, 6] } },
-          { kind: 'arrow', from: { x: 50, y: 34 }, x: 75, y: 34, color: '#86efac' },
+          { id: 'mover', kind: 'arrow', from: { x: 50, y: 34 }, x: 25, y: 34, color: '#fca5a5' },
+          { id: 'expr', kind: 'tex', tex: '3 \\times (-2) = -6', x: 26, y: 12, w: 48, h: 10 },
         ],
       },
       {
         elements: [
-          { kind: 'tex', tex: '翻转两次 = 回到正向', x: 22, y: 70, w: 56, h: 10 },
-          { kind: 'brace', from: { x: 6, y: 40 }, to: { x: 6, y: 62 }, color: '#fde68a' },
+          // 第二次翻转：又回到右边 —— 观众看到的是「同一个箭头翻了两下」
+          { id: 'mover', kind: 'arrow', from: { x: 50, y: 34 }, x: 75, y: 34, color: '#86efac' },
+          { id: 'expr', kind: 'tex', tex: '(-3) \\times (-2) = 6', x: 24, y: 12, w: 52, h: 10 },
+          { id: 'mark', kind: 'text', content: '翻转两次 = 回到正向', x: 22, y: 70, w: 56, h: 10, color: '#fde68a' },
         ],
       },
     ],

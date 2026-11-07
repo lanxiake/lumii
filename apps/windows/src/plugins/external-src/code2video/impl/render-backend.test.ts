@@ -207,4 +207,68 @@ describe('buildSceneHtml 元素渲染', () => {
     expect(out).toContain('&lt;script&gt;')
     expect(out).not.toContain('<script>bad()</script>')
   })
+
+  // ---- 元素身份 = 动画 ----
+  //
+  // 同一个 id 在多个步出现 = 同一个对象在动。这是「动画」与「幻灯片」的分界。
+  describe('跨步移动', () => {
+    it('同一 id 只创建一个 DOM 元素', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'ball', x: 10, y: 40, w: 10, h: 10 }] },
+        { elements: [{ kind: 'circle', id: 'ball', x: 70, y: 40, w: 10, h: 10 }] },
+      ])
+      const matches = out.match(/data-el="ball"/g) ?? []
+      expect(matches).toHaveLength(1)
+    })
+
+    it('关键帧记录了两步的坐标', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'ball', x: 10, y: 40, w: 10, h: 10 }] },
+        { elements: [{ kind: 'circle', id: 'ball', x: 70, y: 40, w: 10, h: 10 }] },
+      ])
+      expect(out).toContain('left:10%')
+      // 关键帧数据在 <script id="kf"> 里
+      const m = /<script type="application\/json" id="kf">([\s\S]*?)<\/script>/.exec(out)
+      expect(m).not.toBeNull()
+      const data = JSON.parse(m![1]!) as Record<
+        string,
+        Array<{ at: number; h: string; s: Record<string, string> }>
+      >
+      expect(Object.keys(data)).toEqual(['ball'])
+      expect(data.ball).toHaveLength(2)
+      expect(data.ball![0]!.s.left).toBe('10%')
+      expect(data.ball![1]!.s.left).toBe('70%')
+    })
+
+    it('不同 id 各建一个元素', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'a', x: 10, y: 10, w: 10, h: 10 }] },
+        { elements: [{ kind: 'circle', id: 'b', x: 50, y: 50, w: 10, h: 10 }] },
+      ])
+      expect(out).toContain('data-el="a"')
+      expect(out).toContain('data-el="b"')
+    })
+
+    it('没给 id 时按步号生成（等于只在该步出现）', () => {
+      const out = html([
+        { elements: [{ kind: 'rect', x: 10, y: 10, w: 20, h: 20 }] },
+        { elements: [{ kind: 'rect', x: 50, y: 50, w: 20, h: 20 }] },
+      ])
+      expect(out).toContain('data-el="s0e0"')
+      expect(out).toContain('data-el="s1e0"')
+    })
+
+    it('until 让元素在指定步之后消失', () => {
+      const out = html([
+        { elements: [{ kind: 'rect', id: 'gone', x: 10, y: 10, w: 20, h: 20, until: 1 }] },
+        { elements: [{ kind: 'rect', id: 'stay', x: 50, y: 50, w: 20, h: 20 }] },
+        { elements: [{ kind: 'rect', x: 80, y: 80, w: 10, h: 10 }] },
+      ])
+      // gone 有 data-hide，stay 没有
+      const goneTag = /<div[^>]*data-el="gone"[^>]*>/.exec(out)?.[0] ?? ''
+      const stayTag = /<div[^>]*data-el="stay"[^>]*>/.exec(out)?.[0] ?? ''
+      expect(goneTag).toContain('data-hide=')
+      expect(stayTag).not.toContain('data-hide=')
+    })
+  })
 })
