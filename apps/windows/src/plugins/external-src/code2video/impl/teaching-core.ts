@@ -723,7 +723,21 @@ function boxesOverlap(a: SceneElement, b: SceneElement, gap: number): boolean {
  * - `suspicious_span`：`w/h` 极扁/极长的矩形，是「拿 rect 当数轴/分隔线」的
  *   典型误用（实测第 2 节把 `w:80 h:8` 的 rect 当数轴，渲染成空心长条）
  */
-export type LayoutIssueKind = 'overlap' | 'out_of_bounds' | 'suspicious_span'
+export type LayoutIssueKind =
+  | 'overlap'
+  | 'out_of_bounds'
+  | 'suspicious_span'
+  /**
+   * `highlight` 半透明色块盖住了文字/公式。
+   *
+   * 实测：`pythagoras-three-proofs` 第 1 节，公式 `a²+2ab+b²` 正好被一个
+   * `highlight` 块压住，白底上蓝色公式 + 浅蓝色块 → 读不出。
+   *
+   * 为什么在数据层判而不是看像素：像素层面「黑底白字」与「浅蓝块+蓝字」
+   * 的颜色分布完全一样，区分不了；而这里知道哪个元素是色块、哪个是文字，
+   * 判得准。
+   */
+  | 'highlight_over_text'
 
 export interface LayoutIssue {
   step: number
@@ -777,10 +791,19 @@ export function checkSceneLayout(steps: readonly SceneStep[], overlapThreshold =
           { x: b.x ?? 30, y: b.y ?? 40, w: b.w ?? 24, h: b.h ?? 14 },
         )
         if (ratio >= overlapThreshold) {
+          // highlight 压住文字是**比一般重叠更糟**的一类：半透明色块会把
+          // 下面的文字糊掉，但两者颜色可能很接近，渲染出来"看得见却读不出"
+          const textKinds = new Set(['text', 'formula', 'tex', 'code'])
+          const aIsHighlight = a.kind === 'highlight'
+          const bIsHighlight = b.kind === 'highlight'
+          const isHighlightOverText =
+            (aIsHighlight && textKinds.has(b.kind)) || (bIsHighlight && textKinds.has(a.kind))
           issues.push({
             step: si,
-            kind: 'overlap',
-            detail: `第 ${si + 1} 步第 ${i + 1} 与第 ${j + 1} 个元素重叠 ${Math.round(ratio * 100)}%`,
+            kind: isHighlightOverText ? 'highlight_over_text' : 'overlap',
+            detail: isHighlightOverText
+              ? `第 ${si + 1} 步的 highlight 色块盖住了文字（重叠 ${Math.round(ratio * 100)}%），文字会糊`
+              : `第 ${si + 1} 步第 ${i + 1} 与第 ${j + 1} 个元素重叠 ${Math.round(ratio * 100)}%`,
             indexes: [i, j],
           })
         }

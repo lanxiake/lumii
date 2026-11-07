@@ -37,6 +37,7 @@ import {
   resolveTemplateChoice,
   type TemplateMatch,
 } from './templates/registry'
+import type { FrameIssue } from './gates/frame-check'
 import {
   DEFAULT_STYLE,
   getStyle,
@@ -131,6 +132,13 @@ export interface GenerateResult {
    * 而日志里如果不写，就无从追查。
    */
   sceneIssues?: Array<{ section: string; issues: SceneIssue[] }>
+  /**
+   * 抽帧自检发现的画面问题（空白帧/碎屑/太小/偏角）。
+   *
+   * 这是第三层门禁：前两层看的是数据，查不出「元素画了但在画面里小到看不见」。
+   * 不阻断交付，但要如实回传——用户看到的「这片没讲清」往往就是这些问题。
+   */
+  frameIssues?: Array<{ section: string; issues: FrameIssue[] }>
   /** **生成耗时**（不是视频时长）。字段名刻意写成 generationMs，避免与 videoSeconds 混淆 */
   generationMs?: number
   /** 成片时长（秒），由分镜的每节时长累加而来 */
@@ -531,6 +539,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         storyboard,
         layoutIssues,
         sceneIssues,
+        frameIssues: renderRes.frameIssues,
         error: renderRes.error,
       }
     }
@@ -545,6 +554,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       storyboard,
       layoutIssues,
       sceneIssues,
+      frameIssues: renderRes.frameIssues,
       // 两个量分开报：前者是这台机器跑这次生成花了多久，后者是成片本身的长度。
       // 之前混用一个 durationMs，模型把它当视频时长汇报过一次（203592ms vs 实际 60s）。
       generationMs: Date.now() - startedAt,

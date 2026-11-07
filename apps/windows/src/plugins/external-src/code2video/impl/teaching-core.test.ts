@@ -295,6 +295,34 @@ describe('checkSceneLayout', () => {
     const issues = checkSceneLayout([{ elements: [{ kind: 'line', x: 10, y: 25, w: 80, h: 8 }] }])
     expect(issues.some((i) => i.kind === 'suspicious_span')).toBe(false)
   })
+
+  // 回归：pythagoras-three-proofs 第 1 节，highlight 压住公式 → 渲染出来糊成一片
+  it('highlight 盖住文字时报 highlight_over_text 而不是普通 overlap', () => {
+    const issues = checkSceneLayout([
+      {
+        elements: [
+          { kind: 'tex', tex: 'a^2+2ab+b^2', x: 30, y: 30, w: 40, h: 12 },
+          { kind: 'highlight', x: 28, y: 28, w: 44, h: 16 },
+        ],
+      },
+    ])
+    const hit = issues.find((i) => i.kind === 'highlight_over_text')
+    expect(hit).toBeDefined()
+    expect(hit?.detail).toContain('糊')
+  })
+
+  it('highlight 盖住形状不算 highlight_over_text（那是有意为之）', () => {
+    const issues = checkSceneLayout([
+      {
+        elements: [
+          { kind: 'rect', x: 30, y: 30, w: 40, h: 20 },
+          { kind: 'highlight', x: 28, y: 28, w: 44, h: 24 },
+        ],
+      },
+    ])
+    expect(issues.some((i) => i.kind === 'highlight_over_text')).toBe(false)
+    expect(issues.some((i) => i.kind === 'overlap')).toBe(true)
+  })
 })
 
 describe('parseSceneSpec 新 kind', () => {

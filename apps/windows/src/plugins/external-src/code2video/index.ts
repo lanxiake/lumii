@@ -35,6 +35,8 @@ import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
 import { createElectronRenderer, type ElectronWindowLike } from './impl/electron-renderer'
 import { createTeachingVideoService, type GenerateResult } from './impl/teaching-service'
+import { parseHexColor } from './impl/gates/frame-check'
+import { DEFAULT_STYLE } from './impl/styles/registry'
 import { createTool, teachingVideoToolConfig, toolResult } from './tool-config'
 
 /**
@@ -95,6 +97,7 @@ export const code2videoExtension = {
               webPreferences: opts.webPreferences,
             }) as unknown as ElectronWindowLike,
           ffmpeg: ex.ffmpeg,
+          backgroundRgb: parseHexColor(DEFAULT_STYLE.theme.bg),
           log: (m: string) => log.info(m),
         })
 
@@ -201,6 +204,14 @@ export const code2videoExtension = {
                 ...(result.sceneIssues?.length
                   ? {
                       sceneWarnings: result.sceneIssues.map((o) => ({
+                        section: o.section,
+                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
+                      })),
+                    }
+                  : {}),
+                ...(result.frameIssues?.length
+                  ? {
+                      frameWarnings: result.frameIssues.map((o) => ({
                         section: o.section,
                         issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
                       })),

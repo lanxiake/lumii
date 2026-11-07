@@ -28,6 +28,7 @@ import {
 } from './teaching-core'
 import { DEFAULT_STYLE } from './styles/registry'
 import type { StyleTheme, VisualStyle } from './styles/types'
+import { checkFrame, type FrameIssue, type FrameStats } from './gates/frame-check'
 export type { VisualStyle, StyleTheme } from './styles/types'
 
 /** 画面尺寸（固定，ffmpeg 要求同尺寸才能 concat） */
@@ -624,12 +625,21 @@ export interface RenderDeps {
 export interface BrowserLike {
   renderSection: (html: string, outMp4: string, totalMs: number, fps: number) => Promise<void>
   close: () => Promise<void>
+  /**
+   * 上一次 `renderSection` 里抽检的帧统计（可选）。
+   *
+   * 抽帧自检需要看**像素**，而截图本来就在渲染循环里发生——顺手多算一次
+   * 统计比渲染完再重新解码 PNG 便宜得多。实现方没提供时门禁跳过这一层。
+   */
+  lastFrameSamples?: () => FrameStats[]
 }
 
 export interface RenderResult {
   ok: boolean
   videoPath?: string
   sectionVideos: string[]
+  /** 抽帧自检发现的画面问题（不阻断交付，但要如实回告） */
+  frameIssues?: Array<{ section: string; issues: FrameIssue[] }>
   error?: string
 }
 
@@ -646,6 +656,7 @@ export async function renderStoryboard(
   fs.mkdirSync(deps.outDir, { recursive: true })
   const browser = await deps.launchBrowser()
   const sectionVideos: string[] = []
+  const frameIssues: Array<{ section: string; issues: FrameIssue[] }> = []
   try {
     for (let i = 0; i < storyboard.sections.length; i++) {
       const section = storyboard.sections[i]!
@@ -680,6 +691,19 @@ export async function renderStoryboard(
         await browser.renderSection(html, outMp4, secs * 1000, 12)
         sectionVideos.push(outMp4)
         deps.log(`[render] 第 ${i + 1}/${storyboard.sections.length} 节完成`)
+
+        // 抽帧自检：像素是唯一证据。这一步不阻断交付，但问题必须回传——
+        // 前几层门禁看的是数据，查不出「画了但小到看不见」。
+        const samples = browser.lastFrameSamples?.()
+        if (samples?.length) {
+          const issues = samples.flatMap((s, fi) => checkFrame(s, fi))
+          if (issues.length > 0) {
+            frameIssues.push({ section: section.title, issues })
+            deps.log(
+              `[render] 第 ${i + 1} 节画面自检: ${issues.map((x) => `[${x.kind}] ${x.detail}`).join('; ')}`,
+            )
+          }
+        }
       } catch (err) {
         deps.log(`[render] 第 ${i + 1} 节失败: ${err instanceof Error ? err.message : String(err)}`)
       }
@@ -697,7 +721,7 @@ export async function renderStoryboard(
   if (!merged.ok) {
     return { ok: false, sectionVideos, error: `合成失败：${merged.error}` }
   }
-  return { ok: true, videoPath: finalPath, sectionVideos }
+  return { ok: true, videoPath: finalPath, sectionVideos, frameIssues }
 }
 
 /** ffmpeg concat 合成（同尺寸同编码，用 -c copy 直拼） */

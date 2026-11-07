@@ -16,6 +16,7 @@ import path from 'node:path'
 
 import type { BrowserLike } from './render-backend'
 import { FRAME } from './render-backend'
+import { analyzeFrame, type FrameStats } from './gates/frame-check'
 
 export interface ElectronRenderDeps {
   /** 主进程的 BrowserWindow 构造器（由插件入口从 electron 取，避免本文件直接 import electron） */
@@ -29,6 +30,8 @@ export interface ElectronRenderDeps {
     resolve: () => Promise<string | null>
     run: (args: readonly string[], opts?: { timeoutMs?: number }) => Promise<{ ok: boolean; stderr: string }>
   }
+  /** 背景色（RGB），抽帧自检用它判断「哪些像素算有内容」；缺省黑 */
+  backgroundRgb?: readonly [number, number, number]
   log: (msg: string) => void
 }
 
@@ -37,7 +40,12 @@ export interface ElectronWindowLike {
   loadURL: (url: string) => Promise<void>
   webContents: {
     executeJavaScript: (code: string) => Promise<unknown>
-    capturePage: () => Promise<{ toPNG: () => Buffer }>
+    capturePage: () => Promise<{
+      toPNG: () => Buffer
+      /** 原始 BGRA 像素，抽帧自检直接用它统计，不用先编码成 PNG 再解码 */
+      toBitmap: () => Buffer
+      getSize: () => { width: number; height: number }
+    }>
     setBackgroundThrottling?: (enabled: boolean) => void
     on?: (event: string, cb: (...args: unknown[]) => void) => void
     destroy?: () => void
@@ -56,6 +64,8 @@ const FPS = 12
  */
 export function createElectronRenderer(deps: ElectronRenderDeps): () => Promise<BrowserLike> {
   return async () => {
+    /** 上次 renderSection 抽检的帧统计 */
+    let lastSamples: FrameStats[] = []
     const win = deps.createWindow({
       width: FRAME.width,
       height: FRAME.height,
@@ -73,10 +83,12 @@ export function createElectronRenderer(deps: ElectronRenderDeps): () => Promise<
     win.webContents.setBackgroundThrottling?.(false)
 
     const binder: BrowserLike = {
+      lastFrameSamples: () => lastSamples,
       async renderSection(html: string, outMp4: string, totalMs: number, fps: number): Promise<void> {
         const framesDir = outMp4.replace(/\.mp4$/, '.frames')
         rmSync(framesDir, { recursive: true, force: true })
         mkdirSync(framesDir, { recursive: true })
+        lastSamples = []
         try {
           // data: URL 避免落临时文件；体积上限内没问题（单节 HTML 一般 < 100KB）
           const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
@@ -85,6 +97,10 @@ export function createElectronRenderer(deps: ElectronRenderDeps): () => Promise<
           const effectiveFps = Math.max(1, Math.min(fps || FPS, 30))
           const stepMs = 1000 / effectiveFps
           const captures = Math.max(1, Math.ceil(totalMs / stepMs))
+          // 抽检三帧：首、中、末。连通域是 O(像素) 的，每帧都算会让渲染时间翻倍；
+          // 三帧足够判断「有没有画出来 / 是不是碎屑」
+          const sampleAt = new Set([0, Math.floor(captures / 2), Math.max(0, captures - 1)])
+          const bg = deps.backgroundRgb ?? ([0, 0, 0] as const)
 
           for (let i = 0; i < captures; i++) {
             const ms = Math.min(totalMs, Math.round(i * stepMs))
@@ -96,6 +112,10 @@ export function createElectronRenderer(deps: ElectronRenderDeps): () => Promise<
               'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(null))))',
             )
             const img = await win.webContents.capturePage()
+            if (sampleAt.has(i)) {
+              const size = img.getSize()
+              lastSamples.push(analyzeFrame(img.toBitmap(), size.width, size.height, bg))
+            }
             writeFileSync(`${framesDir}/${String(i).padStart(5, '0')}.png`, img.toPNG())
           }
 
