@@ -1262,13 +1262,28 @@ const BOOT_STAGES = [
 let currentStageIndex = 0
 
 function renderChecks(stageIndex) {
-  if (stageIndex === currentStageIndex) return
-  currentStageIndex = stageIndex
+  // 只在首次初始化时创建所有DOM
+  if (el.checks.children.length === 0) {
+    el.checks.innerHTML = BOOT_STAGES.map((stage, i) =>
+      `<div><i>◇</i>${stage}</div>`
+    ).join('')
+  }
 
-  // 显示当前及之前的阶段
-  el.checks.innerHTML = BOOT_STAGES.map((stage, i) =>
-    `<div class="${i < stageIndex ? 'on' : ''}"><i>${i < stageIndex ? '◆' : '◇'}</i>${stage}</div>`
-  ).join('')
+  // 逐个点亮完成的阶段（不是一次性全显示）
+  for (let i = 0; i < BOOT_STAGES.length; i++) {
+    const div = el.checks.children[i]
+    if (i < stageIndex && !div.classList.contains('on')) {
+      // 新完成的阶段：添加 .on 类、变色、符号改为 ◆
+      div.classList.add('on')
+      div.querySelector('i').textContent = '◆'
+    } else if (i >= stageIndex && div.classList.contains('on')) {
+      // 取消（不太可能，但做防守）
+      div.classList.remove('on')
+      div.querySelector('i').textContent = '◇'
+    }
+  }
+
+  currentStageIndex = stageIndex
 }
 
 /**
@@ -1542,6 +1557,11 @@ async function play() {
       // 按进度推进启动阶段显示（11个阶段分配到5幕的进度中）
       const progressRatio = acc / (timeline.length * slices)
       stageIndex = Math.min(BOOT_STAGES.length - 1, Math.floor(progressRatio * BOOT_STAGES.length))
+
+      // 进度条下方显示当前加载的阶段
+      el.phaseText.textContent = BOOT_STAGES[stageIndex]
+
+      // 右上角逐个添加（不是一次性全显示）
       renderChecks(stageIndex)
 
       if (k % 2 === 0) audio?.tick(.7)
@@ -1555,6 +1575,7 @@ async function play() {
   /* 第五幕：门户 */
   setAct('gate')
   el.phase.textContent = '门户开启'
+  el.phaseText.textContent = '系统就绪'
   progress = 100
   el.barFill.style.width = '100%'
   el.pct.textContent = '100%'
