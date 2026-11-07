@@ -1517,7 +1517,7 @@ export class ConversationRepo {
       .run(contentJson, messageId);
     this.messageCache.deleteWhere((k) => k.includes("|"));
     // 只更新文本；role / conversationId / timestamp 沿用已索引的（同一行不会变）
-    const hit = this.searchIndex?.searchById(messageId);
+    const hit = this.searchIndex?.locate(messageId);
     if (hit) {
       this.searchIndex!.upsert({
         id: messageId,
