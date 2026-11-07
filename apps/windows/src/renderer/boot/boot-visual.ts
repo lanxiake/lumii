@@ -255,6 +255,13 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   let starCanvas: HTMLCanvasElement | null = null
 
   let targetProgress = 0
+  /**
+   * 是否已收到过真实阶段。
+   *
+   * 兜底曲线只在「一条真实信号都没有」时接管；一旦有真进度，
+   * 就完全交给它——否则曲线会一路把进度推到 88%，和阶段清单脱节。
+   */
+  let hasRealProgress = false
   let coreGlow = 0
   let targetCore = 0.18
   let circuitGrow = 0
@@ -316,14 +323,21 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   /* ── 订阅真实进度 ───────────────────────────────────────────── */
   const off = options.subscribe?.((p) => {
     if (destroyed || completed) return
-    const ratio = p.total > 0 ? p.index / p.total : 0
+    const total = p.total > 0 ? p.total : TOTAL_PHASES
+
+    // 进度条与右上角清单必须同源：都按「已完成阶段数」折算。
+    // 否则会出现「进度 62% 但清单只走到第 4 条」这种自相矛盾的画面——
+    // 之前两者一个跑时间曲线、一个按索引走，就是这么错开的。
+    const done = Math.max(0, Math.min(total, p.index - 1))
+    const ratio = done / total
     // 真实阶段只推到 96%：最后 4% 留给主壳真正可交互的那一刻
     targetProgress = Math.max(targetProgress, Math.min(96, ratio * 96))
+    hasRealProgress = true
 
     const label = _phaseLabelFor(p.phase)
     phaseTextEl.textContent = label
     renderChecks(p.index)
-    setAct(actForPhase(p.index, p.total))
+    setAct(actForPhase(p.index, total))
     options.onPhase?.(label, p.index)
   })
 
@@ -805,8 +819,10 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
           ? Math.max(0, circuitGrow - dt * 0.6)
           : 0
 
-    // 无真实信号时的兜底曲线：稳态逼近上限，永不自称完成
-    if (!completed) {
+    // 兜底曲线：只在一条真实信号都没收到时接管。
+    // 一旦有真进度就必须让位——否则它会一路推到 88%，
+    // 而阶段清单还停在第 4 条，画面自相矛盾。
+    if (!completed && !hasRealProgress) {
       const curve = CURVE_CEILING * (1 - Math.exp(-(now - startedAt) / 5200))
       targetProgress = Math.max(targetProgress, curve)
     }

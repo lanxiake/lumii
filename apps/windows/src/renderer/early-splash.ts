@@ -60,7 +60,12 @@ function readSystemSettings(): { showSplashOnStartup?: boolean; splashSound?: bo
 }
 
 /**
- * 是否应跳过开机画面（辅助窗 / 设置关闭 / 本会话已播 / 静默启动）
+ * 是否应跳过开机画面（辅助窗 / 设置关闭 / 静默启动）
+ *
+ * 注意这里**不看** `lumii.splash.done`：
+ * 本模块在每次页面加载时只执行一次（early-splash 的入口就是页面加载），
+ * 所以「模块执行」本身就等于「这是一次新的启动」。标记留给
+ * SplashOverlay 在同一页面内防止重复播放即可。
  */
 function shouldSkip(): boolean {
   if (isAuxiliaryWindowMode()) {
@@ -70,14 +75,6 @@ function shouldSkip(): boolean {
   if (readSystemSettings().showSplashOnStartup === false) {
     console.info('[early-splash] 跳过：设置里关闭了开机动画')
     return true
-  }
-  try {
-    if (sessionStorage.getItem('lumii.splash.done') === '1') {
-      console.info('[early-splash] 跳过：本会话已播放过')
-      return true
-    }
-  } catch {
-    // ignore
   }
   try {
     if (window.electronAPI?.splash?.shouldSkip?.()) {
