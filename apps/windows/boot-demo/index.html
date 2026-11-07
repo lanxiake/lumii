@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>灵栖 Lumii — 开机引导 · 赛博启动</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { font-family: "Courier New", monospace; color: #0ff; }
+
+  :root {
+    --primary: #0ff;        /* 冷青 */
+    --accent: #ff0080;      /* 洋红 */
+    --warning: #ffaa00;     /* 琥珀 */
+    --success: #00ff88;     /* 绿 */
+    --dark: #0a0e1a;
+  }
+
+  #boot {
+    position: fixed; inset: 0;
+    background: var(--dark); color: var(--primary);
+    opacity: 1; transition: opacity 500ms cubic-bezier(.2,.9,.25,1);
+    overflow: hidden;
+  }
+  #boot.fading { opacity: 0; pointer-events: none; }
+
+  /* ── Canvas层（所有粒子与特效） ────────────────────────── */
+  canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* ── HUD层 ──────────────────────────────────────────────── */
+  .hud {
+    position: absolute; inset: 0; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 24px; font-size: 11px; letter-spacing: .15em;
+  }
+
+  .header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .header-left { opacity: .7; }
+  .header-right { text-align: right; opacity: .6; color: var(--warning); }
+  .led {
+    display: inline-block; width: 4px; height: 4px;
+    background: var(--success); border-radius: 50%;
+    margin-right: 6px; animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: .2; } 50% { opacity: 1; } }
+
+  .center-info {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    opacity: 0; transition: opacity 800ms ease;
+  }
+  #boot[data-stage="ready"] .center-info { opacity: 1; }
+  .center-text { font-size: 32px; font-weight: bold; color: var(--primary); margin-bottom: 20px; }
+  .center-sub { font-size: 12px; color: var(--accent); opacity: .8; }
+
+  .footer {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+    font-size: 10px; line-height: 1.8;
+  }
+  .term {
+    border: 1px solid rgba(0,255,255,.2); padding: 12px;
+    background: rgba(0,255,255,.02); max-height: 120px; overflow: hidden;
+  }
+  .term div { margin: 2px 0; opacity: .7; }
+  .term .active { opacity: 1; color: var(--success); }
+
+  .progress-bar {
+    margin-top: 20px; height: 2px; background: rgba(0,255,255,.1);
+    position: relative; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent));
+    width: 0%; transition: width 300ms ease-out;
+    box-shadow: 0 0 10px var(--primary);
+  }
+
+  /* ── 扫描线 + 噪点 ──────────────────────────────────────── */
+  .scanlines {
+    position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg,
+      rgba(0,255,255,.02) 0px, rgba(0,255,255,.02) 1px,
+      transparent 1px, transparent 2px);
+    animation: scanScroll 8s linear infinite;
+  }
+  @keyframes scanScroll { from { transform: translateY(0); } to { transform: translateY(2px); } }
+
+  .noise {
+    position: absolute; inset: 0; pointer-events: none; opacity: .02;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' fill='white'/%3E%3C/svg%3E");
+  }
+
+  /* ── DEMO控制 ──────────────────────────────────────────── */
+  .demo-ctrl {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; z-index: 100; font-size: 11px;
+  }
+  .demo-ctrl button {
+    background: rgba(0,255,255,.1); border: 1px solid var(--primary);
+    color: var(--primary); padding: 6px 12px; cursor: pointer; font-family: inherit;
+    transition: all 200ms ease;
+  }
+  .demo-ctrl button:hover {
+    background: rgba(0,255,255,.2); box-shadow: 0 0 8px var(--primary);
+  }
+
+  #logo {
+    position: absolute; width: 48px; height: 48px;
+    opacity: 0; transition: opacity 600ms ease;
+  }
+  #logo.show {
+    opacity: 1;
+    animation: logoZoomIn 600ms cubic-bezier(.2,.9,.25,1);
+  }
+  @keyframes logoZoomIn {
+    from { transform: translate(-50%, -50%) scale(.3); }
+    to { transform: translate(-50%, -50%) scale(1); }
+  }
+</style>
+</head>
+<body>
+
+<div id="boot" data-stage="init">
+  <canvas id="fx"></canvas>
+  <div class="scanlines"></div>
+  <div class="noise"></div>
+
+  <div class="hud">
+    <div class="header">
+      <div class="header-left">
+        <span class="led"></span>LUMII BOOT LOADER v2.1
+      </div>
+      <div class="header-right" id="sysInfo">SYSTEM INIT</div>
+    </div>
+
+    <div class="center-info">
+      <div class="center-text">就绪</div>
+      <div class="center-sub">SYSTEM ONLINE</div>
+    </div>
+
+    <div class="footer">
+      <div class="term" id="termLeft">
+        <div>[*] Kernel loading...</div>
+        <div>[*] Modules initialized</div>
+      </div>
+      <div class="term" id="termRight">
+        <div>[OK] Core systems active</div>
+        <div class="active">[>>] Ready for commands</div>
+      </div>
+    </div>
+  </div>
+
+  <img id="logo" src="logo.png" alt="" />
+</div>
+
+<div class="demo-ctrl">
+  <button id="btnPlay">▶ 播放</button>
+  <button id="btnReset">◀ 重置</button>
+  <label>
+    <input type="checkbox" id="chkSound" checked />
+    声音
+  </label>
+  <label>
+    冻结:
+    <select id="selectFreeze">
+      <option value="">无</option>
+      <option value="init">初始化</option>
+      <option value="load">加载</option>
+      <option value="ready">就绪</option>
+    </select>
+  </label>
+</div>
+
+<script>
+const W = window.innerWidth, H = window.innerHeight;
+const CX = W / 2, CY = H / 2;
+const cv = document.getElementById('fx');
+const ctx = cv.getContext('2d');
+cv.width = W; cv.height = H;
+
+const el = {
+  boot: document.getElementById('boot'),
+  sysInfo: document.getElementById('sysInfo'),
+  termLeft: document.getElementById('termLeft'),
+  termRight: document.getElementById('termRight'),
+  logo: document.getElementById('logo'),
+  btnPlay: document.getElementById('btnPlay'),
+  btnReset: document.getElementById('btnReset'),
+  chkSound: document.getElementById('chkSound'),
+  selectFreeze: document.getElementById('selectFreeze'),
+};
+
+// ── 状态 ──────────────────────────────────────────────────
+let running = false;
+let stage = 'init';
+let progress = 0;
+let elapsed = 0;
+let dt = 0;
+let lastT = performance.now();
+
+// ── 粒子系统 ──────────────────────────────────────────────
+let particles = [];
+let lines = [];
+let codes = [];  // 矩阵代码雨
+let streamParticles = [];  // 数据流粒子
+
+function createCodeRain() {
+  codes = [];
+  for (let i = 0; i < 120; i++) {
+    codes.push({
+      x: Math.random() * W,
+      y: Math.random() * H - H,
+      speed: 30 + Math.random() * 100,
+      char: '0123456789ABCDEF'[Math.floor(Math.random() * 16)],
+      opacity: 0.2 + Math.random() * 0.6,
+      life: 1,
+      size: 10 + Math.random() * 4,
+    });
+  }
+}
+
+function drawCodeRain(strength) {
+  if (strength < 0.01) return;
+  ctx.fillStyle = `rgba(0,255,255,${(strength * 0.5).toFixed(3)})`;
+  for (const c of codes) {
+    c.y += c.speed * dt;
+    if (c.y > H + 20) {
+      c.y = -20;
+      c.x = Math.random() * W;
+    }
+    ctx.font = `${c.size}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = c.opacity * strength;
+    ctx.fillText(c.char, c.x, c.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ── 数据流粒子：聚合成结构 ────────────────────────────────
+function initStreamParticles() {
+  streamParticles = [];
+  const count = 200;
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2;
+    streamParticles.push({
+      x: CX + Math.cos(angle) * (60 + Math.random() * 120),
+      y: CY + Math.sin(angle) * (60 + Math.random() * 120),
+      targetX: CX + Math.cos(angle) * 40,
+      targetY: CY + Math.sin(angle) * 40,
+      size: 0.5 + Math.random() * 1.5,
+      life: Math.random(),
+    });
+  }
+}
+
+function drawStreamParticles(strength) {
+  if (strength < 0.05) return;
+  initStreamParticles();
+
+  for (const p of streamParticles) {
+    const k = strength;
+    const easeK = Math.min(1, k * 1.5);  // 加速收缩
+    p.x += (p.targetX - p.x) * easeK * 0.08;
+    p.y += (p.targetY - p.y) * easeK * 0.08;
+
+    const alpha = Math.sin(strength * Math.PI) * 0.6 + 0.2;
+    ctx.fillStyle = `rgba(${Math.round(200 * k)},255,${Math.round(100 * (1 - k))},${alpha.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── 能量线：从边缘向中心汇聚 ──────────────────────────────
+function drawEnergyLines(strength) {
+  if (strength < 0.01) return;
+  const now = elapsed;
+
+  for (let i = 0; i < 24; i++) {
+    const angle = (i / 24) * Math.PI * 2;
+    const waveDist = 200 + Math.sin(now * 3 + i * 0.5) * 80;
+    const dist = 280 + Math.sin(now * 2 + i) * 100;
+
+    const fromX = CX + Math.cos(angle) * dist;
+    const fromY = CY + Math.sin(angle) * dist;
+
+    const toX = CX + Math.cos(angle) * (80 * strength);
+    const toY = CY + Math.sin(angle) * (80 * strength);
+
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+
+    // 贝塞尔曲线
+    const midX = fromX + (toX - fromX) * 0.5;
+    const midY = fromY + (toY - fromY) * 0.5;
+    ctx.quadraticCurveTo(midX + Math.sin(angle) * 40, midY + Math.cos(angle) * 40, toX, toY);
+
+    const wave = 0.5 + 0.5 * Math.sin(now * 3 + i * 0.4);
+    ctx.strokeStyle = `rgba(0,255,255,${(strength * wave * 0.6).toFixed(3)})`;
+    ctx.lineWidth = 1.5 + strength;
+    ctx.stroke();
+
+    // 高光点
+    if (strength > 0.5) {
+      ctx.fillStyle = `rgba(255,255,255,${(wave * strength * 0.4).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(toX + Math.cos(angle) * 20, toY + Math.sin(angle) * 20, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+// ── 脉冲环：系统就绪时的能量脉冲 ────────────────────────────
+function drawPulseRings(strength) {
+  if (strength < 0.01) return;
+
+  // 多层脉冲环，不同频率
+  for (let layer = 0; layer < 5; layer++) {
+    for (let k = 0; k < 6; k++) {
+      const delay = k * 0.12 + layer * 0.08;
+      const freq = 1.5 + layer * 0.3;
+      const t = ((elapsed * freq - delay) % 1.4);
+      if (t < 0 || t > 1) continue;
+
+      const r = 60 + t * 220 + layer * 20;
+      const alpha = (1 - t) * strength * (1 - layer * 0.1);
+      const lineW = 2 * (1 - t) + 0.5;
+
+      // 渐变色：从洋红 → 青 → 琥珀
+      const hue = layer % 3;
+      let colorStr;
+      if (hue === 0) colorStr = `rgba(255,0,128,${alpha.toFixed(3)})`;  // 洋红
+      else if (hue === 1) colorStr = `rgba(0,255,255,${alpha.toFixed(3)})`;  // 青
+      else colorStr = `rgba(255,170,0,${alpha.toFixed(3)})`;  // 琥珀
+
+      ctx.beginPath();
+      ctx.arc(CX, CY, r, 0, Math.PI * 2);
+      ctx.strokeStyle = colorStr;
+      ctx.lineWidth = lineW;
+      ctx.stroke();
+    }
+  }
+}
+
+// ── 格子背景：透视感 ───────────────────────────────────────
+function drawGrid(strength) {
+  if (strength < 0.01) return;
+
+  const gridSize = 40;
+  const depth = 10;
+
+  ctx.strokeStyle = `rgba(0,255,255,${(strength * 0.15).toFixed(3)})`;
+  ctx.lineWidth = 0.5;
+
+  for (let i = -depth; i <= depth; i++) {
+    const y = CY + i * gridSize * (1 - strength * 0.3);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+
+  for (let i = -depth; i <= depth; i++) {
+    const x = CX + i * gridSize * (1 - strength * 0.3);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+}
+
+// ── 毛刺效果：爆炸式数据流 ────────────────────────────────
+function drawDataGlitch(strength) {
+  if (strength < 0.01) return;
+
+  // 水平条纹扰动
+  for (let i = 0; i < Math.floor(strength * 8); i++) {
+    const y = Math.random() * H;
+    const h = 4 + Math.random() * 8;
+    const offset = (8 + Math.random() * 16) * (Math.random() < 0.5 ? 1 : -1);
+
+    ctx.save();
+    ctx.globalAlpha = strength * 0.3;
+    const imgData = ctx.getImageData(Math.max(0, offset), y, W - Math.abs(offset), h);
+    ctx.putImageData(imgData, Math.max(0, offset), y);
+    ctx.restore();
+  }
+
+  // RGB通道分离毛刺
+  if (strength > 0.4) {
+    ctx.save();
+    ctx.globalAlpha = strength * 0.15;
+    ctx.fillStyle = 'rgba(255,0,0,1)';
+    ctx.fillRect(Math.random() * 200, Math.random() * H, W * 0.3, 6);
+    ctx.fillStyle = 'rgba(0,255,0,1)';
+    ctx.fillRect(Math.random() * 200, Math.random() * H, W * 0.3, 6);
+    ctx.fillStyle = 'rgba(0,0,255,1)';
+    ctx.fillRect(Math.random() * 200, Math.random() * H, W * 0.3, 6);
+    ctx.restore();
+  }
+
+  // 竖直条纹破损
+  for (let x = 0; x < W; x += Math.random() * 80 + 40) {
+    if (Math.random() < 0.3) {
+      ctx.fillStyle = `rgba(255,255,255,${(Math.random() * strength * 0.4).toFixed(3)})`;
+      ctx.fillRect(x, Math.random() * H, 2, Math.random() * 40 + 20);
+    }
+  }
+}
+
+// ── 中心核心：脉冲发光 ──────────────────────────────────────
+function drawCoreGlow(strength) {
+  if (strength < 0.05) return;
+
+  const pulse = 0.4 + 0.6 * Math.sin(elapsed * 3);
+
+  // 外环光晕
+  const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, 250);
+  g.addColorStop(0, `rgba(0,255,255,${(strength * pulse * 0.5).toFixed(3)})`);
+  g.addColorStop(0.4, `rgba(255,0,128,${(strength * pulse * 0.2).toFixed(3)})`);
+  g.addColorStop(1, 'rgba(0,255,255,0)');
+
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(CX, CY, 250, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 内部耀斑十字
+  if (strength > 0.6) {
+    ctx.strokeStyle = `rgba(255,255,200,${(Math.sin(elapsed * 4) * 0.5 + 0.5).toFixed(3)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(CX - 80 * strength, CY);
+    ctx.lineTo(CX + 80 * strength, CY);
+    ctx.moveTo(CX, CY - 80 * strength);
+    ctx.lineTo(CX, CY + 80 * strength);
+    ctx.stroke();
+  }
+}
+
+// ── 主渲染循环 ───────────────────────────────────────────
+function frame(now) {
+  dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+
+  if (running) {
+    elapsed += dt;
+    // 自动推进阶段
+    if (stage === 'init' && elapsed > 2.0) { setStage('load'); }
+    if (stage === 'load' && elapsed > 4.5) { setStage('ready'); }
+    if (stage === 'ready' && elapsed > 6.5) { complete(); }
+  }
+
+  // 冻结模式
+  const freeze = el.selectFreeze.value;
+  if (freeze && !running) {
+    setStage(freeze);
+  }
+
+  ctx.fillStyle = '#0a0e1a';
+  ctx.fillRect(0, 0, W, H);
+
+  const stageStr = stage === 'init' ? 'init' : stage === 'load' ? 'load' : 'ready';
+  const initStr = Math.min(1, elapsed / 1.2);
+  const loadStr = Math.max(0, Math.min(1, (elapsed - 2) / 2.5));
+  const readyStr = Math.max(0, Math.min(1, (elapsed - 4.5) / 2));
+
+  // 分阶段特效混合
+  drawGrid(initStr * 0.4);
+  drawCodeRain(initStr * 1.2);
+
+  // 扫过式高光条（加强电影感）
+  if (loadStr > 0) {
+    const scanX = (elapsed * 200) % W;
+    const g = ctx.createLinearGradient(scanX - 50, 0, scanX + 50, 0);
+    g.addColorStop(0, 'rgba(0,255,255,0)');
+    g.addColorStop(0.5, `rgba(255,255,255,${(loadStr * 0.3).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(0,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  drawEnergyLines(loadStr * 1.0);
+  drawStreamParticles(loadStr * 0.8);
+  drawDataGlitch(loadStr * 0.5);
+  drawCoreGlow(readyStr * 0.8);
+  drawPulseRings(readyStr * 1.2);
+
+  // 进度条
+  progress = stage === 'init' ? initStr * 33 : stage === 'load' ? 33 + loadStr * 34 : 67 + readyStr * 33;
+  document.querySelector('.progress-fill').style.width = progress + '%';
+
+  // 更新系统信息
+  el.sysInfo.textContent = stageStr === 'init' ? '[ INIT ]' :
+                           stageStr === 'load' ? '[ LOAD ]' : '[ READY ]';
+
+  requestAnimationFrame(frame);
+}
+
+function setStage(next) {
+  stage = next;
+  el.boot.dataset.stage = next;
+  el.selectFreeze.value = next;
+}
+
+function complete() {
+  running = false;
+  el.boot.classList.add('fading');
+  setTimeout(() => {
+    el.boot.style.display = 'none';
+  }, 500);
+}
+
+function play() {
+  if (running) return;
+  running = true;
+  elapsed = 0;
+  progress = 0;
+  stage = 'init';
+  el.boot.classList.remove('fading');
+  el.boot.style.display = '';
+  createCodeRain();
+
+  if (audio === null) audio = new BootAudio();
+  if (el.chkSound.checked) {
+    audio.playTone(200, 0.3, 0.25);
+    setTimeout(() => audio.playLoadSound(), 2000);
+    setTimeout(() => audio.playReadySound(), 4500);
+    setTimeout(() => audio.playComplete(), 6500);
+  }
+}
+
+function reset() {
+  running = false;
+  elapsed = 0;
+  progress = 0;
+  stage = 'init';
+  el.boot.classList.remove('fading');
+  el.boot.style.display = '';
+  setStage('init');
+  document.querySelector('.progress-fill').style.width = '0%';
+  ctx.fillStyle = '#0a0e1a';
+  ctx.fillRect(0, 0, W, H);
+}
+
+el.btnPlay.onclick = play;
+el.btnReset.onclick = reset;
+
+// ── 音效系统（Web Audio合成） ──────────────────────────────
+class BootAudio {
+  constructor() {
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  playTone(freq, duration, volume = 0.3) {
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+    osc.start(now);
+    osc.stop(now + duration);
+  }
+
+  playLoadSound() {
+    const now = this.ctx.currentTime;
+    for (let i = 0; i < 4; i++) {
+      setTimeout(() => this.playTone(200 + i * 100, 0.15, 0.2), i * 100);
+    }
+  }
+
+  playReadySound() {
+    this.playTone(440, 0.3, 0.4);
+    setTimeout(() => this.playTone(660, 0.2, 0.3), 150);
+  }
+
+  playComplete() {
+    this.playTone(800, 0.1, 0.3);
+    setTimeout(() => this.playTone(1200, 0.2, 0.4), 100);
+  }
+}
+
+let audio = null;
+
+el.btnPlay.onclick = play;
+el.btnReset.onclick = reset;
+
+el.selectFreeze.onchange = () => {
+  if (!running) {
+    const freeze = el.selectFreeze.value;
+    if (freeze) {
+      elapsed = freeze === 'init' ? 0.5 : freeze === 'load' ? 2.5 : 5;
+      setStage(freeze);
+    }
+  }
+};
+
+requestAnimationFrame(frame);
+</script>
+
+</body>
+</html>
