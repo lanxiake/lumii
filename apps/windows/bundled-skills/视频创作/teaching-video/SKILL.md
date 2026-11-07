@@ -92,7 +92,7 @@ teaching_video_revise({ fromDir: <同一个 outputDir>, sectionIds: [2], feedbac
 | produce 预览后 | 首节画面 | 风格/字号/密度可以吗？ |
 | revise 之前 | 用户指出的节 | 具体哪里不对？（写进 feedback） |
 
-## 三、结构模板：选对骨架
+## 四、结构模板：选对骨架
 
 工具会自动选模板。**如果用户明显说了类型，告诉他选的是哪个**，让他有机会否掉。
 
@@ -114,7 +114,7 @@ teaching_video_revise({ fromDir: <同一个 outputDir>, sectionIds: [2], feedbac
 | 「案例/经历」 | 案例/叙事 | 角色 → 困境 → 转折 → 结果 → 启示 |
 | 「产品/卖点/发布」 | 产品/卖点 | 钩子 → 卖点 → 卖点 → 行动 |
 
-## 四、视觉风格：选对长相
+## 五、视觉风格：选对长相
 
 | 风格 | 长什么样 | 什么时候用 |
 |---|---|---|
@@ -126,7 +126,30 @@ teaching_video_revise({ fromDir: <同一个 outputDir>, sectionIds: [2], feedbac
 
 用户说了「黑板」「白底」「科技感」这类词，就显式传 `style`。
 
-## 五、画面元素：模型能用哪些
+## 六、画质与音色（produce 的两个参数）
+
+### `quality` —— 三档，默认 `standard`
+
+| 档位 | 帧率 / CRF | 单节耗时 | 什么时候用 |
+|---|---|---|---|
+| `draft` | 12fps / crf 28 | ~35 秒 | 快速验证讲法 |
+| `standard` | 24fps / crf 20 | ~85 秒 | **默认**，成片够用 |
+| `high` | 30fps / crf 17 | ~130 秒 | 用户说「要发出去 / 画质好一点」 |
+
+**首节预览固定走 draft**（只看风格，不需要高帧率）。
+用户说「先快速看看」→ 成片也用 `draft`；说「要发布」→ `high`。
+
+### `voice` —— 留空按受众自动挑
+
+儿童 → 晓伊（活泼、放慢）；历史故事 → 云健（浑厚）；技术数学 → 云希（沉稳男声）；其余 → 晓晓（温柔女声）。
+
+用户说「换成男声 / 亲切一点 / 稳重一点」时，按语义直接传完整的 edge voice id：
+`zh-CN-XiaoxiaoNeural` / `zh-CN-YunxiNeural` / `zh-CN-XiaoyiNeural` / `zh-CN-YunjianNeural`。
+
+**换音色是免费的重渲**——用户看完预览说声音不对，带新 `voice` 再调一次 produce 即可。
+各节响度已统一到 -16 LUFS，换音色不会出现忽大忽小。
+
+## 七、画面元素：模型能用哪些
 
 `text` / `rect` / `circle` / `line` / `formula` / **`tex`**（真公式）/
 **`axis`**（数轴）/ **`arrow`**（箭头）/ **`table`**（表格）/ **`brace`**（花括号）/
@@ -134,7 +157,7 @@ teaching_video_revise({ fromDir: <同一个 outputDir>, sectionIds: [2], feedbac
 
 **每步最多 3 个元素**。超了会被打回重做——这是硬约束，不是建议。
 
-## 六、质量告警怎么读
+## 八、质量告警怎么读
 
 工具结果里可能有三种告警，**都要如实转述给用户**，不要自己咽下去：
 
@@ -144,7 +167,7 @@ teaching_video_revise({ fromDir: <同一个 outputDir>, sectionIds: [2], feedbac
 | `sceneWarnings` | 某步元素超量被截断 / 步数不足 | 同上 |
 | `frameWarnings` | 抽帧看到空白帧、内容太散、太小、偏角 | 同上 |
 
-## 七、常见错误
+## 九、常见错误
 
 ### **不要自己写渲染脚本**（最重要的一条）
 
@@ -169,7 +192,7 @@ teaching_video_revise({ fromDir: <同一个 outputDir>, sectionIds: [2], feedbac
   `generationMs` 是这台机器算这次花了多久。
 - **别自己编数字**。画面上的每个数都要能在用户的材料里找到；找不到就不写。
 
-## 八、能讲什么（领域参考）
+## 十、能讲什么（领域参考）
 
 数学与线代（变换、特征值、行列式）、微积分（极限、导数、积分、泰勒）、
 概率统计（贝叶斯、中心极限、分布）、物理光学（折射、干涉、全息）、

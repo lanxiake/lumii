@@ -4,10 +4,11 @@
  * 为什么不用 Manim：Manim 需要 Python + OpenGL 栈（moderngl/pyglet/pycairo），
  * 在 Windows 无 GPU 机器上是最经典的安装故障源，而本应用的嵌入式 Python 连 venv
  * 都没有（实测 `No module named venv`）。走 HTML 的好处是**零新增依赖**：
- * 渲染用已有的 playwright-core（浏览器截图同源），合成用已有的 ffmpeg 封装。
+ * 渲染用应用自己的 `BrowserWindow` + `capturePage`，合成用已有的 ffmpeg 封装。
  *
- * 代价：没有 LaTeX 数学排版。需要公式时用 HTML/CSS 近似——这是有意识的取舍，
- * 不是能力缺失。真需要 Manim 级排版的用户走 `manim` 后端（插件设置里选）。
+ * 公式不走 LaTeX，走 KaTeX 的 MathML 输出：Chromium 原生支持 MathML 渲染，
+ * 不下载任何字体文件，也不用起 LaTeX 进程（`katex.renderToString(..., {output:'mathml'})`）。
+ * 代价是没有 Manim 那种「公式逐项变形」的排版能力——这是有意识的取舍，不是能力缺失。
  */
 
 import fs from 'node:fs'

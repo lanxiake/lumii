@@ -12,8 +12,8 @@
  * Manim 需要 Python + OpenGL 栈（moderngl/pyglet/pycairo）。本应用的嵌入式
  * Python 连 `venv` 模块都没有（实测 `No module named venv`），而 Manim 在
  * Windows 无 GPU 机器上的安装失败率是社区头号问题。所以渲染走 HTML：
- * 用已有的 playwright-core 驱动本机 Chrome，逐帧截图后由 ffmpeg 合成。
- * 零新增依赖，代价是没有 LaTeX 数学排版。
+ * 用应用自己的隐藏 `BrowserWindow` + `capturePage` 逐帧截图，再由 ffmpeg 合成。
+ * 零新增依赖；公式走 KaTeX 的 MathML 输出（Chromium 原生渲染，不下载字体）。
  *
  * ## 为什么是插件而不是流水线
  *
