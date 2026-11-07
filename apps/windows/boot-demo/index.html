@@ -1,0 +1,2170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>灵栖 Lumii — 开机动画 DEMO v4 · 机甲觉醒</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #020408; overflow: hidden; }
+  body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+  /*
+   * 色彩只允许三个来源：冷青（机器本体）、琥珀（能量/警示）、纯白（高光）。
+   * 三色制是机甲题材的视觉纪律——多一个色相就变成廉价霓虹。
+   */
+  :root {
+    --cy: #4fd8ff;
+    --cy-dim: rgba(79, 216, 255, .35);
+    --amber: #ff9d4d;
+    --amber-hot: #ffd08a;
+    --void: #020408;
+  }
+
+  /* ── 主界面占位（溶解退场的底层） ─────────────────────────── */
+  /* 它一直在 boot 下面，从头到尾不动。溶解时露出来的就是这个，
+     所以不需要在退场时切换任何东西——这也是「真溶解」和「淡出黑屏」的区别。 */
+  .app-under {
+    position: fixed; inset: 0; display: flex;
+    background: linear-gradient(168deg, #080d16 0%, #060a12 55%, #04070c 100%);
+    color: #8fb6c9; font-size: 12px;
+  }
+  .app-side {
+    width: 208px; flex: none; padding: 16px 14px;
+    display: flex; flex-direction: column; gap: 14px;
+    border-right: 1px solid rgba(79,216,255,.07);
+    background: rgba(6,11,18,.6);
+  }
+  .app-logo { width: 26px; height: 26px; object-fit: contain; opacity: .9; }
+  .app-nav {
+    padding: 7px 10px; border-radius: 5px;
+    color: rgba(150,195,220,.5); letter-spacing: .06em;
+  }
+  .app-nav.on { background: rgba(79,216,255,.09); color: #bfe9ff; }
+  .app-main { flex: 1; padding: 46px 52px; }
+  .app-line { height: 10px; margin-bottom: 16px; border-radius: 5px;
+    background: rgba(120,180,220,.09); }
+  .w40 { width: 40%; } .w55 { width: 55%; } .w70 { width: 70%; }
+
+  #boot {
+    position: fixed; inset: 0; overflow: hidden;
+    background: var(--void); color: var(--cy);
+    opacity: 1;
+    /* 退场不做纯透明度淡出（那会先黑一下再露出界面），
+       而是「羽化溶解 + 轻微推近」：边缘先化开，整块收走时界面已经透出来 */
+    transition:
+      opacity 900ms cubic-bezier(.4,0,.35,1),
+      transform 900ms cubic-bezier(.4,0,.35,1),
+      -webkit-mask-size 900ms cubic-bezier(.4,0,.35,1),
+      mask-size 900ms cubic-bezier(.4,0,.35,1);
+    -webkit-mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 100%, #000 100%);
+    mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 100%, #000 100%);
+    -webkit-mask-size: 300% 300%; mask-size: 300% 300%;
+    -webkit-mask-position: center; mask-position: center;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  }
+  #boot.fading {
+    opacity: 0;
+    transform: scale(1.035);
+    /* 蒙版从「全实」收到「全透明」= 从中心化开，像雾散 */
+    -webkit-mask-image: radial-gradient(ellipse 0% 0% at 50% 50%, #000 0%, transparent 72%);
+    mask-image: radial-gradient(ellipse 0% 0% at 50% 50%, #000 0%, transparent 72%);
+    pointer-events: none;
+  }
+
+  /* ── 层 1：深空 ─────────────────────────────────────────── */
+  /* 背景不是一个颜色，是五层叠加：
+     ① 极暗的垂直渐变（上深下更黑，托住画面）
+     ② 主冷光（椭圆的体积光，位置略高于中线）
+     ③ 琥珀补光（左下，与冷光形成冷暖对撞，避免全屏一个色调）
+     ④ 星云带（斜向的柔光，打破径向对称的死板）
+     ⑤ 细颗粒（噪点，消除大色块的塑料感）
+     所有层都只用渐变+一张内联 SVG，不引外部图。 */
+  /* ── 层 1：深空底色 ─────────────────────────────────────── */
+  /* 星云与星场现在是 Canvas 程序化烘焙的（见 bakeBackdrop），
+     CSS 这层只负责兜底底色：一次渐变 + 颗粒。
+     以前这里堆了四层柔光渐变，和烘焙星云叠在一起就成了「灰雾」。 */
+  .void-bg {
+    position: absolute; inset: 0;
+    background: linear-gradient(178deg, #010204 0%, #03060d 34%, #04080f 58%, #010306 100%);
+    transition: opacity 1s ease;
+  }
+  /* 细颗粒：消除大色块的塑料感 */
+  .void-bg::after {
+    content: ''; position: absolute; inset: 0; opacity: .05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: screen;
+  }
+
+  /* ── 层 2：透视网格（向前推进 = 速度感） ────────────────── */
+  .floor {
+    position: absolute; left: -50%; right: -50%; bottom: -18%; height: 62%;
+    opacity: 0; transform-origin: 50% 100%;
+    background-image:
+      linear-gradient(rgba(79,216,255,.22) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,216,255,.22) 1px, transparent 1px);
+    background-size: 64px 64px;
+    transform: perspective(420px) rotateX(72deg);
+    -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.95) 0%, transparent 72%);
+    mask-image: linear-gradient(to top, rgba(0,0,0,.95) 0%, transparent 72%);
+    animation: floorRun 1.8s linear infinite;
+    transition: opacity 1.1s ease;
+  }
+  @keyframes floorRun { to { background-position: 0 64px, 0 64px; } }
+  #boot[data-act="neural"]   .floor { opacity: .35; }
+  #boot[data-act="energize"] .floor { opacity: .75; animation-duration: .65s; }
+  #boot[data-act="cognition"] .floor { opacity: .5; animation-duration: 1.2s; }
+  #boot[data-act="gate"]     .floor { opacity: .28; }
+
+  /* ── 层 3：主画布（粒子 / 电路 / 流线） ──────────────────── */
+  /* 画布本身做极轻微的位移+缩放 = 手持镜头感。
+     transform 走合成层，不触发重排，代价可以忽略。 */
+  canvas#fx {
+    position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+    will-change: transform;
+  }
+
+  /* ── 层 4：写死的 HUD（不跟镜头缩放，保证文字清晰） ──────── */
+  .hud-layer { position: absolute; inset: 0; pointer-events: none; }
+
+  /* 机甲装甲角：斜切而不是圆角，直角+倒角才有金属味 */
+  .armor {
+    position: absolute; width: 92px; height: 92px; opacity: 0;
+    transition: opacity .7s ease, transform .8s cubic-bezier(.2,.9,.25,1);
+  }
+  .armor::before {
+    content: ''; position: absolute; inset: 0;
+    border-left: 2.5px solid rgba(120,232,255,.85);
+    border-top: 2.5px solid rgba(120,232,255,.85);
+    filter: drop-shadow(0 0 6px rgba(79,216,255,.55));
+  }
+  .armor::after {
+    content: ''; position: absolute; left: 0; top: 0;
+    width: 34px; height: 3px; background: #bff2ff;
+    box-shadow: 0 0 14px rgba(120,232,255,.95);
+  }
+  .armor.tl { left: 26px; top: 26px; transform: translate(-14px,-14px); }
+  .armor.tr { right: 26px; top: 26px; transform: translate(14px,-14px) scaleX(-1); }
+  .armor.bl { left: 26px; bottom: 26px; transform: translate(-14px,14px) scaleY(-1); }
+  .armor.br { right: 26px; bottom: 26px; transform: translate(14px,14px) scale(-1); }
+  #boot[data-act="neural"] .armor,
+  #boot[data-act="energize"] .armor,
+  #boot[data-act="cognition"] .armor,
+  #boot[data-act="gate"] .armor { opacity: 1; transform: none; }
+
+  /* ── 精密外框：双细线 + 角部罗盘 ──────────────────────────── */
+  /* 单线显得省事，双线才有「仪器面板」的层次：外粗内细，中间留一道缝。 */
+  .frame-line {
+    position: absolute; opacity: 0; transition: opacity .9s ease;
+    pointer-events: none;
+  }
+  .fl-top, .fl-bottom {
+    left: 62px; right: 62px; height: 3px;
+    border-top: 1px solid rgba(140,240,255,.85);
+    border-bottom: 1px solid rgba(140,240,255,.3);
+    filter: drop-shadow(0 0 5px rgba(79,216,255,.4));
+  }
+  .fl-top { top: 62px; }
+  .fl-bottom { bottom: 62px; transform: scaleY(-1); }
+  .fl-left, .fl-right {
+    top: 62px; bottom: 62px; width: 3px;
+    border-left: 1px solid rgba(140,240,255,.85);
+    border-right: 1px solid rgba(140,240,255,.3);
+    filter: drop-shadow(0 0 5px rgba(79,216,255,.4));
+  }
+  .fl-left { left: 62px; }
+  .fl-right { right: 62px; transform: scaleX(-1); }
+
+  /* 角部刻度环：用 repeating-conic 画刻度，
+     再用「中心挖空 + 四宫格切割」两层遮罩只留朝内的一弧。
+     注意两层 mask 必须都用 mask-composite 语义叠加，
+     浏览器默认是 intersect 才对；单写两个值在部分版本里会变成 union 导致整块消失。 */
+  .compass {
+    position: absolute; width: 104px; height: 104px;
+    opacity: 0; transition: opacity .9s ease;
+    border-radius: 50%;
+    background:
+      repeating-conic-gradient(
+        from 0deg,
+        rgba(140,240,255,.85) 0deg .7deg,
+        transparent .7deg 9deg
+      );
+    -webkit-mask-image: radial-gradient(circle, transparent 0 40px, #000 41px 52px, transparent 52.5px);
+    mask-image: radial-gradient(circle, transparent 0 40px, #000 41px 52px, transparent 52.5px);
+  }
+  /* 四个角只留朝向中心的一个象限 */
+  .cx-tl {
+    left: 54px; top: 54px;
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
+    -webkit-clip-path: polygon(0 0, 100% 0, 100% 100%);
+  }
+  .cx-tr {
+    right: 54px; top: 54px;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+    -webkit-clip-path: polygon(0 0, 100% 0, 0 100%);
+  }
+  .cx-bl {
+    left: 54px; bottom: 54px;
+    clip-path: polygon(0 0, 100% 100%, 0 100%);
+    -webkit-clip-path: polygon(0 0, 100% 100%, 0 100%);
+  }
+  .cx-br {
+    right: 54px; bottom: 54px;
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    -webkit-clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  }
+
+  /* 三幕之后整组外框淡入。
+     必须写在基础规则之后——同样的选择器权重下，后写的赢。 */
+  #boot[data-act="neural"] .frame-line,
+  #boot[data-act="energize"] .frame-line,
+  #boot[data-act="cognition"] .frame-line,
+  #boot[data-act="gate"] .frame-line { opacity: 1 !important; }
+  #boot[data-act="neural"] .compass,
+  #boot[data-act="energize"] .compass,
+  #boot[data-act="cognition"] .compass,
+  #boot[data-act="gate"] .compass { opacity: .9 !important; }
+  /* 三幕之后整组外框淡入 */
+
+  /* 顶部状态条 */
+  .topbar {
+    position: absolute; left: 46px; right: 46px; top: 46px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10.5px; letter-spacing: .26em; opacity: 0;
+    color: rgba(165,225,250,.9);
+    text-shadow: 0 0 9px rgba(50,150,220,.5);
+    transition: opacity .6s ease;
+  }
+  #boot[data-act="neural"] .topbar,
+  #boot[data-act="energize"] .topbar,
+  #boot[data-act="cognition"] .topbar,
+  #boot[data-act="gate"] .topbar { opacity: .95; }
+
+  .led { display: inline-block; width: 6px; height: 6px; margin-right: 8px;
+    background: var(--cy); box-shadow: 0 0 8px var(--cy);
+    animation: ledPulse 1.4s ease-in-out infinite; }
+  @keyframes ledPulse { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
+  #actName { color: var(--amber); opacity: .85; }
+
+  /* 左侧遥测：三条竖排读数 */
+  /* 可读性下限：正文级信息在 0.75 以上才看得清。
+     之前 0.4 且键名只有 55% 不透明度，等于把字藏进背景里。 */
+  .telemetry {
+    position: absolute; left: 46px; bottom: 74px;
+    font-size: 11px; letter-spacing: .1em; line-height: 1.95; opacity: 0;
+    transition: opacity .6s ease;
+  }
+  #boot[data-act="neural"] .telemetry,
+  #boot[data-act="energize"] .telemetry,
+  #boot[data-act="cognition"] .telemetry,
+  #boot[data-act="gate"] .telemetry { opacity: .92; }
+  .telemetry .k {
+    color: rgba(150,215,245,.85);
+    text-shadow: 0 0 8px rgba(60,150,220,.5);
+  }
+  .telemetry .v {
+    color: #ffd9a8; font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 10px rgba(255,157,77,.55);
+  }
+
+  /* 右侧系统清单 */
+  .checks {
+    position: absolute; right: 46px; top: 84px;
+    font-size: 11px; letter-spacing: .1em; line-height: 2.15;
+    text-align: right; opacity: 0; transition: opacity .6s ease;
+  }
+  #boot[data-act="neural"] .checks,
+  #boot[data-act="energize"] .checks,
+  #boot[data-act="cognition"] .checks,
+  #boot[data-act="gate"] .checks { opacity: .92; }
+  .checks div {
+    color: rgba(160,220,250,.78);
+    text-shadow: 0 0 8px rgba(50,140,210,.45);
+    transition: color .45s ease;
+  }
+  .checks div.on {
+    color: #ffe0b8;
+    text-shadow: 0 0 12px rgba(255,157,77,.6);
+  }
+  .checks div.enter { animation: checkIn .42s cubic-bezier(.2,.9,.25,1) both; }
+  @keyframes checkIn {
+    from { opacity: 0; transform: translateX(10px); }
+    to   { opacity: 1; transform: none; }
+  }
+  /* 进行中的那条：符号呼吸，说明「正在做」 */
+  .checks div:not(.on) i { animation: checkBlink 1.1s ease-in-out infinite; }
+  @keyframes checkBlink { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+  .checks i { font-style: normal; display: inline-block; width: 14px; opacity: .8; }
+  .checks div.on i { opacity: 1; color: var(--amber); }
+
+  /* 底部进度：做成能量条，带分段刻度 */
+  .bar-wrap {
+    position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%);
+    width: min(640px, 76vw); opacity: 0; transition: opacity .7s ease;
+  }
+  #boot[data-act="neural"] .bar-wrap,
+  #boot[data-act="energize"] .bar-wrap,
+  #boot[data-act="cognition"] .bar-wrap,
+  #boot[data-act="gate"] .bar-wrap { opacity: 1; }
+
+  .bar { position: relative; height: 3px; background: rgba(79,216,255,.10); overflow: hidden; }
+  .bar-fill {
+    position: absolute; inset: 0 auto 0 0; width: 0%;
+    background: linear-gradient(90deg, rgba(79,216,255,.5), var(--cy) 62%, #e8ffff);
+    box-shadow: 0 0 16px rgba(110,225,255,.9);
+    transition: width .28s ease-out;
+  }
+  .bar-fill::after {
+    content: ''; position: absolute; right: -3px; top: -4px;
+    width: 26px; height: 11px;
+    background: radial-gradient(ellipse, rgba(230,255,255,.95), transparent 72%);
+  }
+  .bar-ticks {
+    position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(90deg,
+      transparent 0 30px, rgba(2,4,8,.85) 30px 32px);
+    pointer-events: none;
+  }
+
+  .bar-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 11px; font-size: 11.5px; letter-spacing: .2em;
+  }
+  #phaseText {
+    color: rgba(175,230,250,.9);
+    text-shadow: 0 0 9px rgba(50,150,220,.5);
+  }
+  #pctText {
+    color: #ffe0b8; font-variant-numeric: tabular-nums; letter-spacing: .08em;
+    text-shadow: 0 0 10px rgba(255,157,77,.55);
+  }
+
+  /* ── 层 5：门户 ─────────────────────────────────────────── */
+  .gate {
+    position: absolute; left: 50%; top: 46%;
+    width: 66vw; height: 62vh; border-radius: 50%;
+    transform: translate(-50%,-50%) scaleX(.006) scaleY(0);
+    background:
+      radial-gradient(ellipse 50% 50% at 50% 50%,
+        #ffffff 0%, #dff7ff 12%, #8fe4ff 30%, rgba(60,170,255,.55) 52%, rgba(20,80,160,.15) 70%, transparent 82%);
+    opacity: 0; pointer-events: none;
+    filter: blur(1px);
+  }
+  .gate.open { animation: gateOpen 1.9s cubic-bezier(.16,.86,.3,1) forwards; }
+  @keyframes gateOpen {
+    0%   { opacity: 0; transform: translate(-50%,-50%) scaleX(.006) scaleY(0); }
+    16%  { opacity: 1; transform: translate(-50%,-50%) scaleX(.010) scaleY(1); }
+    52%  { opacity: 1; transform: translate(-50%,-50%) scaleX(.62) scaleY(1); }
+    78%  { opacity: 1; transform: translate(-50%,-50%) scaleX(1) scaleY(1.02); }
+    100% { opacity: 1; transform: translate(-50%,-50%) scaleX(1.25) scaleY(1.12); }
+  }
+  /* 门缝阶段的竖光 */
+  .gate-seam {
+    position: absolute; left: 50%; top: 46%; width: 3px; height: 0;
+    transform: translate(-50%,-50%);
+    background: linear-gradient(to bottom, transparent, #ffffff 22%, #ffffff 78%, transparent);
+    box-shadow: 0 0 30px 8px rgba(150,235,255,.9);
+    opacity: 0;
+  }
+  .gate-seam.open { animation: seamOpen 1.1s cubic-bezier(.2,.9,.3,1) forwards; }
+  @keyframes seamOpen {
+    0%   { height: 0; opacity: 0; }
+    28%  { height: 62vh; opacity: 1; }
+    100% { height: 62vh; opacity: 0; }
+  }
+
+  /* 结尾 logo：从门户中心飞出，落到屏幕**右上角**。
+     尺寸对齐主界面品牌标识（26px），left/top 都由 JS 按视口算，
+     这里只定样式，避免写死数值随窗口大小漂移。 */
+  .signature {
+    position: absolute; left: 0; top: 0;
+    width: 26px; height: 26px;
+    border-radius: 5px; opacity: 0;
+    filter: brightness(1.45) saturate(.75)
+      drop-shadow(0 0 14px rgba(190,240,255,.95));
+    pointer-events: none;
+    will-change: transform, opacity;
+  }
+
+  /* ── 层 6：质感叠加 ─────────────────────────────────────── */
+  .scanlines {
+    position: absolute; inset: 0; pointer-events: none; opacity: .38;
+    background: repeating-linear-gradient(to bottom,
+      rgba(140,230,255,.045) 0 1px, transparent 1px 3px);
+  }
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    /* 两层：外圈压暗 + 四角更深。只压不调色会显平，
+       所以底部再叠一点冷偏，让边缘往蓝里落。 */
+    background:
+      radial-gradient(ellipse 66% 58% at 50% 47%, transparent 26%, rgba(0,2,6,.55) 74%, rgba(0,1,4,.95) 100%),
+      linear-gradient(to top, rgba(0,10,26,.5) 0%, transparent 34%);
+  }
+  .noise {
+    position: absolute; inset: 0; pointer-events: none; opacity: .028;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* 闪光 / 故障 / 抖动 */
+  .flash {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle at 50% 46%, rgba(235,255,255,.98) 0%, rgba(150,230,255,.5) 30%, transparent 62%);
+  }
+  .flash.fire { animation: flashOut .9s ease-out forwards; }
+  @keyframes flashOut { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+  .glitch {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: repeating-linear-gradient(to bottom,
+      rgba(140,240,255,.22) 0 2px, transparent 2px 7px,
+      rgba(255,160,80,.16) 7px 9px, transparent 9px 16px);
+    mix-blend-mode: screen;
+  }
+  .glitch.fire { animation: glitchFlash .26s steps(2, end) forwards; }
+  @keyframes glitchFlash {
+    0% { opacity: .9; transform: translateX(-8px) scaleY(1.004); }
+    50% { opacity: .6; transform: translateX(6px); }
+    100% { opacity: 0; transform: none; }
+  }
+
+  .shock {
+    position: absolute; left: 50%; top: 46%; width: 120px; height: 120px;
+    margin: -60px 0 0 -60px; border-radius: 50%;
+    border: 2px solid rgba(200,250,255,.9); opacity: 0; pointer-events: none;
+  }
+  .shock.fire { animation: shockwave .95s cubic-bezier(.15,.7,.3,1) forwards; }
+  @keyframes shockwave {
+    0% { opacity: 1; transform: scale(.4); border-width: 5px; }
+    100% { opacity: 0; transform: scale(7); border-width: 1px; }
+  }
+
+  /* 电影遮幅 */
+  .barTop, .barBot {
+    position: absolute; left: 0; right: 0; height: 0; background: #000;
+    z-index: 30; pointer-events: none;
+    transition: height .9s cubic-bezier(.2,.9,.25,1);
+  }
+  .barTop { top: 0; } .barBot { bottom: 0; }
+  .barTop.on, .barBot.on { height: 7.5vh; }
+
+  /* ── DEMO 控制条 ────────────────────────────────────────── */
+  .demo-ui {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    display: flex; gap: 10px; align-items: center; z-index: 50;
+    font-size: 12px; color: #8fb6c9;
+  }
+  .demo-ui button {
+    background: rgba(12,26,40,.92); color: #9fe8ff;
+    border: 1px solid rgba(90,200,255,.3); border-radius: 3px;
+    padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit;
+    letter-spacing: .04em;
+  }
+  .demo-ui button:hover { background: rgba(24,52,78,.95); }
+  .demo-ui button.ghost { opacity: .65; }
+  .demo-ui label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<!-- 主界面占位：溶解退场时露出来的就是这一层。
+     真实集成时它就是 app 本身，DEMO 里画一个极简侧栏，用来检验
+     「开机画面化开、下面有界面」这件事成不成立。 -->
+<div class="app-under">
+  <div class="app-side">
+    <img class="app-logo" src="logo.png" alt="" />
+    <span class="app-nav on">概览</span>
+    <span class="app-nav">对话</span>
+    <span class="app-nav">技能</span>
+    <span class="app-nav">设置</span>
+  </div>
+  <div class="app-main">
+    <div class="app-line w40"></div>
+    <div class="app-line w70"></div>
+    <div class="app-line w55"></div>
+  </div>
+</div>
+
+<div id="boot" data-act="dark">
+  <div class="void-bg"></div>
+  <div class="floor"></div>
+  <canvas id="fx"></canvas>
+
+  <div class="hud-layer">
+    <div class="armor tl"></div>
+    <div class="armor tr"></div>
+    <div class="armor bl"></div>
+    <div class="armor br"></div>
+
+    <!-- 精密仪器外框：极细双线 + 角部罗盘刻度。
+         高级感来自「精度」——线够细、刻度够匀，画面才像仪表而不是贴纸。 -->
+    <div class="frame-line fl-top"></div>
+    <div class="frame-line fl-bottom"></div>
+    <div class="frame-line fl-left"></div>
+    <div class="frame-line fl-right"></div>
+
+    <div class="compass cx-tl"></div>
+    <div class="compass cx-tr"></div>
+    <div class="compass cx-bl"></div>
+    <div class="compass cx-br"></div>
+
+    <div class="topbar mono">
+      <span><i class="led"></i>LUMII // UNIT-01 // BOOT</span>
+      <span id="actName">STANDBY</span>
+    </div>
+
+    <div class="telemetry mono">
+      <div><span class="k">CORE</span> &nbsp;<span class="v" id="tCore">0x00</span></div>
+      <div><span class="k">PWR&nbsp;</span> &nbsp;<span class="v" id="tPwr">0.0%</span></div>
+      <div><span class="k">SYNC</span> &nbsp;<span class="v" id="tSync">--</span></div>
+    </div>
+
+    <div class="checks mono" id="checks"></div>
+
+    <div class="bar-wrap">
+      <div class="bar">
+        <div class="bar-fill" id="barFill"></div>
+        <div class="bar-ticks"></div>
+      </div>
+      <div class="bar-row mono">
+        <span id="phaseText">STANDBY</span>
+        <span id="pctText">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate" id="gate"></div>
+  <div class="gate-seam" id="gateSeam"></div>
+  <img class="signature" id="signature" src="logo.png" alt="" />
+
+  <div class="shock" id="shock"></div>
+  <div class="flash" id="flash"></div>
+  <div class="glitch" id="glitch"></div>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+  <div class="noise"></div>
+  <div class="barTop" id="barTop"></div>
+  <div class="barBot" id="barBot"></div>
+</div>
+
+<div class="demo-ui">
+  <button id="replay">重新播放</button>
+  <button id="skip" class="ghost">跳到结尾</button>
+  <label><input type="checkbox" id="sound" checked /> 音效</label>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   机甲觉醒 · 开机动画
+   五幕：DARK → DORMANT → NEURAL → ENERGIZE → COGNITION → GATE
+   每一幕的画面与声音是同一件事的两种表达，不是各放各的。
+   ══════════════════════════════════════════════════════════════════ */
+
+const boot = document.getElementById('boot')
+const $ = (id) => document.getElementById(id)
+
+/** ?debug=1 时暴露内部状态到 HUD，方便定位「画面没出现」 */
+const DEBUG = new URLSearchParams(location.search).has('debug')
+/** ?freeze=<act> 定格某幕，仅用于截图验证 */
+const FREEZE = new URLSearchParams(location.search).get('freeze')
+
+/* ══ 节奏系统 ═══════════════════════════════════════════════════════
+   灵动感来自节奏，不是来自「效果多」。四条纪律：
+
+   1. **全局节拍器**：90 BPM，每拍 667ms。所有循环动效（呼吸、脉冲、
+      扫光、闪烁）都按节拍对齐，视觉上才会「有拍子」而不是各转各的。
+   2. **预备 → 发力 → 过冲 → 回弹**：任何一次状态变化都不是匀速Ease，
+      先反向蓄力再冲出目标再回弹。机械体尤其要这个，因为它有质量。
+   3. **错峰跟随**（overlapping action）：同一件事的多个元素不同时动，
+      相邻元素错开 40–90ms，形成「波浪」而不是「一起亮」。
+   4. **持续微动**：静止时也绝不能真的静止——呼吸偏移、噪点抖动、
+      扫描呼吸。完全静止的帧一出现，整段就死了。
+   ════════════════════════════════════════════════════════════════ */
+
+/** 全局节拍：90 BPM */
+const BPM = 90
+const BEAT = 60 / BPM          // 0.667s
+let beatClock = 0              // 从播放起点累积的秒数
+let lastBeatNo = -1            // 上一次触发的拍号（跨拍检测用）
+/** 当前拍相位 0→1，用于对齐所有循环动效 */
+const beatPhase = () => (beatClock % BEAT) / BEAT
+/** 每 N 拍的相位（做更长周期的呼吸） */
+const slowPhase = (beats = 4) => (beatClock % (BEAT * beats)) / (BEAT * beats)
+
+const EASE = {
+  /** 标准缓出：快进慢停，最常用 */
+  outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  /** 强缓出：前 20% 走完 60%，用于「猛冲出去」 */
+  outExpo: (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t)),
+  /**
+   * 过冲回弹：冲过目标 12% 再回来。
+   * 机械感的来源之一——真实物体有惯性，不会精确停在目标点。
+   */
+  outBack: (t) => {
+    const c1 = 1.70158, c3 = c1 + 1
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)
+  },
+  /** 预备动作：先向反方向退一点，再冲出去 */
+  anticipate: (t) => {
+    if (t < .18) return -(t / .18) * .12          // 反向蓄力
+    const k = (t - .18) / .82
+    return -.12 + 1.12 * EASE.outExpo(k)
+  },
+  /** 弹性：结尾连续弹跳，用于「落位」 */
+  elastic: (t) => {
+    if (t <= 0) return 0
+    if (t >= 1) return 1
+    const p = .34
+    return Math.pow(2, -9 * t) * Math.sin((t - p / 4) * (2 * Math.PI) / p) + 1
+  },
+}
+
+/** 在 [start, start+dur] 区间内把 p 归一化到 0→1（区间外夹紧） */
+const seg = (p, start, dur) => Math.max(0, Math.min(1, (p - start) / dur))
+
+/** 错峰：给第 i 个元素一个延迟（秒），形成波浪 */
+const stagger = (i, stepMs = 45) => (i * stepMs) / 1000
+
+const el = {
+  barFill: $('barFill'), pct: $('pctText'), phase: $('phaseText'),
+  act: $('actName'), checks: $('checks'),
+  tCore: $('tCore'), tPwr: $('tPwr'), tSync: $('tSync'),
+  gate: $('gate'), seam: $('gateSeam'), sig: $('signature'),
+  flash: $('flash'), glitch: $('glitch'), shock: $('shock'),
+  barTop: $('barTop'), barBot: $('barBot'),
+}
+
+/* ── 画布 ─────────────────────────────────────────────────────── */
+const cv = $('fx')
+const ctx = cv.getContext('2d')
+// 高清：不再死卡 2。3x 屏上 2x 会被放大插值，肉眼可见发软。
+// 上限 3 是「清晰」与「填充率」的折中——4x 屏太少，且烘焙代价翻倍。
+const DPR = Math.min(window.devicePixelRatio || 1, 3)
+let W = 0, H = 0, CX = 0, CY = 0
+
+let act = 'dark'
+let progress = 0
+let running = false
+let abort = false
+
+/* 粒子池：全部复用，避免每帧 new */
+let dust = []        // 背景浮尘
+let streams = []     // 向心流动的数据流粒子
+let textParts = []   // 聚合成字的粒子
+let sparks = []      // 能量爆发火花
+
+function resize() {
+  W = cv.clientWidth; H = cv.clientHeight
+  CX = W / 2; CY = H * 0.46
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  seedDust()
+  bakeBackdrop()   // 烘焙结果依赖尺寸，改尺寸必须重烤
+}
+
+/* ══ 底图：程序化烘焙 ══════════════════════════════════════════════
+   之前底图粗糙的根因是两个：星点是同尺寸同色的圆点（像撒胡椒面），
+   星云是一层 CSS 模糊渐变（没有结构，只有一团雾）。
+
+   重做思路：
+   1) 星云用**分形噪声 + 密度场**真算一遍，烘焙进离屏画布。有明暗、有丝缕、
+      有暗尘带，不是一团均匀的光。
+   2) 星场按**真实分布**撒：绝大多数是暗弱小星，少数亮星带十字衍射星芒，
+      色温也不统一（蓝白/冷白/暖黄）。同样烘焙一次。
+   3) 两者都是静态的，逐帧只贴图 + 做视差平移，代价接近零。
+   ═════════════════════════════════════════════════════════════════ */
+
+let nebulaCanvas = null   // 烘焙好的星云
+let starCanvas = null     // 烘焙好的星场
+
+/** 二维值噪声：给定格点哈希，双线性插值 + 平滑 */
+function makeNoise2D(seed) {
+  const perm = new Uint8Array(512)
+  let s = seed
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296
+  const p = new Uint8Array(256)
+  for (let i = 0; i < 256; i++) p[i] = i
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1))
+    const tmp = p[i]; p[i] = p[j]; p[j] = tmp
+  }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255]
+
+  const grad = (h, x, y) => {
+    // 8 个方向的梯度，比经典 perlin 便宜且够用
+    switch (h & 7) {
+      case 0: return x + y
+      case 1: return x - y
+      case 2: return -x + y
+      case 3: return -x - y
+      case 4: return x
+      case 5: return -x
+      case 6: return y
+      default: return -y
+    }
+  }
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10)
+
+  return (x, y) => {
+    const X = Math.floor(x) & 255
+    const Y = Math.floor(y) & 255
+    const xf = x - Math.floor(x)
+    const yf = y - Math.floor(y)
+    const u = fade(xf), v = fade(yf)
+    const aa = perm[perm[X] + Y]
+    const ab = perm[perm[X] + Y + 1]
+    const ba = perm[perm[X + 1] + Y]
+    const bb = perm[perm[X + 1] + Y + 1]
+    const x1 = grad(aa, xf, yf) + u * (grad(ba, xf - 1, yf) - grad(aa, xf, yf))
+    const x2 = grad(ab, xf, yf - 1) + u * (grad(bb, xf - 1, yf - 1) - grad(ab, xf, yf - 1))
+    return (x1 + v * (x2 - x1)) * .5 + .5
+  }
+}
+
+/**
+ * 烘焙星云。
+ * 分形噪声出「丝缕」，再乘一个椭圆的密度场保证中心厚、边缘薄，
+ * 最后叠一条斜向的暗尘带（真实星云都有暗带切割，这是「真实感」的来源）。
+ */
+function bakeNebula() {
+  // 之前是 W/3，缩放到全屏后丝缕会糊成一团。
+  // 提到约 0.62 倍（并设上限防超大屏烘焙过久），细节能撑住又不至于拖慢首帧。
+  const nw = Math.max(420, Math.min(1400, Math.round(W * .62)))
+  const nh = Math.max(260, Math.min(900, Math.round(H * .62)))
+  const c = document.createElement('canvas')
+  c.width = nw; c.height = nh
+  const g = c.getContext('2d')
+  const img = g.createImageData(nw, nh)
+  const data = img.data
+
+  const noise = makeNoise2D(20260107)
+  const noise2 = makeNoise2D(777)
+
+  // 分形叠加：4 个倍频，每个倍频频率翻倍、权重减半
+  const fbm = (x, y) => {
+    let v = 0, amp = .5, fx = x, fy = y
+    for (let o = 0; o < 5; o++) {
+      v += noise(fx, fy) * amp
+      fx *= 2.03; fy *= 2.01
+      amp *= .5
+    }
+    return v
+  }
+
+  const tilt = -21 * Math.PI / 180
+  const cosT = Math.cos(tilt), sinT = Math.sin(tilt)
+  const cxp = nw * .5, cyp = nh * .5
+
+  for (let y = 0; y < nh; y++) {
+    for (let x = 0; x < nw; x++) {
+      // 转到倾斜坐标系，银河是斜的
+      const dx = (x - cxp) / (nw * .5)
+      const dy = (y - cyp) / (nh * .5)
+      const rx = dx * cosT - dy * sinT
+      const ry = dx * sinT + dy * cosT
+
+      // 银河带：沿 rx 方向的极扁椭圆 —— 中心一条亮带。
+      // .055 而非 .085：太宽会糊成一整条烟，窄一些才有「带」的形状。
+      const band = Math.exp(-(ry * ry) / (2 * .052 * .052))
+      // 侧向衰减：带子两端渐隐
+      const taper = Math.exp(-(rx * rx) / (2 * .72 * .72))
+      let density = band * taper
+
+      // 分形噪声雕刻：丝缕 + 团块。
+      // 频率从 7 提到 11 —— 低频噪声只能做出「一团团的雾」，
+      // 高频才有真实星云那种细碎的丝缕感。
+      const n1 = fbm(x / nw * 11 + 3.1, y / nh * 11 + 1.7)
+      const n2 = noise2(x / nw * 2.6, y / nh * 2.6)
+      const n3 = fbm(x / nw * 26 + 9.4, y / nh * 26 + 5.2)   // 最细的一层，负责破边
+      // 噪声压得更狠：0.18 + n1*1.5 让暗部真的暗下去，形成明暗对比
+      density *= (0.12 + n1 * n1 * 1.9) * (0.5 + n2 * 0.95)
+      density *= (0.45 + n3 * 0.95)
+
+      // 暗尘带：把亮带切开。用柔和的高斯而不是硬缝，
+      // 且只吃掉六成 —— 真实暗带里也有零星的星光透过。
+      const laneW = .020 + .010 * Math.sin(rx * 2.3 + 1.1)
+      const dustLane = Math.exp(-Math.pow((ry + .05 * Math.sin(rx * 4)) / laneW, 2))
+      density *= (1 - dustLane * .62)
+
+      // 第二个更淡的外围云气
+      const halo = Math.exp(-(rx * rx + ry * ry * 3.4) / (2 * .42 * .42)) * .16
+      density += halo * (0.2 + n1 * .8)
+
+      // 全局压低：底图是背景，不该抢主体
+      density *= .52
+      density = Math.max(0, Math.min(1, density))
+      if (density < .004) continue
+
+      const i4 = (y * nw + x) * 4
+      // 色相随密度走：稀薄处偏冷蓝，浓密处偏白青，边缘带一点紫
+      const warm = Math.min(1, density * 1.8)
+      const r = Math.round(48 + 150 * warm)
+      const gg = Math.round(96 + 140 * warm)
+      const b = Math.round(150 + 105 * warm)
+      data[i4] = r
+      data[i4 + 1] = gg
+      data[i4 + 2] = b
+      // alpha 做一点曲线，低密度更快衰减 → 边缘更干净，不会是灰雾
+      data[i4 + 3] = Math.round(Math.pow(density, 1.35) * 255)
+    }
+  }
+  g.putImageData(img, 0, 0)
+  nebulaCanvas = c
+}
+
+/**
+ * 烘焙星场。
+ * 真实星空的亮度分布极不均匀：大量暗星 + 极少数亮星。
+ * 所以用幂律取大小，只有最亮的那一小撮才画十字星芒。
+ */
+function bakeStars() {
+  const c = document.createElement('canvas')
+  // 按 DPR 出图：星点是 1px 级的东西，低分辨率贴上去再放大必然糊。
+  c.width = Math.round(W * DPR); c.height = Math.round(H * DPR)
+  const g = c.getContext('2d')
+  g.scale(DPR, DPR)
+
+  const count = Math.round(Math.min(1100, (W * H) / 1750))
+  // 色温：多数冷白，少数偏蓝或偏暖
+  const temps = [
+    { r: 200, g: 228, b: 255, w: .46 },   // 蓝白（年轻恒星）
+    { r: 255, g: 255, b: 255, w: .30 },   // 纯白
+    { r: 255, g: 236, b: 200, w: .17 },   // 暖黄（年老恒星）
+    { r: 255, g: 176, b: 130, w: .07 },   // 橙红
+  ]
+  const pickTemp = () => {
+    let r = Math.random()
+    for (const t of temps) { if ((r -= t.w) <= 0) return t }
+    return temps[0]
+  }
+
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * W
+    const y = Math.random() * H
+
+    // 幂律：绝大多数是小星，偶尔出大星。
+    // 指数 4.6 比 3.4 更「陡」，大星比例从约 15% 掉到约 4% ——
+    // 真实星空里带星芒的亮星就应该是极少数。
+    const mag = Math.pow(Math.random(), 4.6)
+    const radius = .26 + mag * 1.55
+    const alpha = .14 + Math.pow(mag, 1.6) * .66
+    const t = pickTemp()
+
+    // 大星：先画柔光晕，再画十字衍射星芒
+    if (mag > .62) {
+      const haloR = radius * (6 + mag * 8)
+      const hg = g.createRadialGradient(x, y, 0, x, y, haloR)
+      hg.addColorStop(0, `rgba(${t.r},${t.g},${t.b},${(alpha * .34).toFixed(3)})`)
+      hg.addColorStop(.35, `rgba(${t.r},${t.g},${t.b},${(alpha * .10).toFixed(3)})`)
+      hg.addColorStop(1, `rgba(${t.r},${t.g},${t.b},0)`)
+      g.fillStyle = hg
+      g.beginPath(); g.arc(x, y, haloR, 0, 6.2832); g.fill()
+
+      // 十字星芒：两条细长渐变，长度随亮度
+      const spike = haloR * (1.4 + mag * 1.2)
+      for (const ang of [0, Math.PI / 2]) {
+        g.save()
+        g.translate(x, y)
+        g.rotate(ang)
+        const lg = g.createLinearGradient(-spike, 0, spike, 0)
+        lg.addColorStop(0, `rgba(${t.r},${t.g},${t.b},0)`)
+        lg.addColorStop(.5, `rgba(${t.r},${t.g},${t.b},${(alpha * .40).toFixed(3)})`)
+        lg.addColorStop(1, `rgba(${t.r},${t.g},${t.b},0)`)
+        g.fillStyle = lg
+        g.fillRect(-spike, -.45, spike * 2, .9)
+        g.restore()
+      }
+    }
+
+    // 星体本身
+    g.fillStyle = `rgba(${t.r},${t.g},${t.b},${alpha.toFixed(3)})`
+    g.beginPath(); g.arc(x, y, radius, 0, 6.2832); g.fill()
+  }
+  starCanvas = c
+}
+
+function bakeBackdrop() {
+  bakeNebula()
+  bakeStars()
+}
+
+/* ── 背景浮尘：少量近景来带视差与呼吸 ─────────────────────── */
+/* 星场已经烘焙好了，这里只留近景的「活」粒子：
+   有位移、有闪烁，用来制造纵深视差，不需要多。 */
+function seedDust() {
+  const n = Math.round(Math.min(150, (W * H) / 12000))
+  dust = Array.from({ length: n }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: .9 + Math.random() * 1.9,
+    a: .10 + Math.random() * .26,
+    vy: -.09 - Math.random() * .26,
+    vx: (Math.random() - .5) * .14,
+    ph: Math.random() * 6.28,
+  }))
+}
+
+function drawDust(dt, t) {
+  const surge = Math.pow(1 - beatPhase(), 5) * 5
+  const cxs = CX, cys = CY
+
+  for (const p of dust) {
+    p.y += p.vy * dt * 60
+    p.x += p.vx * dt * 60
+    if (p.y < -8) { p.y = H + 8; p.x = Math.random() * W }
+    if (p.x < -8) p.x = W + 8
+    if (p.x > W + 8) p.x = -8
+
+    const tw = .5 + .5 * Math.pow(.5 + .5 * Math.sin(beatClock * 2.2 + p.ph), 2)
+    let dx = 0, dy = 0
+    if (surge > .05) {
+      const vx = p.x - cxs, vy = p.y - cys
+      const d = Math.hypot(vx, vy) || 1
+      dx = (vx / d) * surge
+      dy = (vy / d) * surge
+    }
+    const px = p.x + dx, py = p.y + dy
+
+    const g = ctx.createRadialGradient(px, py, 0, px, py, p.r * 6)
+    g.addColorStop(0, `rgba(180,235,255,${(p.a * tw * .6).toFixed(3)})`)
+    g.addColorStop(1, 'rgba(180,235,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath(); ctx.arc(px, py, p.r * 6, 0, 6.2832); ctx.fill()
+  }
+}
+
+/**
+ * 底图合成：星云 + 星场，带轻微视差。
+ * 两层都是静态位图，逐帧只是两次 drawImage，开销可忽略。
+ */
+function drawBackdrop(dt) {
+  if (!nebulaCanvas || !starCanvas) return
+
+  // 极慢的整体漂移 = 镜头在极远处缓慢移动的感觉
+  const driftX = Math.sin(beatClock * .045) * 10
+  const driftY = Math.cos(beatClock * .037) * 7
+
+  // 星云：只占画面中上部一条，不铺满 —— 铺满就成了「背景板」，
+  // 一条斜带才像远处真实存在的一片星河。
+  ctx.save()
+  ctx.globalAlpha = .58
+  ctx.drawImage(
+    nebulaCanvas,
+    -driftX * .6 - W * .04, -driftY * .6 - H * .06,
+    W * 1.08, H * 1.08
+  )
+  ctx.restore()
+
+  // 星场：几乎不动（远），但比星云多一点位移 → 视差。
+  // 源图是 DPR 倍尺寸，drawImage 的目标尺寸仍用 CSS 像素 —— ctx 已有 DPR 变换，
+  // 这样 1:1 映射到物理像素，星点不会因缩放而发糊。
+  ctx.save()
+  ctx.globalAlpha = 1
+  // 星场是细小的亮点，插值会让它们变软；这里保持高质量采样即可
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(starCanvas, -driftX * .18, -driftY * .18, W * 1.02, H * 1.02)
+  ctx.restore()
+}
+
+/* ── 数据流：粒子沿螺旋被吸向核心（第二幕主角） ──────────── */
+let streamInflow = 0
+function seedStreams() {
+  streamInflow = 1
+  const n = Math.round(Math.min(420, (W * H) / 4200))
+  streams = Array.from({ length: n }, () => makeStream(true))
+}
+function makeStream(initial) {
+  const a = Math.random() * Math.PI * 2
+  const rad = initial ? 60 + Math.random() * Math.max(W, H) * .55 : 60
+  return {
+    a, rad,
+    spin: (0.5 + Math.random() * 1.6) * (Math.random() < .5 ? 1 : -1),
+    inward: 26 + Math.random() * 90,
+    size: .5 + Math.random() * 1.6,
+    life: 0,
+    hue: Math.random() < .18 ? 'amber' : 'cy',
+  }
+}
+function drawStreams(dt) {
+  if (streamInflow <= 0.01) return
+  const maxRad = Math.max(W, H) * .62
+  for (const p of streams) {
+    p.a += p.spin * dt * .9
+    p.rad -= p.inward * dt * (1 + (1 - p.rad / maxRad) * 1.4)
+    if (p.rad < 30) {
+      Object.assign(p, makeStream(false))
+      p.rad = maxRad * (.7 + Math.random() * .35)
+    }
+    const x = CX + Math.cos(p.a) * p.rad
+    const y = CY + Math.sin(p.a) * p.rad * .78
+    const near = 1 - Math.min(1, p.rad / maxRad)
+    const alpha = (.16 + near * .82) * streamInflow
+    const color = p.hue === 'amber'
+      ? `rgba(255,175,105,${alpha.toFixed(3)})`
+      : `rgba(140,235,255,${alpha.toFixed(3)})`
+    // 近核心时拖尾：画一条短线段指向上一点
+    if (near > .55) {
+      const px = CX + Math.cos(p.a - .06 * p.spin) * (p.rad + 12)
+      const py = CY + Math.sin(p.a - .06 * p.spin) * (p.rad + 12) * .78
+      ctx.strokeStyle = color
+      ctx.lineWidth = p.size * .8
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke()
+    } else {
+      ctx.fillStyle = color
+      ctx.beginPath(); ctx.arc(x, y, p.size, 0, 6.2832); ctx.fill()
+    }
+  }
+}
+
+/* ── 能量环（第三幕）：分层反向旋转 + 每拍齿轮式顿挫 ────────── */
+let ringSpin = 0
+let ringPulses = []
+
+/**
+ * 齿轮式旋转：每拍转 1/N 圈然后「咔」一下停住。
+ * 匀速旋转看起来像加载动画，顿挫才像有齿的机械结构在转。
+ */
+function gearedSpin(beatsPerTurn = 6) {
+  const turn = beatClock / BEAT / beatsPerTurn   // 已完成的「拍数/每圈」
+  const whole = Math.floor(turn)
+  const frac = turn - whole
+  // 前 55% 的拍位转完这一格，后 45% 停住（停顿 = 顿挫感）
+  const k = Math.min(1, frac / .55)
+  return (whole + EASE.outBack(k)) * (Math.PI * 2) / beatsPerTurn
+}
+
+function drawRings(dt, strength) {
+  if (strength <= .02) return
+  ringSpin = gearedSpin(6)
+
+  // 三层环：不同齿数、不同节拍倍数 → 相位不断交错，永远不会「一起转」
+  const ringDefs = [
+    { r: 118, seg: 12, gap: .34, color: 'rgba(120,230,255,', w: 2.4, dir: 1,  beats: 6 },
+    { r: 152, seg: 8,  gap: .52, color: 'rgba(120,230,255,', w: 1.4, dir: -1, beats: 9 },
+    { r: 186, seg: 36, gap: .10, color: 'rgba(90,190,240,',  w: 1,   dir: 1,  beats: 4 },
+  ]
+  for (const d of ringDefs) {
+    const seg = (Math.PI * 2) / d.seg
+    const base = d.dir > 0 ? gearedSpin(d.beats) : -gearedSpin(d.beats)
+    // 每拍整圈亮度脉冲：拍首亮、拍尾暗，与核心心跳同步
+    const glow = .40 + .18 * Math.pow(1 - beatPhase(), 3)
+    for (let i = 0; i < d.seg; i++) {
+      const a0 = base + i * seg
+      const a1 = a0 + seg * (1 - d.gap)
+      ctx.beginPath()
+      ctx.strokeStyle = `${d.color}${(glow * strength).toFixed(3)})`
+      ctx.lineWidth = d.w
+      ctx.arc(CX, CY, d.r, a0, a1)
+      ctx.stroke()
+    }
+  }
+
+  // 环上的能量脉冲：拍首瞬间更亮，跟着节拍闪
+  for (let i = ringPulses.length - 1; i >= 0; i--) {
+    const p = ringPulses[i]
+    p.a += p.spd * dt
+    p.life -= dt
+    if (p.life <= 0) { ringPulses.splice(i, 1); continue }
+    const t = Math.min(1, p.life / p.max)
+    const x = CX + Math.cos(p.a) * p.r
+    const y = CY + Math.sin(p.a) * p.r
+    const beatBoost = 1 + Math.pow(1 - beatPhase(), 4) * .8
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 15)
+    g.addColorStop(0, `rgba(255,225,180,${Math.min(1, .95 * t * strength * beatBoost).toFixed(3)})`)
+    g.addColorStop(1, 'rgba(255,150,60,0)')
+    ctx.fillStyle = g
+    ctx.beginPath(); ctx.arc(x, y, 15, 0, 6.2832); ctx.fill()
+  }
+}
+function emitRingPulse() {
+  const rs = [118, 152, 186]
+  ringPulses.push({
+    a: Math.random() * 6.2832,
+    r: rs[(Math.random() * rs.length) | 0],
+    spd: 2.6 + Math.random() * 2.2,
+    life: 1.5, max: 1.5,
+  })
+}
+
+/* ── 聚合成字（第四幕高潮） ─────────────────────────────────── */
+/** 把文字栅格化成点集：这就是「数据流聚合成字」的目标坐标 */
+function sampleText(text, fontSize) {
+  const pad = 40
+  const c = document.createElement('canvas')
+  const cx = c.getContext('2d')
+  cx.font = `700 ${fontSize}px "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif`
+  const metrics = cx.measureText(text)
+  c.width = Math.ceil(metrics.width) + pad * 2
+  c.height = Math.ceil(fontSize * 1.5)
+  const g = c.getContext('2d')
+  g.font = `700 ${fontSize}px "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif`
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillStyle = '#fff'
+  g.fillText(text, c.width / 2, c.height / 2)
+
+  const data = g.getImageData(0, 0, c.width, c.height).data
+  const pts = []
+  // 采样步长决定粒子密度：字高 150px 时取 2px 一格，约 2000–3000 个点，
+  // 足以看清笔画；再密就是浪费 fill 调用。
+  const gap = Math.max(2, Math.round(fontSize / 60))
+  for (let y = 0; y < c.height; y += gap) {
+    for (let x = 0; x < c.width; x += gap) {
+      if (data[(y * c.width + x) * 4 + 3] > 120) {
+        pts.push({ x: x - c.width / 2, y: y - c.height / 2 })
+      }
+    }
+  }
+  // 洗牌：让粒子的来源方向分散，聚拢更有「数据汇入」感
+  for (let i = pts.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0
+    ;[pts[i], pts[j]] = [pts[j], pts[i]]
+  }
+  return pts
+}
+
+const TEXT_LABEL = '灵栖'
+let textAssemble = 0   // 0 → 1，聚拢进度
+/** 聚字已累积的秒数（帧间累加，不依赖绝对时钟） */
+let cognitionElapsed = 0
+/** 采样失败（缺中文字体等）时的兜底：直接画字形，保证这一秒一定有东西 */
+let textFallback = false
+
+function buildTextParticles() {
+  const fontSize = Math.min(150, Math.max(96, W / 9))
+  const pts = sampleText(TEXT_LABEL, fontSize)
+  const max = 2600
+  const use = pts.slice(0, max)
+
+  // 采样不到足够的点 = 当前环境没有可用中文字体。
+  // 与其让这一秒空着，不如退化成「画字形 + 少量粒子掠过」。
+  textFallback = use.length < 120
+  if (textFallback) { textParts = []; return }
+
+  textParts = use.map((p) => {
+    // 起点：从画面外围随机方向飞来。
+    // 存的是**相对核心的偏移**，不是绝对坐标——绘制时统一加 CX/CY，
+    // 存绝对坐标再叠加一次中心点会把整片粒子推到画面外（v4 第一版的 bug）。
+    const a = Math.random() * 6.2832
+    const r = Math.max(W, H) * (.42 + Math.random() * .5)
+    return {
+      tx: p.x, ty: p.y,
+      sx: Math.cos(a) * r,
+      sy: Math.sin(a) * r * .8,
+      delay: Math.random() * .42,
+      jitter: Math.random() * 6.2832,
+      size: .7 + Math.random() * 1.5,
+    }
+  })
+}
+
+function drawText(dt, t) {
+  if (textAssemble <= 0) return
+
+  // 兜底路径：没有中文字体时直接画字形，透明度随聚拢进度上升
+  if (textFallback) {
+    const S = Math.min(1, textAssemble)
+    const fontSize = Math.min(150, Math.max(96, W / 9))
+    ctx.save()
+    ctx.font = `700 ${fontSize}px "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.shadowColor = 'rgba(140,235,255,.9)'
+    ctx.shadowBlur = 30 * S
+    ctx.fillStyle = `rgba(225,250,255,${(S * .92).toFixed(3)})`
+    ctx.fillText(TEXT_LABEL, CX, CY)
+    ctx.restore()
+    return
+  }
+
+  if (!textParts.length) return
+  const S = Math.min(1, textAssemble)
+
+  // 落位冲击：S 接近 1 的那一小段做一个弹性过冲，整块字「砸」下来
+  const impact = S > .82 ? EASE.elastic(seg(S, .82, .18)) : 0
+  const scale = 1 + Math.max(0, impact - 1) * .16   // 只取过冲的正部分
+  // 落位后整块字随节拍呼吸，永不完全静止
+  const textBreath = 1 + Math.sin(slowPhase(2) * Math.PI * 2) * .008
+
+  for (const p of textParts) {
+    const k = Math.max(0, Math.min(1, (S - p.delay) / (1 - p.delay || 1)))
+    const e = 1 - Math.pow(1 - k, 3)   // easeOutCubic
+    // 到位后加一点呼吸抖动，让字「活着」而不是死图
+    const wob = e > .92 ? Math.sin(beatClock * 2.4 + p.jitter) * 1.2 : 0
+    // sx/sy 与 tx/ty 都是相对核心的偏移，最后统一加 CX/CY
+    const ox = (p.sx + (p.tx - p.sx) * e + wob) * scale * textBreath
+    const oy = (p.sy + (p.ty - p.sy) * e + wob * .7) * scale * textBreath
+    const x = CX + ox
+    const y = CY + oy
+    // 飞行途中偏青，落位后偏白。粒子要够亮，否则叠在黑底上看不见
+    const white = e * e
+    const r = Math.round(170 + 85 * white)
+    const gch = Math.round(240 + 15 * white)
+    const b = 255
+    // 落位瞬间点亮一拍，之后随节拍微闪
+    const flash = e > .95 ? .12 * Math.pow(1 - beatPhase(), 3) : 0
+    ctx.fillStyle = `rgba(${r},${gch},${b},${Math.min(1, .55 + e * .45 + flash).toFixed(3)})`
+    ctx.beginPath(); ctx.arc(x, y, p.size * (1.1 + e * .9), 0, 6.2832); ctx.fill()
+  }
+
+  // 字定型后的外发光扫描：一道亮线从左到右扫过整块字
+  if (S >= .99) {
+    const sweep = (beatClock / (BEAT * 2)) % 1
+    const bandX = CX - 200 + sweep * 400
+    const g2 = ctx.createLinearGradient(bandX - 40, 0, bandX + 40, 0)
+    g2.addColorStop(0, 'rgba(180,245,255,0)')
+    g2.addColorStop(.5, 'rgba(210,250,255,.12)')
+    g2.addColorStop(1, 'rgba(180,245,255,0)')
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.fillStyle = g2
+    ctx.fillRect(bandX - 40, CY - 90, 80, 180)
+    ctx.restore()
+  }
+}
+
+/* ── 火花：能量爆发与门户开启时用 ───────────────────────────── */
+function emitSparks(count, speed = 320) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * 6.2832
+    const s = speed * (.35 + Math.random() * .9)
+    sparks.push({
+      x: CX, y: CY,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s * .8,
+      life: .7 + Math.random() * .9,
+      max: 1.6,
+      size: .6 + Math.random() * 1.4,
+      amber: Math.random() < .35,
+    })
+  }
+}
+function drawSparks(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i]
+    p.x += p.vx * dt; p.y += p.vy * dt
+    p.vx *= .965; p.vy = p.vy * .965 + 26 * dt
+    p.life -= dt
+    if (p.life <= 0 || p.x < -60 || p.x > W + 60 || p.y > H + 60) {
+      sparks.splice(i, 1); continue
+    }
+    const a = Math.min(1, p.life / .5)
+    ctx.fillStyle = p.amber
+      ? `rgba(255,190,120,${a.toFixed(3)})`
+      : `rgba(170,240,255,${a.toFixed(3)})`
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.2832); ctx.fill()
+  }
+}
+
+/* ── 核心光点：第一幕唯一的主角 ─────────────────────────────── */
+let coreGlow = 0
+function drawCore(t) {
+  if (coreGlow <= .01) return
+  // 心跳式搏动：不是正弦慢呼吸，而是每拍一个「咚」——冲击后快速衰减。
+  const thump = Math.pow(1 - beatPhase(), 4)
+  const breathe = .84 + .16 * Math.sin(slowPhase(4) * Math.PI * 2) + thump * .22
+
+  /* ① 横向变形镜头光晕（anamorphic streak）
+     这是电影感最直接的来源：真实镜头里的强光会沿传感器轴向拉出一条
+     极扁的光带。少了它，再精细的图形也只是「发光 UI」而不是「拍出来的画面」。 */
+  const streakW = 520 * breathe
+  const streakH = 2.2 + thump * 1.6
+  const sg = ctx.createLinearGradient(CX - streakW, CY, CX + streakW, CY)
+  sg.addColorStop(0, 'rgba(90,180,255,0)')
+  sg.addColorStop(.28, `rgba(120,205,255,${(.16 * coreGlow).toFixed(3)})`)
+  sg.addColorStop(.5, `rgba(200,240,255,${(.55 * coreGlow).toFixed(3)})`)
+  sg.addColorStop(.72, `rgba(120,205,255,${(.16 * coreGlow).toFixed(3)})`)
+  sg.addColorStop(1, 'rgba(90,180,255,0)')
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.fillStyle = sg
+  ctx.beginPath()
+  ctx.ellipse(CX, CY, streakW, streakH, 0, 0, 6.2832)
+  ctx.fill()
+
+  /* ② 外围柔光：半径收小、强度降低。
+     之前是 130px 的大渐变，糊成一坨白 —— 现在是紧贴核心的一圈晕。 */
+  const haloR = 46 * breathe
+  const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR)
+  g.addColorStop(0, `rgba(180,240,255,${(.34 * coreGlow).toFixed(3)})`)
+  g.addColorStop(.45, `rgba(80,180,255,${(.13 * coreGlow).toFixed(3)})`)
+  g.addColorStop(1, 'rgba(40,120,220,0)')
+  ctx.fillStyle = g
+  ctx.beginPath(); ctx.arc(CX, CY, haloR, 0, 6.2832); ctx.fill()
+  ctx.restore()
+
+  /* ③ 心跳环：每拍荡出一圈细环 */
+  for (let k = 0; k < 2; k++) {
+    const ph = (beatPhase() + k * .5) % 1
+    const radius = 26 + ph * 132
+    ctx.beginPath()
+    ctx.strokeStyle = `rgba(150,235,255,${((1 - ph) * .26 * coreGlow).toFixed(3)})`
+    ctx.lineWidth = 1.1 * (1 - ph) + .25
+    ctx.arc(CX, CY, radius, 0, 6.2832)
+    ctx.stroke()
+  }
+
+  /* ④ 精密刻度环：细到接近发丝，数量多、间隔匀。
+     这是「仪器」与「光球」的分界线——精度感来自这些不起眼的刻度。 */
+  const tickR = 30 * breathe
+  const tickN = 72
+  for (let i = 0; i < tickN; i++) {
+    const a = (i / tickN) * 6.2832 + slowPhase(16) * .6
+    // 每 6 格一根长刻度，其余短 —— 有节奏的疏密才有仪器感
+    const major = i % 6 === 0
+    const len = major ? 7 : 3
+    const rr0 = tickR + 8
+    const rr1 = rr0 + len
+    ctx.beginPath()
+    ctx.strokeStyle = `rgba(150,225,255,${((major ? .40 : .18) * coreGlow).toFixed(3)})`
+    ctx.lineWidth = major ? .9 : .6
+    ctx.moveTo(CX + Math.cos(a) * rr0, CY + Math.sin(a) * rr0)
+    ctx.lineTo(CX + Math.cos(a) * rr1, CY + Math.sin(a) * rr1)
+    ctx.stroke()
+  }
+
+  /* ⑤ 核心：锐利点光源，不是球。
+     中心极亮极小的白点 + 一圈紧致的冷光，才有「能量」而不是「灯泡」',
+     用 lighter 叠加让它真的发光。 */
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  const coreR = (3.4 + thump * 2.2) * (1 + .06 * Math.sin(beatClock * 9))
+  const cg = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR * 3.2)
+  cg.addColorStop(0, `rgba(255,255,255,${(.98 * coreGlow).toFixed(3)})`)
+  cg.addColorStop(.22, `rgba(225,250,255,${(.72 * coreGlow).toFixed(3)})`)
+  cg.addColorStop(1, 'rgba(120,220,255,0)')
+  ctx.fillStyle = cg
+  ctx.beginPath(); ctx.arc(CX, CY, coreR * 3.2, 0, 6.2832); ctx.fill()
+
+  ctx.fillStyle = `rgba(255,255,255,${(.97 * coreGlow).toFixed(3)})`
+  ctx.beginPath(); ctx.arc(CX, CY, coreR, 0, 6.2832); ctx.fill()
+  ctx.restore()
+}
+
+/* ── 电路纹路：从中心向外点亮（第二幕的「神经生长」） ──────── */
+const circuits = [
+  [[0,-40],[0,-96],[38,-134],[38,-196],[96,-254]],
+  [[0,-40],[0,-96],[-38,-134],[-38,-196],[-96,-254]],
+  [[0,40],[0,96],[42,138],[42,196],[104,258]],
+  [[0,40],[0,96],[-42,138],[-42,196],[-104,258]],
+  [[40,0],[96,0],[140,44],[206,44]],
+  [[-40,0],[-96,0],[-140,44],[-206,44]],
+  [[40,0],[96,0],[140,-44],[206,-44]],
+  [[-40,0],[-96,0],[-140,-44],[-206,-44]],
+]
+let circuitGrow = 0
+function drawCircuits(strength) {
+  if (strength <= .01) return
+  const K = Math.min(1, circuitGrow)
+  ctx.lineWidth = 1.2
+
+  for (let i = 0; i < circuits.length; i++) {
+    const path = circuits[i]
+    // 每条线的生长起点错开，看起来是「依次通电」而不是一起亮
+    const local = Math.max(0, Math.min(1, (K - i * .05) / .72))
+    if (local <= 0) continue
+
+    // 预先把折线点算成数组，后面既画线也用来跑电流脉冲
+    const pts = []
+    let totalSeg = 0
+    for (let s = 0; s < path.length; s++) {
+      pts.push([CX + path[s][0], CY + path[s][1]])
+      if (s > 0) {
+        totalSeg += Math.hypot(path[s][0] - path[s - 1][0], path[s][1] - path[s - 1][1])
+      }
+    }
+    const drawLen = totalSeg * local
+
+    ctx.beginPath()
+    ctx.moveTo(pts[0][0], pts[0][1])
+    let drawn = 0
+    for (let s = 1; s < pts.length; s++) {
+      const [x0, y0] = pts[s - 1]
+      const [x1, y1] = pts[s]
+      const len = Math.hypot(x1 - x0, y1 - y0)
+      if (drawn + len <= drawLen) {
+        ctx.lineTo(x1, y1)
+        drawn += len
+      } else {
+        const t = (drawLen - drawn) / len
+        ctx.lineTo(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+        break
+      }
+    }
+    // 底线条
+    ctx.strokeStyle = `rgba(90,215,255,${(.34 * strength).toFixed(3)})`
+    ctx.stroke()
+
+    // 电流脉冲：每个拍子从中心向外跑一道亮头。
+    // 错峰用 i（每条线延迟不同），形成一圈圈向外扩散的波。
+    if (local >= .999 && totalSeg > 0) {
+      const offset = i * 0.055
+      const head = ((beatClock / BEAT + offset) % 1.2) / 1.2   // 跑满 1.2 拍
+      if (head < 1) {
+        const dist = totalSeg * head
+        let acc = 0
+        for (let s = 1; s < pts.length; s++) {
+          const [x0, y0] = pts[s - 1]
+          const [x1, y1] = pts[s]
+          const len = Math.hypot(x1 - x0, y1 - y0)
+          if (acc + len >= dist) {
+            const tt = (dist - acc) / len
+            const hx = x0 + (x1 - x0) * tt
+            const hy = y0 + (y1 - y0) * tt
+            const fade = 1 - head
+            const gg = ctx.createRadialGradient(hx, hy, 0, hx, hy, 9)
+            gg.addColorStop(0, `rgba(215,250,255,${(.95 * fade * strength).toFixed(3)})`)
+            gg.addColorStop(1, 'rgba(120,230,255,0)')
+            ctx.fillStyle = gg
+            ctx.beginPath(); ctx.arc(hx, hy, 9, 0, 6.2832); ctx.fill()
+            break
+          }
+          acc += len
+        }
+      }
+    }
+
+    // 端点：按节拍闪烁，不是匀速呼吸
+    const end = pts[pts.length - 1]
+    const blink = .3 + .7 * Math.pow(1 - ((beatClock / (BEAT * 2) + i * .12) % 1), 3)
+    ctx.fillStyle = `rgba(200,250,255,${(.8 * strength * blink).toFixed(3)})`
+    ctx.beginPath(); ctx.arc(end[0], end[1], 2.2, 0, 6.2832); ctx.fill()
+  }
+}
+
+/* ══ 音效引擎 ═══════════════════════════════════════════════════════
+   全部 WebAudio 现场合成。机甲的「机械感」来自三样东西：
+   1) 噪声经窄带滤波 → 金属摩擦、液压排气
+   2) 低频正弦快速下滑 → 撞击、锁扣、引擎点火
+   3) 极短包络 + 高 Q 值 → 伺服电机、电路滴答
+   这些用采样反而更难对齐动画，合成才是可控的。
+   ════════════════════════════════════════════════════════════════ */
+let audio = null
+
+function createAudioEngine() {
+  const AC = window.AudioContext || window.webkitAudioContext
+  if (!AC) return null
+  const ac = new AC()
+
+  const master = ac.createGain()
+  master.gain.value = 0
+  master.connect(ac.destination)
+  master.gain.linearRampToValueAtTime(.085, ac.currentTime + 1.1)
+
+  // 柔化高频，避免合成音刺耳；电影感很大一部分来自这种「闷」
+  const tame = ac.createBiquadFilter()
+  tame.type = 'lowpass'
+  tame.frequency.value = 6200
+  tame.connect(master)
+
+  const nodes = []
+
+  /** 白噪声缓冲（复用，避免每次 new） */
+  const noiseBuf = ac.createBuffer(1, ac.sampleRate * 3, ac.sampleRate)
+  {
+    const d = noiseBuf.getChannelData(0)
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  }
+  const noise = () => {
+    const n = ac.createBufferSource()
+    n.buffer = noiseBuf
+    n.loop = true
+    return n
+  }
+
+  /* ── 底座：三层低频 + 一层气流噪声 ─────────────────────── */
+  ;[[41.2, -7], [61.7, 4], [82.4, -3]].forEach(([f, det]) => {
+    const o = ac.createOscillator()
+    o.type = 'sine'
+    o.frequency.value = f
+    o.detune.value = det
+    const g = ac.createGain()
+    g.gain.value = .26
+    o.connect(g).connect(tame)
+    o.start()
+    nodes.push(o)
+  })
+
+  // 气流：极窄带通的高频噪声，像机舱里的通风
+  {
+    const n = noise()
+    const bp = ac.createBiquadFilter()
+    bp.type = 'bandpass'
+    bp.frequency.value = 1400
+    bp.Q.value = 6
+    const g = ac.createGain()
+    g.gain.value = .055
+    n.connect(bp).connect(g).connect(tame)
+    n.start()
+    nodes.push(n)
+  }
+
+  const api = {
+    /** 心跳：两下闷响，是「沉睡中的机器」 */
+    heartbeat(strength = 1) {
+      const now = ac.currentTime
+      const thump = (t0, amp) => {
+        const o = ac.createOscillator()
+        o.type = 'sine'
+        o.frequency.setValueAtTime(64, t0)
+        o.frequency.exponentialRampToValueAtTime(34, t0 + .18)
+        const g = ac.createGain()
+        g.gain.setValueAtTime(0, t0)
+        g.gain.linearRampToValueAtTime(amp, t0 + .012)
+        g.gain.exponentialRampToValueAtTime(.0001, t0 + .34)
+        o.connect(g).connect(tame)
+        o.start(t0); o.stop(t0 + .4)
+      }
+      thump(now, .5 * strength)
+      thump(now + .19, .32 * strength)
+    },
+
+    /**
+     * 节拍脉冲（重音）。
+     *
+     * 这是「有节奏」里最容易被忽略的一半：画面按拍子在跳，
+     * 声音却只有一连串不相关的音效，就会显得没对齐。
+     * 每拍一个极轻的低频点，把画面与声音钉在同一个网格上。
+     */
+    beat(strong = false) {
+      const now = ac.currentTime
+      const o = ac.createOscillator()
+      o.type = 'sine'
+      o.frequency.setValueAtTime(strong ? 96 : 72, now)
+      o.frequency.exponentialRampToValueAtTime(strong ? 48 : 38, now + .1)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(0, now)
+      g.gain.linearRampToValueAtTime(strong ? .26 : .12, now + .008)
+      g.gain.exponentialRampToValueAtTime(.0001, now + (strong ? .26 : .16))
+      o.connect(g).connect(tame)
+      o.start(now); o.stop(now + .3)
+
+      // 重音拍配一声金属泛音，强调「咔」
+      if (strong) {
+        const n = noise()
+        const bp = ac.createBiquadFilter()
+        bp.type = 'bandpass'; bp.Q.value = 14
+        bp.frequency.value = 3200
+        const ng = ac.createGain()
+        ng.gain.setValueAtTime(.0001, now)
+        ng.gain.linearRampToValueAtTime(.12, now + .004)
+        ng.gain.exponentialRampToValueAtTime(.0001, now + .07)
+        n.connect(bp).connect(ng).connect(tame)
+        n.start(now); n.stop(now + .08)
+      }
+    },
+
+    /** 伺服电机启动：锯齿 + 带通扫频 + 机械摩擦噪声 */
+    servo() {
+      const now = ac.currentTime
+      const o = ac.createOscillator()
+      o.type = 'sawtooth'
+      o.frequency.setValueAtTime(88, now)
+      o.frequency.exponentialRampToValueAtTime(186, now + .55)
+      o.frequency.exponentialRampToValueAtTime(150, now + 1.0)
+      const bp = ac.createBiquadFilter()
+      bp.type = 'bandpass'; bp.Q.value = 5.5
+      bp.frequency.setValueAtTime(320, now)
+      bp.frequency.exponentialRampToValueAtTime(1250, now + .8)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.0001, now)
+      g.gain.linearRampToValueAtTime(.14, now + .12)
+      g.gain.linearRampToValueAtTime(.09, now + .7)
+      g.gain.exponentialRampToValueAtTime(.0001, now + 1.15)
+      o.connect(bp).connect(g).connect(tame)
+      o.start(now); o.stop(now + 1.2)
+
+      const n = noise()
+      const nbp = ac.createBiquadFilter()
+      nbp.type = 'bandpass'; nbp.Q.value = 12
+      nbp.frequency.setValueAtTime(2600, now)
+      nbp.frequency.linearRampToValueAtTime(4200, now + .9)
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(.0001, now)
+      ng.gain.linearRampToValueAtTime(.05, now + .2)
+      ng.gain.exponentialRampToValueAtTime(.0001, now + 1.0)
+      n.connect(nbp).connect(ng).connect(tame)
+      n.start(now); n.stop(now + 1.05)
+    },
+
+    /** 机械锁扣：噪声爆点 + 低频撞击，机甲最标志性的一声 */
+    clunk(strength = 1) {
+      const now = ac.currentTime
+      // 金属：短促高 Q 噪声
+      const n = noise()
+      const bp = ac.createBiquadFilter()
+      bp.type = 'bandpass'; bp.Q.value = 9
+      bp.frequency.value = 2200 + Math.random() * 900
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(.0001, now)
+      ng.gain.linearRampToValueAtTime(.32 * strength, now + .004)
+      ng.gain.exponentialRampToValueAtTime(.0001, now + .1)
+      n.connect(bp).connect(ng).connect(tame)
+      n.start(now); n.stop(now + .12)
+      // 撞击体
+      const o = ac.createOscillator()
+      o.type = 'sine'
+      o.frequency.setValueAtTime(120, now)
+      o.frequency.exponentialRampToValueAtTime(44, now + .12)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.42 * strength, now)
+      g.gain.exponentialRampToValueAtTime(.0001, now + .22)
+      o.connect(g).connect(tame)
+      o.start(now); o.stop(now + .24)
+    },
+
+    /** 电路滴答：极短高频，做「数据在流」的听感 */
+    tick(strength = 1) {
+      const now = ac.currentTime
+      const o = ac.createOscillator()
+      o.type = 'square'
+      o.frequency.value = 1800 + Math.random() * 2200
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.055 * strength, now)
+      g.gain.exponentialRampToValueAtTime(.0001, now + .035)
+      const hp = ac.createBiquadFilter()
+      hp.type = 'highpass'; hp.frequency.value = 900
+      o.connect(hp).connect(g).connect(tame)
+      o.start(now); o.stop(now + .04)
+    },
+
+    /** 充能：长上扫 + 谐波堆叠，能量注入的主角音 */
+    charge(dur = 1.6) {
+      const now = ac.currentTime
+      // 上扫锯齿
+      const o = ac.createOscillator()
+      o.type = 'sawtooth'
+      o.frequency.setValueAtTime(62, now)
+      o.frequency.exponentialRampToValueAtTime(440, now + dur)
+      const lp = ac.createBiquadFilter()
+      lp.type = 'lowpass'
+      lp.frequency.setValueAtTime(260, now)
+      lp.frequency.exponentialRampToValueAtTime(3400, now + dur)
+      lp.Q.value = 3
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.0001, now)
+      g.gain.linearRampToValueAtTime(.16, now + dur * .75)
+      g.gain.exponentialRampToValueAtTime(.0001, now + dur + .25)
+      o.connect(lp).connect(g).connect(tame)
+      o.start(now); o.stop(now + dur + .3)
+
+      // 空气感：带通噪声同步上扫
+      const n = noise()
+      const bp = ac.createBiquadFilter()
+      bp.type = 'bandpass'; bp.Q.value = 2.4
+      bp.frequency.setValueAtTime(420, now)
+      bp.frequency.exponentialRampToValueAtTime(5200, now + dur)
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(.0001, now)
+      ng.gain.linearRampToValueAtTime(.09, now + dur * .8)
+      ng.gain.exponentialRampToValueAtTime(.0001, now + dur + .3)
+      n.connect(bp).connect(ng).connect(tame)
+      n.start(now); n.stop(now + dur + .35)
+    },
+
+    /** 聚合成字：先是密集的高频「汇聚」，落位一瞬间收成一个和弦 */
+    assemble(dur = 1.9) {
+      const now = ac.currentTime
+      // 汇聚段：频率随机的高频短音，密度递减
+      for (let i = 0; i < 46; i++) {
+        const t = now + Math.random() * dur * .85
+        const f = 900 + Math.random() * 2600
+        const o = ac.createOscillator()
+        o.type = 'sine'; o.frequency.value = f
+        const g = ac.createGain()
+        const amp = .045 * (1 - (t - now) / dur)
+        g.gain.setValueAtTime(Math.max(.004, amp), t)
+        g.gain.exponentialRampToValueAtTime(.0001, t + .045)
+        o.connect(g).connect(tame)
+        o.start(t); o.stop(t + .05)
+      }
+      // 落位和弦：A 大调加九
+      const t0 = now + dur * .86
+      ;[440, 554.37, 659.25, 830.61, 1108.73].forEach((f, i) => {
+        const o = ac.createOscillator()
+        o.type = 'sine'; o.frequency.value = f
+        const g = ac.createGain()
+        const st = t0 + i * .022
+        g.gain.setValueAtTime(0, st)
+        g.gain.linearRampToValueAtTime(.15, st + .03)
+        g.gain.exponentialRampToValueAtTime(.0001, st + 1.5)
+        o.connect(g).connect(tame)
+        o.start(st); o.stop(st + 1.6)
+      })
+    },
+
+    /** 门户：低频轰鸣 + 长上扫 + 明亮收尾，整段的终点 */
+    gate() {
+      const now = ac.currentTime
+      // 轰鸣
+      const o = ac.createOscillator()
+      o.type = 'sine'
+      o.frequency.setValueAtTime(58, now)
+      o.frequency.exponentialRampToValueAtTime(26, now + 1.6)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.55, now)
+      g.gain.exponentialRampToValueAtTime(.0001, now + 2.2)
+      o.connect(g).connect(tame)
+      o.start(now); o.stop(now + 2.3)
+
+      // 上扫：像是穿过一道门
+      const s = ac.createOscillator()
+      s.type = 'sawtooth'
+      s.frequency.setValueAtTime(120, now + .1)
+      s.frequency.exponentialRampToValueAtTime(2200, now + 1.5)
+      const lp = ac.createBiquadFilter()
+      lp.type = 'lowpass'
+      lp.frequency.setValueAtTime(400, now)
+      lp.frequency.exponentialRampToValueAtTime(7000, now + 1.5)
+      const sg = ac.createGain()
+      sg.gain.setValueAtTime(.0001, now)
+      sg.gain.linearRampToValueAtTime(.12, now + .9)
+      sg.gain.exponentialRampToValueAtTime(.0001, now + 1.9)
+      s.connect(lp).connect(sg).connect(tame)
+      s.start(now); s.stop(now + 2)
+
+      // 明亮尾韵：高八度的长音
+      ;[880, 1318.5].forEach((f, i) => {
+        const t0 = now + .75 + i * .06
+        const o2 = ac.createOscillator()
+        o2.type = 'sine'; o2.frequency.value = f
+        const g2 = ac.createGain()
+        g2.gain.setValueAtTime(0, t0)
+        g2.gain.linearRampToValueAtTime(.09, t0 + .06)
+        g2.gain.exponentialRampToValueAtTime(.0001, t0 + 2.1)
+        o2.connect(g2).connect(tame)
+        o2.start(t0); o2.stop(t0 + 2.2)
+      })
+
+      master.gain.cancelScheduledValues(now + 1.2)
+      master.gain.setValueAtTime(master.gain.value, now + 1.2)
+      master.gain.linearRampToValueAtTime(0, now + 2.6)
+    },
+
+    stop() {
+      try { master.gain.value = 0 } catch {}
+      nodes.forEach((n) => { try { n.stop() } catch {} })
+      nodes.length = 0
+      setTimeout(() => ac.close().catch(() => {}), 900)
+    },
+  }
+  return api
+}
+
+/* ══ 幕：五段叙事 ══════════════════════════════════════════════════
+   每一段是「画面状态 + 进度区间 + 声音事件」，三段一一对应。
+   ════════════════════════════════════════════════════════════════ */
+const ACTS = [
+  { id: 'dark',      from: 0,  to: 6,  label: 'STANDBY' },
+  { id: 'dormant',   from: 6,  to: 18, label: 'CORE WAKE' },
+  { id: 'neural',    from: 18, to: 40, label: 'NEURAL LINK' },
+  { id: 'energize',  from: 40, to: 66, label: 'ENERGIZE' },
+  { id: 'cognition', from: 66, to: 90, label: 'COGNITION' },
+  { id: 'gate',      from: 90, to: 100, label: 'GATE OPEN' },
+]
+
+// 真实的启动阶段名称
+const BOOT_STAGES = [
+  '初始化运行时',
+  '装载核心扩展',
+  '构建主界面',
+  '创建窗口',
+  '读取配置',
+  '启动本地服务',
+  '同步内置技能',
+  '初始化技能引擎',
+  '监听技能变更',
+  '唤醒智能内核',
+  '连接外部服务',
+]
+
+/** 已渲染到哪一条：只添加新到达的阶段，绝不预先铺满 */
+let renderedStages = 0
+
+function renderChecks(stageIndex, allDone = false) {
+  const target = Math.max(0, Math.min(BOOT_STAGES.length, stageIndex))
+  if (target === renderedStages) return
+
+  // 回退（重播）：整块清掉重来
+  if (target < renderedStages) {
+    el.checks.innerHTML = ''
+    renderedStages = 0
+  }
+
+  // 加载一个，添加一个
+  while (renderedStages < target) {
+    const div = document.createElement('div')
+    div.className = 'enter'
+    div.innerHTML = `<i>◇</i>${BOOT_STAGES[renderedStages]}`
+    el.checks.appendChild(div)
+    renderedStages++
+  }
+
+  // 最后一条是「进行中」，其余都是已完成；全部走完时不留进行中
+  for (let i = 0; i < renderedStages; i++) {
+    const div = el.checks.children[i]
+    const done = allDone || i < renderedStages - 1
+    div.classList.toggle('on', done)
+    div.querySelector('i').textContent = done ? '◆' : '◇'
+  }
+}
+
+/**
+ * logo 从门户中心飞向左上角，落到主界面侧栏原位。
+ *
+ * 为什么用 JS 逐帧而不是 CSS keyframes：终点必须精确对齐主界面
+ * `.sidebar-logo` 的位置（left 16 / top 16 / 26px），而起点是门户中心，
+ * 两个点都依赖运行时尺寸，写死在 CSS 里会随窗口大小漂移。
+ */
+function flySignature() {
+  const img = el.sig
+  const targetSize = 26
+  const margin = 16
+  // 左上角
+  const targetX = margin
+  const targetY = margin
+  const startX = CX - 90, startY = CY - 90
+  const dur = 900
+  const t0 = performance.now()
+
+  img.style.width = '180px'
+  img.style.height = '180px'
+  img.style.left = '0'
+  img.style.top = '0'
+  img.style.opacity = '1'
+
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / dur)
+    const e = 1 - Math.pow(1 - k, 3)
+    const size = 180 + (targetSize - 180) * e
+    const x = startX + (targetX - startX) * e
+    const y = startY + (targetY - startY) * e
+    img.style.width = size + 'px'
+    img.style.height = size + 'px'
+    img.style.transform = `translate(${x}px, ${y}px)`
+    img.style.opacity = String(k < .12 ? k / .12 : 1 - Math.max(0, (k - .88) / .12) * .35)
+    if (k < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+}
+
+/** 定格模式用：不经飞行动画，直接把 logo 落到终点位置 */
+let freezeSigPlaced = false
+function placeSignatureAtTarget() {
+  const img = el.sig
+  const targetSize = 26
+  const margin = 24
+  img.style.width = targetSize + 'px'
+  img.style.height = targetSize + 'px'
+  img.style.transform =
+    `translate(${window.innerWidth - margin - targetSize}px, ${margin}px)`
+  img.style.opacity = '1'
+}
+
+function setAct(next) {
+  if (act === next) return
+  act = next
+  boot.dataset.act = next
+  const def = ACTS.find((a) => a.id === next)
+  el.act.textContent = def ? def.label : next.toUpperCase()
+
+  // 幕切换的入场：HUD 逐项错峰弹出（不是整块一起出现）
+  animateActIn(next)
+  if (next === 'neural') audio?.servo()
+  if (next === 'energize') audio?.charge(1.8)
+  if (next === 'cognition') audio?.assemble(2.0)
+  if (next === 'gate') audio?.gate()
+}
+
+function animateActIn(name) {
+  if (name === 'dark' || name === 'dormant') return
+
+  // 四角直接同时淡入，不错峰
+  const armors = document.querySelectorAll('.hud-layer .armor')
+  armors.forEach((armor) => {
+    armor.style.opacity = '1'
+    armor.style.transform = 'none'
+  })
+
+  // 精密外框与角部罗盘：直接写内联样式。
+  // CSS 选择器这条路在这里被别的规则干扰过，内联最可靠。
+  document.querySelectorAll('.hud-layer .frame-line').forEach((n) => {
+    n.style.opacity = '1'
+  })
+  document.querySelectorAll('.hud-layer .compass').forEach((n) => {
+    n.style.opacity = '.9'
+  })
+}
+
+/* ── 主循环 ─────────────────────────────────────────────────── */
+let lastT = performance.now()
+let startedAt = performance.now()
+let corePhase = 0
+
+let frameError = ''
+function frame(now) {
+  try { frameInner(now) } catch (err) {
+    // 一次异常就把整条 rAF 链掐断，画面会停在异常前那一帧上。
+    // 捕获后写进 HUD，别让「画面不动」变成无头案。
+    if (!frameError) {
+      frameError = String(err && err.message || err)
+      console.error('[boot] frame error', err)
+      el.tSync.textContent = 'ERR ' + frameError.slice(0, 40)
+    }
+  }
+  requestAnimationFrame(frame)
+}
+
+function frameInner(now) {
+  const dt = Math.min(.05, (now - lastT) / 1000)
+  lastT = now
+  const t = now - startedAt
+
+  // 节拍时钟：所有循环动效都以它为基准，整段才有「拍子」
+  beatClock += dt
+  const bp = beatPhase()        // 单拍相位 0→1
+  const sp = slowPhase(4)       // 四拍呼吸相位 0→1
+
+  // 节拍音：检测「跨过拍点」，每拍一声，每 4 拍一个重音。
+  // 用相位回绕判断而不是定时器——这样声音与画面共用同一个时钟，
+  // 帧率变化时会一起抖，不会出现「画面对了声音错半拍」。
+  const beatNo = Math.floor(beatClock / BEAT)
+  if (beatNo !== lastBeatNo) {
+    lastBeatNo = beatNo
+    if (running) audio?.beat(beatNo % 4 === 0)
+  }
+
+  ctx.clearRect(0, 0, W, H)
+
+  // 各层的强度都由当前幕推导，不在各处写魔法数字
+  const isDark = act === 'dark'
+  const isDormant = act === 'dormant'
+  const isNeural = act === 'neural'
+  const isEnergize = act === 'energize'
+  const isCognition = act === 'cognition'
+  const isGate = act === 'gate'
+
+  // 聚字时核心主动退场：光晕会盖掉粒子字（v4 第二版的 bug）
+  targetCore = isDark ? .18
+    : isDormant ? 1
+    : isCognition ? .10
+    : isGate ? .35
+    : .72
+  coreGlow += (targetCore - coreGlow) * Math.min(1, dt * 3)
+
+  streamInflow = isNeural ? Math.min(1, streamInflow + dt * .7)
+    : isEnergize || isCognition || isGate ? Math.max(0, streamInflow - dt * .35)
+    : 0
+
+  circuitGrow = isNeural ? Math.min(1, circuitGrow + dt * .55)
+    : isEnergize || isCognition ? 1
+    : isGate ? Math.max(0, circuitGrow - dt * .6) : 0
+
+  drawBackdrop(dt)
+  drawDust(dt, t)
+  if (streamInflow > 0 && !streams.length) seedStreams()
+  drawStreams(dt)
+  drawCircuits(isNeural ? .5 + streamInflow * .5 : (circuitGrow > 0 ? .55 : 0))
+  drawCore(t)
+
+  const ringStrength = isEnergize ? 1 : isCognition ? .75 : isGate ? .5 : 0
+  drawRings(dt, ringStrength)
+  if (isEnergize && Math.random() < dt * 7) emitRingPulse()
+
+  if (isCognition) {
+    // 用**帧间累积**而不是绝对时钟：rAF 的 now 与定时器/performance.now()
+    // 在虚拟时间环境里不同基，用绝对差会让进度恒为 0（字永远不出现）。
+    cognitionElapsed += dt
+    textAssemble = Math.min(1, Math.max(0, (cognitionElapsed - 0.12) / 1.75))
+    if (!textParts.length) buildTextParticles()
+  } else if (isGate) {
+    // 门户开启时字慢慢退场，让位给门
+    textAssemble = Math.max(0, textAssemble - dt * .8)
+  }
+  // ?freeze=<act>：定格某幕的完成态。必须放在累积逻辑**之后**，
+  // 否则刚设好的值会被下一帧的累加覆盖（无头截图帧数极少，累积永远到不了 1）。
+  if (FREEZE) {
+    if (act !== FREEZE) setAct(FREEZE)
+    streamInflow = FREEZE === 'neural' ? 1 : 0
+    circuitGrow = FREEZE === 'neural' || FREEZE === 'energize' ? 1 : 0
+    coreGlow = FREEZE === 'cognition' ? .1 : .72
+    if (FREEZE === 'cognition') {
+      if (!textParts.length) buildTextParticles()
+      textAssemble = 1
+    }
+    if (FREEZE === 'gate' && !freezeSigPlaced) {
+      freezeSigPlaced = true
+      placeSignatureAtTarget()
+    }
+  }
+
+  drawText(dt, t)
+
+  drawSparks(dt)
+  // 镜头呼吸：画布整体做亚像素级位移 + 极轻微缩放。
+  // 幅度必须小（≤1.5px），大了是「晕船」而不是「灵动」。
+  if (cv) {
+    const camX = Math.sin(sp * Math.PI * 2) * 1.5
+    const camY = Math.cos(sp * Math.PI * 2 * .7) * 1.2
+    const camScale = 1.008 + Math.sin(sp * Math.PI * 2) * .006
+    cv.style.transform = `translate(${camX.toFixed(2)}px, ${camY.toFixed(2)}px) scale(${camScale.toFixed(4)})`
+  }
+
+  // DEBUG：?debug=1 时在左下角显示内部状态，便于定位「画面没出现」这类问题
+  if (DEBUG) {
+    const p0 = textParts[0]
+    el.tCore.textContent = `a=${act} n=${textParts.length} f=${textFallback ? 1 : 0}`
+    el.tPwr.textContent = `S=${textAssemble.toFixed(2)} ${p0 ? `t=(${p0.tx | 0},${p0.ty | 0})` : '-='}`
+    el.tSync.textContent = `p=${progress.toFixed(0)} cx=${CX | 0}`
+  }
+
+  // 遥测
+  if ((now | 0) % 5 === 0) {
+    el.tCore.textContent = '0x' + ((Math.random() * 255) | 0).toString(16).toUpperCase().padStart(2, '0')
+    el.tPwr.textContent = progress.toFixed(1) + '%'
+    el.tSync.textContent = isGate ? 'LOCKED' : isCognition ? 'MERGING' : isEnergize ? 'CHARGING' : 'SYNC'
+  }
+}
+let targetCore = .18
+
+/* ── 播放 ───────────────────────────────────────────────────── */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function play() {
+  if (running) return
+  running = true
+  abort = false
+
+  // 重置
+  progress = 0; textAssemble = 0; circuitGrow = 0; streamInflow = 0; cognitionElapsed = 0
+  beatClock = 0; lastBeatNo = -1
+  textParts = []; sparks = []; ringPulses = []; streams = []
+  coreGlow = 0
+  act = 'dark'; boot.dataset.act = 'dark'
+  boot.classList.remove('fading'); boot.style.display = ''
+  el.barFill.style.width = '0%'; el.pct.textContent = '0%'
+  el.phase.textContent = 'STANDBY'
+  document.getElementById('phaseText').textContent = '准备启动'
+  el.checks.innerHTML = ''
+  renderedStages = 0
+  el.gate.classList.remove('open'); el.seam.classList.remove('open')
+  el.sig.style.opacity = '0'
+  el.sig.style.transform = ''
+  el.flash.classList.remove('fire')
+  seedDust()
+  startedAt = performance.now()
+
+  audio = document.getElementById('sound').checked ? createAudioEngine() : null
+  audio?.heartbeat(1)
+
+  // 开场：黑边收拢，进入「放映」状态
+  setTimeout(() => el.barTop.classList.add('on'), 100)
+  setTimeout(() => el.barBot.classList.add('on'), 100)
+
+  /** 把总时长切成幕；每个阶段按真实启动阶段推进（DEMO 里用固定节奏模拟） */
+  const timeline = [
+    { act: 'dark',      dur: 620,  phase: '' },
+    { act: 'dormant',   dur: 1900, phase: '核心唤醒' },
+    { act: 'neural',    dur: 2300, phase: '神经链接' },
+    { act: 'energize',  dur: 2100, phase: '能量充能' },
+    { act: 'cognition', dur: 2400, phase: '意识聚合' },
+  ]
+
+  let acc = 0
+  let stageIndex = 0
+
+  for (let i = 0; i < timeline.length; i++) {
+    if (abort) break
+    const seg = timeline[i]
+    setAct(seg.act)
+    if (seg.phase) el.phase.textContent = seg.phase
+    audio?.heartbeat(i === 0 ? 1 : .45)
+
+    const slices = 6
+    for (let k = 1; k <= slices; k++) {
+      if (abort) break
+      acc += 1
+      progress = (acc / (timeline.length * slices)) * 90
+      el.barFill.style.width = progress.toFixed(1) + '%'
+      el.pct.textContent = Math.round(progress) + '%'
+
+      // 按进度推进启动阶段显示（11个阶段分配到5幕的进度中）
+      const progressRatio = acc / (timeline.length * slices)
+      stageIndex = Math.min(BOOT_STAGES.length - 1, Math.floor(progressRatio * BOOT_STAGES.length))
+
+      // 进度条下方显示当前加载的阶段
+      document.getElementById('phaseText').textContent = BOOT_STAGES[stageIndex]
+
+      // 右上角逐个添加（不是一次性全显示）
+      renderChecks(stageIndex)
+
+      if (k % 2 === 0) audio?.tick(.7)
+      if (i === 2 && k === 3) audio?.clunk(1)
+      await sleep(seg.dur / slices)
+    }
+  }
+
+  if (abort) { running = false; return }
+
+  /* 第五幕：门户 */
+  setAct('gate')
+  el.phase.textContent = '门户开启'
+  document.getElementById('phaseText').textContent = '系统就绪'
+  progress = 100
+  el.barFill.style.width = '100%'
+  el.pct.textContent = '100%'
+  renderChecks(BOOT_STAGES.length, true)
+
+  // 竖缝先裂开
+  el.seam.classList.add('open')
+  audio?.clunk(1.2)
+  await sleep(320)
+
+  // 门向两侧张开 + 火花
+  el.gate.classList.add('open')
+  emitSparks(90, 420)
+  audio?.clunk(1.5)
+  await sleep(680)
+
+  // logo 从门户中心飞向左上角（主界面侧栏原位），边飞边缩到 26px
+  flySignature()
+  emitSparks(60, 260)
+  await sleep(760)
+
+  // 白场 + 冲击波，然后淡出
+  el.flash.classList.add('fire')
+  el.shock.classList.remove('fire'); void el.shock.offsetWidth
+  el.shock.classList.add('fire')
+  emitSparks(70, 520)
+  await sleep(560)
+
+  el.barTop.classList.remove('on')
+  el.barBot.classList.remove('on')
+  await sleep(340)
+
+  // 溶解交接：不切黑，整块带着羽化蒙版化开，露出下面的界面。
+  // 900ms 与 CSS transition 对齐，等它走完再移除节点。
+  boot.classList.add('fading')
+  await sleep(900)
+  boot.style.display = 'none'
+
+  audio?.stop(); audio = null
+  running = false
+}
+
+$('replay').addEventListener('click', () => {
+  abort = true
+  setTimeout(() => { void play() }, 80)
+})
+$('skip').addEventListener('click', () => { abort = true })
+
+window.addEventListener('resize', resize)
+
+resize()
+renderChecks(0)
+requestAnimationFrame(frame)
+// 定格模式下不自动播放：play() 的时间线会和定格状态互相打架
+if (!FREEZE) setTimeout(() => { void play() }, 400)
+</script>
+</body>
+</html>
