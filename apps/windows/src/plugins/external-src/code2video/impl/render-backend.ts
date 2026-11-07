@@ -1077,7 +1077,14 @@ export async function addNarration(
     const o = toAss(opts.subtitle.outline)
     if (o) styleParts.push(`OutlineColour=${o}`, `BorderStyle=1`)
   }
-  if (opts.subtitle?.size) styleParts.push(`FontSize=${opts.subtitle.size}`)
+  if (opts.subtitle?.size) {
+    // **libass 的 FontSize 与 CSS 的 px 不是一个量纲**。
+    // 实测：720p / 1280 宽下，CSS 想要的 36px 对应 FontSize≈14（比例约 0.39）。
+    // 写 36 会让字幕横向溢出、左右被裁掉；写 20 仍然偏大。
+    // 这个比例用实测的 14/36 反推，不是理论推导——libass 的基准随字体与分辨率变。
+    const scaled = Math.max(10, Math.min(24, Math.round(opts.subtitle.size * 0.39)))
+    styleParts.push(`FontSize=${scaled}`)
+  }
   const forceStyle = styleParts.length ? `:force_style='${styleParts.join(',')}'` : ''
   const filters: string[] = [`[0:v]subtitles='${srtArg}'${forceStyle}[vout]`]
 

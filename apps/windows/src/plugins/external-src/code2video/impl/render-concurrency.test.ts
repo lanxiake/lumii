@@ -68,8 +68,7 @@ function fakeDeps(opts: {
   return { deps, browsers, rendered }
 }
 
-describe('pickConcurrency', () => {
-  it('一节超过 40 秒：机器吃力，不并行', () => {
+describe('pickConcurrency', () => {  it('一节超过 40 秒：机器吃力，不并行', () => {
     expect(pickConcurrency(45_000, 5)).toBe(1)
   })
 
