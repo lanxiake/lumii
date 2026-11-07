@@ -147,15 +147,25 @@ export function clampLectureLine(line: string, maxChars: number = LIMITS.maxLect
 // 2. 提示词（移植自 Code2Video prompts/stage1-3.py，改中文与 HTML 口径）
 // ---------------------------------------------------------------
 
-export function buildOutlinePrompt(topic: string, durationMinutes = 3): string {
+export function buildOutlinePrompt(
+  topic: string,
+  durationMinutes = 3,
+  audience?: string,
+): string {
+  // 受众必须进提示词：只在大纲生成后覆盖 targetAudience 字段，等于「标签写对了、
+  // 内容仍按模型自己猜的受众写」（实测：要求初中生，模型按高中学生写了整份大纲）。
+  const audienceLine = audience?.trim()
+    ? `目标受众：${audience.trim()}（按这个水平组织内容：已掌握什么、哪些概念需要先补）`
+    : '目标受众：由你判断，并在输出里说明理由'
   return `你是一位优秀的教学设计专家。请为下面这个知识点设计一份循序渐进、有例子的教学大纲。
 
 知识点：${topic}
+${audienceLine}
 
 必须输出 JSON（不要任何解释文字，不要 markdown 代码块外的内容）：
 {
   "topic": "主题名",
-  "targetAudience": "目标受众（如高中学生、大学学生、职场新人）",
+  "targetAudience": "目标受众（与上面给定的受众一致）",
   "sections": [
     { "id": "section_1", "title": "小节标题", "content": "这一节讲什么，一句话" }
   ]
@@ -241,7 +251,8 @@ export function parseSceneSpec(raw: unknown, stepCount: number): SceneStep[] | n
     if (!isRecord(item)) continue
     const els = Array.isArray(item.elements) ? item.elements : []
     const elements: SceneElement[] = []
-    for (const e of els.slice(0, 5)) {
+    // 每步最多 3 个元素：实测 4~5 个时避让算法没有足够空间，必然留下重叠
+    for (const e of els.slice(0, 3)) {
       if (!isRecord(e)) continue
       const kind = typeof e.kind === 'string' && KINDS.has(e.kind) ? (e.kind as SceneElement['kind']) : null
       if (!kind) continue
@@ -264,6 +275,55 @@ export function parseSceneSpec(raw: unknown, stepCount: number): SceneStep[] | n
 }
 
 /**
+ * 生成**人审用的审阅稿**（`review.md`）。
+ *
+ * 对应 Code2Video 草稿阶段的「只看两样东西」：分镜逻辑是否合理（推导有没有跳步）、
+ * 结构是否清晰。所以这里刻意只放这两个维度，**不夹带渲染细节**——
+ * 审阅者要在 30 秒内判断「要不要往下走」，多一个字都是噪音。
+ */
+export function buildReviewMarkdown(
+  outline: TeachingOutline,
+  storyboard: TeachingStoryboard,
+): string {
+  const totalSec = storyboard.sections.reduce(
+    (n, s) => n + (s.targetSeconds ?? Math.max(6, s.animations.length * 3)),
+    0,
+  )
+  const lines: string[] = [
+    `# 审阅稿：${outline.topic}`,
+    '',
+    `> 受众：${outline.targetAudience} · ${storyboard.sections.length} 节 · 约 ${Math.round(totalSec / 60 * 10) / 10} 分钟`,
+    '',
+    '## 这一份是什么',
+    '',
+    '这是**草稿**：只跑到分镜为止，没有渲染画面。请先确认下面两件事，再决定要不要出片：',
+    '',
+    '1. **推导有没有跳步** —— 每节之间是否承接得上，有没有默认观众已经知道的东西。',
+    '2. **分节是否合理** —— 有没有一节塞了多个概念，或者某节其实可以删。',
+    '',
+    '要出片：把这份稿子的目录传给 `teaching_video_generate` 的 `fromDir`（配 `stage: "produce"`），',
+    '已生成的大纲与分镜会被复用，不会重复花 token。',
+    '',
+    '## 分镜',
+    '',
+  ]
+  storyboard.sections.forEach((s, i) => {
+    lines.push(`### ${i + 1}. ${s.title}`, '')
+    s.lectureLines.forEach((line, j) => {
+      lines.push(`- **${line}**`)
+      const anim = s.animations[j]
+      if (anim) lines.push(`  - 画面：${anim}`)
+    })
+    lines.push('')
+  })
+  const outlineMatch = outline.sections.length === storyboard.sections.length
+  lines.push('## 自检', '')
+  lines.push(`- 大纲 ${outline.sections.length} 节 / 分镜 ${storyboard.sections.length} 节：${outlineMatch ? '一致' : '**不一致，请检查**'}`)
+  lines.push('- 讲义行与画面步骤：已逐条对齐（渲染时按步同步高亮）')
+  return lines.join('\n')
+}
+
+/**
  * 把重叠的元素**自动挪开**。
  *
  * 实测模型不遵守「元素之间留间距」的约束：同一个位置会同时放「直角边 b」和
@@ -273,22 +333,55 @@ export function parseSceneSpec(raw: unknown, stepCount: number): SceneStep[] | n
  * 这是**确定性 Critic 的执行侧**：检测（`findOverlaps`）与修正（本函数）
  * 分开，前者用于如实回告，后者用于止损。
  */
-export function declutterSteps(steps: SceneStep[], minGapPct = 4): SceneStep[] {
+export function declutterSteps(steps: SceneStep[], minGapPct = 3): SceneStep[] {
   const MIN_H = 8
+  const MAX_Y = 92
+  const MAX_X = 96
+  /** 候选列：先试原位置，再按固定步长左右铺开，避免元素全挤在一条竖线上 */
+  const COLUMNS = [0, -26, 26, -52, 52, 4]
   return steps.map((step) => {
     const placed: SceneElement[] = []
     for (const el of step.elements) {
       const cur: SceneElement = { ...el, h: Math.max(MIN_H, el.h ?? 14) }
-      // 最多挪 12 次；挪不下就接受重叠（总比消失好）
-      for (let tries = 0; tries < 12; tries++) {
-        const hit = placed.some((p) => boxesOverlap(p, cur, minGapPct))
-        if (!hit) break
-        cur.y = Math.min(88, (cur.y ?? 40) + MIN_H + minGapPct)
-        // 掉到底就换一列重来
-        if ((cur.y ?? 0) >= 88) {
-          cur.y = 10
-          cur.x = Math.min(88, (cur.x ?? 30) + (cur.w ?? 24) + minGapPct)
+      // 右边界按**元素自身宽度**算：只看 x <= MAX_X 会让宽元素伸到画面外
+      const maxX = Math.max(4, 100 - (cur.w ?? 24))
+      // 坐标先钳回画面内（模型偶尔给 x=120 这种越界值，直接渲染会被裁掉）
+      cur.x = Math.min(maxX, Math.max(4, cur.x ?? 30))
+      cur.y = Math.min(MAX_Y, Math.max(4, cur.y ?? 40))
+
+      const free = (probe: SceneElement) =>
+        !placed.some((p) => boxesOverlap(p, probe, minGapPct))
+
+      // 原位置能放下就不动——模型给的坐标多数是对的，别为了整齐去改它
+      if (free(cur)) {
+        placed.push(cur)
+        continue
+      }
+
+      // 否则按「原行 → 下一行 → …」逐行扫，每行试几列。分行扫描而不是像旧实现
+      // 那样挪到底再换列：换列后从顶行重来会撞上刚放下的那批，扫不完就放弃，
+      // 结果就是实测看到的公式叠在一起。
+      const startX = cur.x ?? 30
+      const startY = cur.y ?? 40
+      let settled = false
+      for (let y = startY; y <= MAX_Y && !settled; y += MIN_H + minGapPct) {
+        for (const dx of COLUMNS) {
+          const x = Math.min(maxX, Math.max(4, startX + dx))
+          const probe = { ...cur, x, y }
+          if (free(probe)) {
+            cur.x = x
+            cur.y = y
+            settled = true
+            break
+          }
         }
+      }
+      // 实在放不下（元素太多）才接受重叠：少一个元素比整块画面崩掉更糟。
+      // 但**坐标仍要钳回画面内**——越界元素在视频里就是直接被裁掉，
+      // 比重叠更糟（用户看到半个公式）。
+      if (!settled) {
+        cur.x = Math.min(maxX, Math.max(4, cur.x ?? 30))
+        cur.y = Math.min(MAX_Y, Math.max(4, cur.y ?? 40))
       }
       placed.push(cur)
     }
@@ -327,7 +420,7 @@ export function buildSceneSpecPrompt(section: StoryboardSection): string {
 
 约束：
 1. steps 数量必须等于 ${Math.min(section.lectureLines.length, section.animations.length)}。
-2. 每步 1~4 个元素；kind 只能是 text/rect/circle/line/formula。
+2. 每步 1~3 个元素（**超过 3 个会被丢弃**）；kind 只能是 text/rect/circle/line/formula。
 3. text/formula 必须给 content（≤20 字）；rect/circle/line 用 color 区分。
 4. 元素之间留出间距（同一行相邻元素 x 至少差 w+5）。
 5. 颜色用浅色（#93c5fd / #fca5a5 / #86efac / #fde68a 之类），背景是黑色。`

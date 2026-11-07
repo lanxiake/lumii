@@ -184,8 +184,7 @@ export const askUserQuestionToolConfig: MtBotToolConfig<typeof AskUserQuestionPa
             {
               type: "text",
               text:
-                "User did not respond to the questions (cancelled or timed out). " +
-                "Proceed with your best judgement or rephrase the question.",
+                "用户没有回答（取消或超时）。按你的最佳判断继续，或者换个问法再问。",
             },
           ],
           details: { requestId: toolCallId, outcome: "cancelled" },
@@ -237,7 +236,7 @@ export function formatAskUserQuestionResult(answer: AskUserQuestionAnswer): stri
     // 关闭弹窗 = 拒绝回答 = 授权模型按默认方案继续（用户明确要这个语义）
     return (
       "User declined to answer (dismissed the dialog without choosing). " +
-      "Proceed with your best judgement — go with the option you recommended, or your default plan."
+      "按你的最佳判断继续——用你推荐的那个选项，或你的默认方案。"
     );
   }
 
@@ -249,10 +248,14 @@ export function formatAskUserQuestionResult(answer: AskUserQuestionAnswer): stri
       chunks.push(`selected preview:\n${annotation.preview}`);
     }
     if (annotation?.notes) {
-      chunks.push(`user notes: ${annotation.notes}`);
+      chunks.push(`用户备注：${annotation.notes}`);
     }
     parts.push(chunks.join(" "));
   }
 
-  return `User has answered your questions: ${parts.join(", ")}. You can now continue with the user's answers in mind.`;
+  // 工具结果是**展示给用户看的**（工具卡片会原样渲染），所以整段用中文，
+  // 问题/答案本身保持用户原话。此前这里是英文模板 + 中文问答，卡片上中英混排
+  // （实测截图：「用户问答 User has answered your questions: "这个讲法按什么版本出片？"=...」）。
+  // 注意：这是给**模型**的补充说明里也用的同一段文本，中文不影响模型理解。
+  return `用户已回答上述问题：${parts.join("；")}。可以据此继续。`;
 }

@@ -23,6 +23,26 @@ export const TeachingVideoParams = Type.Object({
   durationMinutes: Type.Optional(
     Type.Number({ description: '期望时长（分钟），默认 3。1~10 之间。', minimum: 1, maximum: 10 }),
   ),
+  stage: Type.Optional(
+    Type.Union([Type.Literal('draft'), Type.Literal('produce'), Type.Literal('revise')], {
+      description:
+        '工作阶段。**默认 draft**：只出大纲+分镜和一份 review.md，几十秒返回、不渲染，' +
+        '让用户先确认讲得对不对。确认后再用 produce 出片（会复用 draft 的成果，不重复花 token）。' +
+        'revise 用于只重做某几节（配合 sectionIds + fromDir），不必整条重跑。',
+    }),
+  ),
+  sectionIds: Type.Optional(
+    Type.Array(Type.Number(), {
+      description: '仅 `revise` 阶段使用：要重做的小节序号（1 起）。留空 = 全部重做。',
+    }),
+  ),
+  fromDir: Type.Optional(
+    Type.String({
+      description:
+        '复用上一次的产物目录（就是上一次返回里的 outputDir）。' +
+        'draft → produce、以及 revise 都应当带上它，否则会新建目录并重新生成大纲/分镜。',
+    }),
+  ),
 })
 
 /**
@@ -72,11 +92,17 @@ export const teachingVideoToolConfig: MtBotToolConfig<typeof TeachingVideoParams
   name: 'teaching_video_generate',
   label: 'Generate Teaching Video',
   description:
-    'Generate a narrated teaching video (MP4) for a knowledge point, 3Blue1Brown style: ' +
-    'an outline is planned, a storyboard is written, each section is rendered as an animated ' +
-    'scene, and the sections are merged into one video. ' +
-    'Use this when the user asks for an explainer/teaching video about a concept. ' +
-    'Takes 1-5 minutes to run; the result is a video file path.',
+    'Generate a teaching video (MP4) for a knowledge point. ' +
+    '**Recommended flow — do NOT jump straight to a final video.** ' +
+    '(1) Call with `stage: "draft"` first: it returns in under a minute with an outline, ' +
+    'a storyboard, and a human-readable `review.md`, without rendering anything. ' +
+    'Show the user the section structure and ask whether the explanation is right. ' +
+    '(2) Only after they confirm, call again with `stage: "produce"` and `fromDir` set to the ' +
+    'previous `outputDir` — the outline and storyboard are reused, so no tokens are wasted. ' +
+    '(3) If the user then says a specific section is wrong or looks bad, call with ' +
+    '`stage: "revise"`, `sectionIds: [n]`, and the same `fromDir` — only that section is ' +
+    're-rendered and the video is re-merged. ' +
+    'Never regenerate the whole thing just to fix one section.',
   parameters: TeachingVideoParams,
   category: 'agent',
   isReadOnly: false,

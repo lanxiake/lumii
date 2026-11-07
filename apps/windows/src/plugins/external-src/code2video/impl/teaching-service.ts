@@ -18,6 +18,7 @@ import type { BrowserLike, RenderDeps } from './render-backend'
 import { renderStoryboard, totalSeconds } from './render-backend'
 import {
   buildOutlinePrompt,
+  buildReviewMarkdown,
   buildSceneSpecPrompt,
   buildStoryboardPrompt,
   parseOutline,
@@ -49,6 +50,21 @@ export interface TeachingVideoDeps {
   sceneRetries?: number
 }
 
+/**
+ * **三段式工作流**（移植自 Code2Video 的推荐用法）。
+ *
+ * 原版把生成拆成「草稿验证 → 精修成片 → 人工收尾」，而不是一次跑到底：
+ * 草稿阶段只出大纲/分镜，让人先看逻辑对不对；精修阶段才渲染并做视觉反馈。
+ *
+ * 映射到本插件：
+ * - `draft`   只跑大纲 + 分镜，产出 `review.md` 供人审。**不调模型出画面、不渲染**，
+ *             几十秒就能拿到，用于排除「方向性错误」（推导跳步、分节不合理）。
+ * - `produce` 跑完整流程，并把上一轮 draft 的产物**复用**（不重复花 token）。
+ * - `revise`  只重跑指定小节（`sectionIds`），其余复用已渲染的 mp4，最后重新合并。
+ *             对应原版的「人工改几行后只重渲那一小段」。
+ */
+export type TeachingStage = 'draft' | 'produce' | 'revise'
+
 export interface GenerateInput {
   topic: string
   /** 目标受众（可选，模型会自己判断） */
@@ -59,10 +75,26 @@ export interface GenerateInput {
   maxRetries?: number
   /** 每节画面来源；默认跟随服务配置 */
   sceneMode?: 'llm' | 'template'
+  /** 阶段，默认 `produce` */
+  stage?: TeachingStage
+  /**
+   * `revise` 阶段要重做的小节（1 起）。留空 = 全部重做。
+   * 与 `draft` 配合：用户看完 review.md 说「第 2 节讲错了」→ 改完只重渲第 2 节。
+   */
+  sectionIds?: number[]
+  /**
+   * 复用已有产物目录（绝对路径）。`produce`/`revise` 时用它接着上一次的
+   * outline/storyboard 跑，不重新生成——原版就是靠「目录里已有文件就跳过」实现的。
+   */
+  fromDir?: string
 }
 
 export interface GenerateResult {
   ok: boolean
+  /** 本次实际执行的阶段（draft 时没有视频，只有 review.md） */
+  stage?: TeachingStage
+  /** 人审用的审阅稿（draft 阶段的主要交付物） */
+  reviewPath?: string
   videoPath?: string
   outlinePath?: string
   storyboardPath?: string
@@ -70,7 +102,10 @@ export interface GenerateResult {
   storyboard?: TeachingStoryboard
   /** 元素重叠告警（不阻断，但如实回传） */
   overlaps?: Array<{ section: string; pairs: Array<{ a: string; b: string; ratio: number }> }>
-  durationMs?: number
+  /** **生成耗时**（不是视频时长）。字段名刻意写成 generationMs，避免与 videoSeconds 混淆 */
+  generationMs?: number
+  /** 成片时长（秒），由分镜的每节时长累加而来 */
+  videoSeconds?: number
   error?: string
 }
 
@@ -118,10 +153,49 @@ export function extractJson(text: string): unknown {
   }
 }
 
-function safeDirName(topic: string): string {
-  const base = topic.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+/**
+ * 主题 → 安全的目录名。
+ *
+ * 非法字符换成 `-`、截断到 40 字、留时间戳避免同名覆盖。**空结果要兜底**：
+ * 主题全是被替换掉的字符时（如 `<>:"/\|?*`）会得到空串，直接拼进路径会变成
+ * `outputs/teaching-video/-2026-.../`，虽然能建但人看不懂。
+ */
+export function safeDirName(topic: string, now: Date = new Date()): string {
+  const base = topic
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    // 换行/制表符当空格处理，再压掉连续空白与首尾分隔符
+    .replace(/[\r\n\t\s]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '')
+  const stamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
   return `${base || 'teaching-video'}-${stamp}`
+}
+
+/**
+ * 记住用户给的时长（秒），跨阶段保留。
+ *
+ * 写在产物目录里而不是内存：draft 与 produce 是两次独立调用，进程内变量留不住；
+ * 原版也是靠「目录里有文件就复用」这条路径带过来的。
+ */
+const DURATION_HINT_FILE = '.duration-hint'
+
+function readDurationHint(outDir: string): number | null {
+  try {
+    const n = Number(fs.readFileSync(path.join(outDir, DURATION_HINT_FILE), 'utf8').trim())
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
+function writeDurationHint(outDir: string, seconds: number): void {
+  try {
+    fs.writeFileSync(path.join(outDir, DURATION_HINT_FILE), String(seconds), 'utf8')
+  } catch {
+    // 记不住时长只是降级（下次按 3 分钟），不该让生成失败
+  }
 }
 
 export function createTeachingVideoService(deps: TeachingVideoDeps) {
@@ -156,53 +230,131 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     const topic = input.topic?.trim()
     if (!topic) return { ok: false, error: '缺少知识点（topic）' }
 
+    const stage: TeachingStage = input.stage ?? 'produce'
     const maxRetries = Math.max(1, input.maxRetries ?? 3)
-    const outDir = path.join(deps.outputRoot(), safeDirName(topic))
+    // 复用上一轮目录：原版就是「文件已存在就跳过」，这里显式传目录，语义一致但更可控
+    const outDir = input.fromDir?.trim()
+      ? path.resolve(input.fromDir.trim())
+      : path.join(deps.outputRoot(), safeDirName(topic))
     fs.mkdirSync(outDir, { recursive: true })
 
-    // ---- 1. 大纲 ----
+    // ---- 1. 大纲（已有则直接读：draft → produce 不重复花 token）----
     deps.onProgress?.({ stage: '大纲', percent: 5 })
-    const outlineRes = await askJson(
-      buildOutlinePrompt(topic, input.durationMinutes ?? 3),
-      'outline',
-      parseOutline,
-      maxRetries,
-    )
-    if (!outlineRes.ok) return { ok: false, error: `生成大纲失败：${outlineRes.error}` }
-    const outline = outlineRes.value
+    const outlineFile = path.join(outDir, 'outline.json')
+    let outline: TeachingOutline
+    if (fs.existsSync(outlineFile)) {
+      const cached = parseOutline(JSON.parse(fs.readFileSync(outlineFile, 'utf8')))
+      if (cached) {
+        outline = cached
+        deps.log(`[teaching-video] 复用已有大纲：${outline.sections.length} 节`)
+      } else {
+        outline = (await askOutline())!
+      }
+    } else {
+      outline = (await askOutline())!
+    }
     if (input.audience?.trim()) outline.targetAudience = input.audience.trim()
-    const outlinePath = path.join(outDir, 'outline.json')
-    fs.writeFileSync(outlinePath, JSON.stringify(outline, null, 2), 'utf8')
-    deps.log(`[teaching-video] 大纲完成：${outline.sections.length} 节`)
 
-    // ---- 2. 分镜 ----
+    async function askOutline(): Promise<TeachingOutline> {
+      const res = await askJson(
+        buildOutlinePrompt(topic, input.durationMinutes ?? 3, input.audience),
+        'outline',
+        parseOutline,
+        maxRetries,
+      )
+      if (!res.ok) throw new Error(`生成大纲失败：${res.error}`)
+      fs.writeFileSync(outlineFile, JSON.stringify(res.value, null, 2), 'utf8')
+      deps.log(`[teaching-video] 大纲完成：${res.value.sections.length} 节`)
+      return res.value
+    }
+
+    // ---- 2. 分镜（同样可复用）----
     deps.onProgress?.({ stage: '分镜', percent: 20 })
-    const boardRes = await askJson(
-      buildStoryboardPrompt(outline),
-      'storyboard',
-      parseStoryboard,
-      maxRetries,
-    )
-    if (!boardRes.ok) return { ok: false, error: `生成分镜失败：${boardRes.error}` }
-    const storyboard = boardRes.value
+    const storyboardFile = path.join(outDir, 'storyboard.json')
+    let storyboard: TeachingStoryboard
+    if (fs.existsSync(storyboardFile)) {
+      const cached = parseStoryboard(JSON.parse(fs.readFileSync(storyboardFile, 'utf8')))
+      if (cached) {
+        storyboard = cached
+        deps.log(`[teaching-video] 复用已有分镜：${storyboard.sections.length} 节`)
+      } else {
+        storyboard = await askStoryboard()
+      }
+    } else {
+      storyboard = await askStoryboard()
+    }
     // 时长对齐：模型给的分镜步数决定片上长度（每步 3 秒）。用户给的是期望值，
     // 这里按它压/放到接近——否则「1 分钟」会实际产出 100 秒（实测过）。
-    const targetSec = Math.round((input.durationMinutes ?? 3) * 60)
+    // 时长对齐：用户给的期望值优先；**没给就用上一轮记住的**，再没有才按 3 分钟。
+    // 回归：produce 第二次调用时模型没再传 durationMinutes，这里 `?? 3` 把用户的
+    // 「改成 5 分钟」悄悄打回 3 分钟（实测：用户明确要求 5 分钟，成片仍是 3:00）。
+    const rememberedSec = readDurationHint(outDir)
+    const targetSec =
+      typeof input.durationMinutes === 'number'
+        ? Math.round(input.durationMinutes * 60)
+        : (rememberedSec ?? 180)
+    if (typeof input.durationMinutes === 'number') writeDurationHint(outDir, targetSec)
     if (storyboard.sections.length > 0) {
       const perSection = Math.max(4, Math.floor(targetSec / storyboard.sections.length))
       for (const s of storyboard.sections) s.targetSeconds = perSection
+      if (Math.abs(totalSeconds(storyboard) - targetSec) > 30) {
+        deps.log(
+          `[teaching-video] 时长偏差：目标 ${targetSec}s，实际 ${totalSeconds(storyboard)}s（${storyboard.sections.length} 节 × ${perSection}s 下限所致）`,
+        )
+      }
     }
     const storyboardPath = path.join(outDir, 'storyboard.json')
     fs.writeFileSync(storyboardPath, JSON.stringify(storyboard, null, 2), 'utf8')
     deps.log(`[teaching-video] 分镜完成：${storyboard.sections.length} 节 / 约 ${totalSeconds(storyboard)} 秒`)
 
+    async function askStoryboard(): Promise<TeachingStoryboard> {
+      const res = await askJson(
+        buildStoryboardPrompt(outline),
+        'storyboard',
+        parseStoryboard,
+        maxRetries,
+      )
+      if (!res.ok) throw new Error(`生成分镜失败：${res.error}`)
+      return res.value
+    }
+
+    // ---- 落审阅稿：draft 阶段的**唯一交付物** ----
+    // 原版的草稿模式就是「先看分镜逻辑对不对」，不渲染。这里把它显式化：
+    // 产出一份人可读的 review.md，再决定要不要往下走。
+    const reviewPath = path.join(outDir, 'review.md')
+    fs.writeFileSync(reviewPath, buildReviewMarkdown(outline, storyboard), 'utf8')
+
+    if (stage === 'draft') {
+      return {
+        ok: true,
+        stage,
+        outline,
+        storyboard,
+        reviewPath,
+        outlinePath: outlineFile,
+        storyboardPath,
+        videoSeconds: totalSeconds(storyboard),
+        generationMs: Date.now() - startedAt,
+      }
+    }
+
     // ---- 3. 逐节画面（Code2Video 的 Coder 阶段）----
     deps.onProgress?.({ stage: '画面', percent: 40 })
     const sceneMode = input.sceneMode ?? deps.sceneMode ?? 'llm'
+    // revise 阶段只重做指定小节；其余节的已渲染 mp4 直接复用
+    const reviseSet =
+      stage === 'revise' && input.sectionIds?.length
+        ? new Set(input.sectionIds.filter((n) => Number.isInteger(n) && n >= 1))
+        : null
     if (sceneMode === 'llm') {
       const sceneRetries = Math.max(1, deps.sceneRetries ?? 2)
       for (let i = 0; i < storyboard.sections.length; i++) {
         const section = storyboard.sections[i]!
+        // revise 模式下，没点名的节保留已存的 scene（若有），不重新调模型
+        if (reviseSet && !reviseSet.has(i + 1) && section.scene?.length) {
+          deps.log(`[teaching-video] 第 ${i + 1} 节未指定重做，复用已存画面`)
+          continue
+        }
         const stepCount = Math.min(section.lectureLines.length, section.animations.length)
         const prompt = buildSceneSpecPrompt(section)
         let scene: SceneStep[] | null = null
@@ -232,11 +384,14 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
 
     // ---- 4. 渲染 ----
     deps.onProgress?.({ stage: '渲染', percent: 72 })
+    // 画面（scene）随分镜一起落盘：revise 阶段要靠它跳过未点名的节
+    fs.writeFileSync(storyboardPath, JSON.stringify(storyboard, null, 2), 'utf8')
     const renderRes = await renderStoryboard(storyboard, {
       launchBrowser: deps.createBrowser,
       ffmpeg: deps.ffmpeg,
       outDir,
       log: deps.log,
+      ...(reviseSet ? { onlySections: reviseSet } : {}),
     })
 
     // 重叠统计：不管渲染成没成，都回传（它是质量信号，不是失败原因）
@@ -248,7 +403,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     if (!renderRes.ok) {
       return {
         ok: false,
-        outlinePath,
+        outlinePath: outlineFile,
         storyboardPath,
         outline,
         storyboard,
@@ -261,12 +416,15 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     return {
       ok: true,
       videoPath: renderRes.videoPath,
-      outlinePath,
+      outlinePath: outlineFile,
       storyboardPath,
       outline,
       storyboard,
       overlaps,
-      durationMs: Date.now() - startedAt,
+      // 两个量分开报：前者是这台机器跑这次生成花了多久，后者是成片本身的长度。
+      // 之前混用一个 durationMs，模型把它当视频时长汇报过一次（203592ms vs 实际 60s）。
+      generationMs: Date.now() - startedAt,
+      videoSeconds: totalSeconds(storyboard),
     }
   }
 

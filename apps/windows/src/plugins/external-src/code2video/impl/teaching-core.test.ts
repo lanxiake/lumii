@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildOutlinePrompt,
+  buildReviewMarkdown,
   buildSceneSpecPrompt,
   declutterSteps,
   parseSceneSpec,
@@ -230,7 +231,8 @@ describe('declutterSteps', () => {
       { elements: [{ kind: 'text', content: 'A', x: 20, y: 20, w: 20, h: 10 }, { kind: 'text', content: 'B', x: 20, y: 20, w: 20, h: 10 }] },
     ])
     const [a, b] = out[0]!.elements
-    expect(a!.y).not.toBe(b!.y)
+    // 挪到哪都行（横向或纵向），只要不再完全重合
+    expect(a!.x === b!.x && a!.y === b!.y).toBe(false)
   })
 
   it('本来就不重叠的元素不动', () => {
@@ -249,5 +251,146 @@ describe('declutterSteps', () => {
       expect(e.y!).toBeGreaterThanOrEqual(0)
       expect(e.y!).toBeLessThanOrEqual(100)
     }
+  })
+})
+
+describe('buildReviewMarkdown', () => {
+  const outline = {
+    topic: '勾股定理',
+    targetAudience: '初中生',
+    sections: [
+      { id: 'section_1', title: '直角三角形', content: '三边' },
+      { id: 'section_2', title: '平方和', content: 'a²+b²' },
+    ],
+  }
+  const board = {
+    sections: [
+      { id: 'section_1', title: '直角三角形', lectureLines: ['三条边'], animations: ['画出来'], targetSeconds: 15 },
+      { id: 'section_2', title: '平方和', lectureLines: ['平方和'], animations: ['写公式'], targetSeconds: 15 },
+    ],
+  }
+
+  it('包含主题、受众与节数', () => {
+    const md = buildReviewMarkdown(outline, board)
+    expect(md).toContain('勾股定理')
+    expect(md).toContain('初中生')
+    expect(md).toContain('2 节')
+  })
+
+  it('逐节列出讲义与对应画面', () => {
+    const md = buildReviewMarkdown(outline, board)
+    expect(md).toContain('**三条边**')
+    expect(md).toContain('画面：画出来')
+    expect(md).toContain('### 1. 直角三角形')
+  })
+
+  // 审阅稿是给「要不要往下走」做判断用的，必须写清下一步怎么操作
+  it('给出「确认后如何出片」的指引，且指向 fromDir', () => {
+    const md = buildReviewMarkdown(outline, board)
+    expect(md).toContain('fromDir')
+    expect(md).toContain('草稿')
+  })
+
+  it('大纲与分镜节数不一致时自检里点出来', () => {
+    const md = buildReviewMarkdown(
+      { ...outline, sections: [outline.sections[0]!] },
+      board,
+    )
+    expect(md).toContain('不一致')
+  })
+
+  // 不夹带渲染细节：审阅者要在 30 秒内判断要不要往下走
+  it('不含渲染相关的噪音', () => {
+    const md = buildReviewMarkdown(outline, board)
+    expect(md).not.toContain('fps')
+    expect(md).not.toContain('ffmpeg')
+    expect(md).not.toContain('__seek')
+  })
+})
+
+describe('buildOutlinePrompt：受众', () => {
+  // 回归：受众只覆盖了输出字段、没进提示词，模型按自己猜的水平写了整份大纲
+  it('给定受众时写进提示词', () => {
+    const p = buildOutlinePrompt('勾股定理', 3, '初中生')
+    expect(p).toContain('目标受众：初中生')
+    expect(p).toContain('已掌握什么')
+    expect(p).not.toContain('由你判断')
+  })
+
+  it('未给受众时让模型自己判断', () => {
+    const p = buildOutlinePrompt('勾股定理', 3)
+    expect(p).toContain('由你判断')
+  })
+
+  it('受众首尾空白被裁掉', () => {
+    expect(buildOutlinePrompt('x', 3, '  高中生  ')).toContain('目标受众：高中生')
+  })
+})
+
+describe('declutterSteps：不变量', () => {
+  /** 直接检查避让后是否真的没有重叠（用与实现相同的判定口径） */
+  const overlapping = (els: Array<{ x?: number; y?: number; w?: number; h?: number }>) => {
+    const b = (e: { x?: number; y?: number; w?: number; h?: number }) => ({
+      x: e.x ?? 30, y: e.y ?? 40, w: e.w ?? 24, h: Math.max(8, e.h ?? 14),
+    })
+    const out: number[] = []
+    for (let i = 0; i < els.length; i++) {
+      for (let j = i + 1; j < els.length; j++) {
+        const a = b(els[i]!), c = b(els[j]!)
+        const ix = Math.max(0, Math.min(a.x + a.w, c.x + c.w) - Math.max(a.x, c.x))
+        const iy = Math.max(0, Math.min(a.y + a.h, c.y + c.h) - Math.max(a.y, c.y))
+        if (ix * iy > 0) out.push(i * 100 + j)
+      }
+    }
+    return out
+  }
+
+  // 回归：实测 3 个公式元素叠成「x10 x x×x=0x099」——旧实现挪到底再换列，换列后重撞
+  it('3 个同位置元素避让后零重叠', () => {
+    const out = declutterSteps([
+      {
+        elements: [
+          { kind: 'formula', content: '10x = 9.999…', x: 30, y: 20, w: 30, h: 10 },
+          { kind: 'formula', content: 'x = 0.999…', x: 30, y: 20, w: 30, h: 10 },
+          { kind: 'formula', content: '9x = 9', x: 30, y: 20, w: 30, h: 10 },
+        ],
+      },
+    ])
+    expect(overlapping(out[0]!.elements)).toEqual([])
+  })
+
+  it('5 个同位置元素也能全部摆开', () => {
+    const els = Array.from({ length: 5 }, () => ({
+      kind: 'text' as const,
+      content: 'x',
+      x: 40,
+      y: 40,
+      w: 20,
+      h: 10,
+    }))
+    const out = declutterSteps([{ elements: els }])
+    expect(overlapping(out[0]!.elements)).toEqual([])
+  })
+
+  it('保证不越出右区（x + w <= 100）', () => {
+    const out = declutterSteps([
+      { elements: Array.from({ length: 4 }, () => ({ kind: 'rect' as const, x: 90, y: 40, w: 20, h: 10 })) },
+    ])
+    for (const e of out[0]!.elements) {
+      expect((e.x ?? 0) + (e.w ?? 24)).toBeLessThanOrEqual(100)
+    }
+  })
+
+  it('本来不重叠的保持原位（不为了整齐去动模型给的坐标）', () => {
+    const out = declutterSteps([
+      {
+        elements: [
+          { kind: 'text', content: 'A', x: 10, y: 10, w: 20, h: 10 },
+          { kind: 'text', content: 'B', x: 60, y: 70, w: 20, h: 10 },
+        ],
+      },
+    ])
+    expect(out[0]!.elements[0]!.x).toBe(10)
+    expect(out[0]!.elements[1]!.y).toBe(70)
   })
 })

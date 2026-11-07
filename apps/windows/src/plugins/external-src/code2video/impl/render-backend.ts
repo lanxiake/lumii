@@ -71,10 +71,18 @@ export function buildSceneHtml(section: StoryboardSection, scene: SceneStep[]): 
   html,body{width:${FRAME.width}px;height:${FRAME.height}px;overflow:hidden}
   body{background:#000;color:#fff;display:flex;font-family:"Microsoft YaHei",system-ui,sans-serif}
   #lecture{width:${LECTURE_RATIO * 100}%;padding:44px 22px 44px 36px;border-right:1px solid #1f2937}
-  #title{font-size:25px;font-weight:600;color:#93c5fd;line-height:1.35;margin-bottom:18px}
+  #title{font-size:25px;font-weight:600;color:#93c5fd;line-height:1.35;margin-bottom:18px;
+    /* 标题同样单行：换行会把第一行讲义挤下去（实测「第三次握手：补齐客户端的确认」折了两行） */
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   ul{list-style:none;display:flex;flex-direction:column;gap:20px}
-  .line{display:flex;gap:11px;font-size:24px;line-height:1.5;color:#4b5563;
+  .line{display:flex;gap:11px;font-size:23px;line-height:1.5;color:#4b5563;
     transition:color 420ms ease,text-shadow 420ms ease}
+  /* 讲义**必须单行**：换行会挤掉下面几行、破坏左侧的阅读节奏（实测 TCP 那节
+     「客户端回 ACK：收到服务器序号」换行后与第 3 行贴在一起）。字符数截断在
+     中英混排下不可靠，交给 CSS 按实际宽度省略。 */
+  .line .txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .line .idx{flex:0 0 auto}
+
   .line.active{color:#fff;text-shadow:0 0 18px rgba(96,165,250,.55)}
   .idx{flex:0 0 26px;height:26px;border-radius:50%;background:#1f2937;color:#6b7280;
     font-size:14px;display:flex;align-items:center;justify-content:center}
@@ -176,13 +184,16 @@ export function buildSectionHtml(section: StoryboardSection, totalSeconds?: numb
     border-right: 1px solid #1f2937;
     display: flex; flex-direction: column; gap: 20px;
   }
-  #title { font-size: 26px; font-weight: 600; color: #93c5fd; line-height: 1.35; margin-bottom: 12px; }
+  #title { font-size: 24px; font-weight: 600; color: #93c5fd; line-height: 1.35; margin-bottom: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   ul { list-style: none; display: flex; flex-direction: column; gap: 22px; }
   .line {
-    display: flex; gap: 12px; align-items: flex-start;
-    font-size: 26px; line-height: 1.5; color: #4b5563;
+    display: flex; gap: 12px; align-items: center;
+    font-size: 24px; line-height: 1.5; color: #4b5563;
     transition: color 420ms ease, text-shadow 420ms ease;
   }
+  /* 同主模板：讲义强制单行，换行会挤乱左侧节奏 */
+  .line .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .line.active { color: #ffffff; text-shadow: 0 0 18px rgba(96,165,250,0.55); }
   .line.done { color: #9ca3af; }
   .idx {
@@ -327,6 +338,13 @@ export interface RenderDeps {
   /** 输出目录（每节一个 .mp4） */
   outDir: string
   log: (msg: string) => void
+  /**
+   * 只渲染这些小节（1 起）；其余节复用目录里已有的 mp4。
+   *
+   * 对应原版「改几行坐标后只重渲那一小段」：`revise` 阶段不重跑整条，
+   * 避免为了一节的改动把另外几节也重渲一遍（每节 10~20 秒）。
+   */
+  onlySections?: ReadonlySet<number>
 }
 
 /** 只取 drizzle 需要的最小面，便于单测造假对象 */
@@ -358,6 +376,15 @@ export async function renderStoryboard(
   try {
     for (let i = 0; i < storyboard.sections.length; i++) {
       const section = storyboard.sections[i]!
+      const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+
+      // revise：没点名且已有成片的节直接复用，不重新渲染
+      if (deps.onlySections && !deps.onlySections.has(i + 1) && fs.existsSync(outMp4)) {
+        sectionVideos.push(outMp4)
+        deps.log(`[render] 第 ${i + 1} 节未指定重做，复用已有 mp4`)
+        continue
+      }
+
       // 优先用模型给的结构化画面；没有才退回纯文字模板
       const html = section.scene?.length
         ? buildSceneHtml(section, section.scene)
@@ -373,7 +400,6 @@ export async function renderStoryboard(
       }
 
       const secs = sectionSeconds(section)
-      const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
       try {
         await browser.renderSection(html, outMp4, secs * 1000, 12)
         sectionVideos.push(outMp4)
