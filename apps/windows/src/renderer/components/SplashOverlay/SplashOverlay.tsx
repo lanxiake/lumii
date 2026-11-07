@@ -1,48 +1,39 @@
 /**
  * SplashOverlay — 主窗口内全屏开机画面
  *
- * 优先接管 index.html 引入的 early-splash（已在 React 前开始播放）；
- * 若不存在则自行挂载双层 video + 海报，避免首帧前纯黑屏。
+ * 视觉与音效由 `early-splash` 在 React 挂载前就已开始（HTML/Canvas 渲染，不是视频），
+ * 这里只负责一件事：**在主壳真正可交互的那一刻收尾**。
  *
- * 结束时：先等主壳就绪信号，再较长淡出，并释放视频解码资源，减轻进入主页时的卡顿。
+ * 收尾顺序：主壳就绪 → 进度冲到 100% → 音效收尾 → 淡出 → 进入首页。
+ * 不再有「视频固定 10 秒」那种与真实加载脱钩的等待。
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import splashUrl from '@app-assets/splash.mp4'
-import posterUrl from '@app-assets/splash-poster.jpg'
-import { EARLY_ID, FG_ID, BG_ID } from '../../early-splash'
+import React, { useCallback, useEffect, useRef } from 'react'
+import { EARLY_ID, getBootAudio, getBootVisual, releaseBootVisual } from '../../early-splash'
 import { markSplashPlayedThisSession } from '../../utils/splash-preference'
-import styles from './SplashOverlay.module.css'
 
 export interface SplashOverlayProps {
   /** 播放结束（或跳过/出错）后回调 */
   onDone: () => void
   /**
-   * 可选：主界面已可展示时 resolve。
-   * 视频播完后若主壳尚未就绪，会停在最后一帧等待，避免揭开后几秒卡顿。
+   * 主界面已可展示时 resolve。开机画面会等它，避免揭开后几秒卡顿；
+   * 但最长只等 `READY_TIMEOUT_MS`，主壳异常时不能把用户永远挡在外面。
    */
   waitForReady?: () => Promise<void>
 }
 
-const FALLBACK_MS = 12_000
-/** 淡出时长（与 CSS / early-splash 一致） */
-const FADE_MS = 550
+/** 等主壳就绪的上限：超时直接放行，宁可略微卡一下也不卡死 */
+const READY_TIMEOUT_MS = 8000
 /** 主壳就绪后额外稳定一帧，再开始淡出 */
 const SETTLE_MS = 120
-
 /**
- * 释放 video 元素解码资源，降低揭开主 UI 时的争用
+ * 最短展示时长。
+ *
+ * 主壳挂载其实很快（百毫秒级），不设下限时开机动画会「闪一下」就没了——
+ * 既看不清，也比纯黑屏更显得像卡顿。1.6s 是「看得清这是开机画面、
+ * 又不会让人等」的量级；真实加载更慢时以真实加载为准。
  */
-function releaseVideo(el: HTMLVideoElement | null): void {
-  if (!el) return
-  try {
-    el.pause()
-    el.removeAttribute('src')
-    el.load()
-  } catch {
-    // ignore
-  }
-}
+const MIN_DISPLAY_MS = 1600
 
 /**
  * 等两帧 rAF，确保底层 UI 已提交绘制
@@ -55,27 +46,10 @@ function waitTwoFrames(): Promise<void> {
   })
 }
 
-/**
- * 淡出并移除早期 Splash DOM
- */
-function fadeOutEarlySplash(el: HTMLElement, onComplete: () => void): void {
-  el.classList.add('lumii-es-fading')
-  window.setTimeout(() => {
-    el.remove()
-    onComplete()
-  }, FADE_MS)
-}
-
-/**
- * 主窗口内全屏播放开机动画
- */
 export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone, waitForReady }) => {
-  const fgRef = useRef<HTMLVideoElement>(null)
-  const bgRef = useRef<HTMLVideoElement>(null)
   const doneRef = useRef(false)
-  const [fading, setFading] = useState(false)
-  /** 是否由 React 自己渲染视频（early splash 不存在时） */
-  const [useReactVideo, setUseReactVideo] = useState(false)
+  /** 挂载时刻：用于最短展示时长的下限 */
+  const mountedAtRef = useRef(performance.now())
 
   const finish = useCallback(async () => {
     if (doneRef.current) return
@@ -86,160 +60,40 @@ export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone, waitForRea
       if (waitForReady) {
         await Promise.race([
           waitForReady(),
-          new Promise<void>((r) => window.setTimeout(r, 4000)),
+          new Promise<void>((r) => window.setTimeout(r, READY_TIMEOUT_MS)),
         ])
       }
     } catch {
       // 就绪等待失败不阻塞退出 splash
     }
 
+    // 主壳比动画快时补足最短时长，避免闪一下
+    const remaining = MIN_DISPLAY_MS - (performance.now() - mountedAtRef.current)
+    if (remaining > 0) {
+      await new Promise<void>((r) => window.setTimeout(r, remaining))
+    }
+
     await waitTwoFrames()
     await new Promise<void>((r) => window.setTimeout(r, SETTLE_MS))
 
-    const early = document.getElementById(EARLY_ID)
-    const earlyFg = document.getElementById(FG_ID) as HTMLVideoElement | null
-    const earlyBg = document.getElementById(BG_ID) as HTMLVideoElement | null
-    releaseVideo(earlyFg)
-    releaseVideo(earlyBg)
-    releaseVideo(fgRef.current)
-    releaseVideo(bgRef.current)
+    const audio = getBootAudio()
+    const visual = getBootVisual()
 
-    if (early) {
-      fadeOutEarlySplash(early, onDone)
-      return
-    }
+    // 视觉与音效并行收尾：音效最多占 600ms，视觉淡出 420ms，取长者
+    const visualDone = visual ? visual.complete() : Promise.resolve()
+    const audioDone = audio ? audio.finish() : Promise.resolve()
+    await Promise.all([visualDone, audioDone])
 
-    setFading(true)
-    window.setTimeout(() => onDone(), FADE_MS)
+    // visual.complete() 已自行淡出并移除 DOM；这里兜底清掉早期节点与句柄
+    document.getElementById(EARLY_ID)?.remove()
+    releaseBootVisual()
+    onDone()
   }, [onDone, waitForReady])
 
-  // 接管 early splash 或回退到 React 自管视频
   useEffect(() => {
-    const early = document.getElementById(EARLY_ID)
-    const earlyFg = document.getElementById(FG_ID) as HTMLVideoElement | null
-
-    if (early && earlyFg) {
-      const onEnded = () => {
-        void finish()
-      }
-      const onError = () => {
-        void finish()
-      }
-      earlyFg.addEventListener('ended', onEnded)
-      earlyFg.addEventListener('error', onError)
-
-      // 若 early 已播完（React 挂载偏晚），等主壳就绪后再淡出，避免瞬间揭开卡顿
-      if (earlyFg.ended || earlyFg.error) {
-        void finish()
-      }
-
-      const fallback = window.setTimeout(() => {
-        void finish()
-      }, FALLBACK_MS)
-      return () => {
-        earlyFg.removeEventListener('ended', onEnded)
-        earlyFg.removeEventListener('error', onError)
-        window.clearTimeout(fallback)
-      }
-    }
-
-    setUseReactVideo(true)
+    void finish()
   }, [finish])
 
-  // React 自管视频播放
-  useEffect(() => {
-    if (!useReactVideo) return
-    const fg = fgRef.current
-    const bg = bgRef.current
-    if (!fg) return
-
-    const syncBg = () => {
-      if (!bg) return
-      try {
-        if (Math.abs(bg.currentTime - fg.currentTime) > 0.12) {
-          bg.currentTime = fg.currentTime
-        }
-      } catch {
-        // seek 失败忽略
-      }
-    }
-
-    const onEnded = () => {
-      void finish()
-    }
-    const onError = () => {
-      void finish()
-    }
-    const onTimeUpdate = () => syncBg()
-
-    fg.addEventListener('ended', onEnded)
-    fg.addEventListener('error', onError)
-    fg.addEventListener('timeupdate', onTimeUpdate)
-
-    const playBoth = async () => {
-      try {
-        await fg.play()
-      } catch {
-        fg.muted = true
-        if (bg) bg.muted = true
-        try {
-          await fg.play()
-        } catch {
-          void finish()
-          return
-        }
-      }
-      if (bg) {
-        bg.muted = true
-        void bg.play().catch(() => undefined)
-        syncBg()
-      }
-    }
-    void playBoth()
-
-    const fallback = window.setTimeout(() => {
-      void finish()
-    }, FALLBACK_MS)
-    return () => {
-      fg.removeEventListener('ended', onEnded)
-      fg.removeEventListener('error', onError)
-      fg.removeEventListener('timeupdate', onTimeUpdate)
-      window.clearTimeout(fallback)
-    }
-  }, [finish, useReactVideo])
-
-  // early splash 已存在时不额外盖一层，避免双重视频
-  if (!useReactVideo) {
-    return null
-  }
-
-  return (
-    <div
-      className={`${styles.overlay} ${fading ? styles.fading : ''}`}
-      role="presentation"
-      aria-label="灵栖启动动画"
-    >
-      <video
-        ref={bgRef}
-        className={styles.bgVideo}
-        src={splashUrl}
-        poster={posterUrl}
-        muted
-        playsInline
-        preload="auto"
-        aria-hidden="true"
-      />
-      <div className={styles.vignette} aria-hidden="true" />
-      <div className={styles.sideGlow} aria-hidden="true" />
-      <video
-        ref={fgRef}
-        className={styles.fgVideo}
-        src={splashUrl}
-        poster={posterUrl}
-        autoPlay
-        playsInline
-        preload="auto"
-      />
-    </div>
-  )
+  // 视觉层在 early-splash 里已挂载到 body，这里不再渲染任何 DOM
+  return null
 }

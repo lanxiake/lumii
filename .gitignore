@@ -114,3 +114,8 @@ verify/**/args/_probe_history.json
 # `projects/<slug>/`，而在仓库根跑就会落在这里。里面是**探测现场数据**——
 # 登录响应、IDOR 测试记录、抓到的响应头——不该进版本库。
 /projects/
+
+# 调试临时产物：dev 启动时 electron-vite 生成的时间戳配置副本，
+# 以及 lumii-ui 控制口抓的界面快照。都不该进版本库。
+/apps/windows/electron.vite.config.*.mjs
+/.snap.json

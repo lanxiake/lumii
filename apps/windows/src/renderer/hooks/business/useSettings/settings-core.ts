@@ -56,6 +56,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoStart: false,
     minimizeToTray: true,
     showSplashOnStartup: true,
+    splashSound: true,
   },
   memory: {
     injectPersonalMemory: true,
@@ -158,6 +159,7 @@ export function loadInitialSettings(): AppSettings {
             autoStart: typeof legacyParsed.autoStart === 'boolean' ? legacyParsed.autoStart : effectiveDefaults.system.autoStart,
             minimizeToTray: typeof legacyParsed.minimizeToTray === 'boolean' ? legacyParsed.minimizeToTray : effectiveDefaults.system.minimizeToTray,
             showSplashOnStartup: effectiveDefaults.system.showSplashOnStartup,
+            splashSound: effectiveDefaults.system.splashSound,
           },
           notification: {
             ...effectiveDefaults.notification,
