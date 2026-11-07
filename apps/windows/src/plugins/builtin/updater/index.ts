@@ -7,8 +7,8 @@ import { UpdaterService, setupUpdaterIpcHandlers } from '../../../main/updater-s
 /**
  * 自动更新扩展。
  *
- * 从 index.ts 的 initUpdaterService() 迁来，配置一项没改：
- * 发布渠道未配置前不自动检查（autoCheck: false），生产环境每 4 小时看一次。
+ * 从 index.ts 的 initUpdaterService() 迁来。
+ * 生产默认 autoCheck + 每 4 小时检查；开发态关闭（仅打包产物可走 electron-updater）。
  *
  * 主窗口引用不在这里设——扩展激活时窗口还没创建。宿主在 createWindow 之后
  * 通过 `S.updater` 取回实例再 setMainWindow（见 index.ts 的 initUiStages）。
@@ -26,8 +26,11 @@ export const updaterExtension = {
     id: 'com.lumii.updater',
     provides: ['updater'],
     apply(ctx) {
+      // 开发态不自动查（electron-updater 只对打包产物有效）；
+      // 生产默认开启，设置页「启动时检查更新」可再关。
+      const isProd = process.env.NODE_ENV !== 'development'
       const service = new UpdaterService({
-        autoCheck: false,
+        autoCheck: isProd,
         checkInterval: 4 * 60 * 60 * 1000,
         autoDownload: false,
         autoInstall: false,
@@ -42,7 +45,7 @@ export const updaterExtension = {
       ctx.provide(S.updater, service)
 
       setupUpdaterIpcHandlers(service)
-      if (process.env.NODE_ENV !== 'development') {
+      if (isProd) {
         service.startAutoCheck()
       }
 

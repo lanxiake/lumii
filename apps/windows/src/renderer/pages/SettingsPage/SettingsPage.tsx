@@ -672,6 +672,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               onChange={async (checked) => {
                 updateSettings({ checkUpdateOnStartup: checked })
                 await saveSettings()
+                const updater = window.electronAPI?.updater
+                if (!updater) return
+                await updater.updateConfig({ autoCheck: checked })
+                if (checked) updater.startAutoCheck()
+                else updater.stopAutoCheck()
               }}
             />
           </div>

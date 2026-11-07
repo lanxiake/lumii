@@ -6,7 +6,7 @@
  */
 
 import { autoUpdater, UpdateInfo, ProgressInfo } from 'electron-updater'
-import { BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { EventEmitter } from 'events'
 
 /**
@@ -99,7 +99,7 @@ export class UpdaterService extends EventEmitter {
     this.config = { ...DEFAULT_CONFIG, ...config }
     this.state = {
       status: 'idle',
-      currentVersion: '',
+      currentVersion: app.getVersion(),
     }
 
     this.setupAutoUpdater()
