@@ -4,6 +4,9 @@ import {
   buildOutlinePrompt,
   buildReviewMarkdown,
   buildSceneSpecPrompt,
+  autoHideCovered,
+  dedupeSameStep,
+  CROSS_STEP_OVERLAP_THRESHOLD,
   checkSceneLayout,
   declutterSteps,
   parseSceneSpec,
@@ -14,6 +17,7 @@ import {
   overlapRatio,
   parseOutline,
   parseStoryboard,
+  type SceneStep,
 } from './teaching-core'
 
 describe('parseOutline', () => {
@@ -256,6 +260,125 @@ describe('parseSceneSpec', () => {
     expect(parseSceneSpec(null, 1)).toBeNull()
     expect(parseSceneSpec({ steps: [] }, 1)).toBeNull()
     expect(parseSceneSpec({ steps: [{ elements: [] }] }, 1)).toBeNull()
+  })
+})
+
+// 这一条是实测出来的硬教训：清理阈值与门禁阈值不一致时，
+// 中间那段重叠既不会被清掉、又会被判失败，模型连改三版都过不去，
+// 最后整节退回纯文字模板 —— 比有重叠还糟。
+describe('阈值一致性', () => {
+  it('autoHideCovered 与 checkSceneLayout 用同一个阈值', () => {
+    // 构造一个刚好在旧 gap（0.35~0.55）里的重叠：两个 40×20 的框，x 差 16
+    const gapSteps: SceneStep[] = [
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 10, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'text', content: 'B', x: 26, y: 30, w: 40, h: 20 }] },
+    ]
+    const cleaned = autoHideCovered(gapSteps)
+    const remaining = checkSceneLayout(cleaned).filter((x) => x.kind === 'cross_step_overlap')
+    // 要么被清理掉、要么门禁也认它通过——不能两边都不认
+    expect(remaining).toHaveLength(0)
+  })
+
+  it('常量在一个合理区间', () => {
+    expect(CROSS_STEP_OVERLAP_THRESHOLD).toBeGreaterThan(0.3)
+    expect(CROSS_STEP_OVERLAP_THRESHOLD).toBeLessThan(0.9)
+  })
+})
+
+describe('dedupeSameStep', () => {
+  // 实测：模型在同一坐标连画两个东西，「第 1 步第 1 与第 2 个元素重叠 100%」
+  it('同一步内完全重合的只留一个', () => {
+    const out = dedupeSameStep([
+      {
+        elements: [
+          { kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 },
+          { kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 },
+        ],
+      },
+    ])
+    expect(out[0]!.elements).toHaveLength(1)
+    // 保留后出现的（模型后写的是它真想要的）
+    expect(out[0]!.elements[0]!.content).toBe('B')
+  })
+
+  // 「框里放文字」是正常设计，不能删
+  it('部分重叠不删（框里放文字是有意为之）', () => {
+    const out = dedupeSameStep([
+      {
+        elements: [
+          { kind: 'rect', x: 10, y: 20, w: 60, h: 40 },
+          { kind: 'text', content: '框里', x: 25, y: 30, w: 30, h: 15 },
+        ],
+      },
+    ])
+    expect(out[0]!.elements).toHaveLength(2)
+  })
+
+  it('不同步的相同位置不互相去重', () => {
+    const out = dedupeSameStep([
+      { elements: [{ kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ])
+    expect(out[0]!.elements).toHaveLength(1)
+    expect(out[1]!.elements).toHaveLength(1)
+  })
+})
+
+describe('autoHideCovered', () => {
+  // 实测的核心缺陷：第 1 步画的东西一直留到第 5 步，和后来的内容撞在一起
+  it('被后来者完全盖住的旧元素自动退场', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'old', kind: 'text', content: '旧', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ id: 'new', kind: 'text', content: '新', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'rect', x: 5, y: 80, w: 20, h: 10 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBe(0)
+  })
+
+  it('没被盖住的元素不动', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 5, y: 5, w: 20, h: 10 }] },
+      { elements: [{ id: 'b', kind: 'text', content: 'B', x: 70, y: 70, w: 20, h: 10 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBeUndefined()
+  })
+
+  it('只盖住一部分时不自动删（可能是故意的标签放在形状上）', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'rect', x: 50, y: 40, w: 40, h: 20 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBeUndefined()
+  })
+
+  it('模型已经写了 until 的以模型为准', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20, until: 5 }] },
+      { elements: [{ id: 'b', kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBe(5)
+  })
+
+  it('不修改传入的原数组', () => {
+    const input: SceneStep[] = [
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ id: 'b', kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ]
+    const before = input[0]!.elements[0]!.until
+    autoHideCovered(input)
+    expect(input[0]!.elements[0]!.until).toBe(before)
+    expect(input[0]!.elements[0]!.until).toBeUndefined()
+  })
+
+  it('清理后的跨步重叠显著减少', () => {
+    // 5 步，每步都在同一位置画新东西
+    const raw = Array.from({ length: 5 }, (_, i) => ({
+      elements: [{ id: `e${i}`, kind: 'text' as const, content: `${i}`, x: 20, y: 30, w: 40, h: 20 }],
+    }))
+    const before = checkSceneLayout(raw).filter((x) => x.kind === 'cross_step_overlap').length
+    const after = checkSceneLayout(autoHideCovered(raw)).filter((x) => x.kind === 'cross_step_overlap').length
+    expect(before).toBeGreaterThan(0)
+    expect(after).toBeLessThan(before)
   })
 })
 

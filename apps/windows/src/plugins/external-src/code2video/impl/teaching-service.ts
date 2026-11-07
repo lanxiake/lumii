@@ -21,6 +21,8 @@ import {
   buildReviewMarkdown,
   buildSceneSpecPrompt,
   buildStoryboardPrompt,
+  autoHideCovered,
+  dedupeSameStep,
   checkSceneLayout,
   parseOutline,
   declutterSteps,
@@ -497,19 +499,24 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
             )
             const parsed = parseSceneSpec(extractJson(raw), stepCount)
             if (parsed) {
-              // 两道**硬门禁**——它们对应实测里最严重的两类问题：
+              // 先本地自动处理两件事：
+              // 1. 同一步内的重复元素去重（完全重合只可能是重复，不是设计）
+              // 2. 被后来者完全盖住的旧元素自动退场
               //
-              // 1. 元素超量：少一个元素就是画面缺一块
-              // 2. **跨步重叠**：前面步骤画的元素不会消失，堆到后面和新的撞在一起。
-              //    实测 `pythagoras-three-proofs` 整屏文字重叠就是这么来的。
-              //    光在提示词里说「要复用 id、要让旧元素消失」模型不听，
-              //    必须打回重做并告诉它具体哪两处撞了。
+              // 这两件都**不能**指望模型做——实测提示词说了、门禁打回三次，
+              // 它每一版都还是同一个毛病。几何上能判死的问题就在本地判死。
+              const cleaned = autoHideCovered(dedupeSameStep(parsed.steps))
+              // 硬门禁只剩三类：元素超量、跨步重叠、出界。
+              // **阈值必须与 autoHideCovered 一致（0.55）**：否则 0.35~0.55 之间的
+              // 重叠既不会被自动清理、又会被门禁判失败，每一版都卡死在这里
+              // （实测第 1 节连续三轮都因为这个 gap 退回模板）。
+              // 同一步内的部分重叠不再拦：框里放文字是正常设计。
               const fatal = parsed.issues.filter((x) => x.kind === 'too_many_elements')
-              const layoutBad = checkSceneLayout(parsed.steps).filter(
-                (x) => x.kind === 'cross_step_overlap' || x.kind === 'overlap' || x.kind === 'out_of_bounds',
+              const layoutBad = checkSceneLayout(cleaned).filter(
+                (x) => x.kind === 'cross_step_overlap' || x.kind === 'out_of_bounds',
               )
               if (fatal.length === 0 && layoutBad.length === 0) {
-                scene = parsed.steps
+                scene = cleaned
                 lastIssues = parsed.issues
                 break
               }

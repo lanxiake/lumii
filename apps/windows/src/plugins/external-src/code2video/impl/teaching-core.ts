@@ -788,6 +788,17 @@ export interface LayoutIssue {
   indexes: number[]
 }
 
+/**
+ * 跨步重叠的判定阈值。
+ *
+ * **自动清理与门禁必须用同一个值**。实测教训：清理用 0.90、门禁用 0.35 时，
+ * 0.35~0.90 之间的重叠既不会被清掉、又会被判失败，模型连改三版都过不去，
+ * 最后整节退回纯文字模板——比有重叠还糟。
+ *
+ * 0.55 的依据：一个元素被盖住一半以上，视觉上已经不承载信息了。
+ */
+export const CROSS_STEP_OVERLAP_THRESHOLD = 0.55
+
 /** `w/h` 超过这个倍数就当作「一条线」而不是一个形状 */
 const SUSPICIOUS_SPAN_RATIO = 8
 
@@ -799,7 +810,103 @@ function visibleAt(el: SceneElement, firstStep: number, step: number): boolean {
   return el.until === undefined || step <= el.until
 }
 
-export function checkSceneLayout(steps: readonly SceneStep[], overlapThreshold = 0.35): LayoutIssue[] {
+/**
+ * 同一步内的重复元素去重：位置几乎完全重合的，只留最后一个。
+ *
+ * 模型经常在同一个坐标连画两个东西（实测「第 1 步第 1 与第 2 个元素重叠 100%」）。
+ * 这不是「框里放文字」——那种是部分重叠、是有意设计；**完全重合**只可能是重复。
+ *
+ * 保留最后一个：按「越后出现的越新」的直觉，模型后写的通常是它真想要的。
+ */
+export function dedupeSameStep(steps: readonly SceneStep[], sameThreshold = 0.95): SceneStep[] {
+  /** 交并比：两边几乎完全一样才算重复。「小字落在框里」的交集=小字、并集=框，IoU 很小 */
+  const iou = (a: SceneElement, b: SceneElement): number => {
+    const ax = a.x ?? 30
+    const ay = a.y ?? 40
+    const aw = a.w ?? 24
+    const ah = a.h ?? 14
+    const bx = b.x ?? 30
+    const by = b.y ?? 40
+    const bw = b.w ?? 24
+    const bh = b.h ?? 14
+    const ix = Math.max(0, Math.min(ax + aw, bx + bw) - Math.max(ax, bx))
+    const iy = Math.max(0, Math.min(ay + ah, by + bh) - Math.max(ay, by))
+    const inter = ix * iy
+    if (inter <= 0) return 0
+    const union = aw * ah + bw * bh - inter
+    return union > 0 ? inter / union : 0
+  }
+
+  return steps.map((step) => {
+    const kept: SceneElement[] = []
+    for (const el of step.elements) {
+      const dup = kept.findIndex((k) => iou(k, el) >= sameThreshold)
+      if (dup >= 0) kept[dup] = el // 后出现的替换先前的
+      else kept.push(el)
+    }
+    return { elements: kept }
+  })
+}
+
+/**
+ * 自动给元素补 `until`：被后来者**完全覆盖**的元素自动退场。 *
+ * ## 为什么不让模型自己写 until
+ *
+ * 实测：提示词里明确说了「不需要的东西要加 until 让它消失」，门禁也把
+ * 跨步重叠打回重做三次，模型仍然改不对——它给出的每一版都还是「第 1 步画的
+ * 东西一直留到第 5 步」。模型的注意力在「怎么讲」上，不在「哪块该清掉」上。
+ *
+ * 而这件事本地就能判死：**如果第 N 步在同一位置放了一个新元素，把第 M 步
+ * （M<N）的元素完全盖住，那个旧元素在视觉上已经没用了**，让它退场不会有信息损失。
+ * 这是几何事实，不需要理解语义。
+ *
+ * 只处理「被盖住一半以上」（默认重叠 ≥ 55%）这一类：那时旧元素在视觉上已经
+ * 没用了。实测老是留下 50~80% 的部分重叠——完全覆盖的判断太严，模型画的
+ * 新元素往往比旧的略大，把旧元素包住一大半但没全包住。
+ *
+ * 模型显式写了 `until` 的以模型为准——它可能知道某个元素虽然被盖住但还要回来。
+ */
+export function autoHideCovered(steps: readonly SceneStep[], coverThreshold = CROSS_STEP_OVERLAP_THRESHOLD): SceneStep[] {
+  // 深拷贝：调用方可能还要用原数据结构做对比
+  const out: SceneStep[] = steps.map((s) => ({
+    elements: s.elements.map((el) => ({ ...el })),
+  }))
+
+  // 每个元素首次出现的步
+  const firstSeen = new Map<string, number>()
+  out.forEach((step, si) => {
+    step.elements.forEach((el, ei) => {
+      const id = el.id ?? `s${si}e${ei}`
+      if (!firstSeen.has(id)) firstSeen.set(id, si)
+    })
+  })
+
+  out.forEach((step, si) => {
+    for (const cur of step.elements) {
+      // 新元素出现时，检查它是否完全盖住了某个更早的元素
+      for (const [id, from] of firstSeen) {
+        if (from >= si) continue
+        // 找到那个旧元素当前的状态
+        const old = out[from]!.elements.find((e) => (e.id ?? '') === id)
+        if (!old || old.until !== undefined) continue // 模型已指定，不动
+        const ratio = overlapRatio(
+          { x: old.x ?? 30, y: old.y ?? 40, w: old.w ?? 24, h: old.h ?? 14 },
+          { x: cur.x ?? 30, y: cur.y ?? 40, w: cur.w ?? 24, h: cur.h ?? 14 },
+        )
+        if (ratio >= coverThreshold) {
+          // 在「被盖住」的前一步退场
+          old.until = Math.max(from, si - 1)
+        }
+      }
+    }
+  })
+  return out
+}
+
+export function checkSceneLayout(
+  steps: readonly SceneStep[],
+  overlapThreshold = CROSS_STEP_OVERLAP_THRESHOLD,
+): LayoutIssue[] {
   const issues: LayoutIssue[] = []
 
   // 收集每个元素首次出现在哪一步：同一步内可能重复 id，取最早的
