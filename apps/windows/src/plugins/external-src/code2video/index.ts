@@ -35,6 +35,8 @@ import type { MainEvents } from '../../../main/kernel/events'
 import { S } from '../../../main/kernel/services'
 import { createElectronRenderer, type ElectronWindowLike } from './impl/electron-renderer'
 import { createTeachingVideoService, type GenerateResult } from './impl/teaching-service'
+import { parseHexColor } from './impl/gates/frame-check'
+import { DEFAULT_STYLE } from './impl/styles/registry'
 import { createTool, teachingVideoToolConfig, toolResult } from './tool-config'
 
 /**
@@ -95,6 +97,7 @@ export const code2videoExtension = {
               webPreferences: opts.webPreferences,
             }) as unknown as ElectronWindowLike,
           ffmpeg: ex.ffmpeg,
+          backgroundRgb: parseHexColor(DEFAULT_STYLE.theme.bg),
           log: (m: string) => log.info(m),
         })
 
@@ -129,6 +132,10 @@ export const code2videoExtension = {
               topic?: string
               audience?: string
               durationMinutes?: number
+              stage?: 'draft' | 'produce' | 'revise'
+              sectionIds?: number[]
+              fromDir?: string
+              style?: string
             }
             if (!p.topic?.trim()) {
               return toolResult({ status: 'error', message: '缺少 topic（要讲的知识点）' })
@@ -138,6 +145,13 @@ export const code2videoExtension = {
                 topic: p.topic.trim(),
                 ...(p.audience?.trim() ? { audience: p.audience.trim() } : {}),
                 ...(typeof p.durationMinutes === 'number' ? { durationMinutes: p.durationMinutes } : {}),
+                // 默认 draft：与工具描述里的推荐流程一致——先让人确认讲得对不对，再出片
+                stage: p.stage ?? 'draft',
+                ...(Array.isArray(p.sectionIds) && p.sectionIds.length
+                  ? { sectionIds: p.sectionIds.filter((n) => Number.isFinite(n)) }
+                  : {}),
+                ...(p.fromDir?.trim() ? { fromDir: p.fromDir.trim() } : {}),
+                ...(p.style?.trim() ? { style: p.style.trim() } : {}),
               })
               if (!result.ok) {
                 return toolResult({
@@ -147,20 +161,65 @@ export const code2videoExtension = {
                   ...(result.storyboardPath ? { storyboardPath: result.storyboardPath } : {}),
                 })
               }
+              const outputDir = result.storyboardPath
+                ? result.storyboardPath.replace(/[\\/][^\\/]+$/, '')
+                : undefined
+              // draft：主要交付物是 review.md，让模型把**分节结构**转述给用户并征询意见
+              if (result.stage === 'draft') {
+                return toolResult({
+                  status: 'ok',
+                  stage: 'draft',
+                  outputDir,
+                  reviewPath: result.reviewPath,
+                  sections: result.storyboard?.sections.length ?? 0,
+                  videoSeconds: result.videoSeconds,
+                  template: result.template,
+                  visualStyle: result.visualStyle,
+                  sectionTitles: result.storyboard?.sections.map((s, i) => `${i + 1}. ${s.title}`) ?? [],
+                  hint:
+                    '这是草稿。请在回复里用中文列出这几节讲什么，问用户「这个讲法对不对、有没有漏掉的前提」，' +
+                    '**不要**直接出片。用户确认后再以 stage="produce" + fromDir=outputDir 调一次。',
+                })
+              }
               return toolResult({
                 status: 'ok',
+                stage: result.stage,
                 videoPath: result.videoPath,
+                outputDir,
                 sections: result.storyboard?.sections.length ?? 0,
-                durationMs: result.durationMs,
-                ...(result.overlaps?.length
+                template: result.template,
+                visualStyle: result.visualStyle,
+                // 两个量分开给：模型曾把生成耗时当成视频时长汇报
+                videoSeconds: result.videoSeconds,
+                generationMs: result.generationMs,
+                durationNote: 'videoSeconds 是成片时长；generationMs 是本次生成耗时，不是视频长度。',
+                ...(result.layoutIssues?.length
                   ? {
-                      layoutWarnings: result.overlaps.map((o) => ({
+                      layoutWarnings: result.layoutIssues.map((o) => ({
                         section: o.section,
-                        pairs: o.pairs,
+                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
                       })),
                     }
                   : {}),
-                hint: '视频已生成。在回复里用 markdown 链接或文件引用指向 videoPath，不要重新生成。',
+                ...(result.sceneIssues?.length
+                  ? {
+                      sceneWarnings: result.sceneIssues.map((o) => ({
+                        section: o.section,
+                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
+                      })),
+                    }
+                  : {}),
+                ...(result.frameIssues?.length
+                  ? {
+                      frameWarnings: result.frameIssues.map((o) => ({
+                        section: o.section,
+                        issues: o.issues.map((i) => `[${i.kind}] ${i.detail}`),
+                      })),
+                    }
+                  : {}),
+                hint:
+                  '视频已生成。用 markdown 链接指向 videoPath。' +
+                  '若用户之后指出某一节有问题，用 stage="revise" + sectionIds + fromDir=outputDir 只重做那一节，不要整条重跑。',
               })
             } catch (err) {
               log.error('[code2video] 生成异常:', err)

@@ -67,7 +67,7 @@ describe("ask-user-question-tool（AI 推荐字段）", () => {
       } as never,
     );
     expect(seen?.context).toContain("远程市场");
-    expect(JSON.stringify(result.content)).toContain("answered");
+    expect(JSON.stringify(result.content)).toContain("用户已回答");
   });
 
   it("拒绝回答的反馈提示按推荐/默认方案继续", async () => {
@@ -78,7 +78,7 @@ describe("ask-user-question-tool（AI 推荐字段）", () => {
     );
     const text = (result.content[0] as { text: string }).text;
     expect(text).toMatch(/declined/i);
-    expect(text).toMatch(/recommended|default plan/i);
+    expect(text).toMatch(/推荐|默认/);
   });
 
   it("无宿主 controller 时返回结构化 not_implemented（回归）", async () => {

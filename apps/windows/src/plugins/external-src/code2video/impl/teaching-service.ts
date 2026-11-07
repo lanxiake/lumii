@@ -18,16 +18,31 @@ import type { BrowserLike, RenderDeps } from './render-backend'
 import { renderStoryboard, totalSeconds } from './render-backend'
 import {
   buildOutlinePrompt,
+  buildReviewMarkdown,
   buildSceneSpecPrompt,
   buildStoryboardPrompt,
   parseOutline,
   declutterSteps,
   parseSceneSpec,
   parseStoryboard,
+  type LayoutIssue,
+  type SceneIssue,
   type TeachingOutline,
   type SceneStep,
   type TeachingStoryboard,
 } from './teaching-core'
+import {
+  buildTemplateChoicePrompt,
+  matchTemplateByKeyword,
+  resolveTemplateChoice,
+  type TemplateMatch,
+} from './templates/registry'
+import type { FrameIssue } from './gates/frame-check'
+import {
+  DEFAULT_STYLE,
+  getStyle,
+  matchStyleByKeyword,
+} from './styles/registry'
 
 export interface TeachingVideoDeps {
   callLLM: (prompt: string, purpose: string) => Promise<string>
@@ -49,6 +64,21 @@ export interface TeachingVideoDeps {
   sceneRetries?: number
 }
 
+/**
+ * **三段式工作流**（移植自 Code2Video 的推荐用法）。
+ *
+ * 原版把生成拆成「草稿验证 → 精修成片 → 人工收尾」，而不是一次跑到底：
+ * 草稿阶段只出大纲/分镜，让人先看逻辑对不对；精修阶段才渲染并做视觉反馈。
+ *
+ * 映射到本插件：
+ * - `draft`   只跑大纲 + 分镜，产出 `review.md` 供人审。**不调模型出画面、不渲染**，
+ *             几十秒就能拿到，用于排除「方向性错误」（推导跳步、分节不合理）。
+ * - `produce` 跑完整流程，并把上一轮 draft 的产物**复用**（不重复花 token）。
+ * - `revise`  只重跑指定小节（`sectionIds`），其余复用已渲染的 mp4，最后重新合并。
+ *             对应原版的「人工改几行后只重渲那一小段」。
+ */
+export type TeachingStage = 'draft' | 'produce' | 'revise'
+
 export interface GenerateInput {
   topic: string
   /** 目标受众（可选，模型会自己判断） */
@@ -59,18 +89,63 @@ export interface GenerateInput {
   maxRetries?: number
   /** 每节画面来源；默认跟随服务配置 */
   sceneMode?: 'llm' | 'template'
+  /** 阶段，默认 `produce` */
+  stage?: TeachingStage
+  /**
+   * 视觉风格 id（如 `3b1b` / `chalkboard` / `clean` / `metro` / `tech-dark`）。
+   * 不填时按关键词选；都不命中跟随结构模板的推荐。
+   */
+  style?: string
+  /**
+   * `revise` 阶段要重做的小节（1 起）。留空 = 全部重做。
+   * 与 `draft` 配合：用户看完 review.md 说「第 2 节讲错了」→ 改完只重渲第 2 节。
+   */
+  sectionIds?: number[]
+  /**
+   * 复用已有产物目录（绝对路径）。`produce`/`revise` 时用它接着上一次的
+   * outline/storyboard 跑，不重新生成——原版就是靠「目录里已有文件就跳过」实现的。
+   */
+  fromDir?: string
 }
 
 export interface GenerateResult {
   ok: boolean
+  /** 本次实际执行的阶段（draft 时没有视频，只有 review.md） */
+  stage?: TeachingStage
+  /** 人审用的审阅稿（draft 阶段的主要交付物） */
+  reviewPath?: string
   videoPath?: string
   outlinePath?: string
   storyboardPath?: string
   outline?: TeachingOutline
   storyboard?: TeachingStoryboard
-  /** 元素重叠告警（不阻断，但如实回传） */
-  overlaps?: Array<{ section: string; pairs: Array<{ a: string; b: string; ratio: number }> }>
-  durationMs?: number
+  /**
+   * 画面布局的几何问题（重叠/出界/疑似伪数轴）。不阻断渲染，但如实回传——
+   * 它是质量信号，之前这里算的是不存在的 3×3 面板（见 `checkSectionLayout`）。
+   */
+  layoutIssues?: Array<{ section: string; issues: LayoutIssue[] }>
+  /**
+   * 画面规格的毛病（元素超量、被丢弃、步数不足）。
+   *
+   * 与 `layoutIssues` 分开：那个是**几何**问题（位置），这个是**内容**问题
+   * （模型想画的东西没画全）。两者都要如实回传，因为用户看到的是「少了一个标签」，
+   * 而日志里如果不写，就无从追查。
+   */
+  sceneIssues?: Array<{ section: string; issues: SceneIssue[] }>
+  /**
+   * 抽帧自检发现的画面问题（空白帧/碎屑/太小/偏角）。
+   *
+   * 这是第三层门禁：前两层看的是数据，查不出「元素画了但在画面里小到看不见」。
+   * 不阻断交付，但要如实回传——用户看到的「这片没讲清」往往就是这些问题。
+   */
+  frameIssues?: Array<{ section: string; issues: FrameIssue[] }>
+  /** **生成耗时**（不是视频时长）。字段名刻意写成 generationMs，避免与 videoSeconds 混淆 */
+  generationMs?: number
+  /** 成片时长（秒），由分镜的每节时长累加而来 */
+  videoSeconds?: number
+  /** 本次使用的结构模板与视觉风格（回传给模型/界面做说明） */
+  template?: { id: string; name: string }
+  visualStyle?: { id: string; name: string }
   error?: string
 }
 
@@ -118,10 +193,49 @@ export function extractJson(text: string): unknown {
   }
 }
 
-function safeDirName(topic: string): string {
-  const base = topic.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+/**
+ * 主题 → 安全的目录名。
+ *
+ * 非法字符换成 `-`、截断到 40 字、留时间戳避免同名覆盖。**空结果要兜底**：
+ * 主题全是被替换掉的字符时（如 `<>:"/\|?*`）会得到空串，直接拼进路径会变成
+ * `outputs/teaching-video/-2026-.../`，虽然能建但人看不懂。
+ */
+export function safeDirName(topic: string, now: Date = new Date()): string {
+  const base = topic
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    // 换行/制表符当空格处理，再压掉连续空白与首尾分隔符
+    .replace(/[\r\n\t\s]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '')
+  const stamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19)
   return `${base || 'teaching-video'}-${stamp}`
+}
+
+/**
+ * 记住用户给的时长（秒），跨阶段保留。
+ *
+ * 写在产物目录里而不是内存：draft 与 produce 是两次独立调用，进程内变量留不住；
+ * 原版也是靠「目录里有文件就复用」这条路径带过来的。
+ */
+const DURATION_HINT_FILE = '.duration-hint'
+
+function readDurationHint(outDir: string): number | null {
+  try {
+    const n = Number(fs.readFileSync(path.join(outDir, DURATION_HINT_FILE), 'utf8').trim())
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
+function writeDurationHint(outDir: string, seconds: number): void {
+  try {
+    fs.writeFileSync(path.join(outDir, DURATION_HINT_FILE), String(seconds), 'utf8')
+  } catch {
+    // 记不住时长只是降级（下次按 3 分钟），不该让生成失败
+  }
 }
 
 export function createTeachingVideoService(deps: TeachingVideoDeps) {
@@ -156,62 +270,226 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     const topic = input.topic?.trim()
     if (!topic) return { ok: false, error: '缺少知识点（topic）' }
 
+    const stage: TeachingStage = input.stage ?? 'produce'
     const maxRetries = Math.max(1, input.maxRetries ?? 3)
-    const outDir = path.join(deps.outputRoot(), safeDirName(topic))
+    // 复用上一轮目录：原版就是「文件已存在就跳过」，这里显式传目录，语义一致但更可控
+    const outDir = input.fromDir?.trim()
+      ? path.resolve(input.fromDir.trim())
+      : path.join(deps.outputRoot(), safeDirName(topic))
     fs.mkdirSync(outDir, { recursive: true })
 
-    // ---- 1. 大纲 ----
-    deps.onProgress?.({ stage: '大纲', percent: 5 })
-    const outlineRes = await askJson(
-      buildOutlinePrompt(topic, input.durationMinutes ?? 3),
-      'outline',
-      parseOutline,
-      maxRetries,
-    )
-    if (!outlineRes.ok) return { ok: false, error: `生成大纲失败：${outlineRes.error}` }
-    const outline = outlineRes.value
-    if (input.audience?.trim()) outline.targetAudience = input.audience.trim()
-    const outlinePath = path.join(outDir, 'outline.json')
-    fs.writeFileSync(outlinePath, JSON.stringify(outline, null, 2), 'utf8')
-    deps.log(`[teaching-video] 大纲完成：${outline.sections.length} 节`)
+    // ---- 0. 选结构模板与视觉风格（本地关键词优先，命中就不花 token）----
+    // 模板决定论证骨架：模型不用重新发明分节，token 与不确定性都降。
+    // 风格决定长什么样：与模板正交，同一个 compare 可以配黑板也可以配科技暗色。
+    const templateMatch = await pickTemplate(topic)
+    const visualStyle = pickStyle(topic)
 
-    // ---- 2. 分镜 ----
+    // ---- 1. 大纲（已有则直接读：draft → produce 不重复花 token）----
+    deps.onProgress?.({ stage: '大纲', percent: 5 })
+    const outlineFile = path.join(outDir, 'outline.json')
+    let outline: TeachingOutline
+    if (fs.existsSync(outlineFile)) {
+      const cached = parseOutline(JSON.parse(fs.readFileSync(outlineFile, 'utf8')))
+      if (cached) {
+        outline = cached
+        deps.log(`[teaching-video] 复用已有大纲：${outline.sections.length} 节`)
+      } else {
+        outline = (await askOutline())!
+      }
+    } else {
+      outline = (await askOutline())!
+    }
+    if (input.audience?.trim()) outline.targetAudience = input.audience.trim()
+
+    function pickStyle(topic: string) {
+      // 优先级：用户显式指定 > 关键词命中 > 模板推荐的第一套 > 默认
+      if (input.style) {
+        const explicit = getStyle(input.style)
+        if (explicit) {
+          deps.log(`[teaching-video] 风格由用户指定：${explicit.name}`)
+          return explicit
+        }
+        deps.log(`[teaching-video] 未知风格 "${input.style}"，按关键词选`)
+      }
+      const byKeyword = matchStyleByKeyword(topic)
+      // 关键词没命中时 matchStyleByKeyword 返回默认；这时再看模板推荐哪套
+      if (byKeyword === DEFAULT_STYLE && templateMatch.template.styles?.length) {
+        const preferred = getStyle(templateMatch.template.styles[0]!)
+        if (preferred) {
+          deps.log(`[teaching-video] 风格跟随模板推荐：${preferred.name}`)
+          return preferred
+        }
+      }
+      deps.log(`[teaching-video] 风格：${byKeyword.name}`)
+      return byKeyword
+    }
+
+    async function pickTemplate(topic: string): Promise<TemplateMatch> {
+      const local = matchTemplateByKeyword(topic)
+      if (local) {
+        deps.log(`[teaching-video] 模板命中关键词：${local.template.name}（${local.hits?.join('/')}）`)
+        return local
+      }
+      // 本地没命中才花一次模型调用；失败或说「都不合适」都退回 explain
+      try {
+        const raw = await deps.callLLM(
+          buildTemplateChoicePrompt(topic, input.durationMinutes),
+          'template_choice',
+        )
+        const parsed = extractJson(raw) as { template?: unknown } | null
+        const id = parsed && typeof parsed.template === 'string' ? parsed.template : null
+        const m = resolveTemplateChoice(id)
+        deps.log(`[teaching-video] 模板由模型选择：${m.template.name}（${m.reason}）`)
+        return m
+      } catch (err) {
+        deps.log(
+          `[teaching-video] 模板选择失败，用 explain 兜底：${err instanceof Error ? err.message : String(err)}`,
+        )
+        return resolveTemplateChoice(null)
+      }
+    }
+
+    async function askOutline(): Promise<TeachingOutline> {
+      const res = await askJson(
+        buildOutlinePrompt(topic, input.durationMinutes ?? 3, input.audience, templateMatch.template),
+        'outline',
+        parseOutline,
+        maxRetries,
+      )
+      if (!res.ok) throw new Error(`生成大纲失败：${res.error}`)
+      fs.writeFileSync(outlineFile, JSON.stringify(res.value, null, 2), 'utf8')
+      deps.log(`[teaching-video] 大纲完成：${res.value.sections.length} 节`)
+      return res.value
+    }
+
+    // ---- 2. 分镜（同样可复用）----
     deps.onProgress?.({ stage: '分镜', percent: 20 })
-    const boardRes = await askJson(
-      buildStoryboardPrompt(outline),
-      'storyboard',
-      parseStoryboard,
-      maxRetries,
-    )
-    if (!boardRes.ok) return { ok: false, error: `生成分镜失败：${boardRes.error}` }
-    const storyboard = boardRes.value
+    const storyboardFile = path.join(outDir, 'storyboard.json')
+    let storyboard: TeachingStoryboard
+    if (fs.existsSync(storyboardFile)) {
+      const cached = parseStoryboard(JSON.parse(fs.readFileSync(storyboardFile, 'utf8')))
+      if (cached) {
+        storyboard = cached
+        deps.log(`[teaching-video] 复用已有分镜：${storyboard.sections.length} 节`)
+      } else {
+        storyboard = await askStoryboard()
+      }
+    } else {
+      storyboard = await askStoryboard()
+    }
     // 时长对齐：模型给的分镜步数决定片上长度（每步 3 秒）。用户给的是期望值，
     // 这里按它压/放到接近——否则「1 分钟」会实际产出 100 秒（实测过）。
-    const targetSec = Math.round((input.durationMinutes ?? 3) * 60)
+    // 时长对齐：用户给的期望值优先；**没给就用上一轮记住的**，再没有才按 3 分钟。
+    // 回归：produce 第二次调用时模型没再传 durationMinutes，这里 `?? 3` 把用户的
+    // 「改成 5 分钟」悄悄打回 3 分钟（实测：用户明确要求 5 分钟，成片仍是 3:00）。
+    const rememberedSec = readDurationHint(outDir)
+    const targetSec =
+      typeof input.durationMinutes === 'number'
+        ? Math.round(input.durationMinutes * 60)
+        : (rememberedSec ?? 180)
+    if (typeof input.durationMinutes === 'number') writeDurationHint(outDir, targetSec)
     if (storyboard.sections.length > 0) {
       const perSection = Math.max(4, Math.floor(targetSec / storyboard.sections.length))
       for (const s of storyboard.sections) s.targetSeconds = perSection
+      if (Math.abs(totalSeconds(storyboard) - targetSec) > 30) {
+        deps.log(
+          `[teaching-video] 时长偏差：目标 ${targetSec}s，实际 ${totalSeconds(storyboard)}s（${storyboard.sections.length} 节 × ${perSection}s 下限所致）`,
+        )
+      }
     }
     const storyboardPath = path.join(outDir, 'storyboard.json')
     fs.writeFileSync(storyboardPath, JSON.stringify(storyboard, null, 2), 'utf8')
     deps.log(`[teaching-video] 分镜完成：${storyboard.sections.length} 节 / 约 ${totalSeconds(storyboard)} 秒`)
 
+    async function askStoryboard(): Promise<TeachingStoryboard> {
+      const res = await askJson(
+        buildStoryboardPrompt(outline),
+        'storyboard',
+        parseStoryboard,
+        maxRetries,
+      )
+      if (!res.ok) throw new Error(`生成分镜失败：${res.error}`)
+      return res.value
+    }
+
+    // ---- 落审阅稿：draft 阶段的**唯一交付物** ----
+    // 原版的草稿模式就是「先看分镜逻辑对不对」，不渲染。这里把它显式化：
+    // 产出一份人可读的 review.md，再决定要不要往下走。
+    const reviewPath = path.join(outDir, 'review.md')
+    fs.writeFileSync(reviewPath, buildReviewMarkdown(outline, storyboard), 'utf8')
+
+    if (stage === 'draft') {
+      return {
+        ok: true,
+        stage,
+        outline,
+        storyboard,
+        reviewPath,
+        outlinePath: outlineFile,
+        storyboardPath,
+        videoSeconds: totalSeconds(storyboard),
+        generationMs: Date.now() - startedAt,
+        template: { id: templateMatch.template.id, name: templateMatch.template.name },
+        visualStyle: { id: visualStyle.id, name: visualStyle.name },
+      }
+    }
+
     // ---- 3. 逐节画面（Code2Video 的 Coder 阶段）----
     deps.onProgress?.({ stage: '画面', percent: 40 })
     const sceneMode = input.sceneMode ?? deps.sceneMode ?? 'llm'
+    /** 画面规格的内容问题（元素超量/丢弃/步数不足），与几何重叠分开回传 */
+    const sceneIssues: Array<{ section: string; issues: SceneIssue[] }> = []
+    // revise 阶段只重做指定小节；其余节的已渲染 mp4 直接复用
+    const reviseSet =
+      stage === 'revise' && input.sectionIds?.length
+        ? new Set(input.sectionIds.filter((n) => Number.isInteger(n) && n >= 1))
+        : null
     if (sceneMode === 'llm') {
       const sceneRetries = Math.max(1, deps.sceneRetries ?? 2)
       for (let i = 0; i < storyboard.sections.length; i++) {
         const section = storyboard.sections[i]!
+        // revise 模式下，没点名的节保留已存的 scene（若有），不重新调模型
+        if (reviseSet && !reviseSet.has(i + 1) && section.scene?.length) {
+          deps.log(`[teaching-video] 第 ${i + 1} 节未指定重做，复用已存画面`)
+          continue
+        }
         const stepCount = Math.min(section.lectureLines.length, section.animations.length)
-        const prompt = buildSceneSpecPrompt(section)
+        // 模板的 example 只给第一节用：它是最标准的「好画面长什么样」，
+        // 给每一节都塞会让 prompt 多背几百 token，边际收益很低
+        const prompt = buildSceneSpecPrompt(
+          section,
+          i === 0 ? templateMatch.template.example : undefined,
+          {
+            name: visualStyle.name,
+            bg: visualStyle.theme.bg,
+            text: visualStyle.theme.text,
+            element: visualStyle.theme.element,
+            accent: visualStyle.theme.accent,
+          },
+        )
         let scene: SceneStep[] | null = null
+        let lastIssues: SceneIssue[] = []
         for (let attempt = 1; attempt <= sceneRetries; attempt++) {
           try {
             const raw = await deps.callLLM(prompt, 'scene_spec')
-            scene = parseSceneSpec(extractJson(raw), stepCount)
-            if (scene) break
-            deps.log(`[teaching-video] 第 ${i + 1} 节画面 JSON 不合格（第 ${attempt} 次）`)
+            const parsed = parseSceneSpec(extractJson(raw), stepCount)
+            if (parsed) {
+              // 元素超量是**硬门禁**：少一个元素就是画面缺一块，只能让模型重给。
+              // 其余问题（出界、步数不足、丢了个别不合格元素）降级放行并如实回告——
+              // 它们不会让这一节消失，但需要进质量报告。
+              const fatal = parsed.issues.filter((x) => x.kind === 'too_many_elements')
+              if (fatal.length === 0) {
+                scene = parsed.steps
+                lastIssues = parsed.issues
+                break
+              }
+              lastIssues = parsed.issues
+              deps.log(
+                `[teaching-video] 第 ${i + 1} 节元素超量（第 ${attempt} 次）: ${fatal.map((x) => x.detail).join('; ')}`,
+              )
+            } else {
+              deps.log(`[teaching-video] 第 ${i + 1} 节画面 JSON 不合格（第 ${attempt} 次）`)
+            }
           } catch (err) {
             deps.log(
               `[teaching-video] 第 ${i + 1} 节画面生成失败（第 ${attempt} 次）: ${err instanceof Error ? err.message : String(err)}`,
@@ -221,6 +499,9 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         // 拿不到结构化画面就退回模板——宁可画面朴素，也不要这一节消失
         // 模型给的坐标常撞在一起：先本地挪开，再交给渲染（见 declutterSteps）
         section.scene = scene ? declutterSteps(scene) : undefined
+        if (lastIssues.length > 0) {
+          sceneIssues.push({ section: section.title, issues: lastIssues })
+        }
         if (!scene) deps.log(`[teaching-video] 第 ${i + 1} 节退回模板渲染`)
         deps.onProgress?.({
           stage: '画面',
@@ -232,27 +513,33 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
 
     // ---- 4. 渲染 ----
     deps.onProgress?.({ stage: '渲染', percent: 72 })
+    // 画面（scene）随分镜一起落盘：revise 阶段要靠它跳过未点名的节
+    fs.writeFileSync(storyboardPath, JSON.stringify(storyboard, null, 2), 'utf8')
     const renderRes = await renderStoryboard(storyboard, {
       launchBrowser: deps.createBrowser,
       ffmpeg: deps.ffmpeg,
       outDir,
       log: deps.log,
+      style: visualStyle,
+      ...(reviseSet ? { onlySections: reviseSet } : {}),
     })
 
-    // 重叠统计：不管渲染成没成，都回传（它是质量信号，不是失败原因）
+    // 布局统计：不管渲染成没成，都回传（它是质量信号，不是失败原因）
     const { checkSectionLayout } = await import('./render-backend')
-    const overlaps = storyboard.sections
-      .map((s) => ({ section: s.title, pairs: checkSectionLayout(s) }))
-      .filter((o) => o.pairs.length > 0)
+    const layoutIssues = storyboard.sections
+      .map((s) => ({ section: s.title, issues: checkSectionLayout(s) }))
+      .filter((o) => o.issues.length > 0)
 
     if (!renderRes.ok) {
       return {
         ok: false,
-        outlinePath,
+        outlinePath: outlineFile,
         storyboardPath,
         outline,
         storyboard,
-        overlaps,
+        layoutIssues,
+        sceneIssues,
+        frameIssues: renderRes.frameIssues,
         error: renderRes.error,
       }
     }
@@ -261,12 +548,19 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     return {
       ok: true,
       videoPath: renderRes.videoPath,
-      outlinePath,
+      outlinePath: outlineFile,
       storyboardPath,
       outline,
       storyboard,
-      overlaps,
-      durationMs: Date.now() - startedAt,
+      layoutIssues,
+      sceneIssues,
+      frameIssues: renderRes.frameIssues,
+      // 两个量分开报：前者是这台机器跑这次生成花了多久，后者是成片本身的长度。
+      // 之前混用一个 durationMs，模型把它当视频时长汇报过一次（203592ms vs 实际 60s）。
+      generationMs: Date.now() - startedAt,
+      videoSeconds: totalSeconds(storyboard),
+      template: { id: templateMatch.template.id, name: templateMatch.template.name },
+      visualStyle: { id: visualStyle.id, name: visualStyle.name },
     }
   }
 

@@ -13,8 +13,23 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import katex from 'katex'
+
 import type { StoryboardSection, TeachingStoryboard } from './teaching-core'
-import { clampLectureLine, findOverlaps, type Box, type SceneElement, type SceneStep } from './teaching-core'
+import {
+  checkSceneLayout,
+  clampLectureLine,
+  findOverlaps,
+  type Box,
+  type LayoutIssue,
+  type Point,
+  type SceneElement,
+  type SceneStep,
+} from './teaching-core'
+import { DEFAULT_STYLE } from './styles/registry'
+import type { StyleTheme, VisualStyle } from './styles/types'
+import { checkFrame, type FrameIssue, type FrameStats } from './gates/frame-check'
+export type { VisualStyle, StyleTheme } from './styles/types'
 
 /** 画面尺寸（固定，ffmpeg 要求同尺寸才能 concat） */
 export const FRAME = { width: 1280, height: 720 } as const
@@ -26,22 +41,39 @@ const STEP_SECONDS = 3
 const LECTURE_RATIO = 0.3
 
 /**
+ * 右侧动画区的像素尺寸。
+ *
+ * SVG 元素（数轴、箭头、曲线）必须按**像素**画，不能按百分比坐标画再用
+ * `preserveAspectRatio="none"` 拉伸——后者 x/y 比例尺不同，会把文字压扁、
+ * 让刻度压到轴线上。所以各处 SVG 都按这个尺寸换算。
+ */
+const STAGE_PX = {
+  width: FRAME.width * (1 - LECTURE_RATIO),
+  height: FRAME.height,
+} as const
+
+/**
  * 由**结构化画面描述**生成 HTML（模型只出 JSON，HTML 由这里拼）。
  *
  * 为什么不直接让模型吐 HTML：单轮调用输出一整页 HTML 时，实测 10/10 次在
  * 80~120 秒后返回空；同一批次里只出 JSON 的调用 4~19 秒正常。这里把
  * 「描述画面」和「生成页面」分开，模型的输出量降一个数量级，页面由本地拼装。
  */
-export function buildSceneHtml(section: StoryboardSection, scene: SceneStep[]): string {
+export function buildSceneHtml(
+  section: StoryboardSection,
+  scene: SceneStep[],
+  theme: StyleTheme = DEFAULT_STYLE.theme,
+): string {
   const lines = section.lectureLines.map((l) => clampLectureLine(l))
   const secs = sectionSeconds(section)
   const perStep = secs / Math.max(1, scene.length)
 
+  // 编号样式：数字用 1/2/3，圆点用 ·——后者更接近「白板笔记」而不是「步骤清单」
   const lectureHtml = lines
-    .map(
-      (line, i) =>
-        `<li class="line" data-line="${i}"><span class="idx">${i + 1}</span><span class="txt">${escapeHtml(line)}</span></li>`,
-    )
+    .map((line, i) => {
+      const bullet = theme.bulletStyle === 'dot' ? '·' : String(i + 1)
+      return `<li class="line" data-line="${i}"><span class="idx">${bullet}</span><span class="txt">${escapeHtml(line)}</span></li>`
+    })
     .join('\n')
 
   // 每个元素带自己的出现时间（所在步的起点），渲染时按时间逐个亮起
@@ -69,26 +101,67 @@ export function buildSceneHtml(section: StoryboardSection, scene: SceneStep[]): 
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{width:${FRAME.width}px;height:${FRAME.height}px;overflow:hidden}
-  body{background:#000;color:#fff;display:flex;font-family:"Microsoft YaHei",system-ui,sans-serif}
-  #lecture{width:${LECTURE_RATIO * 100}%;padding:44px 22px 44px 36px;border-right:1px solid #1f2937}
-  #title{font-size:25px;font-weight:600;color:#93c5fd;line-height:1.35;margin-bottom:18px}
+  body{background:${theme.bg};color:${theme.text};display:flex;
+    font-family:${theme.fontFamily};
+    background-image:${theme.texture || 'none'};
+    background-size:${theme.texture.includes('linear-gradient') ? '24px 24px' : '7px 7px'}}
+  #lecture{width:${LECTURE_RATIO * 100}%;padding:44px 22px 44px 36px;
+    border-right:1px solid ${theme.divider};
+    background:${theme.lectureBg}}
+  #title{font-size:${theme.titleSize}px;font-weight:600;color:${theme.title};line-height:1.35;
+    margin-bottom:18px;
+    /* 标题同样单行：换行会把第一行讲义挤下去（实测「第三次握手：补齐客户端的确认」折了两行） */
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   ul{list-style:none;display:flex;flex-direction:column;gap:20px}
-  .line{display:flex;gap:11px;font-size:24px;line-height:1.5;color:#4b5563;
+  .line{display:flex;gap:11px;font-size:${theme.lectureSize}px;line-height:1.5;color:${theme.muted};
     transition:color 420ms ease,text-shadow 420ms ease}
-  .line.active{color:#fff;text-shadow:0 0 18px rgba(96,165,250,.55)}
-  .idx{flex:0 0 26px;height:26px;border-radius:50%;background:#1f2937;color:#6b7280;
+  /* 讲义**必须单行**：换行会挤掉下面几行、破坏左侧的阅读节奏（实测 TCP 那节
+     「客户端回 ACK：收到服务器序号」换行后与第 3 行贴在一起）。字符数截断在
+     中英混排下不可靠，交给 CSS 按实际宽度省略。 */
+  .line .txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .line .idx{flex:0 0 auto}
+
+  .line.active{color:${theme.text};text-shadow:${theme.glow}}
+  .line.active .txt{color:${theme.accent}}
+  .idx{flex:0 0 26px;height:26px;border-radius:${theme.radius > 4 ? '50%' : '4px'};
+    background:${theme.muted}33;color:${theme.muted};
     font-size:14px;display:flex;align-items:center;justify-content:center}
-  .line.active .idx{background:#2563eb;color:#fff}
+  .line.active .idx{background:${theme.accent};color:${theme.bg}}
   #stage{position:relative;flex:1}
   .el{position:absolute;opacity:0;transition:opacity 420ms ease,transform 420ms ease;
     transform:translateY(8px)}
   .el.on{opacity:1;transform:translateY(0)}
   .el-text,.el-formula{display:flex;align-items:center;justify-content:center;
-    font-size:26px;color:var(--c,#93c5fd);text-align:center;line-height:1.3}
-  .el-formula{font-size:32px;font-style:italic;letter-spacing:1px}
-  .el-rect{background:transparent;border:2px solid var(--c,#3b82f6);border-radius:6px}
-  .el-circle{border:2px solid var(--c,#86efac);border-radius:50%}
-  .el-line{height:0 !important;border-top:3px solid var(--c,#fca5a5)}
+    font-size:${theme.elementSize}px;color:var(--c,${theme.element});text-align:center;line-height:1.3}
+  .el-formula{font-size:${Math.round(theme.elementSize * 1.23)}px;font-style:italic;letter-spacing:1px}
+  .el-rect{background:transparent;border:${theme.strokeWidth}px solid var(--c,${theme.element});
+    border-radius:${theme.radius}px}
+  .el-circle{border:${theme.strokeWidth}px solid var(--c,${theme.element});border-radius:50%}
+  .el-line{height:0 !important;border-top:${theme.strokeWidth}px solid var(--c,${theme.element})}
+  .el-highlight{background:var(--c,${theme.accent});opacity:.14;border-radius:${theme.radius}px;
+    filter:blur(2px);box-shadow:0 0 0 2px var(--c,${theme.accent}) inset}
+  /* 数轴/曲线/箭头/括号都是内联 SVG，各自带像素宽高。
+     **不能再写 width:100% / inset:0**：那会把 SVG 拉伸到盒子里，
+     与 SVG 内部的像素坐标打架（实测刻度数字被压到轴线上）。 */
+  .el-axis,.el-curve,.el-arrow,.el-brace{display:block;overflow:visible}
+  .axis-svg,.curve-svg,.arrow-svg,.brace-svg{display:block;overflow:visible}
+  .el-table{display:flex;align-items:center;justify-content:center}
+  .tbl{border-collapse:collapse;font-size:${theme.elementSize - 7}px;color:${theme.text}}
+  .tbl th{padding:6px 14px;color:${theme.accent};font-weight:600;
+    border-bottom:2px solid ${theme.divider};white-space:nowrap}
+  .tbl td{padding:5px 14px;text-align:center;white-space:nowrap;
+    border-bottom:1px solid ${theme.divider}}
+  .tbl tr.hl td{background:${theme.accent}22;color:${theme.accent}}
+  .el-code{display:flex;flex-direction:column}
+  .clang{font-size:13px;color:${theme.muted};letter-spacing:1px;margin-bottom:5px;
+    text-transform:uppercase}
+  .code{font-family:"Cascadia Mono",Consolas,monospace;font-size:${theme.elementSize - 9}px;
+    line-height:1.55;color:${theme.text};white-space:pre;margin:0}
+  .cl{padding:0 8px;border-left:3px solid transparent}
+  .cl.hl{background:${theme.accent}22;border-left-color:${theme.accent};color:${theme.accent}}
+  .el-tex{display:flex;align-items:center;justify-content:center}
+  .el-tex math{font-size:${theme.texSize}px;color:var(--c,${theme.text})}
+  .tex-fallback{font-family:Consolas,monospace;font-size:20px;color:#fca5a5}
 </style></head><body>
 <div id="lecture"><div id="title">${escapeHtml(section.title)}</div><ul>${lectureHtml}</ul></div>
 <div id="stage">${elements.join('')}</div>
@@ -110,12 +183,202 @@ window.__seek(0);
 </script></body></html>`
 }
 
+/**
+ * 把一个元素渲染成 HTML 片段。
+ *
+ * 复杂图形（数轴、表格、曲线、箭头）都在这里用内联 SVG 画：SVG 能表达
+ * 绝对定位的线条与文字，且不依赖任何外部库，`capturePage` 照常能截。
+ */
 function renderElement(el: SceneElement, key: string): string {
-  if (el.kind === 'text' || el.kind === 'formula') return escapeHtml(el.content ?? '')
-  if (el.kind === 'rect') return ''
-  if (el.kind === 'circle') return ''
-  if (el.kind === 'line') return ''
-  return ''
+  switch (el.kind) {
+    case 'text':
+      return escapeHtml(el.content ?? '')
+    case 'formula':
+      return `<span class="formula">${escapeHtml(el.content ?? '')}</span>`
+    case 'tex':
+      return renderTex(el.tex ?? '')
+    case 'rect':
+    case 'circle':
+    case 'line':
+      // 形状靠 CSS 的 .el-<kind> 类画（背景/边框），这里不需要内容
+      return ''
+    case 'axis':
+      return renderAxis(el)
+    case 'table':
+      return renderTable(el)
+    case 'curve':
+      return renderCurve(el)
+    case 'code':
+      return renderCode(el)
+    case 'arrow':
+      return renderArrow(el)
+    case 'brace':
+      return renderBrace(el)
+    case 'highlight':
+      return ''
+    default:
+      return ''
+  }
+}
+
+/**
+ * KaTeX → MathML。
+ *
+ * 为什么走 `output: 'mathml'`：HTML 输出需要 20 个 woff2 字体文件（296KB），
+ * 而渲染是在隐藏 BrowserWindow 里跑 `data:` URL，没有可用的字体路径；
+ * MathML 由 Chromium 原生排版，**零字体文件**，输出也只有几百字节。
+ *
+ * 失败时退回显示原始 LaTeX（带等宽字体），至少用户能看到「这里本该有个公式」，
+ * 而不是一个空白元素。
+ */
+function renderTex(tex: string): string {
+  try {
+    return katex.renderToString(tex, { output: 'mathml', throwOnError: false, displayMode: false })
+  } catch {
+    return `<span class="tex-fallback">${escapeHtml(tex)}</span>`
+  }
+}
+
+/**
+ * 数轴：水平轴 + 刻度 + 标注。
+ *
+ * 这是「拿极扁 rect 当数轴」的正式替代——实测模型用 `w:80 h:8` 的 rect 画数轴，
+ * 渲染出来是个空心长框。这里用 SVG 画一条真正带刻度与数值的轴。
+ *
+ * **必须用像素坐标 + `width/height`，不能用 `viewBox="0 0 100 100"` +
+ * `preserveAspectRatio="none"`**：后者会把 SVG 非等比拉伸，文字跟着压扁，
+ * 且 `y` 的比例尺与 `x` 不一致会让刻度数字压在轴线上（实测第一次出的片就是
+ * 这样：13 个数字全被拉成横条贴在轴上）。
+ */
+function renderAxis(el: SceneElement): string {
+  const spec = el.axis
+  if (!spec) return ''
+  const color = el.color ?? '#93c5fd'
+  const marks = spec.marks ?? []
+  const span = spec.to - spec.from || 1
+  // 数轴所在盒子的实际像素尺寸（x/y/w/h 都是百分比，按右区实际大小换算）
+  const W = Math.max(60, Math.round((el.w ?? 80) * 0.01 * STAGE_PX.width))
+  const H = Math.max(40, Math.round((el.h ?? 14) * 0.01 * STAGE_PX.height))
+  const yAxis = Math.round(H * 0.42)
+  const toX = (v: number) => ((v - spec.from) / span) * W
+  const tickHalf = 5
+  const labelY = yAxis + tickHalf + 15
+
+  const parts: string[] = [
+    `<line x1="2" y1="${yAxis}" x2="${W - 2}" y2="${yAxis}" stroke="${color}" stroke-width="2"/>`,
+    `<path d="M ${W - 10} ${yAxis - 5} L ${W - 2} ${yAxis} L ${W - 10} ${yAxis + 5}" fill="none" stroke="${color}" stroke-width="2"/>`,
+    `<path d="M 10 ${yAxis - 5} L 2 ${yAxis} L 10 ${yAxis + 5}" fill="none" stroke="${color}" stroke-width="2"/>`,
+  ]
+  for (const m of marks) {
+    if (m < spec.from || m > spec.to) continue
+    const x = toX(m)
+    // 刻度线 + 数字分开画：数字在轴线**下方**，不压在线上
+    parts.push(
+      `<line x1="${x}" y1="${yAxis - tickHalf}" x2="${x}" y2="${yAxis + tickHalf}" stroke="${color}" stroke-width="1.5"/>`,
+      `<text x="${x}" y="${labelY}" text-anchor="middle" fill="${color}" font-size="15" font-family="Microsoft YaHei,system-ui,sans-serif">${m}</text>`,
+    )
+  }
+  return `<svg class="axis-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts.join('')}</svg>`
+}
+
+function renderTable(el: SceneElement): string {
+  const spec = el.table
+  if (!spec) return ''
+  const head = spec.headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('')
+  const body = spec.rows
+    .map((row, ri) => {
+      const cls = ri === spec.highlightRow ? ' class="hl"' : ''
+      return `<tr${cls}>${row.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`
+    })
+    .join('')
+  return `<table class="tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
+}
+
+/**
+ * 折线/曲线：模型 marching 给采样点，本地连成 SVG path。
+ *
+ * 采样点是 **0~100 的百分比**，这里换算成像素后按 `width/height` 画——
+ * 不拉伸 viewBox，否则线宽会被非等比缩放扭曲。
+ */
+function renderCurve(el: SceneElement): string {
+  const spec = el.curve
+  if (!spec || spec.points.length < 2) return ''
+  const color = el.color ?? '#fca5a5'
+  const W = Math.max(40, Math.round((el.w ?? 40) * 0.01 * STAGE_PX.width))
+  const H = Math.max(30, Math.round((el.h ?? 40) * 0.01 * STAGE_PX.height))
+  const px = (p: Point) => ({ x: (p.x / 100) * W, y: (p.y / 100) * H })
+  const pts = spec.points.map(px)
+  const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
+  const close = spec.closed ? ' Z' : ''
+  const fill = spec.closed ? ` fill="${color}" fill-opacity="0.18"` : ' fill="none"'
+  return `<svg class="curve-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path d="${d}${close}"${fill} stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/></svg>`
+}
+
+function renderCode(el: SceneElement): string {
+  const lines = (el.content ?? '').split('\n')
+  const hl = new Set(el.code?.hl ?? [])
+  const rows = lines
+    .map((l, i) => `<div class="cl${hl.has(i) ? ' hl' : ''}">${escapeHtml(l) || '&nbsp;'}</div>`)
+    .join('')
+  const label = el.code?.language ? `<div class="clang">${escapeHtml(el.code.language)}</div>` : ''
+  return `${label}<pre class="code">${rows}</pre>`
+}
+
+/**
+ * 箭头：从 `from` 指向元素自身的 x/y 位置（都是 0~100 的百分比）。
+ *
+ * 按对应盒子的像素尺寸画，箭头头部按**像素**定大小——若按百分比缩放，
+ * 细长的箭头会被拉成一条斜线、箭头头部变形。
+ */
+function renderArrow(el: SceneElement): string {
+  const from = el.from
+  if (!from) return ''
+  const color = el.color ?? '#fca5a5'
+  const to = { x: el.x ?? 30, y: el.y ?? 40 }
+  // 箭头占据两端点围成的包围盒（百分比 → 右区像素），外加一圈留白给箭头头部
+  const PAD = 12
+  const minX = Math.min(from.x, to.x)
+  const minY = Math.min(from.y, to.y)
+  const W = Math.max(30, Math.round((Math.abs(to.x - from.x) / 100) * STAGE_PX.width) + PAD * 2)
+  const H = Math.max(30, Math.round((Math.abs(to.y - from.y) / 100) * STAGE_PX.height) + PAD * 2)
+  // 局部坐标：包围盒左上角 + PAD
+  const local = (p: Point) => ({
+    x: ((p.x - minX) / 100) * STAGE_PX.width + PAD,
+    y: ((p.y - minY) / 100) * STAGE_PX.height + PAD,
+  })
+  const p1 = local(from)
+  const p2 = local(to)
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  const len = Math.hypot(dx, dy) || 1
+  const ux = dx / len
+  const uy = dy / len
+  const head = Math.min(10, len * 0.4)
+  const hx = p2.x - ux * head
+  const hy = p2.y - uy * head
+  const px = -uy * 4.5
+  const py = ux * 4.5
+  return `<svg class="arrow-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${hx.toFixed(1)}" y2="${hy.toFixed(1)}" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/><path d="M ${p2.x.toFixed(1)} ${p2.y.toFixed(1)} L ${(hx + px).toFixed(1)} ${(hy + py).toFixed(1)} M ${p2.x.toFixed(1)} ${p2.y.toFixed(1)} L ${(hx - px).toFixed(1)} ${(hy - py).toFixed(1)}" stroke="${color}" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>`
+}
+
+/**
+ * 花括号：把 `from` 到 `to` 之间的纵向范围括起来，尖端朝左。
+ *
+ * 用两段二次贝塞尔拼，避开手写路径的分段误差。
+ */
+function renderBrace(el: SceneElement): string {
+  const from = el.from
+  const to = el.to
+  if (!from || !to) return ''
+  const color = el.color ?? '#fde68a'
+  const topPct = Math.min(from.y, to.y)
+  const bottomPct = Math.max(from.y, to.y)
+  const H = Math.max(20, Math.round(((bottomPct - topPct) / 100) * STAGE_PX.height))
+  const W = 24
+  const mid = H / 2
+  const r = Math.min(6, H / 4)
+  const d = `M ${W} 0 Q ${W - r * 2} 0 ${W - r * 2} ${r} L ${W - r * 2} ${mid - r} Q ${W - r * 2} ${mid} 0 ${mid} Q ${W - r * 2} ${mid} ${W - r * 2} ${mid + r} L ${W - r * 2} ${H - r} Q ${W - r * 2} ${H} ${W} ${H}`
+  return `<svg class="brace-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path d="${d}" fill="none" stroke="${color}" stroke-width="2"/></svg>`
 }
 
 /**
@@ -128,7 +391,11 @@ function renderElement(el: SceneElement, key: string): string {
  * 关键设计：动画用 **CSS transition + 预先算好的绝对定位**，不用 requestAnimationFrame
  * 累计时间——后者在无头浏览器里会被节流，帧与帧之间跳变。
  */
-export function buildSectionHtml(section: StoryboardSection, totalSeconds?: number): string {
+export function buildSectionHtml(
+  section: StoryboardSection,
+  totalSeconds?: number,
+  theme: StyleTheme = DEFAULT_STYLE.theme,
+): string {
   const lines = section.lectureLines.map((l) => clampLectureLine(l))
   const steps = section.animations.slice(0, lines.length)
   const secs = totalSeconds ?? Math.max(6, steps.length * STEP_SECONDS)
@@ -176,13 +443,16 @@ export function buildSectionHtml(section: StoryboardSection, totalSeconds?: numb
     border-right: 1px solid #1f2937;
     display: flex; flex-direction: column; gap: 20px;
   }
-  #title { font-size: 26px; font-weight: 600; color: #93c5fd; line-height: 1.35; margin-bottom: 12px; }
+  #title { font-size: 24px; font-weight: 600; color: #93c5fd; line-height: 1.35; margin-bottom: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   ul { list-style: none; display: flex; flex-direction: column; gap: 22px; }
   .line {
-    display: flex; gap: 12px; align-items: flex-start;
-    font-size: 26px; line-height: 1.5; color: #4b5563;
+    display: flex; gap: 12px; align-items: center;
+    font-size: 24px; line-height: 1.5; color: #4b5563;
     transition: color 420ms ease, text-shadow 420ms ease;
   }
+  /* 同主模板：讲义强制单行，换行会挤乱左侧节奏 */
+  .line .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .line.active { color: #ffffff; text-shadow: 0 0 18px rgba(96,165,250,0.55); }
   .line.done { color: #9ca3af; }
   .idx {
@@ -287,9 +557,22 @@ export function panelBoxes(section: StoryboardSection): Array<{ id: string; box:
   return out
 }
 
-/** 这一节里元素是否互相遮挡（确定性 Critic 的入口） */
-export function checkSectionLayout(section: StoryboardSection): Array<{ a: string; b: string; ratio: number }> {
-  return findOverlaps(panelBoxes(section))
+/**
+ * 这一节的实际布局问题。
+ *
+ * **有结构化画面时检查真实元素，没有时才检查文字模板的面板。**
+ * 老实现无条件调 `panelBoxes`，而面板只在 `buildSectionHtml`（`section.scene`
+ * 为空）里存在——默认的 LLM 画面模式下这些面板根本不存在，等于一直在检查
+ * 一堆不存在的框，真实的元素重叠反而一次都没被报出来过。
+ */
+export function checkSectionLayout(section: StoryboardSection): LayoutIssue[] {
+  if (section.scene?.length) return checkSceneLayout(section.scene)
+  return findOverlaps(panelBoxes(section)).map((o) => ({
+    step: Number(o.a.replace(/\D/g, '')) - 1,
+    kind: 'overlap' as const,
+    detail: `${o.a} × ${o.b} 重叠 ${Math.round(o.ratio * 100)}%`,
+    indexes: [],
+  }))
 }
 
 /**
@@ -327,18 +610,36 @@ export interface RenderDeps {
   /** 输出目录（每节一个 .mp4） */
   outDir: string
   log: (msg: string) => void
+  /**
+   * 只渲染这些小节（1 起）；其余节复用目录里已有的 mp4。
+   *
+   * 对应原版「改几行坐标后只重渲那一小段」：`revise` 阶段不重跑整条，
+   * 避免为了一节的改动把另外几节也重渲一遍（每节 10~20 秒）。
+   */
+  onlySections?: ReadonlySet<number>
+  /** 视觉风格；缺省用默认（3B1B） */
+  style?: VisualStyle
 }
 
 /** 只取 drizzle 需要的最小面，便于单测造假对象 */
 export interface BrowserLike {
   renderSection: (html: string, outMp4: string, totalMs: number, fps: number) => Promise<void>
   close: () => Promise<void>
+  /**
+   * 上一次 `renderSection` 里抽检的帧统计（可选）。
+   *
+   * 抽帧自检需要看**像素**，而截图本来就在渲染循环里发生——顺手多算一次
+   * 统计比渲染完再重新解码 PNG 便宜得多。实现方没提供时门禁跳过这一层。
+   */
+  lastFrameSamples?: () => FrameStats[]
 }
 
 export interface RenderResult {
   ok: boolean
   videoPath?: string
   sectionVideos: string[]
+  /** 抽帧自检发现的画面问题（不阻断交付，但要如实回告） */
+  frameIssues?: Array<{ section: string; issues: FrameIssue[] }>
   error?: string
 }
 
@@ -355,13 +656,24 @@ export async function renderStoryboard(
   fs.mkdirSync(deps.outDir, { recursive: true })
   const browser = await deps.launchBrowser()
   const sectionVideos: string[] = []
+  const frameIssues: Array<{ section: string; issues: FrameIssue[] }> = []
   try {
     for (let i = 0; i < storyboard.sections.length; i++) {
       const section = storyboard.sections[i]!
+      const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+
+      // revise：没点名且已有成片的节直接复用，不重新渲染
+      if (deps.onlySections && !deps.onlySections.has(i + 1) && fs.existsSync(outMp4)) {
+        sectionVideos.push(outMp4)
+        deps.log(`[render] 第 ${i + 1} 节未指定重做，复用已有 mp4`)
+        continue
+      }
+
       // 优先用模型给的结构化画面；没有才退回纯文字模板
+      const theme = deps.style?.theme ?? DEFAULT_STYLE.theme
       const html = section.scene?.length
-        ? buildSceneHtml(section, section.scene)
-        : buildSectionHtml(section)
+        ? buildSceneHtml(section, section.scene, theme)
+        : buildSectionHtml(section, undefined, theme)
       const htmlPath = path.join(deps.outDir, `section_${i + 1}.html`)
       fs.writeFileSync(htmlPath, html, 'utf8')
 
@@ -369,15 +681,29 @@ export async function renderStoryboard(
       // 因为面板当前是文本块，轻微重叠仍可读。真正的判据在工具结果里如实回传。
       const overlaps = checkSectionLayout(section)
       if (overlaps.length > 0) {
-        deps.log(`[render] 第 ${i + 1} 节存在元素重叠: ${overlaps.map((o) => `${o.a}×${o.b}(${o.ratio})`).join(', ')}`)
+        deps.log(
+          `[render] 第 ${i + 1} 节布局问题: ${overlaps.map((o) => `[${o.kind}] ${o.detail}`).join('; ')}`,
+        )
       }
 
       const secs = sectionSeconds(section)
-      const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
       try {
         await browser.renderSection(html, outMp4, secs * 1000, 12)
         sectionVideos.push(outMp4)
         deps.log(`[render] 第 ${i + 1}/${storyboard.sections.length} 节完成`)
+
+        // 抽帧自检：像素是唯一证据。这一步不阻断交付，但问题必须回传——
+        // 前几层门禁看的是数据，查不出「画了但小到看不见」。
+        const samples = browser.lastFrameSamples?.()
+        if (samples?.length) {
+          const issues = samples.flatMap((s, fi) => checkFrame(s, fi))
+          if (issues.length > 0) {
+            frameIssues.push({ section: section.title, issues })
+            deps.log(
+              `[render] 第 ${i + 1} 节画面自检: ${issues.map((x) => `[${x.kind}] ${x.detail}`).join('; ')}`,
+            )
+          }
+        }
       } catch (err) {
         deps.log(`[render] 第 ${i + 1} 节失败: ${err instanceof Error ? err.message : String(err)}`)
       }
@@ -395,7 +721,7 @@ export async function renderStoryboard(
   if (!merged.ok) {
     return { ok: false, sectionVideos, error: `合成失败：${merged.error}` }
   }
-  return { ok: true, videoPath: finalPath, sectionVideos }
+  return { ok: true, videoPath: finalPath, sectionVideos, frameIssues }
 }
 
 /** ffmpeg concat 合成（同尺寸同编码，用 -c copy 直拼） */

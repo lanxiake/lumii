@@ -27,10 +27,8 @@ export type { SlowQuerySample, SlowQueryListener } from "./slow-query.js";
 
 export { ConversationRepo } from "./conversation-repo.js";
 export { ConversationSearchIndex } from "./conversation-search-index.js";
-export type { IndexedMessage } from "./conversation-search-index.js";
 export type {
   ConversationRow,
-  ConversationHit,
   MessageRow,
   PiMessage,
   PaginatedResult,
