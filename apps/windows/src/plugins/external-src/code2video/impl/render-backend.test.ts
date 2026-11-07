@@ -249,6 +249,18 @@ describe('buildSceneHtml 元素渲染', () => {
       expect(out).toContain('data-el="b"')
     })
 
+    // 回归：内联 opacity:0 的优先级高于 .el.on{opacity:1}，元素永远不显示
+    // （实测整片只有左侧讲义、右侧全空）
+    it('opacity 不写进内联样式（否则 .el.on 压不住）', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'a', x: 10, y: 10, w: 10, h: 10 }] },
+      ])
+      const tag = /<div class="el el-[^"]*"[^>]*style="([^"]*)"/.exec(out)?.[1] ?? ''
+      expect(tag).not.toContain('opacity')
+      expect(out).toMatch(/\.el\{[^}]*opacity:0/)
+      expect(out).toMatch(/\.el\.on\{[^}]*opacity:1/)
+    })
+
     it('没给 id 时按步号生成（等于只在该步出现）', () => {
       const out = html([
         { elements: [{ kind: 'rect', x: 10, y: 10, w: 20, h: 20 }] },

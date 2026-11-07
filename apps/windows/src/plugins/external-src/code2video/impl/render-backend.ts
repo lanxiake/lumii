@@ -143,7 +143,10 @@ export function buildSceneHtml(
     elements.push(
       `<div class="el el-${first.el.kind}" data-el="${escapeAttr(id)}"${
         hideAt !== null ? ` data-hide="${hideAt}"` : ''
-      } style="${initStyle};opacity:0">${body}</div>`,
+      // 初始 opacity 交给 CSS 的 `.el{opacity:0}`，**不要写进内联 style**：
+      // 内联样式的优先级高于类选择器，`.el.on{opacity:1}` 会被它压住，
+      // 元素永远不显示（实测整屏只有左侧讲义，右侧全空）
+      } style="${initStyle}">${body}</div>`,
     )
   }
 
