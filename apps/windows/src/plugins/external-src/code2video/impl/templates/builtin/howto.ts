@@ -55,6 +55,11 @@ export const howtoTemplate: TeachingTemplate = {
       kinds: ['rect', 'text', 'highlight'],
     },
   ],
+  roles: [
+    { id: 'screen', kind: 'rect', purpose: '示意界面' },
+    { id: 'cursor', kind: 'highlight', purpose: '当前这一步该点哪里' },
+    { id: 'tip', kind: 'text', purpose: '这一步的提示' },
+  ],
   example: {
     title: '怎么给应用设置代理',
     lectureLines: ['先打开设置页', '找到网络设置', '填入代理地址', '点保存后验证'],

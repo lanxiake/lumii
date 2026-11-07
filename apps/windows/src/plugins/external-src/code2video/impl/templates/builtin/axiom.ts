@@ -55,6 +55,11 @@ export const axiomTemplate: TeachingTemplate = {
       kinds: ['text', 'highlight', 'tex'],
     },
   ],
+  roles: [
+    { id: 'examples', kind: 'text', purpose: '几个具体例子' },
+    { id: 'def', kind: 'tex', purpose: '抽象出来的定义' },
+    { id: 'boundary', kind: 'table', purpose: '边界：什么算、什么不算' },
+  ],
   example: {
     title: '什么是质数',
     lectureLines: ['2、3、5、7 都是质数', '共同点：只能被 1 和自己整除', '定义写出来', '1 不算，因为它只有一个因数'],

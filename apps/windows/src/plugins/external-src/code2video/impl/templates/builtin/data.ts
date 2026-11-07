@@ -48,6 +48,10 @@ export const dataTemplate: TeachingTemplate = {
       kinds: ['text', 'tex', 'highlight'],
     },
   ],
+  roles: [
+    { id: 'table', kind: 'table', purpose: '数据表' },
+    { id: 'insight', kind: 'text', purpose: '从数据读出的结论' },
+  ],
   example: {
     title: '手机电量掉得快，到底是谁在吃电',
     lectureLines: ['一天掉 80% 的电', '屏幕占一半', '后台应用占三成', '其余是系统'],

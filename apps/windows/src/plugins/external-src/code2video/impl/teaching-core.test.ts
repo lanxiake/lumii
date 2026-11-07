@@ -6,6 +6,7 @@ import {
   buildSceneSpecPrompt,
   autoHideCovered,
   dedupeSameStep,
+  normalizeRoleIds,
   CROSS_STEP_OVERLAP_THRESHOLD,
   checkSceneLayout,
   declutterSteps,
@@ -285,6 +286,72 @@ describe('阈值一致性', () => {
   })
 })
 
+describe('normalizeRoleIds', () => {
+  const roles = [
+    { id: 'axis', kind: 'axis' },
+    { id: 'mover', kind: 'arrow' },
+    { id: 'expr', kind: 'tex' },
+  ]
+
+  it('名册里的 id 原样保留', () => {
+    const out = normalizeRoleIds(
+      [{ elements: [{ id: 'axis', kind: 'axis', x: 5, y: 40, w: 90, h: 14 }] }],
+      roles,
+    )
+    expect(out[0]!.elements[0]!.id).toBe('axis')
+  })
+
+  // 模型很可能写 triangle / box 这类名字，要归到名册里的角色
+  it('自造 id 按 kind 归到角色', () => {
+    const out = normalizeRoleIds(
+      [{ elements: [{ id: 'myarrow', kind: 'arrow', x: 10, y: 10, w: 20, h: 20 }] }],
+      roles,
+    )
+    expect(out[0]!.elements[0]!.id).toBe('mover')
+  })
+
+  it('同一个自造 id 在后续步归到同一个角色（保住跨步身份）', () => {
+    const out = normalizeRoleIds(
+      [
+        { elements: [{ id: 'myarrow', kind: 'arrow', x: 10, y: 10, w: 20, h: 20 }] },
+        { elements: [{ id: 'myarrow', kind: 'arrow', x: 50, y: 10, w: 20, h: 20 }] },
+      ],
+      roles,
+    )
+    expect(out[0]!.elements[0]!.id).toBe('mover')
+    expect(out[1]!.elements[0]!.id).toBe('mover')
+  })
+
+  it('同 kind 的角色用完时保留自造 id', () => {
+    const out = normalizeRoleIds(
+      [
+        {
+          elements: [
+            { id: 'a1', kind: 'tex', x: 10, y: 10, w: 20, h: 20 },
+            { id: 'a2', kind: 'tex', x: 40, y: 10, w: 20, h: 20 },
+          ],
+        },
+      ],
+      roles,
+    )
+    // 只有一个 tex 角色（expr），第二个保留自造 id
+    const ids = out[0]!.elements.map((e) => e.id)
+    expect(ids).toContain('expr')
+    expect(ids.some((x) => x && x !== 'expr')).toBe(true)
+  })
+
+  it('空名册时原样返回', () => {
+    const steps: SceneStep[] = [{ elements: [{ id: 'x', kind: 'rect', x: 1, y: 1, w: 1, h: 1 }] }]
+    expect(normalizeRoleIds(steps, [])[0]!.elements[0]!.id).toBe('x')
+  })
+
+  it('不修改入参', () => {
+    const steps: SceneStep[] = [{ elements: [{ id: 'myarrow', kind: 'arrow', x: 1, y: 1, w: 1, h: 1 }] }]
+    normalizeRoleIds(steps, roles)
+    expect(steps[0]!.elements[0]!.id).toBe('myarrow')
+  })
+})
+
 describe('dedupeSameStep', () => {
   // 实测：模型在同一坐标连画两个东西，「第 1 步第 1 与第 2 个元素重叠 100%」
   it('同一步内完全重合的只留一个', () => {
@@ -341,6 +408,37 @@ describe('autoHideCovered', () => {
       { elements: [{ id: 'b', kind: 'text', content: 'B', x: 70, y: 70, w: 20, h: 10 }] },
     ])
     expect(steps[0]!.elements[0]!.until).toBeUndefined()
+  })
+
+  // 回归：until 至少要等于元素自己出现的步，否则它一次都不显示（实测整屏空白）
+  it('第 1 步出现的元素被第 2 步盖住时，until 不小于它自己的步', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ])
+    // from=0, si=1 → max(0, 0) = 0，语义是「显示到第 0 步结束」= 至少显示过一次
+    expect(steps[0]!.elements[0]!.until).toBe(0)
+  })
+
+  it('until=0 能被解析保留（只显示第 0 步）', () => {
+    const s = parseSceneSpec(
+      { steps: [{ elements: [{ kind: 'text', content: 'x', until: 0 }] }] },
+      1,
+    )
+    expect(s?.steps[0]?.elements[0]?.until).toBe(0)
+  })
+
+  it('until=1 且元素在第 2 步出现时不会被丢掉', () => {
+    const s = parseSceneSpec(
+      {
+        steps: [
+          { elements: [{ kind: 'text', content: 'a' }] },
+          { elements: [{ kind: 'text', content: 'b', until: 1 }] },
+        ],
+      },
+      2,
+    )
+    expect(s?.steps[1]?.elements[0]?.until).toBe(1)
   })
 
   it('只盖住一部分时不自动删（可能是故意的标签放在形状上）', () => {

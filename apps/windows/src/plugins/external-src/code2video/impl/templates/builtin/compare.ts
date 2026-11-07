@@ -49,6 +49,12 @@ export const compareTemplate: TeachingTemplate = {
       kinds: ['tex', 'brace', 'table'],
     },
   ],
+  roles: [
+    { id: 'axis', kind: 'axis', purpose: '两边共用的坐标轴，只在第 1 步出现一次' },
+    { id: 'expr', kind: 'tex', purpose: '当前讨论的式子，跨步只改内容' },
+    { id: 'mover', kind: 'arrow', purpose: '代表「怎么走」的箭头，同一个箭头翻来翻去' },
+    { id: 'verdict', kind: 'text', purpose: '这一步得出的结论' },
+  ],
   example: {
     title: '3×(-2) 与 (-3)×(-2) 的对比',
     lectureLines: ['3×2：向右走 3 趟', '3×(-2)：步长翻向左', '(-3)×(-2)：趟数也翻', '两次翻转回到正向'],

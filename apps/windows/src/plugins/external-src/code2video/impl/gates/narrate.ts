@@ -151,11 +151,13 @@ export async function probeMediaDurationMs(
   filePath: string,
   ffmpeg: { resolve: () => Promise<string | null>; run: (a: readonly string[], o?: { timeoutMs?: number }) => Promise<{ ok: boolean; stderr: string }> },
 ): Promise<number | null> {
+  // WAV 直接读头，比起一个 ffmpeg 进程快一个数量级
   try {
-    // WAV 直接读头，比起一个 ffmpeg 进程快一个数量级
     const buf = readFileSync(filePath)
     const wavMs = probeWavDurationMs(buf)
     if (wavMs !== null && wavMs > 0) return wavMs
+    // 不是 WAV（多半是 mp3）→ 继续往下走 ffmpeg，**不要在这里 return null**
+    // （初版就是在这里提前返回，导致所有 mp3 都探测失败、时长按字数估成十几分钟）
   } catch {
     return null
   }

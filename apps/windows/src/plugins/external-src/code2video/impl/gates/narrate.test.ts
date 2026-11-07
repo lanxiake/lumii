@@ -64,6 +64,13 @@ describe('probeWavDurationMs', () => {
 })
 
 describe('stepDurationsFromCues', () => {
+  // 单位是毫秒——调用方必须自己除以 1000 再赋给 stepSeconds。
+  // 实测漏除导致一节算出 13720 秒（3.8 小时），渲染了 8000+ 帧。
+  it('返回值是毫秒', () => {
+    const d = stepDurationsFromCues([{ step: 0, text: 'a', startMs: 0, endMs: 3000 }], 1)
+    expect(d[0]).toBe(3000) // 不是 3
+  })
+
   it('按语音时长分配每一步', () => {
     const d = stepDurationsFromCues(
       [

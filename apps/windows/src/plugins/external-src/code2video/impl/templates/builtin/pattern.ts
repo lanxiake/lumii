@@ -56,6 +56,10 @@ export const patternTemplate: TeachingTemplate = {
       kinds: ['brace', 'tex', 'highlight'],
     },
   ],
+  roles: [
+    { id: 'table', kind: 'table', purpose: '逐行填数据的表格' },
+    { id: 'rule', kind: 'tex', purpose: '从数据里看出来的规律' },
+  ],
   example: {
     title: '从 (-3)×3 推到 (-3)×(-1) 找规律',
     lectureLines: ['(-3)×3 = -9', '乘数每减 1，结果加 3', '推到乘数 0 得 0', '再减 1 得 +3', '所以 (-3)×(-1)=+3'],

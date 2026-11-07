@@ -566,7 +566,10 @@ function parseSceneElement(e: unknown, step: number, index: number): SceneElemen
   const base: SceneElement = {
     kind,
     id,
-    ...(untilRaw !== null && untilRaw > step ? { until: Math.floor(untilRaw) } : {}),
+    // **`until` 只要给了就保留**，包括 `until === step`（只显示这一步）和
+    // `until === 0`（第 0 步就退场）。初版写成 `untilRaw > step` 才收，
+    // 于是「只在这一步显示」被当成没给——元素永远不消失，整屏重叠。
+    ...(untilRaw !== null && untilRaw >= 0 ? { until: Math.floor(untilRaw) } : {}),
     ...(content ? { content } : {}),
     ...(color ? { color } : {}),
     x: num(e.x, 30),
@@ -849,6 +852,56 @@ export function dedupeSameStep(steps: readonly SceneStep[], sameThreshold = 0.95
 }
 
 /**
+ * 把模型自造的 id 归到模板规定的角色上。
+ *
+ * 名册在提示词里给了，但模型仍可能写 `tri1` / `triangle` 这类名字。
+ * 直接丢弃会让画面少东西，不丢弃又破坏了「同一对象跨步复用」。
+ *
+ * 归并规则（确定性）：
+ * 1. id 已经在名册里 → 原样保留
+ * 2. 不在名册里 → 找**同 kind 且还没被用掉**的角色，把 id 改成它
+ * 3. 同 kind 的角色都用掉了 → 保留原 id（等于这一步多了一个临时对象）
+ *
+ * 之所以按 kind 归：`rect` 的对象被模型叫成 `box` 还是 `square` 无所谓，
+ * 它要表达的都是「一个方块」。而 kind 不同的对象语义不同，不能混。
+ */
+export function normalizeRoleIds(
+  steps: readonly SceneStep[],
+  roles: ReadonlyArray<{ id: string; kind: string }>,
+): SceneStep[] {
+  if (roles.length === 0) return steps.map((s) => ({ elements: s.elements.map((e) => ({ ...e })) }))
+  const known = new Set(roles.map((r) => r.id))
+  const byKind = new Map<string, string[]>()
+  for (const r of roles) {
+    const list = byKind.get(r.kind) ?? []
+    list.push(r.id)
+    byKind.set(r.kind, list)
+  }
+  /** 已被用掉的角色（按出现顺序分配，保证稳定） */
+  const used = new Set<string>()
+  /** 自造 id → 归到的角色（同一个自造 id 在后续步要归到同一个角色） */
+  const remap = new Map<string, string>()
+
+  return steps.map((step) => ({
+    elements: step.elements.map((el) => {
+      const id = el.id ?? ''
+      if (known.has(id)) {
+        used.add(id)
+        return { ...el }
+      }
+      const cached = remap.get(id)
+      if (cached) return { ...el, id: cached }
+      const candidates = byKind.get(el.kind) ?? []
+      const free = candidates.find((c) => !used.has(c))
+      if (!free) return { ...el }
+      used.add(free)
+      remap.set(id, free)
+      return { ...el, id: free }
+    }),
+  }))
+}
+
+/**
  * 自动给元素补 `until`：被后来者**完全覆盖**的元素自动退场。 *
  * ## 为什么不让模型自己写 until
  *
@@ -894,7 +947,10 @@ export function autoHideCovered(steps: readonly SceneStep[], coverThreshold = CR
           { x: cur.x ?? 30, y: cur.y ?? 40, w: cur.w ?? 24, h: cur.h ?? 14 },
         )
         if (ratio >= coverThreshold) {
-          // 在「被盖住」的前一步退场
+          // 在「被盖住」的前一步退场。
+          // **下限是它自己出现的步**：`si - 1` 在 si=1 时得 0，那是「第 0 步结束就消失」，
+          // 也就是这个元素一次都没显示过（实测整屏空白）。
+          // `until = from` 的语义是「显示到它出现的那一步结束」。
           old.until = Math.max(from, si - 1)
         }
       }
@@ -1026,6 +1082,14 @@ export function buildSceneSpecPrompt(
   example?: { title: string; lectureLines: string[]; scene: SceneStep[] },
   /** 当前视觉风格；给了就把它的配色写进提示词，避免模型给的元素颜色与底冲突 */
   palette?: { name: string; bg: string; text: string; element: string; accent: string },
+  /**
+   * 模板规定的**对象名册**。
+   *
+   * 给了它，模型就只能用这几个 id——元素身份由模板决定，模型只填每步的位置。
+   * 这是唯一可靠的做法：实测让模型自己起 id，提示词说了、门禁打回三次，
+   * 它每一版都还是每步重新画。
+   */
+  roles?: ReadonlyArray<{ id: string; kind: string; purpose: string }>,
 ): string {
   const exampleBlock = example
     ? `\n## 样例（同模板的一节真实成品，照着这个密度和元素选择来）
@@ -1046,12 +1110,26 @@ ${JSON.stringify({ steps: example.scene })}
 要区分多个元素时，在 ${palette.element} / ${palette.accent} 以及它们更亮/更暗的变体里挑。
 `
     : ''
+  // 名册是这一版最重要的约束：id 由模板定死，模型只填位置
+  const rolesBlock = roles?.length
+    ? `
+## 这一版只有这几个对象（id 必须原样用）
+
+${roles.map((r) => `- **${r.id}**（${r.kind}）：${r.purpose}`).join('\n')}
+
+规则：
+1. 只能出现上面这几个 id，**不要自己发明新的**。
+2. 同一个 id 出现在多个步 = 那个东西在动。位置/内容变化，id 不变。
+3. 某一步不需要某个对象 → 那一步就别列它（它会在那一步之后消失）。
+4. 每一步最多 ${LIMITS.maxElementsPerStep} 个对象。
+`
+    : ''
   return `你在为一段教学动画设计每一帧的画面布局。只输出 JSON，不要解释。
 
 小节：${section.title}
 讲义行：${JSON.stringify(section.lectureLines)}
 动画步骤：${JSON.stringify(section.animations)}
-${exampleBlock}${paletteBlock}
+${exampleBlock}${paletteBlock}${rolesBlock}
 右侧动画区是一个坐标系：x/y 是元素**左上角**在右区里的百分比（0~100），w/h 是宽高百分比。
 每个动画步骤一组元素，元素逐个按出现顺序摆放，**不要互相重叠**。
 

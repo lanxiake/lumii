@@ -56,6 +56,13 @@ export const deriveTemplate: TeachingTemplate = {
       kinds: ['tex', 'brace', 'highlight'],
     },
   ],
+  roles: [
+    { id: 'line1', kind: 'tex', purpose: '推导的第 1 行（起点）' },
+    { id: 'line2', kind: 'tex', purpose: '推导的第 2 行（这一步改了什么）' },
+    { id: 'line3', kind: 'tex', purpose: '推导的第 3 行（关键步骤）' },
+    { id: 'result', kind: 'tex', purpose: '最后落到的结论' },
+    { id: 'mark', kind: 'highlight', purpose: '这一步改动的部分' },
+  ],
   example: {
     title: '推导一元二次方程的求根公式',
     lectureLines: ['从 ax²+bx+c=0 出发', '先除以 a', '配方：凑成完全平方', '开方', '移项得到求根公式'],

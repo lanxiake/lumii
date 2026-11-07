@@ -902,24 +902,27 @@ export async function addNarration(
   // 每句音频各自一个输入
   for (const c of withAudio) args.push('-i', c.audioPath!)
 
-  // 视频：烧字幕
+  // 字幕滤镜。**必须并进 -filter_complex**：ffmpeg 不允许 -vf 与 -filter_complex
+  // 同时出现（-vf 会自己建一个 filtergraph，两者冲突 → 整个命令报错）。
+  // 实测就是这里导致 5 节全部「配音合成失败，保留无声版」。
   const srtArg = opts.srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")
-  args.push('-vf', `subtitles='${srtArg}'`)
+  const filters: string[] = [`[0:v]subtitles='${srtArg}'[vout]`]
 
   if (withAudio.length > 0) {
     // 每句按开始时间延迟，再全部混成一条
-    const filters: string[] = []
     withAudio.forEach((c, i) => {
       // 输入 0 是视频，音频从 1 开始
       filters.push(`[${i + 1}:a]adelay=${Math.round(c.startMs)}|${Math.round(c.startMs)}[a${i}]`)
     })
     const mixInputs = withAudio.map((_, i) => `[a${i}]`).join('')
-    // normalize=0：避免多句叠加时整体音量被压得听不清
-    filters.push(`${mixInputs}amix=inputs=${withAudio.length}:normalize=0[aout]`)
-    args.push('-filter_complex', filters.join(';'), '-map', '0:v', '-map', '[aout]')
+    // 不用 `normalize=0`：包里那份 ffmpeg 是 2018 年的 N-92722，`amix` 还没有这个选项
+    // （实测 `Option 'normalize' not found` → 整条命令失败 → 全部退回无声版）。
+    // 句与句本来就不重叠（各自延时到不同时间点），归一化本来也不该生效。
+    filters.push(`${mixInputs}amix=inputs=${withAudio.length}:duration=longest[aout]`)
+    args.push('-filter_complex', filters.join(';'), '-map', '[vout]', '-map', '[aout]')
     args.push('-c:a', 'aac', '-b:a', '128k')
   } else {
-    args.push('-c:a', 'aac', '-b:a', '128k')
+    args.push('-filter_complex', filters.join(';'), '-map', '[vout]')
   }
 
   args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '23')

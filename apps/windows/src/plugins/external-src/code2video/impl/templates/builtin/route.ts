@@ -57,6 +57,12 @@ export const routeTemplate: TeachingTemplate = {
       kinds: ['arrow', 'brace', 'text'],
     },
   ],
+  roles: [
+    { id: 'start', kind: 'circle', purpose: '判断的起点' },
+    { id: 'branchA', kind: 'arrow', purpose: '满足条件走这条' },
+    { id: 'branchB', kind: 'arrow', purpose: '不满足走这条' },
+    { id: 'label', kind: 'text', purpose: '判据文字' },
+  ],
   example: {
     title: '技术选型：该用队列还是直接调用',
     lectureLines: ['先看要不要立即拿到结果', '要结果 → 直接调用', '不要 → 考虑队列', '再看失败能不能重试'],

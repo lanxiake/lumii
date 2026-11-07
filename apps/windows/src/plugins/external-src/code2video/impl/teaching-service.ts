@@ -23,6 +23,7 @@ import {
   buildStoryboardPrompt,
   autoHideCovered,
   dedupeSameStep,
+  normalizeRoleIds,
   checkSceneLayout,
   parseOutline,
   declutterSteps,
@@ -486,6 +487,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
             element: visualStyle.theme.element,
             accent: visualStyle.theme.accent,
           },
+          templateMatch.template.roles,
         )
         let scene: SceneStep[] | null = null
         let lastIssues: SceneIssue[] = []
@@ -499,13 +501,12 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
             )
             const parsed = parseSceneSpec(extractJson(raw), stepCount)
             if (parsed) {
-              // 先本地自动处理两件事：
-              // 1. 同一步内的重复元素去重（完全重合只可能是重复，不是设计）
-              // 2. 被后来者完全盖住的旧元素自动退场
-              //
-              // 这两件都**不能**指望模型做——实测提示词说了、门禁打回三次，
-              // 它每一版都还是同一个毛病。几何上能判死的问题就在本地判死。
-              const cleaned = autoHideCovered(dedupeSameStep(parsed.steps))
+              // 先本地做三件事，都不是模型擅长的：
+              // 1. 把自造 id 归到模板规定的角色上（身份由模板定，不由模型定）
+              // 2. 同一步内的重复元素去重
+              // 3. 被后来者盖住一半以上的旧元素自动退场
+              const roles = templateMatch.template.roles ?? []
+              const cleaned = autoHideCovered(dedupeSameStep(normalizeRoleIds(parsed.steps, roles)))
               // 硬门禁只剩三类：元素超量、跨步重叠、出界。
               // **阈值必须与 autoHideCovered 一致（0.55）**：否则 0.35~0.55 之间的
               // 重叠既不会被自动清理、又会被门禁判失败，每一版都卡死在这里
@@ -582,9 +583,11 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         }
         sectionCues.push({ section, cues: res.cues, totalMs: res.totalMs })
         // 按语音时长重排每一步，让画面跟着话走
-        const perStep = stepDurationsFromCues(res.cues, section.scene?.length ?? section.animations.length)
-        section.stepSeconds = perStep
-        section.targetSeconds = perStep.reduce((a, b) => a + b, 0)
+        const perStepMs = stepDurationsFromCues(res.cues, section.scene?.length ?? section.animations.length)
+        // **单位**：stepDurationsFromCues 返回毫秒，stepSeconds 是秒。
+        // 不除 1000 会让 3 秒的句子变成 3000 秒（实测：一节 13720 秒 = 3.8 小时）
+        section.stepSeconds = perStepMs.map((ms) => ms / 1000)
+        section.targetSeconds = section.stepSeconds.reduce((a, b) => a + b, 0)
       }
       for (const issue of sectionCues.flatMap((s) => s.cues)) {
         if (!issue.audioPath) deps.log(`[teaching-video] 第 ${issue.step + 1} 句无音频，画面按估算时长走`)

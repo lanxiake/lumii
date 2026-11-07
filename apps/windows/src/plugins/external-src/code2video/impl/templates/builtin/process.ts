@@ -56,6 +56,12 @@ export const processTemplate: TeachingTemplate = {
       kinds: ['brace', 'text', 'code'],
     },
   ],
+  roles: [
+    { id: 'a', kind: 'rect', purpose: '发起方' },
+    { id: 'b', kind: 'rect', purpose: '接收方' },
+    { id: 'msg', kind: 'arrow', purpose: '当前这一步传递的消息' },
+    { id: 'label', kind: 'text', purpose: '这一步的消息名' },
+  ],
   example: {
     title: 'TCP 三次握手',
     lectureLines: ['客户端先发 SYN', '服务器回 SYN+ACK', '客户端再发 ACK', '三次之后才开始传数据'],

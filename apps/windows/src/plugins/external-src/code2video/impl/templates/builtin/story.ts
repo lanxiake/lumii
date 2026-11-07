@@ -55,6 +55,11 @@ export const storyTemplate: TeachingTemplate = {
       kinds: ['text', 'highlight', 'tex'],
     },
   ],
+  roles: [
+    { id: 'subject', kind: 'text', purpose: '主角/对象的名字' },
+    { id: 'state', kind: 'rect', purpose: '当前处境' },
+    { id: 'turn', kind: 'highlight', purpose: '转折点' },
+  ],
   example: {
     title: '一家小店的库存是怎么压垮现金流的',
     lectureLines: ['起初只有 20 个 SKU', '卖得好的被追单', '库存涨到 200 个 SKU', '现金全压在货上'],

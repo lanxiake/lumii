@@ -43,6 +43,31 @@ describe('模板库完整性', () => {
       expect(t.sections.some((s) => s.role === 'hold')).toBe(true)
     }
   })
+
+  /**
+   * roles 是「动画而非幻灯片」的唯一可靠保证：对象身份由模板定死，
+   * 模型只填位置。缺了它，模型就会每步重新画（实测过三次）。
+   */
+  it.each(TEMPLATES.map((t) => [t.id, t] as const))('%s 有对象名册且 id 唯一', (_id, t) => {
+    expect(t.roles?.length).toBeGreaterThanOrEqual(2)
+    const ids = (t.roles ?? []).map((r) => r.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const r of t.roles ?? []) {
+      expect(r.id.length).toBeGreaterThan(0)
+      expect(r.kind.length).toBeGreaterThan(0)
+      expect(r.purpose.length).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  // 名册里的 kind 必须是渲染器认识的
+  it.each(TEMPLATES.map((t) => [t.id, t] as const))('%s 的 roles kind 都是合法元素类型', (_id, t) => {
+    const VALID = new Set([
+      'text', 'rect', 'circle', 'line', 'formula', 'tex', 'axis', 'arrow', 'table', 'brace', 'curve', 'code', 'highlight',
+    ])
+    for (const r of t.roles ?? []) {
+      expect(VALID.has(r.kind)).toBe(true)
+    }
+  })
 })
 
 describe('模板 example 能真的渲染', () => {
