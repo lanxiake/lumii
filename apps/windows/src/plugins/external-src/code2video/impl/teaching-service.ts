@@ -31,6 +31,12 @@ import {
   type SceneStep,
   type TeachingStoryboard,
 } from './teaching-core'
+import {
+  buildTemplateChoicePrompt,
+  matchTemplateByKeyword,
+  resolveTemplateChoice,
+  type TemplateMatch,
+} from './templates/registry'
 
 export interface TeachingVideoDeps {
   callLLM: (prompt: string, purpose: string) => Promise<string>
@@ -251,6 +257,10 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       : path.join(deps.outputRoot(), safeDirName(topic))
     fs.mkdirSync(outDir, { recursive: true })
 
+    // ---- 0. 选结构模板（本地关键词优先，命中就不花 token）----
+    // 模板决定论证骨架：模型不用重新发明分节，token 与不确定性都降。
+    const templateMatch = await pickTemplate(topic)
+
     // ---- 1. 大纲（已有则直接读：draft → produce 不重复花 token）----
     deps.onProgress?.({ stage: '大纲', percent: 5 })
     const outlineFile = path.join(outDir, 'outline.json')
@@ -268,9 +278,34 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     }
     if (input.audience?.trim()) outline.targetAudience = input.audience.trim()
 
+    async function pickTemplate(topic: string): Promise<TemplateMatch> {
+      const local = matchTemplateByKeyword(topic)
+      if (local) {
+        deps.log(`[teaching-video] 模板命中关键词：${local.template.name}（${local.hits?.join('/')}）`)
+        return local
+      }
+      // 本地没命中才花一次模型调用；失败或说「都不合适」都退回 explain
+      try {
+        const raw = await deps.callLLM(
+          buildTemplateChoicePrompt(topic, input.durationMinutes),
+          'template_choice',
+        )
+        const parsed = extractJson(raw) as { template?: unknown } | null
+        const id = parsed && typeof parsed.template === 'string' ? parsed.template : null
+        const m = resolveTemplateChoice(id)
+        deps.log(`[teaching-video] 模板由模型选择：${m.template.name}（${m.reason}）`)
+        return m
+      } catch (err) {
+        deps.log(
+          `[teaching-video] 模板选择失败，用 explain 兜底：${err instanceof Error ? err.message : String(err)}`,
+        )
+        return resolveTemplateChoice(null)
+      }
+    }
+
     async function askOutline(): Promise<TeachingOutline> {
       const res = await askJson(
-        buildOutlinePrompt(topic, input.durationMinutes ?? 3, input.audience),
+        buildOutlinePrompt(topic, input.durationMinutes ?? 3, input.audience, templateMatch.template),
         'outline',
         parseOutline,
         maxRetries,
@@ -371,7 +406,9 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
           continue
         }
         const stepCount = Math.min(section.lectureLines.length, section.animations.length)
-        const prompt = buildSceneSpecPrompt(section)
+        // 模板的 example 只给第一节用：它是最标准的「好画面长什么样」，
+        // 给每一节都塞会让 prompt 多背几百 token，边际收益很低
+        const prompt = buildSceneSpecPrompt(section, i === 0 ? templateMatch.template.example : undefined)
         let scene: SceneStep[] | null = null
         let lastIssues: SceneIssue[] = []
         for (let attempt = 1; attempt <= sceneRetries; attempt++) {

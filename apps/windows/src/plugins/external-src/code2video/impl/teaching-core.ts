@@ -160,17 +160,39 @@ export function buildOutlinePrompt(
   topic: string,
   durationMinutes = 3,
   audience?: string,
+  /** 结构模板的骨架；有它时按骨架生成，没有才自由发挥 */
+  template?: { name: string; sections: Array<{ titleHint: string; lectureHints: string[]; sceneHint: string }> },
 ): string {
   // 受众必须进提示词：只在大纲生成后覆盖 targetAudience 字段，等于「标签写对了、
   // 内容仍按模型自己猜的受众写」（实测：要求初中生，模型按高中学生写了整份大纲）。
   const audienceLine = audience?.trim()
     ? `目标受众：${audience.trim()}（按这个水平组织内容：已掌握什么、哪些概念需要先补）`
     : '目标受众：由你判断，并在输出里说明理由'
+
+  // 有模板时给骨架：模型不用重新发明分节，只填内容。这一条同时降低 token 与
+  // 「同主题两次跑出完全不同结构」的不确定性。
+  const skeleton = template
+    ? `## 结构模板：${template.name}
+
+按下面的骨架分节（**节数固定**，顺序固定；把 {…} 占位符换成这个主题的实内容）：
+
+${template.sections
+  .map(
+    (s, i) =>
+      `${i + 1}. ${s.titleHint}\n` +
+      s.lectureHints.map((l) => `   - 讲义：${l}`).join('\n') +
+      `\n   - 画面对应：${s.sceneHint}`,
+  )
+  .join('\n\n')}
+
+每节的 content 字段写清「这一节把哪个问题讲明白了」，不要照抄上面的骨架文字。`
+    : ''
+
   return `你是一位优秀的教学设计专家。请为下面这个知识点设计一份循序渐进、有例子的教学大纲。
 
 知识点：${topic}
 ${audienceLine}
-
+${skeleton}
 必须输出 JSON（不要任何解释文字，不要 markdown 代码块外的内容）：
 {
   "topic": "主题名",
@@ -181,7 +203,7 @@ ${audienceLine}
 }
 
 要求：
-1. 总时长约 ${durationMinutes} 分钟，拆成 3~6 个小节。
+1. 总时长约 ${durationMinutes} 分钟${template ? `，按上面骨架拆成 ${template.sections.length} 节` : '，拆成 3~6 个小节'}。
 2. 小节之间要有递进关系，先讲需要的前置知识。
 3. 优先选择**适合视觉化**的表达方式（图、对比、逐步构建）。
 4. 每节聚焦一个概念，不要在一节里塞多个主题。`
@@ -768,14 +790,31 @@ export function checkSceneLayout(steps: readonly SceneStep[], overlapThreshold =
   return issues
 }
 
-/** 让模型输出画面 JSON 的提示词（输出量约 200 token/节，远低于整页 HTML） */
-export function buildSceneSpecPrompt(section: StoryboardSection): string {
+/**
+ * 让模型输出画面 JSON 的提示词（输出量约 200 token/节，远低于整页 HTML）。
+ *
+ * `example` 是结构模板自带的**一节真实成品**。它是 few-shot：比十条规则更能
+ * 让模型学会「这个模板的画面应该长什么样」。只在第一节传，避免每节都背一遍。
+ */
+export function buildSceneSpecPrompt(
+  section: StoryboardSection,
+  example?: { title: string; lectureLines: string[]; scene: SceneStep[] },
+): string {
+  const exampleBlock = example
+    ? `\n## 样例（同模板的一节真实成品，照着这个密度和元素选择来）
+
+小节：${example.title}
+讲义行：${JSON.stringify(example.lectureLines)}
+画面 JSON：
+${JSON.stringify({ steps: example.scene })}
+`
+    : ''
   return `你在为一段教学动画设计每一帧的画面布局。只输出 JSON，不要解释。
 
 小节：${section.title}
 讲义行：${JSON.stringify(section.lectureLines)}
 动画步骤：${JSON.stringify(section.animations)}
-
+${exampleBlock}
 右侧动画区是一个坐标系：x/y 是元素**左上角**在右区里的百分比（0~100），w/h 是宽高百分比。
 每个动画步骤一组元素，元素逐个按出现顺序摆放，**不要互相重叠**。
 
