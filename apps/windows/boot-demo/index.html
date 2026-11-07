@@ -555,21 +555,33 @@ let ringSpin = 0
 let ringPulses = []
 
 /**
- * 齿轮式旋转：每拍转 1/N 圈然后「咔」一下停住。
- * 匀速旋转看起来像加载动画，顿挫才像有齿的机械结构在转。
+ * 平滑旋转（移除齿轮顿挫）
  */
-function gearedSpin(beatsPerTurn = 6) {
-  const turn = beatClock / BEAT / beatsPerTurn   // 已完成的「拍数/每圈」
-  const whole = Math.floor(turn)
-  const frac = turn - whole
-  // 前 55% 的拍位转完这一格，后 45% 停住（停顿 = 顿挫感）
-  const k = Math.min(1, frac / .55)
-  return (whole + EASE.outBack(k)) * (Math.PI * 2) / beatsPerTurn
+function smoothSpin(beatsPerTurn = 6) {
+  const turn = beatClock / BEAT / beatsPerTurn
+  return turn * (Math.PI * 2) / beatsPerTurn
 }
 
 function drawRings(dt, strength) {
   if (strength <= .02) return
-  ringSpin = gearedSpin(6)
+  ringSpin = smoothSpin(6)
+
+  // 三层环：不同齿数、不同节拍倍数
+  const ringDefs = [
+    { r: 118, seg: 12, gap: .34, color: 'rgba(120,230,255,', w: 2.4, dir: 1,  beats: 6 },
+    { r: 152, seg: 8,  gap: .52, color: 'rgba(120,230,255,', w: 1.4, dir: -1, beats: 9 },
+    { r: 186, seg: 36, gap: .10, color: 'rgba(90,190,240,',  w: 1,   dir: 1,  beats: 4 },
+  ]
+  for (const d of ringDefs) {
+    const seg = (Math.PI * 2) / d.seg
+    const base = d.dir > 0 ? smoothSpin(d.beats) : -smoothSpin(d.beats)
+    // 每拍整圈亮度脉冲：拍首亮、拍尾暗，与核心心跳同步
+    const glow = .40 + .18 * Math.pow(1 - beatPhase(), 3)
+    for (let i = 0; i < d.seg; i++) {
+      const a0 = base + i * seg
+      const a1 = a0 + seg * (1 - d.gap)
+      ctx.beginPath()
+      ctx.strokeStyle = `${d.color}${(glow * strength).toFixed(3)})`
 
   // 三层环：不同齿数、不同节拍倍数 → 相位不断交错，永远不会「一起转」
   const ringDefs = [
@@ -834,6 +846,59 @@ const circuits = [
   [[-40,0],[-96,0],[-140,-44],[-206,-44]],
 ]
 let circuitGrow = 0
+
+/* ── 黑客元素：二进制扫描 ────────────────────────────────── */
+function drawBinaryScanner(strength) {
+  if (strength < 0.05) return
+
+  // 竖直扫描线，显示"加载中"的感觉
+  const scanY = (beatClock * 200) % H
+  const scanHeight = 60
+
+  ctx.fillStyle = `rgba(79,216,255,${(strength * 0.2).toFixed(3)})`
+  ctx.fillRect(0, scanY, W, 2)
+
+  // 二进制数字随机出现
+  ctx.fillStyle = `rgba(79,216,255,${(strength * 0.3).toFixed(3)})`
+  ctx.font = '12px monospace'
+  ctx.textAlign = 'center'
+
+  for (let i = 0; i < 8; i++) {
+    const x = Math.random() * W
+    const y = scanY + (Math.random() - 0.5) * scanHeight
+    const bit = Math.floor(Math.random() * 2)
+    ctx.fillText(bit.toString(), x, y)
+  }
+}
+
+/* ── 黑客元素：数据毛刺 ────────────────────────────────── */
+function drawGlitch(strength) {
+  if (strength < 0.05) return
+
+  // 随机水平条纹扰动（RGB分离效果）
+  for (let i = 0; i < 3; i++) {
+    const y = Math.random() * H
+    const h = 3 + Math.random() * 8
+    const offset = (5 + Math.random() * 15) * (Math.random() < 0.5 ? 1 : -1)
+
+    ctx.globalAlpha = strength * 0.1
+    const imgData = ctx.getImageData(0, y, W, h)
+    ctx.putImageData(imgData, offset, y)
+  }
+
+  ctx.globalAlpha = 1
+
+  // RGB通道分离
+  if (strength > 0.2) {
+    ctx.globalAlpha = strength * 0.12
+    ctx.fillStyle = '#ff0000'
+    ctx.fillRect(Math.random() * 200, Math.random() * H, W * 0.3, 2)
+    ctx.fillStyle = '#00ff00'
+    ctx.fillRect(Math.random() * 200, Math.random() * H, W * 0.3, 2)
+    ctx.globalAlpha = 1
+  }
+}
+
 function drawCircuits(strength) {
   if (strength <= .01) return
   const K = Math.min(1, circuitGrow)
@@ -1265,9 +1330,9 @@ function renderChecks(n) {
 function flySignature() {
   const img = el.sig
   const targetSize = 26
-  // 右上角，留与主界面品牌区相同的边距（24px）
-  const margin = 24
-  const targetX = window.innerWidth - margin - targetSize
+  // 左上角，Sidebar品牌区对齐（16px 边距）
+  const margin = 16
+  const targetX = margin
   const targetY = margin
   const startX = CX - 90, startY = CY - 90
   const dur = 900
@@ -1281,10 +1346,8 @@ function flySignature() {
 
   const step = (now) => {
     const k = Math.min(1, (now - t0) / dur)
-    // 先亮后落：前半段保持大尺寸做「登场」，后半段收缩归位
     const e = 1 - Math.pow(1 - k, 3)
     const size = 180 + (targetSize - 180) * e
-    // 起点按当前尺寸居中，终点按最终尺寸落在右上角，避免收缩时位置偏移
     const x = startX + (targetX - startX) * e
     const y = startY + (targetY - startY) * e
     img.style.width = size + 'px'
@@ -1301,11 +1364,11 @@ let freezeSigPlaced = false
 function placeSignatureAtTarget() {
   const img = el.sig
   const targetSize = 26
-  const margin = 24
+  const margin = 16
   img.style.width = targetSize + 'px'
   img.style.height = targetSize + 'px'
   img.style.transform =
-    `translate(${window.innerWidth - margin - targetSize}px, ${margin}px)`
+    `translate(${margin}px, ${margin}px)`
   img.style.opacity = '1'
 }
 
@@ -1325,28 +1388,33 @@ function setAct(next) {
 }
 
 /**
- * 幕入场的错峰动画。
- *
- * 四角装甲 → 顶条 → 遥测 → 清单 → 进度条，每项延迟 70ms，
- * 形成一条从外向内的波浪。所有元素同时出现会显得「假」，
- * 错开之后就像系统在逐级上电。
+ * 幕入场的动画——移除错峰，改为四角同时淡入
  */
 function animateActIn(name) {
   if (name === 'dark' || name === 'dormant') return
 
+  // 四角直接淡入，不错峰
+  const armors = document.querySelectorAll('.hud-layer .armor')
+  armors.forEach((armor) => {
+    armor.style.transition = 'opacity 0.6s ease'
+    armor.style.opacity = '0.55'
+  })
+
+  // 其他元素保持原有动画（可选）
   const items = [
-    ...document.querySelectorAll('.hud-layer .armor'),
     document.querySelector('.topbar'),
     document.querySelector('.telemetry'),
     document.querySelector('.checks'),
     document.querySelector('.bar-wrap'),
   ].filter(Boolean)
 
-  items.forEach((node, i) => {
-    node.animate(
-      [
-        { opacity: 0, transform: 'translateY(-6px) scale(.98)' },
-        { opacity: 1, transform: 'none' },
+  items.forEach((node) => {
+    if (node) {
+      node.style.transition = 'opacity 0.6s ease'
+      node.style.opacity = '1'
+    }
+  })
+}
       ],
       {
         duration: 380,
@@ -1426,6 +1494,11 @@ function frameInner(now) {
   if (streamInflow > 0 && !streams.length) seedStreams()
   drawStreams(dt)
   drawCircuits(isNeural ? .5 + streamInflow * .5 : (circuitGrow > 0 ? .55 : 0))
+
+  // 黑客元素：二进制扫描与毛刺
+  drawBinaryScanner(isNeural ? streamInflow * 0.6 : 0)
+  drawGlitch(isEnergize ? 0.3 : 0)
+
   drawCore(t)
 
   const ringStrength = isEnergize ? 1 : isCognition ? .75 : isGate ? .5 : 0
@@ -1529,23 +1602,41 @@ async function play() {
     { act: 'cognition', dur: 2400, phase: '意识聚合' },
   ]
 
+  const BOOT_STAGES = [
+    '初始化运行时',
+    '装载核心扩展',
+    '构建主界面',
+    '创建窗口',
+    '读取配置',
+    '启动本地服务',
+    '同步内置技能',
+    '初始化技能引擎',
+    '监听技能变更',
+    '唤醒智能内核',
+    '连接外部服务',
+  ]
+
   let acc = 0
+  let stageIndex = 0
   for (let i = 0; i < timeline.length; i++) {
     if (abort) break
     const seg = timeline[i]
     setAct(seg.act)
-    if (seg.phase) el.phase.textContent = seg.phase
+
+    // 显示真实的启动阶段而不是seg.phase
+    if (stageIndex < BOOT_STAGES.length) {
+      el.phase.textContent = BOOT_STAGES[stageIndex]
+      stageIndex++
+    }
     audio?.heartbeat(i === 0 ? 1 : .45)
 
     const slices = 6
     for (let k = 1; k <= slices; k++) {
       if (abort) break
-      // 前五幕共占 0–90%，末段 90–100% 留给门户
       acc += 1
       progress = (acc / (timeline.length * slices)) * 90
       el.barFill.style.width = progress.toFixed(1) + '%'
       el.pct.textContent = Math.round(progress) + '%'
-      // 每推进一格，机械感的一小声
       if (k % 2 === 0) audio?.tick(.7)
       if (i === 2 && k === 3) audio?.clunk(1)
       await sleep(seg.dur / slices)
