@@ -101,7 +101,11 @@ export const teachingVideoToolConfig: MtBotToolConfig<typeof TeachingVideoParams
   name: 'teaching_video_generate',
   label: 'Generate Teaching Video',
   description:
-    'Generate a teaching video (MP4) for a knowledge point. ' +
+    'Generate a teaching/explainer video (MP4) with narration and burned-in subtitles. ' +
+    '**Always call this tool — never hand-write a render script.** ' +
+    'The section_N.html files it produces are intermediate artifacts; writing your own ' +
+    'screenshot+ffmpeg pipeline around them bypasses narration, subtitles, element ' +
+    'animation and layout gates, and yields a silent video with overlapping text. ' +
     '**Recommended flow — do NOT jump straight to a final video.** ' +
     '(1) Call with `stage: "draft"` first: it returns in under a minute with an outline, ' +
     'a storyboard, and a human-readable `review.md`, without rendering anything. ' +

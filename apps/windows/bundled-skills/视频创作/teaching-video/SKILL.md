@@ -117,6 +117,22 @@ teaching_video_generate({ topic, stage: "revise", sectionIds: [2], fromDir: <同
 
 ## 七、常见错误
 
+### **不要自己写渲染脚本**（最重要的一条）
+
+**必须调用 `teaching_video_generate`**，不要自己拼 HTML、写 `_render.js`、
+调 ffmpeg 手动截图合成。
+
+为什么这条排第一：实测有会话里 Agent 看到目录里落着 `section_N.html`，
+就以为是「HTML 转视频」的任务，于是自己写 `_render.js` 逐帧截图——
+结果绕过了配音、字幕、元素动画、布局门禁，出来的是一版纯画面，
+而且下一轮它会学着上一轮的样继续手搓。
+
+- 工具产出的 `section_N.html` 是**中间产物**，不是让你接手渲染的入口
+- 需要改动就再用 `stage: "revise"`，不要改文件
+- 如果用户说「上次那样自己渲染更快」，告诉他那样会丢配音和字幕
+
+### 其他
+
 - **别跳过 draft**。用户没确认讲法就出片，大概率要整片重做。
 - **别忘 `fromDir`**。produce / revise 不带它会新建目录、重新生成，白花 token。
 - **别为改一节跑全片**。用 `sectionIds`。
