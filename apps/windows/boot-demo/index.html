@@ -554,18 +554,18 @@ class BootAudio {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
   }
 
-  playTone(freq, duration, volume = 0.3) {
+  playTone(freq, duration, volume = 0.3, type = 'sine') {
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
 
-    osc.type = 'sine';
+    osc.type = type;
     osc.frequency.value = freq;
     osc.connect(gain);
     gain.connect(this.ctx.destination);
 
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(volume, now + 0.05);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
 
     osc.start(now);
@@ -573,20 +573,29 @@ class BootAudio {
   }
 
   playLoadSound() {
-    const now = this.ctx.currentTime;
+    // 四级上升的加载音效
+    const freqs = [220, 280, 350, 440];
     for (let i = 0; i < 4; i++) {
-      setTimeout(() => this.playTone(200 + i * 100, 0.15, 0.2), i * 100);
+      setTimeout(() => this.playTone(freqs[i], 0.25, 0.2), i * 130);
     }
   }
 
   playReadySound() {
-    this.playTone(440, 0.3, 0.4);
-    setTimeout(() => this.playTone(660, 0.2, 0.3), 150);
+    // 两次双音和弦
+    this.playTone(440, 0.3, 0.3);
+    this.playTone(660, 0.3, 0.2, 'square');
+
+    setTimeout(() => {
+      this.playTone(880, 0.25, 0.35);
+      this.playTone(1320, 0.25, 0.2, 'triangle');
+    }, 350);
   }
 
   playComplete() {
-    this.playTone(800, 0.1, 0.3);
+    // 胜利音效
+    this.playTone(800, 0.15, 0.3);
     setTimeout(() => this.playTone(1200, 0.2, 0.4), 100);
+    setTimeout(() => this.playTone(1600, 0.25, 0.35), 200);
   }
 }
 
