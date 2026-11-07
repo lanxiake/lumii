@@ -133,8 +133,16 @@
   #boot[data-act="energize"] .checks,
   #boot[data-act="cognition"] .checks,
   #boot[data-act="gate"] .checks { opacity: .42; }
-  .checks div { color: rgba(120,190,220,.5); transition: color .4s ease; }
+  .checks div { color: rgba(120,190,220,.5); transition: color .45s ease; }
   .checks div.on { color: var(--amber-hot); }
+  .checks div.enter { animation: checkIn .42s cubic-bezier(.2,.9,.25,1) both; }
+  @keyframes checkIn {
+    from { opacity: 0; transform: translateX(10px); }
+    to   { opacity: 1; transform: none; }
+  }
+  /* 进行中的那条：符号呼吸，说明「正在做」 */
+  .checks div:not(.on) i { animation: checkBlink 1.1s ease-in-out infinite; }
+  @keyframes checkBlink { 0%,100% { opacity: .25; } 50% { opacity: .9; } }
   .checks i { font-style: normal; display: inline-block; width: 14px; opacity: .35; }
   .checks div.on i { opacity: 1; color: var(--amber); }
 
@@ -1259,31 +1267,35 @@ const BOOT_STAGES = [
   '连接外部服务',
 ]
 
-let currentStageIndex = 0
+/** 已渲染到哪一条：只添加新到达的阶段，绝不预先铺满 */
+let renderedStages = 0
 
-function renderChecks(stageIndex) {
-  // 只在首次初始化时创建所有DOM
-  if (el.checks.children.length === 0) {
-    el.checks.innerHTML = BOOT_STAGES.map((stage, i) =>
-      `<div><i>◇</i>${stage}</div>`
-    ).join('')
+function renderChecks(stageIndex, allDone = false) {
+  const target = Math.max(0, Math.min(BOOT_STAGES.length, stageIndex))
+  if (target === renderedStages) return
+
+  // 回退（重播）：整块清掉重来
+  if (target < renderedStages) {
+    el.checks.innerHTML = ''
+    renderedStages = 0
   }
 
-  // 逐个点亮完成的阶段（不是一次性全显示）
-  for (let i = 0; i < BOOT_STAGES.length; i++) {
+  // 加载一个，添加一个
+  while (renderedStages < target) {
+    const div = document.createElement('div')
+    div.className = 'enter'
+    div.innerHTML = `<i>◇</i>${BOOT_STAGES[renderedStages]}`
+    el.checks.appendChild(div)
+    renderedStages++
+  }
+
+  // 最后一条是「进行中」，其余都是已完成；全部走完时不留进行中
+  for (let i = 0; i < renderedStages; i++) {
     const div = el.checks.children[i]
-    if (i < stageIndex && !div.classList.contains('on')) {
-      // 新完成的阶段：添加 .on 类、变色、符号改为 ◆
-      div.classList.add('on')
-      div.querySelector('i').textContent = '◆'
-    } else if (i >= stageIndex && div.classList.contains('on')) {
-      // 取消（不太可能，但做防守）
-      div.classList.remove('on')
-      div.querySelector('i').textContent = '◇'
-    }
+    const done = allDone || i < renderedStages - 1
+    div.classList.toggle('on', done)
+    div.querySelector('i').textContent = done ? '◆' : '◇'
   }
-
-  currentStageIndex = stageIndex
 }
 
 /**
@@ -1506,18 +1518,18 @@ async function play() {
   progress = 0; textAssemble = 0; circuitGrow = 0; streamInflow = 0; cognitionElapsed = 0
   beatClock = 0; lastBeatNo = -1
   textParts = []; sparks = []; ringPulses = []; streams = []
-  coreGlow = 0; currentStageIndex = -1
+  coreGlow = 0
   act = 'dark'; boot.dataset.act = 'dark'
   boot.classList.remove('fading'); boot.style.display = ''
   el.barFill.style.width = '0%'; el.pct.textContent = '0%'
   el.phase.textContent = 'STANDBY'
   document.getElementById('phaseText').textContent = '准备启动'
-  renderChecks(0)
+  el.checks.innerHTML = ''
+  renderedStages = 0
   el.gate.classList.remove('open'); el.seam.classList.remove('open')
   el.sig.style.opacity = '0'
   el.sig.style.transform = ''
   el.flash.classList.remove('fire')
-  renderChecks(0)
   seedDust()
   startedAt = performance.now()
 
@@ -1580,7 +1592,7 @@ async function play() {
   progress = 100
   el.barFill.style.width = '100%'
   el.pct.textContent = '100%'
-  renderChecks(BOOT_STAGES.length)
+  renderChecks(BOOT_STAGES.length, true)
 
   // 竖缝先裂开
   el.seam.classList.add('open')
