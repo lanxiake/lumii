@@ -136,8 +136,8 @@ export const code2videoExtension = {
           ...(voiceReady(ctx)
             ? {
                 narrate: {
-                  generateAudioFile: (text: string, destDir: string) =>
-                    ctx.get(S.voice)!.generateAudioFile(text, destDir),
+                  generateAudioFile: (text: string, destDir: string, o?: { voice?: string; speed?: number }) =>
+                    ctx.get(S.voice)!.generateAudioFile(text, destDir, o),
                 },
               }
             : {}),
@@ -198,6 +198,7 @@ export const code2videoExtension = {
               audience?: string
               durationMinutes?: number
               style?: string
+              voice?: string
             }
             if (!p.topic?.trim()) {
               return toolResult({ status: 'error', message: '缺少 topic（要讲的知识点）' })
@@ -208,6 +209,7 @@ export const code2videoExtension = {
                 ...(p.audience?.trim() ? { audience: p.audience.trim() } : {}),
                 ...(typeof p.durationMinutes === 'number' ? { durationMinutes: p.durationMinutes } : {}),
                 ...(p.style?.trim() ? { style: p.style.trim() } : {}),
+                ...(p.voice?.trim() ? { voice: p.voice.trim() } : {}),
                 stage: 'draft',
               })
               if (!r.ok) {
@@ -247,7 +249,7 @@ export const code2videoExtension = {
         const produceConfig = {
           ...teachingVideoProduceTool,
           execute: async (_id: string, raw: unknown) => {
-            const p = raw as { fromDir?: string; skipPreview?: boolean }
+            const p = raw as { fromDir?: string; skipPreview?: boolean; voice?: string }
             if (!p.fromDir?.trim()) {
               return toolResult({
                 status: 'error',
@@ -257,7 +259,10 @@ export const code2videoExtension = {
               })
             }
             try {
-              const common = { fromDir: p.fromDir.trim() } as const
+              const common = {
+                fromDir: p.fromDir.trim(),
+                ...(p.voice?.trim() ? { voice: p.voice.trim() } : {}),
+              } as const
 
               // 第一步：首帧预览（除非用户说不用看）
               if (!p.skipPreview) {

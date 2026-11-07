@@ -51,6 +51,16 @@ const StyleParam = Type.Optional(
   }),
 )
 
+const VoiceParam = Type.Optional(
+  Type.String({
+    description:
+      '配音音色（edge voice id）。留空按受众自动挑：儿童→晓伊（活泼、放慢）、' +
+      '历史故事→云健（浑厚）、技术数学→云希（沉稳男声）、其余→晓晓（温柔女声）。' +
+      '可选值：zh-CN-XiaoxiaoNeural / zh-CN-YunxiNeural / zh-CN-XiaoyiNeural / zh-CN-YunjianNeural。' +
+      '用户说了「男声」「女声」「亲切一点」「稳重一点」这类话时按语义选。',
+  }),
+)
+
 const FromDirParam = Type.Optional(
   Type.String({
     description:
@@ -68,6 +78,7 @@ export const PlanParams = Type.Object({
   audience: AudienceParam,
   durationMinutes: DurationParam,
   style: StyleParam,
+  voice: VoiceParam,
 })
 
 // ---------------------------------------------------------------
@@ -76,6 +87,10 @@ export const PlanParams = Type.Object({
 
 export const ProduceParams = Type.Object({
   fromDir: FromDirParam,
+  /**
+   * 换音色。用户看完预览说「声音换一个」时用；不填沿用 plan 时选的。
+   */
+  voice: VoiceParam,
   /**
    * 略过首帧预览。**只有用户明确说「不用看了，直接出」时才传**。
    * 默认会先渲首节并返回一张预览图，让用户确认风格。

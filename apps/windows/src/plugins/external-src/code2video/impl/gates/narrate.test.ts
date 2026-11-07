@@ -3,11 +3,48 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   cuesToSrt,
   narrateSection,
+  pickVoice,
+  VOICES,
   probeWavDurationMs,
   srtTime,
   stepDurationsFromCues,
   type NarrateDeps,
 } from './narrate'
+
+describe('pickVoice', () => {
+  it('儿童内容用活泼女声并放慢', () => {
+    const v = pickVoice('幼儿园大班', '什么是加法')
+    expect(v.voice).toBe(VOICES.xiaoyi.id)
+    expect(v.speed).toBeLessThan(1)
+  })
+
+  it('技术内容用沉稳男声', () => {
+    expect(pickVoice(undefined, 'TCP 三次握手').voice).toBe(VOICES.yunxi.id)
+    expect(pickVoice(undefined, '梯度下降算法').voice).toBe(VOICES.yunxi.id)
+  })
+
+  it('历史故事用浑厚男声', () => {
+    expect(pickVoice(undefined, '唐朝的兴衰历史').voice).toBe(VOICES.yunjian.id)
+  })
+
+  it('其余用温柔女声，语速正常', () => {
+    const v = pickVoice(undefined, '如何泡一杯茶')
+    expect(v.voice).toBe(VOICES.xiaoxiao.id)
+    expect(v.speed).toBe(1)
+  })
+
+  it('受众里的「孩子」优先于主题里的「数学」', () => {
+    // 儿童判据先匹配——「给孩子的数学」应该用活泼女声
+    expect(pickVoice('给孩子的', '数学').voice).toBe(VOICES.xiaoyi.id)
+  })
+
+  it('四个音色 id 都是 zh-CN 的合法 edge 音色', () => {
+    for (const v of Object.values(VOICES)) {
+      expect(v.id).toMatch(/^zh-CN-[A-Za-z]+Neural$/)
+      expect(v.label.length).toBeGreaterThan(2)
+    }
+  })
+})
 
 describe('srtTime', () => {
   it('格式正确', () => {

@@ -48,10 +48,52 @@ export interface NarrateIssue {
 
 export interface NarrateDeps {
   /** 客户端 TTS：写出音频文件并返回绝对路径 */
-  generateAudioFile: (text: string, destDir: string) => Promise<string>
+  generateAudioFile: (text: string, destDir: string, opts?: { voice?: string; speed?: number }) => Promise<string>
   /** 读音频时长（毫秒） */
   probeDurationMs: (filePath: string) => Promise<number | null>
   log: (msg: string) => void
+}
+
+/**
+ * 可用的中文音色（edge）。
+ *
+ * 只列实测可用的几个：列多了是维护负担，而且 edge 的完整音色表随版本变。
+ * `speed` 是相对倍率——儿童内容要慢，技术内容可以正常。
+ */
+export const VOICES = {
+  /** 温柔女声，通用 */
+  xiaoxiao: { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓（女，温柔）' },
+  /** 沉稳男声，技术/科普 */
+  yunxi: { id: 'zh-CN-YunxiNeural', label: '云希（男，沉稳）' },
+  /** 活泼女声，儿童 */
+  xiaoyi: { id: 'zh-CN-XiaoyiNeural', label: '晓伊（女，活泼）' },
+  /** 评书男声，历史/故事 */
+  yunjian: { id: 'zh-CN-YunjianNeural', label: '云健（男，浑厚）' },
+} as const
+
+export type VoiceKey = keyof typeof VOICES
+
+/**
+ * 按受众与主题挑音色。
+ *
+ * 判据取自各音色的实际听感定位，不是随便配：
+ * - 儿童 → 晓伊（活泼）+ 放慢
+ * - 历史/故事 → 云健（浑厚）
+ * - 技术/数学/物理 → 云希（沉稳男声，讲解感强）
+ * - 其余 → 晓晓（温柔，最不容易听累）
+ */
+export function pickVoice(audience?: string, topic?: string): { voice: string; speed: number } {
+  const text = `${audience ?? ''} ${topic ?? ''}`
+  if (/儿童|孩子|小朋友|小学|幼儿|大班|学前/.test(text)) {
+    return { voice: VOICES.xiaoyi.id, speed: 0.92 }
+  }
+  if (/历史|故事|传记|战争|王朝|民间/.test(text)) {
+    return { voice: VOICES.yunjian.id, speed: 0.98 }
+  }
+  if (/技术|算法|代码|编程|数学|物理|工程|架构|协议|握手|网络|数据库|缓存|并发|系统/.test(text)) {
+    return { voice: VOICES.yunxi.id, speed: 1.0 }
+  }
+  return { voice: VOICES.xiaoxiao.id, speed: 1.0 }
 }
 
 export interface NarrateResult {
@@ -76,12 +118,20 @@ export async function narrateSection(
     /** 每步要讲的话，下标即步号 */
     lines: string[]
     destDir: string
+    /** 音色（edge voice id）。缺省跟客户端全局配置 */
+    voice?: string
+    /** 语速倍率。儿童内容建议 0.9~0.95 */
+    speed?: number
   },
   deps: NarrateDeps,
 ): Promise<NarrateResult> {
   const cues: Cue[] = []
   const issues: NarrateIssue[] = []
   let cursor = 0
+  const ttsOpts = {
+    ...(opts.voice ? { voice: opts.voice } : {}),
+    ...(typeof opts.speed === 'number' ? { speed: opts.speed } : {}),
+  }
 
   for (let step = 0; step < opts.lines.length; step++) {
     const text = opts.lines[step]?.trim()
@@ -90,7 +140,11 @@ export async function narrateSection(
     let durationMs: number | null = null
     let audioPath: string | undefined
     try {
-      audioPath = await deps.generateAudioFile(text, opts.destDir)
+      audioPath = await deps.generateAudioFile(
+        text,
+        opts.destDir,
+        Object.keys(ttsOpts).length ? ttsOpts : undefined,
+      )
       durationMs = await deps.probeDurationMs(audioPath)
       if (durationMs !== null && durationMs < 120) {
         issues.push({ kind: 'empty_audio', step, detail: `第 ${step + 1} 句合成出来几乎是空的（${durationMs}ms）` })

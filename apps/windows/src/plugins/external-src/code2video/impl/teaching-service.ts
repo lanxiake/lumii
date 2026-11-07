@@ -48,6 +48,7 @@ import {
   cuesToSrt,
   narrateSection,
   probeMediaDurationMs,
+  pickVoice,
   stepDurationsFromCues,
   type Cue,
 } from './gates/narrate'
@@ -73,7 +74,11 @@ export interface TeachingVideoDeps {
    * 而让整个能力因语音服务没配好而不可用，是比没有声音更糟的失败。
    */
   narrate?: {
-    generateAudioFile: (text: string, destDir: string) => Promise<string>
+    generateAudioFile: (
+      text: string,
+      destDir: string,
+      opts?: { voice?: string; speed?: number },
+    ) => Promise<string>
   }
   /**
    * 每节画面由谁产出。
@@ -134,6 +139,11 @@ export interface GenerateInput {
    * 拼进场景生成的提示词——比只给节号有效得多。
    */
   feedback?: string
+  /**
+   * 配音音色（edge voice id，如 `zh-CN-YunxiNeural`）。不填按受众自动挑。
+   * 见 `pickVoice`。
+   */
+  voice?: string
   /**
    * 复用已有产物目录（绝对路径）。`produce`/`revise` 时用它接着上一次的
    * outline/storyboard 跑，不重新生成——原版就是靠「目录里已有文件就跳过」实现的。
@@ -259,6 +269,25 @@ export function safeDirName(topic: string, now: Date = new Date()): string {
  * 原版也是靠「目录里有文件就复用」这条路径带过来的。
  */
 const DURATION_HINT_FILE = '.duration-hint'
+/** plan 阶段选的音色，produce 时沿用（同 durationHint 的理由：跨调用留不住内存变量） */
+const VOICE_HINT_FILE = '.voice-hint'
+
+function readVoiceHint(outDir: string): string | null {
+  try {
+    const v = fs.readFileSync(path.join(outDir, VOICE_HINT_FILE), 'utf8').trim()
+    return v || null
+  } catch {
+    return null
+  }
+}
+
+function writeVoiceHint(outDir: string, voice: string): void {
+  try {
+    fs.writeFileSync(path.join(outDir, VOICE_HINT_FILE), voice, 'utf8')
+  } catch {
+    // 记不住音色只是降级（下次按受众重挑），不该让生成失败
+  }
+}
 
 function readDurationHint(outDir: string): number | null {
   try {
@@ -598,6 +627,16 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
     let sectionCues: Array<{ section: StoryboardSection; cues: Cue[]; totalMs: number }> = []
     if (deps.narrate) {
       deps.onProgress?.({ stage: '配音', percent: 66 })
+      // 音色：用户显式指定 > 本目录上次记住的（plan 选的）> 按受众挑
+      const explicitVoice = input.voice?.trim()
+      if (explicitVoice) writeVoiceHint(outDir, explicitVoice)
+      const rememberedVoice = readVoiceHint(outDir)
+      const picked = pickVoice(input.audience ?? outline.targetAudience, topic)
+      const voiceOpts = {
+        voice: explicitVoice || rememberedVoice || picked.voice,
+        speed: picked.speed,
+      }
+      deps.log(`[teaching-video] 配音音色：${voiceOpts.voice}（语速 ${voiceOpts.speed}）`)
       for (const section of storyboard.sections) {
         // 只重做被点名的节时，未点名的节沿用既有字幕（若有）
         const res = await narrateSection(
@@ -607,6 +646,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
             // 而且会和左侧的标签重复显示（实测底部出现两行同样的字）。
             lines: section.narrationLines?.length ? section.narrationLines : section.lectureLines,
             destDir: path.join(outDir, 'audio', section.id),
+            ...voiceOpts,
           },
           {
             generateAudioFile: deps.narrate.generateAudioFile,
