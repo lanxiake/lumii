@@ -41,6 +41,31 @@ const PHASE_LABELS: Record<string, string> = {
   'screen-record': '准备录制模块',
 }
 
+/** 与主进程广播顺序一致的阶段名列表 */
+const STAGE_ORDER = [
+  'S0-app-shell',
+  'S1-extensions',
+  'S2-S5-ui',
+  'window',
+  'S6-config',
+  'S7-services',
+  'S7.1-seed-skills',
+  'S7.2-skill-runtime',
+  'S7.3-skill-watcher',
+  'S7.4-agent-runtime',
+  'S8-post-ready',
+]
+
+/** 阶段序号 → 标签，供右上角进度表逐条显示 */
+function _stageLabelAt(index: number): string {
+  return PHASE_LABELS[STAGE_ORDER[index]] ?? STAGE_ORDER[index] ?? ''
+}
+
+/** 供手写自检用：阶段名映射是否覆盖全部真实阶段 */
+export function _phaseLabelFor(phase: string): string {
+  return PHASE_LABELS[phase] ?? phase
+}
+
 /** 启动阶段总数，与主进程 BOOT_TOTAL_PHASES 一致 */
 const TOTAL_PHASES = 11
 /** 未收到任何进度信号前的稳态上限：绝不走到 100% */
@@ -932,29 +957,7 @@ interface Particle {
   ph: number
 }
 
-/** 供手写自检用：阶段名映射是否覆盖全部真实阶段 */
-export function _phaseLabelFor(phase: string): string {
-  return PHASE_LABELS[phase] ?? phase
-}
 
-/** 阶段序号 → 标签，供右上角进度表逐条显示 */
-function _stageLabelAt(index: number): string {
-  return PHASE_LABELS[STAGE_ORDER[index]] ?? STAGE_ORDER[index] ?? ''
-}
 
-/** 与主进程广播顺序一致的阶段名列表 */
-const STAGE_ORDER = [
-  'S0-app-shell',
-  'S1-extensions',
-  'S2-S5-ui',
-  'window',
-  'S6-config',
-  'S7-services',
-  'S7.1-seed-skills',
-  'S7.2-skill-runtime',
-  'S7.3-skill-watcher',
-  'S7.4-agent-runtime',
-  'S8-post-ready',
-]
 
 export const _TOTAL_PHASES = TOTAL_PHASES
