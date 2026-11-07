@@ -54,7 +54,7 @@ export interface ElectronWindowLike {
   isDestroyed: () => boolean
 }
 
-/** 录制帧率：12fps 足够表现"逐步出现 + 高亮" */
+/** 录制帧率的兜底值；实际由调用方按画质档位传进来 */
 const FPS = 12
 
 /**
@@ -84,7 +84,13 @@ export function createElectronRenderer(deps: ElectronRenderDeps): () => Promise<
 
     const binder: BrowserLike = {
       lastFrameSamples: () => lastSamples,
-      async renderSection(html: string, outMp4: string, totalMs: number, fps: number): Promise<void> {
+      async renderSection(
+        html: string,
+        outMp4: string,
+        totalMs: number,
+        fps: number,
+        encoder?: { crf: number; preset: string },
+      ): Promise<void> {
         const framesDir = outMp4.replace(/\.mp4$/, '.frames')
         rmSync(framesDir, { recursive: true, force: true })
         mkdirSync(framesDir, { recursive: true })
@@ -133,8 +139,8 @@ export function createElectronRenderer(deps: ElectronRenderDeps): () => Promise<
               '-vf', `scale=${FRAME.width}:${FRAME.height}:force_original_aspect_ratio=decrease,pad=${FRAME.width}:${FRAME.height}:(ow-iw)/2:(oh-ih)/2:color=black`,
               '-c:v', 'libx264',
               '-pix_fmt', 'yuv420p',
-              '-preset', 'veryfast',
-              '-crf', '23',
+              '-preset', encoder?.preset ?? 'veryfast',
+              '-crf', String(encoder?.crf ?? 23),
               outMp4,
             ],
             { timeoutMs: 180_000 },

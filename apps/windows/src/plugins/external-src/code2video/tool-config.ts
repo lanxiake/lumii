@@ -61,6 +61,19 @@ const VoiceParam = Type.Optional(
   }),
 )
 
+const QualityParam = Type.Optional(
+  Type.Union(
+    [Type.Literal('draft'), Type.Literal('standard'), Type.Literal('high')],
+    {
+      description:
+        '画质档位。**默认 standard**（24fps / crf 20）。' +
+        'draft = 12fps / crf 28，渲染快一倍，用于快速验证；' +
+        'high = 30fps / crf 17，慢约 2.5 倍，用于正式发布。' +
+        '用户说「画质好一点 / 要发出去」→ high；说「先快速看看」→ draft。',
+    },
+  ),
+)
+
 const FromDirParam = Type.Optional(
   Type.String({
     description:
@@ -91,6 +104,8 @@ export const ProduceParams = Type.Object({
    * 换音色。用户看完预览说「声音换一个」时用；不填沿用 plan 时选的。
    */
   voice: VoiceParam,
+  /** 画质。预览固定用 draft 档，这里管的是成片。 */
+  quality: QualityParam,
   /**
    * 略过首帧预览。**只有用户明确说「不用看了，直接出」时才传**。
    * 默认会先渲首节并返回一张预览图，让用户确认风格。
@@ -121,6 +136,8 @@ export const ReviseParams = Type.Object({
         '会作为修正要求传给场景生成，比重新点名更有效。',
     }),
   ),
+  /** 返工后的画质；不填沿用上一次 */
+  quality: QualityParam,
 })
 
 /**

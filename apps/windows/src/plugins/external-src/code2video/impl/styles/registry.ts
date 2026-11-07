@@ -43,6 +43,7 @@ export const style3b1b: VisualStyle = {
     radius: 4,
     texture: '',
     bulletStyle: 'number',
+    subtitle: { color: '#e8edf4', outline: '#0d1017', size: 36 },
   },
 }
 
@@ -76,6 +77,7 @@ export const styleChalkboard: VisualStyle = {
     texture:
       'radial-gradient(circle at 30% 20%, rgba(255,255,255,.025) 0 1px, transparent 1px), radial-gradient(circle at 70% 60%, rgba(255,255,255,.02) 0 1px, transparent 1px)',
     bulletStyle: 'number',
+    subtitle: { color: '#f5f0d8', outline: '#1c2b26', size: 36 },
   },
 }
 
@@ -105,6 +107,7 @@ export const styleClean: VisualStyle = {
     radius: 8,
     texture: '',
     bulletStyle: 'dot',
+    subtitle: { color: '#1f2937', outline: '#ffffff', size: 36 },
   },
 }
 
@@ -135,6 +138,7 @@ export const styleMetro: VisualStyle = {
     radius: 0,
     texture: '',
     bulletStyle: 'dot',
+    subtitle: { color: '#1a1a1a', outline: '#f7f6f1', size: 36 },
   },
 }
 
@@ -166,6 +170,7 @@ export const styleTechDark: VisualStyle = {
     texture:
       'linear-gradient(rgba(255,255,255,.012) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.012) 1px, transparent 1px)',
     bulletStyle: 'number',
+    subtitle: { color: '#e5e7eb', outline: '#14161a', size: 36 },
   },
 }
 

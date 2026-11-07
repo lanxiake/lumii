@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
-import { renderStoryboard, type BrowserLike, type RenderDeps } from './render-backend'
+import { pickConcurrency, renderStoryboard, type BrowserLike, type RenderDeps } from './render-backend'
 import type { StoryboardSection } from './teaching-core'
 
 function section(n: number): StoryboardSection {
@@ -68,6 +68,29 @@ function fakeDeps(opts: {
   return { deps, browsers, rendered }
 }
 
+describe('pickConcurrency', () => {
+  it('一节超过 40 秒：机器吃力，不并行', () => {
+    expect(pickConcurrency(45_000, 5)).toBe(1)
+  })
+
+  it('一节 20~40 秒：正常机器开 2 个', () => {
+    expect(pickConcurrency(30_000, 5)).toBe(2)
+  })
+
+  it('一节不到 20 秒：很快，开 3 个', () => {
+    expect(pickConcurrency(10_000, 5)).toBe(3)
+  })
+
+  it('剩余节数少于上限时按剩余数', () => {
+    expect(pickConcurrency(30_000, 1)).toBe(1)
+    expect(pickConcurrency(10_000, 2)).toBe(2)
+  })
+
+  it('没有剩余节时返回 1（不除零）', () => {
+    expect(pickConcurrency(10_000, 0)).toBe(1)
+  })
+})
+
 describe('renderStoryboard 并发', () => {
   it('节序按节号，不按完成时间（第 1 节最慢）', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'c2v-par-'))
@@ -93,19 +116,19 @@ describe('renderStoryboard 并发', () => {
       { sections: [section(1), section(2), section(3), section(4)] },
       { ...deps, concurrency: 2 },
     )
-    // 2 个 worker 各一个浏览器；同一窗口被两个循环驱动会互相踩 __seek
-    expect(browsers).toHaveLength(2)
+    // 1 个「探路」窗口（渲第 1 节量速度）+ 2 个 worker 窗口
+    expect(browsers).toHaveLength(3)
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  it('concurrency=1 时退化为串行（一个浏览器）', async () => {
+  it('concurrency=1 时退化为串行（探路 1 个 + 一个 worker）', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'c2v-par-'))
     const { deps, browsers } = fakeDeps({ dir })
     await renderStoryboard(
       { sections: [section(1), section(2)] },
       { ...deps, concurrency: 1 },
     )
-    expect(browsers).toHaveLength(1)
+    expect(browsers).toHaveLength(2)
     fs.rmSync(dir, { recursive: true, force: true })
   })
 

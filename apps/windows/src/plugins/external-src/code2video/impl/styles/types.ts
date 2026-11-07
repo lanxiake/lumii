@@ -48,6 +48,20 @@ export interface StyleTheme {
   texture: string
   /** 讲义缩进样式：编号用数字还是圆点 */
   bulletStyle: 'number' | 'dot'
+  /**
+   * 硬字幕的样式覆盖（烧进画面的 `.srt`）。
+   *
+   * 不跟着背景走的话，黑板上烧白字会显得像「贴上去的外挂字幕」——
+   * 粉笔风应该用粉笔色、白底应该用深色字。留空则用 libass 默认（白字黑边）。
+   */
+  subtitle?: {
+    /** 字色（ASS 的 &HAABBGGRR 或简单十六进制） */
+    color?: string
+    /** 描边色 */
+    outline?: string
+    /** 字号 */
+    size?: number
+  }
 }
 
 export interface VisualStyle {

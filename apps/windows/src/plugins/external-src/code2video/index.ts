@@ -249,7 +249,7 @@ export const code2videoExtension = {
         const produceConfig = {
           ...teachingVideoProduceTool,
           execute: async (_id: string, raw: unknown) => {
-            const p = raw as { fromDir?: string; skipPreview?: boolean; voice?: string }
+            const p = raw as { fromDir?: string; skipPreview?: boolean; voice?: string; quality?: string }
             if (!p.fromDir?.trim()) {
               return toolResult({
                 status: 'error',
@@ -262,6 +262,7 @@ export const code2videoExtension = {
               const common = {
                 fromDir: p.fromDir.trim(),
                 ...(p.voice?.trim() ? { voice: p.voice.trim() } : {}),
+                ...(p.quality ? { quality: p.quality as 'draft' | 'standard' | 'high' } : {}),
               } as const
 
               // 第一步：首帧预览（除非用户说不用看）
@@ -319,7 +320,7 @@ export const code2videoExtension = {
         const reviseConfig = {
           ...teachingVideoReviseTool,
           execute: async (_id: string, raw: unknown) => {
-            const p = raw as { fromDir?: string; sectionIds?: number[]; feedback?: string }
+            const p = raw as { fromDir?: string; sectionIds?: number[]; feedback?: string; quality?: string }
             if (!p.fromDir?.trim()) {
               return toolResult({ status: 'error', message: '缺少 fromDir（上一次的 outputDir）' })
             }
@@ -337,6 +338,7 @@ export const code2videoExtension = {
                 stage: 'revise',
                 sectionIds: ids,
                 ...(p.feedback?.trim() ? { feedback: p.feedback.trim() } : {}),
+                ...(p.quality ? { quality: p.quality as 'draft' | 'standard' | 'high' } : {}),
               })
               if (!r.ok) {
                 return toolResult({ status: 'error', message: r.error ?? '返工失败' })

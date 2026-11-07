@@ -44,6 +44,7 @@ import {
   type TemplateMatch,
 } from './templates/registry'
 import type { FrameIssue } from './gates/frame-check'
+import { QUALITY, resolveQuality } from './quality'
 import {
   cuesToSrt,
   narrateSection,
@@ -144,6 +145,12 @@ export interface GenerateInput {
    * 见 `pickVoice`。
    */
   voice?: string
+  /**
+   * 画质档位：`draft`（12fps，快） / `standard`（24fps，默认） / `high`（30fps，慢）。
+   *
+   * 预览与草稿用 draft，成片用 standard。用户说「画质好一点」就给 high。
+   */
+  quality?: 'draft' | 'standard' | 'high'
   /**
    * 复用已有产物目录（绝对路径）。`produce`/`revise` 时用它接着上一次的
    * outline/storyboard 跑，不重新生成——原版就是靠「目录里已有文件就跳过」实现的。
@@ -688,6 +695,8 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         outDir,
         log: deps.log,
         style: visualStyle,
+        // 预览固定用 draft 档：它只是让用户看风格，不需要高帧率
+        quality: QUALITY.draft,
         // 预览不配音：只要看画面，配音会让预览慢一倍
         onlySections: new Set([1]),
       })
@@ -717,6 +726,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       outDir,
       log: deps.log,
       style: visualStyle,
+      quality: resolveQuality(input.quality),
       ...(sectionCues.length > 0
         ? { narration: new Map(sectionCues.map((s) => [s.section.id, s.cues])) }
         : {}),

@@ -30,6 +30,7 @@ import { DEFAULT_STYLE } from './styles/registry'
 import type { StyleTheme, VisualStyle } from './styles/types'
 import { checkFrame, type FrameIssue, type FrameStats } from './gates/frame-check'
 import { cuesToSrt, type Cue } from './gates/narrate'
+import { loudnormFilter, QUALITY, type QualityPreset } from './quality'
 export type { VisualStyle, StyleTheme } from './styles/types'
 
 /** 画面尺寸（固定，ffmpeg 要求同尺寸才能 concat） */
@@ -733,10 +734,12 @@ export interface RenderDeps {
   /**
    * 并发渲染的 worker 数（每个 worker 一个隐藏窗口）。
    *
-   * 默认 2：5 节从 ~5 分钟压到 ~3 分钟。
+   * 默认按机器自适应（见 `pickConcurrency`）。
    * **不要超过 3**：无独显机器上多个窗口抢 GPU 合成，实测掉帧（帧间隔不均）。
    */
   concurrency?: number
+  /** 画质档位；缺省 standard */
+  quality?: QualityPreset
   /**
    * 每节的讲解字幕（按节 id 索引）。给了就在渲染后把音频叠上去、字幕烧进去。
    *
@@ -751,7 +754,13 @@ export interface RenderDeps {
 
 /** 只取 drizzle 需要的最小面，便于单测造假对象 */
 export interface BrowserLike {
-  renderSection: (html: string, outMp4: string, totalMs: number, fps: number) => Promise<void>
+  renderSection: (
+    html: string,
+    outMp4: string,
+    totalMs: number,
+    fps: number,
+    encoder?: { crf: number; preset: string },
+  ) => Promise<void>
   close: () => Promise<void>
   /**
    * 上一次 `renderSection` 里抽检的帧统计（可选）。
@@ -777,6 +786,30 @@ export interface RenderResult {
  * 逐节可失败：某一节渲染失败不阻断其余节（与原版一致——它们的
  * `render_section` 失败也只是跳过该节），但**全部失败**才整体报错。
  */
+/**
+ * 按机器选并发数。
+ *
+ * ## 为什么是「凭空测」而不是「看配置」
+ *
+ * 判断依据不是 CPU 核数——截图瓶颈在 GPU 合成与进程调度，不在算力。
+ * 一台 16 核但无独显的机器，开 4 个窗口反而比 2 个慢。
+ *
+ * 所以先跑一节、量真实耗时，再决定后面几节开几个。判据来自实测：
+ * 单节约 35 秒（12fps）时开 2 个总时长降到 60%，开 3 个只降到 55%
+ * 且出现掉帧——收益递减的拐点在 2~3 之间。
+ *
+ * `firstMs` 是已经量到的一节耗时；`remaining` 是还剩几节。
+ */
+export function pickConcurrency(firstMs: number, remaining: number): number {
+  if (remaining <= 1) return 1
+  // 一节就超过 40 秒：机器在吃力，别再加并行
+  if (firstMs > 40_000) return 1
+  // 一节 20~40 秒：正常机器，开 2 个
+  if (firstMs > 20_000) return Math.min(2, remaining)
+  // 一节不到 20 秒：很快，可以开 3 个
+  return Math.min(3, remaining)
+}
+
 export async function renderStoryboard(
   storyboard: TeachingStoryboard,
   deps: RenderDeps,
@@ -786,13 +819,9 @@ export async function renderStoryboard(
 
   // ---- 决定每个 worker 负责哪几节 ----
   //
-  // 并发渲染是把 5 节串行（~5 分钟）压到 2~3 轮的关键，但**每个 worker 必须
-  // 有自己的 BrowserWindow**：同一个窗口被两个 renderSection 同时驱动，
-  // `__seek` 会互相踩，截出来的帧是另一个 worker 的时间点。
-  //
-  // 默认 2 个 worker。3 个以上在无独显的机器上会抢 GPU 合成，实测掉帧。
-  const workerCount = Math.max(1, Math.min(deps.concurrency ?? 2, storyboard.sections.length))
-  const queues: number[][] = Array.from({ length: workerCount }, () => [])
+  // 并发渲染是把多节串行压短的关键，但**每个 worker 必须有自己的 BrowserWindow**：
+  // 同一个窗口被两个 renderSection 同时驱动，`__seek` 会互相踩，
+  // 截出来的帧是另一个 worker 的时间点。
   const toRender: number[] = []
   for (let i = 0; i < storyboard.sections.length; i++) {
     const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
@@ -800,11 +829,47 @@ export async function renderStoryboard(
     if (deps.onlySections && !deps.onlySections.has(i + 1) && fs.existsSync(outMp4)) continue
     toRender.push(i)
   }
-  // 轮转分配：节数不整除时，前面的 worker 少拿一节
-  toRender.forEach((idx, n) => queues[n % workerCount]!.push(idx))
 
   /** 每节的产物路径，按节号索引；并发时不能靠 push 顺序 */
   const outputs = new Map<number, string>()
+
+  // ---- 第一轮：串行渲一节，量出这台机器的真实速度 ----
+  //
+  // 不用「看 CPU 核数」来猜：瓶颈在 GPU 合成与进程调度，不在算力。
+  // 一台 16 核但无独显的机器，开 4 个窗口反而更慢。
+  let workerCount = deps.concurrency ?? 1
+  let rendered = 0
+  if (toRender.length > 0) {
+    const first = toRender[0]!
+    const firstStart = Date.now()
+    const browser = await deps.launchBrowser()
+    try {
+      await renderOne(
+        storyboard.sections[first]!,
+        first,
+        path.join(deps.outDir, `section_${first + 1}.mp4`),
+        browser,
+        deps,
+        frameIssues,
+        outputs,
+      )
+    } finally {
+      await browser.close().catch(() => {})
+    }
+    const firstMs = Date.now() - firstStart
+    rendered = 1
+    if (deps.concurrency === undefined) {
+      workerCount = pickConcurrency(firstMs, toRender.length - 1)
+      deps.log(
+        `[render] 首节耗时 ${Math.round(firstMs / 1000)} 秒，剩余 ${toRender.length - 1} 节 → 并发 ${workerCount}`,
+      )
+    }
+  }
+
+  // ---- 剩余节：按 workerCount 并发 ----
+  const rest = toRender.slice(rendered)
+  const queues: number[][] = Array.from({ length: Math.max(1, workerCount) }, () => [])
+  rest.forEach((idx, n) => queues[n % workerCount]!.push(idx))
 
   const runWorker = async (queue: number[]): Promise<void> => {
     if (queue.length === 0) return
@@ -889,9 +954,10 @@ async function renderOne(
   }
 
   const secs = sectionSeconds(section)
+  const q = deps.quality ?? QUALITY.standard
   try {
-    await browser.renderSection(html, outMp4, secs * 1000, 12)
-    deps.log(`[render] 第 ${index + 1} 节完成`)
+    await browser.renderSection(html, outMp4, secs * 1000, q.fps, { crf: q.crf, preset: q.preset })
+    deps.log(`[render] 第 ${index + 1} 节完成（${q.fps}fps · crf ${q.crf}）`)
 
     // 抽帧自检：像素是唯一证据。必须在同一个 worker 里立即读，
     // 下一个节开始渲染后样本就被覆盖了。
@@ -914,7 +980,13 @@ async function renderOne(
       fs.writeFileSync(srtPath, cuesToSrt(cues), 'utf8')
       const narrated = outMp4.replace(/\.mp4$/, '.narrated.mp4')
       const r = await addNarration(
-        { videoPath: outMp4, outputPath: narrated, cues, srtPath },
+        {
+          videoPath: outMp4,
+          outputPath: narrated,
+          cues,
+          srtPath,
+          ...(theme.subtitle ? { subtitle: theme.subtitle } : {}),
+        },
         deps.ffmpeg,
       )
       if (r.ok) {
@@ -969,6 +1041,11 @@ export async function addNarration(
     outputPath: string
     cues: readonly Cue[]
     srtPath: string
+    /**
+     * 字幕样式。跟着画面风格走——黑板上烧白字会显得像外挂字幕，
+     * 白底烧白字直接看不见。
+     */
+    subtitle?: { color?: string; outline?: string; size?: number }
   },
   ffmpeg: RenderDeps['ffmpeg'],
 ): Promise<{ ok: boolean; error?: string }> {
@@ -984,7 +1061,25 @@ export async function addNarration(
   // 同时出现（-vf 会自己建一个 filtergraph，两者冲突 → 整个命令报错）。
   // 实测就是这里导致 5 节全部「配音合成失败，保留无声版」。
   const srtArg = opts.srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")
-  const filters: string[] = [`[0:v]subtitles='${srtArg}'[vout]`]
+  // force_style 用 libass 的 ASS 字段名；颜色是 &HBBGGRR（注意是 BGR 不是 RGB）
+  const styleParts: string[] = []
+  const toAss = (hex: string) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex)
+    if (!m) return null
+    const n = m[1]!
+    return `&H${n.slice(4, 6)}${n.slice(2, 4)}${n.slice(0, 2)}`
+  }
+  if (opts.subtitle?.color) {
+    const c = toAss(opts.subtitle.color)
+    if (c) styleParts.push(`PrimaryColour=${c}`)
+  }
+  if (opts.subtitle?.outline) {
+    const o = toAss(opts.subtitle.outline)
+    if (o) styleParts.push(`OutlineColour=${o}`, `BorderStyle=1`)
+  }
+  if (opts.subtitle?.size) styleParts.push(`FontSize=${opts.subtitle.size}`)
+  const forceStyle = styleParts.length ? `:force_style='${styleParts.join(',')}'` : ''
+  const filters: string[] = [`[0:v]subtitles='${srtArg}'${forceStyle}[vout]`]
 
   if (withAudio.length > 0) {
     // 每句按开始时间延迟，再全部混成一条
@@ -996,7 +1091,12 @@ export async function addNarration(
     // 不用 `normalize=0`：包里那份 ffmpeg 是 2018 年的 N-92722，`amix` 还没有这个选项
     // （实测 `Option 'normalize' not found` → 整条命令失败 → 全部退回无声版）。
     // 句与句本来就不重叠（各自延时到不同时间点），归一化本来也不该生效。
-    filters.push(`${mixInputs}amix=inputs=${withAudio.length}:duration=longest[aout]`)
+    //
+    // **统一响度**：不同音色的合成响度本来就有差异（实测晓伊比晓晓低 2~3dB），
+    // 多句叠加时也会浮动。这里接一道 loudnorm 把每节拉到同一目标，
+    // 否则跨节切换时声音会忽大忽小。
+    filters.push(`${mixInputs}amix=inputs=${withAudio.length}:duration=longest[mixed]`)
+    filters.push(`[mixed]${loudnormFilter()}[aout]`)
     args.push('-filter_complex', filters.join(';'), '-map', '[vout]', '-map', '[aout]')
     args.push('-c:a', 'aac', '-b:a', '128k')
   } else {
