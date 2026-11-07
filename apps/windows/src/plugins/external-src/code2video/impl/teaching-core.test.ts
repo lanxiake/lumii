@@ -7,6 +7,8 @@ import {
   autoHideCovered,
   dedupeSameStep,
   normalizeRoleIds,
+  liftOutOfSubtitleBand,
+  SUB_BAND_PCT,
   CROSS_STEP_OVERLAP_THRESHOLD,
   checkSceneLayout,
   declutterSteps,
@@ -283,6 +285,52 @@ describe('阈值一致性', () => {
   it('常量在一个合理区间', () => {
     expect(CROSS_STEP_OVERLAP_THRESHOLD).toBeGreaterThan(0.3)
     expect(CROSS_STEP_OVERLAP_THRESHOLD).toBeLessThan(0.9)
+  })
+})
+
+describe('liftOutOfSubtitleBand', () => {
+  // 实测：元素画到最底部，和烧进去的字幕撞成两行同样的字
+  it('底部越界的元素被上移到字幕区之上', () => {
+    const out = liftOutOfSubtitleBand([
+      { elements: [{ kind: 'text', content: 'x', x: 10, y: 88, w: 40, h: 10 }] },
+    ])
+    const el = out[0]!.elements[0]!
+    expect((el.y ?? 0) + (el.h ?? 0)).toBeLessThanOrEqual(100 - SUB_BAND_PCT)
+  })
+
+  it('本来就在上方的元素不动', () => {
+    const out = liftOutOfSubtitleBand([
+      { elements: [{ kind: 'text', content: 'x', x: 10, y: 20, w: 40, h: 10 }] },
+    ])
+    expect(out[0]!.elements[0]!.y).toBe(20)
+  })
+
+  it('很高的元素也不会被推到负数', () => {
+    const out = liftOutOfSubtitleBand([
+      { elements: [{ kind: 'rect', x: 10, y: 80, w: 40, h: 60 }] },
+    ])
+    expect(out[0]!.elements[0]!.y).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('parseStoryboard 旁白', () => {
+  it('narration_lines 被保留', () => {
+    const b = parseStoryboard({
+      sections: [
+        {
+          title: 'T',
+          lecture_lines: ['标签'],
+          animations: ['动作'],
+          narration_lines: ['这是完整的一句话，用来讲清楚为什么。'],
+        },
+      ],
+    })
+    expect(b?.sections[0]?.narrationLines).toEqual(['这是完整的一句话，用来讲清楚为什么。'])
+  })
+
+  it('没有 narration_lines 时不带该字段', () => {
+    const b = parseStoryboard({ sections: [{ title: 'T', lecture_lines: ['a'], animations: ['x'] }] })
+    expect(b?.sections[0]?.narrationLines).toBeUndefined()
   })
 })
 

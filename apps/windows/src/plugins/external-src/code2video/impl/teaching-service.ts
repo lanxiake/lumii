@@ -24,6 +24,7 @@ import {
   autoHideCovered,
   dedupeSameStep,
   normalizeRoleIds,
+  liftOutOfSubtitleBand,
   checkSceneLayout,
   parseOutline,
   declutterSteps,
@@ -506,7 +507,9 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
               // 2. 同一步内的重复元素去重
               // 3. 被后来者盖住一半以上的旧元素自动退场
               const roles = templateMatch.template.roles ?? []
-              const cleaned = autoHideCovered(dedupeSameStep(normalizeRoleIds(parsed.steps, roles)))
+              let cleaned = autoHideCovered(dedupeSameStep(normalizeRoleIds(parsed.steps, roles)))
+              // 有配音时底部是字幕区，元素要挤出来（模型会画到底，实测撞成两行）
+              if (deps.narrate) cleaned = liftOutOfSubtitleBand(cleaned)
               // 硬门禁只剩三类：元素超量、跨步重叠、出界。
               // **阈值必须与 autoHideCovered 一致（0.55）**：否则 0.35~0.55 之间的
               // 重叠既不会被自动清理、又会被门禁判失败，每一版都卡死在这里
@@ -570,7 +573,13 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       for (const section of storyboard.sections) {
         // 只重做被点名的节时，未点名的节沿用既有字幕（若有）
         const res = await narrateSection(
-          { lines: section.lectureLines, destDir: path.join(outDir, 'audio', section.id) },
+          {
+            // 有旁白就用旁白（完整句子），没有才退回讲义要点。
+            // 拿「负数 就是 取相反数」这种标签当旁白，念出来是断的，
+            // 而且会和左侧的标签重复显示（实测底部出现两行同样的字）。
+            lines: section.narrationLines?.length ? section.narrationLines : section.lectureLines,
+            destDir: path.join(outDir, 'audio', section.id),
+          },
           {
             generateAudioFile: deps.narrate.generateAudioFile,
             probeDurationMs: async (p) => probeMediaDurationMs(p, deps.ffmpeg),

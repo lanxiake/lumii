@@ -34,6 +34,14 @@ export interface StoryboardSection {
   /** 右侧动画步骤，与 lectureLines 一一对应 */
   animations: string[]
   /**
+   * 这一节每步要**讲出来**的话（旁白/字幕）。
+   *
+   * 与 `lectureLines` 分开：那是左侧的**要点标签**（短语，给眼睛看），
+   * 这是**口播**（完整句子，给耳朵听）。拿要点当旁白会念成
+   * 「负数 就是 取相反数」，而且会和左侧重复显示（实测底部出现两行同样的字）。
+   */
+  narrationLines?: string[]
+  /**
    * 这一节的**结构化画面**（模型只出 JSON，HTML 由 `buildSceneHtml` 拼）。
    * 缺省时渲染器退回纯文字模板。
    */
@@ -55,6 +63,16 @@ export interface StoryboardSection {
 export interface TeachingStoryboard {
   sections: StoryboardSection[]
 }
+
+/**
+ * 画面底部留给字幕的高度（占画面高度的百分比）。
+ *
+ * 有配音时字幕烧在那里。模型不知道这件事，会把元素画到底部，
+ * 于是出现「元素文字 + 同位置字幕」两行重复（实测）。
+ *
+ * 14% ≈ 100px / 720px，正好容纳一行 34px 的字幕加边距。
+ */
+export const SUB_BAND_PCT = 14
 
 /** 规模闸门：防止模型输出撑爆渲染与耗时 */
 export const LIMITS = {
@@ -134,6 +152,7 @@ export function parseStoryboard(raw: unknown): TeachingStoryboard | null {
     if (!title) continue
     const lectureLines = asStringArray(item.lecture_lines ?? item.lectureLines, LIMITS.maxLectureLines)
     const animations = asStringArray(item.animations, LIMITS.maxAnimations)
+    const narration = asStringArray(item.narration_lines ?? item.narrationLines, LIMITS.maxLectureLines)
     // 动画数与讲义数对齐：多出来的丢掉（原版就是"每行讲义配一步动画"），
     // 少了就按最后一条补齐——不对称会让渲染时某一侧空着
     if (lectureLines.length === 0) continue
@@ -141,7 +160,13 @@ export function parseStoryboard(raw: unknown): TeachingStoryboard | null {
     for (let i = 0; i < lectureLines.length; i++) {
       aligned.push(animations[i] ?? animations[animations.length - 1] ?? lectureLines[i]!)
     }
-    sections.push({ id: `section_${sections.length + 1}`, title, lectureLines, animations: aligned })
+    sections.push({
+      id: `section_${sections.length + 1}`,
+      title,
+      lectureLines,
+      animations: aligned,
+      ...(narration.length ? { narrationLines: narration } : {}),
+    })
   }
   if (sections.length === 0) return null
   return { sections }
@@ -229,14 +254,19 @@ ${JSON.stringify(outline, null, 2)}
       "id": "section_1",
       "title": "小节标题",
       "lecture_lines": ["左侧讲义第 1 行", "第 2 行"],
-      "animations": ["右侧画面第 1 步做什么", "第 2 步做什么"]
+      "animations": ["右侧画面第 1 步做什么", "第 2 步做什么"],
+      "narration_lines": ["这一步口头讲的话（完整句子）", "…"]
     }
   ]
 }
 
 要求：
 1. **lecture_lines 与 animations 数量必须相等且一一对应**——每一行讲义配一步动画。
-2. 每个小节 3~5 行讲义；重点小节可用 5 行。
+2. **narration_lines 与 lecture_lines 同样一一对应**，但写法完全不同：
+   - lecture_lines 是**给眼睛看的标签**：短语，≤${LIMITS.maxLectureLineChars} 字
+   - narration_lines 是**给耳朵听的口播**：完整通顺的一句话，15~40 字
+   - 口播要解释「为什么」，不是把标签念一遍
+   - 例：标签「箭头 a 翻到 -a」→ 口播「把箭头整体翻个方向，长度不变，指向就反过来了」
 3. 每行讲义不超过 ${LIMITS.maxLectureLineChars} 个字，必须是短语，不要整句。
 4. 动画描述要具体到"什么元素、怎么出现/移动/变色"，因为后面会被直接翻译成画面。
    例："两条平行线从左侧平移进场，颜色由白变蓝"。
@@ -902,6 +932,30 @@ export function normalizeRoleIds(
 }
 
 /**
+ * 把元素从字幕禁区里挤出来。
+ *
+ * 提示词说了「底部 14% 是字幕区」，但模型仍会画到底（实测底部出现两行重复文字：
+ * 元素一行、烧进去的字幕一行）。所以本地再压一道：底部越界的元素整体上移。
+ *
+ * 只在**有字幕**时才需要压——没有配音时底部可以随便用。
+ */
+export function liftOutOfSubtitleBand(
+  steps: readonly SceneStep[],
+  bandPct = SUB_BAND_PCT,
+): SceneStep[] {
+  const maxBottom = 100 - bandPct
+  return steps.map((step) => ({
+    elements: step.elements.map((el) => {
+      const h = el.h ?? 14
+      const y = el.y ?? 40
+      if (y + h <= maxBottom) return { ...el }
+      // 整体上移，但不越过顶部
+      return { ...el, y: Math.max(0, maxBottom - h) }
+    }),
+  }))
+}
+
+/**
  * 自动给元素补 `until`：被后来者**完全覆盖**的元素自动退场。 *
  * ## 为什么不让模型自己写 until
  *
@@ -1132,6 +1186,9 @@ ${roles.map((r) => `- **${r.id}**（${r.kind}）：${r.purpose}`).join('\n')}
 ${exampleBlock}${paletteBlock}${rolesBlock}
 右侧动画区是一个坐标系：x/y 是元素**左上角**在右区里的百分比（0~100），w/h 是宽高百分比。
 每个动画步骤一组元素，元素逐个按出现顺序摆放，**不要互相重叠**。
+
+**底部 ${SUB_BAND_PCT}% 是字幕区，不要在那里放东西**（有配音时那里会烧字幕，
+放了会撞在一起、读不出来）。元素要完整落在 0~${100 - SUB_BAND_PCT} 的纵向范围内。
 
 ## 能用哪些元素
 
