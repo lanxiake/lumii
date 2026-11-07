@@ -21,20 +21,79 @@
     --void: #020408;
   }
 
+  /* ── 主界面占位（溶解退场的底层） ─────────────────────────── */
+  /* 它一直在 boot 下面，从头到尾不动。溶解时露出来的就是这个，
+     所以不需要在退场时切换任何东西——这也是「真溶解」和「淡出黑屏」的区别。 */
+  .app-under {
+    position: fixed; inset: 0; display: flex;
+    background: linear-gradient(168deg, #080d16 0%, #060a12 55%, #04070c 100%);
+    color: #8fb6c9; font-size: 12px;
+  }
+  .app-side {
+    width: 208px; flex: none; padding: 16px 14px;
+    display: flex; flex-direction: column; gap: 14px;
+    border-right: 1px solid rgba(79,216,255,.07);
+    background: rgba(6,11,18,.6);
+  }
+  .app-logo { width: 26px; height: 26px; object-fit: contain; opacity: .9; }
+  .app-nav {
+    padding: 7px 10px; border-radius: 5px;
+    color: rgba(150,195,220,.5); letter-spacing: .06em;
+  }
+  .app-nav.on { background: rgba(79,216,255,.09); color: #bfe9ff; }
+  .app-main { flex: 1; padding: 46px 52px; }
+  .app-line { height: 10px; margin-bottom: 16px; border-radius: 5px;
+    background: rgba(120,180,220,.09); }
+  .w40 { width: 40%; } .w55 { width: 55%; } .w70 { width: 70%; }
+
   #boot {
     position: fixed; inset: 0; overflow: hidden;
     background: var(--void); color: var(--cy);
-    opacity: 1; transition: opacity 460ms ease;
+    opacity: 1;
+    /* 退场不做纯透明度淡出（那会先黑一下再露出界面），
+       而是「羽化溶解 + 轻微推近」：边缘先化开，整块收走时界面已经透出来 */
+    transition:
+      opacity 900ms cubic-bezier(.4,0,.35,1),
+      transform 900ms cubic-bezier(.4,0,.35,1),
+      -webkit-mask-size 900ms cubic-bezier(.4,0,.35,1),
+      mask-size 900ms cubic-bezier(.4,0,.35,1);
+    -webkit-mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 100%, #000 100%);
+    mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 100%, #000 100%);
+    -webkit-mask-size: 300% 300%; mask-size: 300% 300%;
+    -webkit-mask-position: center; mask-position: center;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
   }
-  #boot.fading { opacity: 0; pointer-events: none; }
+  #boot.fading {
+    opacity: 0;
+    transform: scale(1.035);
+    /* 蒙版从「全实」收到「全透明」= 从中心化开，像雾散 */
+    -webkit-mask-image: radial-gradient(ellipse 0% 0% at 50% 50%, #000 0%, transparent 72%);
+    mask-image: radial-gradient(ellipse 0% 0% at 50% 50%, #000 0%, transparent 72%);
+    pointer-events: none;
+  }
 
   /* ── 层 1：深空 ─────────────────────────────────────────── */
+  /* 背景不是一个颜色，是五层叠加：
+     ① 极暗的垂直渐变（上深下更黑，托住画面）
+     ② 主冷光（椭圆的体积光，位置略高于中线）
+     ③ 琥珀补光（左下，与冷光形成冷暖对撞，避免全屏一个色调）
+     ④ 星云带（斜向的柔光，打破径向对称的死板）
+     ⑤ 细颗粒（噪点，消除大色块的塑料感）
+     所有层都只用渐变+一张内联 SVG，不引外部图。 */
+  /* ── 层 1：深空底色 ─────────────────────────────────────── */
+  /* 星云与星场现在是 Canvas 程序化烘焙的（见 bakeBackdrop），
+     CSS 这层只负责兜底底色：一次渐变 + 颗粒。
+     以前这里堆了四层柔光渐变，和烘焙星云叠在一起就成了「灰雾」。 */
   .void-bg {
     position: absolute; inset: 0;
-    background:
-      radial-gradient(ellipse 38% 30% at 50% 46%, rgba(40,140,220,.13) 0%, transparent 70%),
-      radial-gradient(ellipse 26% 20% at 16% 78%, rgba(255,140,60,.06) 0%, transparent 70%);
+    background: linear-gradient(178deg, #010204 0%, #03060d 34%, #04080f 58%, #010306 100%);
     transition: opacity 1s ease;
+  }
+  /* 细颗粒：消除大色块的塑料感 */
+  .void-bg::after {
+    content: ''; position: absolute; inset: 0; opacity: .05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: screen;
   }
 
   /* ── 层 2：透视网格（向前推进 = 速度感） ────────────────── */
@@ -237,7 +296,11 @@
   }
   .vignette {
     position: absolute; inset: 0; pointer-events: none;
-    background: radial-gradient(ellipse 74% 66% at 50% 46%, transparent 40%, rgba(0,2,6,.88) 100%);
+    /* 两层：外圈压暗 + 四角更深。只压不调色会显平，
+       所以底部再叠一点冷偏，让边缘往蓝里落。 */
+    background:
+      radial-gradient(ellipse 66% 58% at 50% 47%, transparent 26%, rgba(0,2,6,.55) 74%, rgba(0,1,4,.95) 100%),
+      linear-gradient(to top, rgba(0,10,26,.5) 0%, transparent 34%);
   }
   .noise {
     position: absolute; inset: 0; pointer-events: none; opacity: .028;
@@ -304,6 +367,24 @@
 </style>
 </head>
 <body>
+
+<!-- 主界面占位：溶解退场时露出来的就是这一层。
+     真实集成时它就是 app 本身，DEMO 里画一个极简侧栏，用来检验
+     「开机画面化开、下面有界面」这件事成不成立。 -->
+<div class="app-under">
+  <div class="app-side">
+    <img class="app-logo" src="logo.png" alt="" />
+    <span class="app-nav on">概览</span>
+    <span class="app-nav">对话</span>
+    <span class="app-nav">技能</span>
+    <span class="app-nav">设置</span>
+  </div>
+  <div class="app-main">
+    <div class="app-line w40"></div>
+    <div class="app-line w70"></div>
+    <div class="app-line w55"></div>
+  </div>
+</div>
 
 <div id="boot" data-act="dark">
   <div class="void-bg"></div>
@@ -465,25 +546,248 @@ function resize() {
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR)
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
   seedDust()
+  bakeBackdrop()   // 烘焙结果依赖尺寸，改尺寸必须重烤
 }
 
+/* ══ 底图：程序化烘焙 ══════════════════════════════════════════════
+   之前底图粗糙的根因是两个：星点是同尺寸同色的圆点（像撒胡椒面），
+   星云是一层 CSS 模糊渐变（没有结构，只有一团雾）。
+
+   重做思路：
+   1) 星云用**分形噪声 + 密度场**真算一遍，烘焙进离屏画布。有明暗、有丝缕、
+      有暗尘带，不是一团均匀的光。
+   2) 星场按**真实分布**撒：绝大多数是暗弱小星，少数亮星带十字衍射星芒，
+      色温也不统一（蓝白/冷白/暖黄）。同样烘焙一次。
+   3) 两者都是静态的，逐帧只贴图 + 做视差平移，代价接近零。
+   ═════════════════════════════════════════════════════════════════ */
+
+let nebulaCanvas = null   // 烘焙好的星云
+let starCanvas = null     // 烘焙好的星场
+
+/** 二维值噪声：给定格点哈希，双线性插值 + 平滑 */
+function makeNoise2D(seed) {
+  const perm = new Uint8Array(512)
+  let s = seed
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296
+  const p = new Uint8Array(256)
+  for (let i = 0; i < 256; i++) p[i] = i
+  for (let i = 255; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1))
+    const tmp = p[i]; p[i] = p[j]; p[j] = tmp
+  }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255]
+
+  const grad = (h, x, y) => {
+    // 8 个方向的梯度，比经典 perlin 便宜且够用
+    switch (h & 7) {
+      case 0: return x + y
+      case 1: return x - y
+      case 2: return -x + y
+      case 3: return -x - y
+      case 4: return x
+      case 5: return -x
+      case 6: return y
+      default: return -y
+    }
+  }
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10)
+
+  return (x, y) => {
+    const X = Math.floor(x) & 255
+    const Y = Math.floor(y) & 255
+    const xf = x - Math.floor(x)
+    const yf = y - Math.floor(y)
+    const u = fade(xf), v = fade(yf)
+    const aa = perm[perm[X] + Y]
+    const ab = perm[perm[X] + Y + 1]
+    const ba = perm[perm[X + 1] + Y]
+    const bb = perm[perm[X + 1] + Y + 1]
+    const x1 = grad(aa, xf, yf) + u * (grad(ba, xf - 1, yf) - grad(aa, xf, yf))
+    const x2 = grad(ab, xf, yf - 1) + u * (grad(bb, xf - 1, yf - 1) - grad(ab, xf, yf - 1))
+    return (x1 + v * (x2 - x1)) * .5 + .5
+  }
+}
+
+/**
+ * 烘焙星云。
+ * 分形噪声出「丝缕」，再乘一个椭圆的密度场保证中心厚、边缘薄，
+ * 最后叠一条斜向的暗尘带（真实星云都有暗带切割，这是「真实感」的来源）。
+ */
+function bakeNebula() {
+  const nw = Math.max(320, Math.round(W / 3))
+  const nh = Math.max(200, Math.round(H / 3))
+  const c = document.createElement('canvas')
+  c.width = nw; c.height = nh
+  const g = c.getContext('2d')
+  const img = g.createImageData(nw, nh)
+  const data = img.data
+
+  const noise = makeNoise2D(20260107)
+  const noise2 = makeNoise2D(777)
+
+  // 分形叠加：4 个倍频，每个倍频频率翻倍、权重减半
+  const fbm = (x, y) => {
+    let v = 0, amp = .5, fx = x, fy = y
+    for (let o = 0; o < 5; o++) {
+      v += noise(fx, fy) * amp
+      fx *= 2.03; fy *= 2.01
+      amp *= .5
+    }
+    return v
+  }
+
+  const tilt = -21 * Math.PI / 180
+  const cosT = Math.cos(tilt), sinT = Math.sin(tilt)
+  const cxp = nw * .5, cyp = nh * .5
+
+  for (let y = 0; y < nh; y++) {
+    for (let x = 0; x < nw; x++) {
+      // 转到倾斜坐标系，银河是斜的
+      const dx = (x - cxp) / (nw * .5)
+      const dy = (y - cyp) / (nh * .5)
+      const rx = dx * cosT - dy * sinT
+      const ry = dx * sinT + dy * cosT
+
+      // 银河带：沿 rx 方向的极扁椭圆 —— 中心一条亮带。
+      // .055 而非 .085：太宽会糊成一整条烟，窄一些才有「带」的形状。
+      const band = Math.exp(-(ry * ry) / (2 * .052 * .052))
+      // 侧向衰减：带子两端渐隐
+      const taper = Math.exp(-(rx * rx) / (2 * .72 * .72))
+      let density = band * taper
+
+      // 分形噪声雕刻：丝缕 + 团块。
+      // 频率从 7 提到 11 —— 低频噪声只能做出「一团团的雾」，
+      // 高频才有真实星云那种细碎的丝缕感。
+      const n1 = fbm(x / nw * 11 + 3.1, y / nh * 11 + 1.7)
+      const n2 = noise2(x / nw * 2.6, y / nh * 2.6)
+      const n3 = fbm(x / nw * 26 + 9.4, y / nh * 26 + 5.2)   // 最细的一层，负责破边
+      // 噪声压得更狠：0.18 + n1*1.5 让暗部真的暗下去，形成明暗对比
+      density *= (0.12 + n1 * n1 * 1.9) * (0.5 + n2 * 0.95)
+      density *= (0.45 + n3 * 0.95)
+
+      // 暗尘带：把亮带切开。用柔和的高斯而不是硬缝，
+      // 且只吃掉六成 —— 真实暗带里也有零星的星光透过。
+      const laneW = .020 + .010 * Math.sin(rx * 2.3 + 1.1)
+      const dustLane = Math.exp(-Math.pow((ry + .05 * Math.sin(rx * 4)) / laneW, 2))
+      density *= (1 - dustLane * .62)
+
+      // 第二个更淡的外围云气
+      const halo = Math.exp(-(rx * rx + ry * ry * 3.4) / (2 * .42 * .42)) * .16
+      density += halo * (0.2 + n1 * .8)
+
+      // 全局压低：底图是背景，不该抢主体
+      density *= .52
+      density = Math.max(0, Math.min(1, density))
+      if (density < .004) continue
+
+      const i4 = (y * nw + x) * 4
+      // 色相随密度走：稀薄处偏冷蓝，浓密处偏白青，边缘带一点紫
+      const warm = Math.min(1, density * 1.8)
+      const r = Math.round(48 + 150 * warm)
+      const gg = Math.round(96 + 140 * warm)
+      const b = Math.round(150 + 105 * warm)
+      data[i4] = r
+      data[i4 + 1] = gg
+      data[i4 + 2] = b
+      // alpha 做一点曲线，低密度更快衰减 → 边缘更干净，不会是灰雾
+      data[i4 + 3] = Math.round(Math.pow(density, 1.35) * 255)
+    }
+  }
+  g.putImageData(img, 0, 0)
+  nebulaCanvas = c
+}
+
+/**
+ * 烘焙星场。
+ * 真实星空的亮度分布极不均匀：大量暗星 + 极少数亮星。
+ * 所以用幂律取大小，只有最亮的那一小撮才画十字星芒。
+ */
+function bakeStars() {
+  const c = document.createElement('canvas')
+  c.width = W; c.height = H
+  const g = c.getContext('2d')
+
+  const count = Math.round(Math.min(1100, (W * H) / 1750))
+  // 色温：多数冷白，少数偏蓝或偏暖
+  const temps = [
+    { r: 200, g: 228, b: 255, w: .46 },   // 蓝白（年轻恒星）
+    { r: 255, g: 255, b: 255, w: .30 },   // 纯白
+    { r: 255, g: 236, b: 200, w: .17 },   // 暖黄（年老恒星）
+    { r: 255, g: 176, b: 130, w: .07 },   // 橙红
+  ]
+  const pickTemp = () => {
+    let r = Math.random()
+    for (const t of temps) { if ((r -= t.w) <= 0) return t }
+    return temps[0]
+  }
+
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * W
+    const y = Math.random() * H
+
+    // 幂律：绝大多数是小星，偶尔出大星。
+    // 指数 4.6 比 3.4 更「陡」，大星比例从约 15% 掉到约 4% ——
+    // 真实星空里带星芒的亮星就应该是极少数。
+    const mag = Math.pow(Math.random(), 4.6)
+    const radius = .26 + mag * 1.55
+    const alpha = .14 + Math.pow(mag, 1.6) * .66
+    const t = pickTemp()
+
+    // 大星：先画柔光晕，再画十字衍射星芒
+    if (mag > .62) {
+      const haloR = radius * (6 + mag * 8)
+      const hg = g.createRadialGradient(x, y, 0, x, y, haloR)
+      hg.addColorStop(0, `rgba(${t.r},${t.g},${t.b},${(alpha * .34).toFixed(3)})`)
+      hg.addColorStop(.35, `rgba(${t.r},${t.g},${t.b},${(alpha * .10).toFixed(3)})`)
+      hg.addColorStop(1, `rgba(${t.r},${t.g},${t.b},0)`)
+      g.fillStyle = hg
+      g.beginPath(); g.arc(x, y, haloR, 0, 6.2832); g.fill()
+
+      // 十字星芒：两条细长渐变，长度随亮度
+      const spike = haloR * (1.4 + mag * 1.2)
+      for (const ang of [0, Math.PI / 2]) {
+        g.save()
+        g.translate(x, y)
+        g.rotate(ang)
+        const lg = g.createLinearGradient(-spike, 0, spike, 0)
+        lg.addColorStop(0, `rgba(${t.r},${t.g},${t.b},0)`)
+        lg.addColorStop(.5, `rgba(${t.r},${t.g},${t.b},${(alpha * .40).toFixed(3)})`)
+        lg.addColorStop(1, `rgba(${t.r},${t.g},${t.b},0)`)
+        g.fillStyle = lg
+        g.fillRect(-spike, -.45, spike * 2, .9)
+        g.restore()
+      }
+    }
+
+    // 星体本身
+    g.fillStyle = `rgba(${t.r},${t.g},${t.b},${alpha.toFixed(3)})`
+    g.beginPath(); g.arc(x, y, radius, 0, 6.2832); g.fill()
+  }
+  starCanvas = c
+}
+
+function bakeBackdrop() {
+  bakeNebula()
+  bakeStars()
+}
+
+/* ── 背景浮尘：少量近景来带视差与呼吸 ─────────────────────── */
+/* 星场已经烘焙好了，这里只留近景的「活」粒子：
+   有位移、有闪烁，用来制造纵深视差，不需要多。 */
 function seedDust() {
-  const n = Math.round(Math.min(220, (W * H) / 9000))
+  const n = Math.round(Math.min(150, (W * H) / 12000))
   dust = Array.from({ length: n }, () => ({
     x: Math.random() * W,
     y: Math.random() * H,
-    r: .4 + Math.random() * 1.3,
-    a: .08 + Math.random() * .3,
-    vy: -.06 - Math.random() * .22,
-    vx: (Math.random() - .5) * .1,
+    r: .9 + Math.random() * 1.9,
+    a: .10 + Math.random() * .26,
+    vy: -.09 - Math.random() * .26,
+    vx: (Math.random() - .5) * .14,
     ph: Math.random() * 6.28,
   }))
 }
 
-/* ── 背景浮尘：整场都在，是最安静的一层 ───────────────────── */
 function drawDust(dt, t) {
-  // 每拍一次微弱「涌动」：整片浮尘同时向外推一点点，然后回位。
-  // 这是「持续微动」——即使最安静的层也在呼吸，画面不会死。
   const surge = Math.pow(1 - beatPhase(), 5) * 5
   const cxs = CX, cys = CY
 
@@ -494,8 +798,7 @@ function drawDust(dt, t) {
     if (p.x < -8) p.x = W + 8
     if (p.x > W + 8) p.x = -8
 
-    // 错峰闪烁：每颗有自己的相位，整片像萤火虫
-    const tw = .45 + .55 * Math.pow(.5 + .5 * Math.sin(beatClock * 2.2 + p.ph), 2)
+    const tw = .5 + .5 * Math.pow(.5 + .5 * Math.sin(beatClock * 2.2 + p.ph), 2)
     let dx = 0, dy = 0
     if (surge > .05) {
       const vx = p.x - cxs, vy = p.y - cys
@@ -503,9 +806,43 @@ function drawDust(dt, t) {
       dx = (vx / d) * surge
       dy = (vy / d) * surge
     }
-    ctx.fillStyle = `rgba(150,225,255,${(p.a * tw).toFixed(3)})`
-    ctx.beginPath(); ctx.arc(p.x + dx, p.y + dy, p.r * (1 + surge * .04), 0, 6.2832); ctx.fill()
+    const px = p.x + dx, py = p.y + dy
+
+    const g = ctx.createRadialGradient(px, py, 0, px, py, p.r * 6)
+    g.addColorStop(0, `rgba(180,235,255,${(p.a * tw * .6).toFixed(3)})`)
+    g.addColorStop(1, 'rgba(180,235,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath(); ctx.arc(px, py, p.r * 6, 0, 6.2832); ctx.fill()
   }
+}
+
+/**
+ * 底图合成：星云 + 星场，带轻微视差。
+ * 两层都是静态位图，逐帧只是两次 drawImage，开销可忽略。
+ */
+function drawBackdrop(dt) {
+  if (!nebulaCanvas || !starCanvas) return
+
+  // 极慢的整体漂移 = 镜头在极远处缓慢移动的感觉
+  const driftX = Math.sin(beatClock * .045) * 10
+  const driftY = Math.cos(beatClock * .037) * 7
+
+  // 星云：只占画面中上部一条，不铺满 —— 铺满就成了「背景板」，
+  // 一条斜带才像远处真实存在的一片星河。
+  ctx.save()
+  ctx.globalAlpha = .58
+  ctx.drawImage(
+    nebulaCanvas,
+    -driftX * .6 - W * .04, -driftY * .6 - H * .06,
+    W * 1.08, H * 1.08
+  )
+  ctx.restore()
+
+  // 星场：几乎不动（远），但比星云多一点位移 → 视差
+  ctx.save()
+  ctx.globalAlpha = 1
+  ctx.drawImage(starCanvas, -driftX * .18, -driftY * .18, W * 1.02, H * 1.02)
+  ctx.restore()
 }
 
 /* ── 数据流：粒子沿螺旋被吸向核心（第二幕主角） ──────────── */
@@ -1440,6 +1777,7 @@ function frameInner(now) {
     : isEnergize || isCognition ? 1
     : isGate ? Math.max(0, circuitGrow - dt * .6) : 0
 
+  drawBackdrop(dt)
   drawDust(dt, t)
   if (streamInflow > 0 && !streams.length) seedStreams()
   drawStreams(dt)
@@ -1621,8 +1959,10 @@ async function play() {
   el.barBot.classList.remove('on')
   await sleep(340)
 
+  // 溶解交接：不切黑，整块带着羽化蒙版化开，露出下面的界面。
+  // 900ms 与 CSS transition 对齐，等它走完再移除节点。
   boot.classList.add('fading')
-  await sleep(460)
+  await sleep(900)
   boot.style.display = 'none'
 
   audio?.stop(); audio = null
