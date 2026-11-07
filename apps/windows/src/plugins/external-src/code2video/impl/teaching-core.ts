@@ -224,11 +224,51 @@ ${JSON.stringify(outline, null, 2)}
  * 再用本地模板拼装 HTML——画面同样有形状、位置、颜色，且完全可复现。
  */
 export interface SceneElement {
-  /** 这一步在右区展示什么：形状/文字/公式 */
-  kind: 'text' | 'rect' | 'circle' | 'line' | 'formula'
-  /** 显示内容（text/formula 用），≤ 40 字 */
+  /**
+   * 这一步在右区展示什么。
+   *
+   * 前 5 种是首版就有的（保留以便旧 `storyboard.json` 仍能渲染）；后 8 种是
+   * 「模型想画但表达不出来」的补丁——实测 187 个元素里有 6 个 `rect` 被当作
+   * 数轴（`w:80 h:8`，渲染成空心长框）、另有多处拿 `text` 写 `→` 当箭头。
+   *
+   * | kind | 参数 | 替代的错误用法 |
+   * |---|---|---|
+   * | `tex` | `tex` | 用 `formula` 塞纯文本公式，没有真正的上下标与分式 |
+   * | `axis` | `axis` | 用极扁 `rect` 冒充数轴 |
+   * | `arrow` | `from`/`to` | 用 `text: "→"` 冒充箭头 |
+   * | `table` | `table` | 用多个 text 拼表格，列对不齐 |
+   * | `brace` | `from`/`to` | 用多条 line 拼花括号 |
+   * | `curve` | `curve` | 用一串 circle 连成曲线 |
+   * | `code` | `code` | 用 text 逐行写字，没有高亮 |
+   * | `highlight` | `target` | 无法表达「强调上一个元素」 |
+   */
+  kind:
+    | 'text'
+    | 'rect'
+    | 'circle'
+    | 'line'
+    | 'formula'
+    | 'tex'
+    | 'axis'
+    | 'arrow'
+    | 'table'
+    | 'brace'
+    | 'curve'
+    | 'code'
+    | 'highlight'
+  /** 显示内容（text/formula/code 用），≤ 40 字 */
   content?: string
-  /** 颜色（十六进制，如 #93c5fd） */
+  /** LaTeX 源码（tex 用），如 `(-3)\\times(-2)=6` */
+  tex?: string
+  /** 数轴参数（axis 用） */
+  axis?: AxisSpec
+  /** 表格参数（table 用） */
+  table?: TableSpec
+  /** 曲线参数（curve 用） */
+  curve?: CurveSpec
+  /** 代码参数（code 用） */
+  code?: CodeSpec
+  /** 颜色的十六进制值，如 #93c5fd */
   color?: string
   /** 在右区的相对位置，0~100 的百分比 */
   x?: number
@@ -236,6 +276,57 @@ export interface SceneElement {
   /** 尺寸（相对右区宽高的百分比）；line 用 w 当长度，角度固定水平 */
   w?: number
   h?: number
+  /** 箭头的起点（arrow 用，百分比坐标）；终点用 x/y */
+  from?: Point
+  /** 括号的覆盖范围（brace 从 from 到 x/y 所在行） */
+  to?: Point
+}
+
+/** 百分比坐标点 */
+export interface Point {
+  x: number
+  y: number
+}
+
+/**
+ * 数轴：一条水平轴 + 若干刻度 + 可选标注。
+ *
+ * 这是 `rect` 冒充数轴的正式替代。`from`/`to` 是**数值范围**（不是百分比），
+ * 渲染时按 `x`/`w` 给出的像素区域把数值映射到屏幕。
+ */
+export interface AxisSpec {
+  /** 数值范围下限 */
+  from: number
+  /** 数值范围上限 */
+  to: number
+  /** 要标出来的刻度值 */
+  marks?: number[]
+  /** 原点（0）是否画出来；默认 marks 里含 0 就是 true */
+  showZero?: boolean
+}
+
+export interface TableSpec {
+  headers: string[]
+  rows: string[][]
+  /** 高亮某一行（0 起）。用于「这一步又多了一行」 */
+  highlightRow?: number
+}
+
+export interface CurveSpec {
+  /**
+   * 采样点。模型只给少量控制点，渲染时按线性插值连线——不给公式，
+   * 因为模型算不对 `sin` 的中段，而错曲线比没有曲线更糟。
+   */
+  points: Point[]
+  /** 是否闭合（画多边形/填充） */
+  closed?: boolean
+}
+
+export interface CodeSpec {
+  /** 语言标签（仅显示，不做语法高亮——高亮靠 hl 行号） */
+  language?: string
+  /** 高亮哪几行（0 起） */
+  hl?: number[]
 }
 
 export interface SceneStep {
@@ -265,6 +356,75 @@ function num(v: unknown, def: number, lo = 0, hi = 100): number {
   return typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def
 }
 
+/** 任意有限数（用于数轴范围这类不受 0~100 约束的量） */
+function anyNum(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+function asPoint(v: unknown): Point | null {
+  if (!isRecord(v)) return null
+  const x = anyNum(v.x)
+  const y = anyNum(v.y)
+  return x === null || y === null ? null : { x, y }
+}
+
+function strArray(v: unknown, limit: number, maxChars = 24): string[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .filter((x): x is string => typeof x === 'string')
+    .map((s) => s.slice(0, maxChars))
+    .slice(0, limit)
+}
+
+function parseAxis(v: unknown): AxisSpec | null {
+  if (!isRecord(v)) return null
+  const from = anyNum(v.from)
+  const to = anyNum(v.to)
+  if (from === null || to === null || from === to) return null
+  const marks = Array.isArray(v.marks)
+    ? v.marks.filter((m): m is number => typeof m === 'number' && Number.isFinite(m)).slice(0, 12)
+    : []
+  return { from, to, marks, ...(typeof v.showZero === 'boolean' ? { showZero: v.showZero } : {}) }
+}
+
+function parseTable(v: unknown): TableSpec | null {
+  if (!isRecord(v)) return null
+  const headers = strArray(v.headers, 6, 16)
+  if (headers.length === 0) return null
+  const rowsRaw = Array.isArray(v.rows) ? v.rows : []
+  const rows = rowsRaw
+    .slice(0, 10)
+    .map((r) => strArray(r, 6, 16))
+    .filter((r) => r.length > 0)
+  if (rows.length === 0) return null
+  const hl = anyNum(v.highlightRow)
+  return {
+    headers,
+    rows,
+    ...(hl !== null && hl >= 0 && hl < rows.length ? { highlightRow: Math.floor(hl) } : {}),
+  }
+}
+
+function parseCurve(v: unknown): CurveSpec | null {
+  if (!isRecord(v)) return null
+  const ptsRaw = Array.isArray(v.points) ? v.points : []
+  const points = ptsRaw
+    .slice(0, 60)
+    .map(asPoint)
+    .filter((p): p is Point => p !== null)
+  if (points.length < 2) return null
+  return { points, ...(v.closed === true ? { closed: true } : {}) }
+}
+
+function parseCode(v: unknown): CodeSpec | null {
+  if (!isRecord(v)) return null
+  const language = typeof v.language === 'string' ? v.language.slice(0, 16) : undefined
+  const hl = Array.isArray(v.hl)
+    ? v.hl.filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0).map(Math.floor)
+    : []
+  return { ...(language ? { language } : {}), ...(hl.length ? { hl } : {}) }
+}
+
 /**
  * 收窄模型给的画面 JSON。
  *
@@ -276,7 +436,6 @@ export function parseSceneSpec(raw: unknown, stepCount: number): SceneSpecResult
   const stepsRaw = raw.steps
   if (!Array.isArray(stepsRaw) || stepsRaw.length === 0) return null
 
-  const KINDS = new Set(['text', 'rect', 'circle', 'line', 'formula'])
   const steps: SceneStep[] = []
   const issues: SceneIssue[] = []
   for (let i = 0; i < Math.min(stepsRaw.length, stepCount); i++) {
@@ -294,28 +453,16 @@ export function parseSceneSpec(raw: unknown, stepCount: number): SceneSpecResult
     }
     const elements: SceneElement[] = []
     for (const e of els.slice(0, LIMITS.maxElementsPerStep)) {
-      if (!isRecord(e)) continue
-      const kind = typeof e.kind === 'string' && KINDS.has(e.kind) ? (e.kind as SceneElement['kind']) : null
-      if (!kind) continue
-      const content = typeof e.content === 'string' ? e.content.slice(0, 40) : undefined
-      if ((kind === 'text' || kind === 'formula') && !content) continue
-      elements.push({
-        kind,
-        ...(content ? { content } : {}),
-        ...(typeof e.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(e.color) ? { color: e.color } : {}),
-        x: num(e.x, 30),
-        y: num(e.y, 40),
-        w: num(e.w, 24, 1, 100),
-        h: num(e.h, 14, 1, 100),
-      })
+      const el = parseSceneElement(e)
+      if (el) elements.push(el)
     }
-    // 元素被丢（未知 kind、text 没 content）同样要报：模型以为自己画了，实际没有
-    const dropped = els.length - elements.length
+    // 元素被丢（未知 kind、缺必需参数）同样要报：模型以为自己画了，实际没有
+    const dropped = Math.min(els.length, LIMITS.maxElementsPerStep) - elements.length
     if (dropped > 0 && els.length <= LIMITS.maxElementsPerStep) {
       issues.push({
         step: i,
         kind: 'dropped_element',
-        detail: `第 ${i + 1} 步有 ${dropped} 个元素不合格被丢弃（未知 kind 或 text/formula 缺 content）`,
+        detail: `第 ${i + 1} 步有 ${dropped} 个元素不合格被丢弃（未知 kind 或缺必需参数）`,
       })
     }
     if (elements.length === 0) continue
@@ -331,6 +478,86 @@ export function parseSceneSpec(raw: unknown, stepCount: number): SceneSpecResult
     })
   }
   return { steps, issues }
+}
+
+/** 合法 kind 集合；新增 kind 必须同时在这里和 `SceneElement['kind']` 里加 */
+const ELEMENT_KINDS = new Set<SceneElement['kind']>([
+  'text',
+  'rect',
+  'circle',
+  'line',
+  'formula',
+  'tex',
+  'axis',
+  'arrow',
+  'table',
+  'brace',
+  'curve',
+  'code',
+  'highlight',
+])
+
+/** 收窄单个元素；不合格返回 null（由调用方计入 `dropped_element`） */
+function parseSceneElement(e: unknown): SceneElement | null {
+  if (!isRecord(e)) return null
+  const kind = typeof e.kind === 'string' && ELEMENT_KINDS.has(e.kind as SceneElement['kind'])
+    ? (e.kind as SceneElement['kind'])
+    : null
+  if (!kind) return null
+
+  const content = typeof e.content === 'string' ? e.content.slice(0, 40) : undefined
+  const tex = typeof e.tex === 'string' ? e.tex.slice(0, 200) : undefined
+  const color = typeof e.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(e.color) ? e.color : undefined
+
+  const base = {
+    kind,
+    ...(content ? { content } : {}),
+    ...(color ? { color } : {}),
+    x: num(e.x, 30),
+    y: num(e.y, 40),
+    w: num(e.w, 24, 1, 100),
+    h: num(e.h, 14, 1, 100),
+  }
+
+  // 每种 kind 的必需参数：缺了就等于「模型想画但没给形状」，必须判不合格
+  switch (kind) {
+    case 'text':
+    case 'formula':
+      return content ? base : null
+    case 'tex':
+      return tex ? { ...base, tex } : null
+    case 'axis': {
+      const axis = parseAxis(e.axis)
+      return axis ? { ...base, axis } : null
+    }
+    case 'table': {
+      const table = parseTable(e.table)
+      return table ? { ...base, table } : null
+    }
+    case 'curve': {
+      const curve = parseCurve(e.curve)
+      return curve ? { ...base, curve } : null
+    }
+    case 'code': {
+      const code = parseCode(e.code)
+      return content ? { ...base, ...(code ? { code } : {}) } : null
+    }
+    case 'arrow': {
+      const from = asPoint(e.from)
+      // 箭头必须有起点；终点沿用 x/y（已在 base 里收窄）
+      return from ? { ...base, from } : null
+    }
+    case 'brace': {
+      const from = asPoint(e.from)
+      const to = asPoint(e.to)
+      return from && to ? { ...base, from, to } : null
+    }
+    case 'highlight':
+      // 强调一个色块，位置由 x/y/w/h 决定，不需要额外参数
+      return base
+    default:
+      return base
+  }
 }
 
 /**
@@ -552,20 +779,45 @@ export function buildSceneSpecPrompt(section: StoryboardSection): string {
 右侧动画区是一个坐标系：x/y 是元素**左上角**在右区里的百分比（0~100），w/h 是宽高百分比。
 每个动画步骤一组元素，元素逐个按出现顺序摆放，**不要互相重叠**。
 
-输出格式：
+## 能用哪些元素
+
+| kind | 参数 | 用来画什么 |
+|---|---|---|
+| text | content | 普通文字标签（≤20 字） |
+| rect / circle | color | 一个方框 / 一个圆（**宽高比别超过 5:1**） |
+| line | color | 一条水平线段 |
+| formula | content | 纯文本公式（没有真正的上下标，只能写 x² 这种） |
+| **tex** | tex | **真正的数学公式**，LaTeX 语法：\`(-3)\\times(-2)=6\`、\`\\frac{1}{2}\`、\`x^2+y^2\` |
+| **axis** | axis: {from,to,marks} | **数轴**：from/to 是数值范围，marks 是要标出的刻度值 |
+| **arrow** | from:{x,y} + 自身 x/y | **箭头**：从 from 指向自己的 x/y |
+| **table** | table: {headers,rows,highlightRow} | **表格**，可高亮一行 |
+| **curve** | curve: {points:[{x,y}...]} | **折线/曲线**：给 2~10 个采样点，本地连线 |
+| **brace** | from + to | **花括号**：把纵向一段括起来 |
+| **code** | content + code:{hl:[行号]} | 代码块，可高亮几行 |
+| **highlight** | 只给 x/y/w/h | 高亮一个区域（半透明色块） |
+
+## 选元素的判断
+
+- 要画数轴、时间轴、任何带刻度的轴 → 用 **axis**，不要用很扁的 rect（那会变成空心长框）
+- 要表示方向、因果、推导的下一步 → 用 **arrow**，不要用 text 写「→」
+- 公式有分式、上下标、希腊字母 → 用 **tex**；只是简单一行「a²+b²=c²」用 formula 也行
+- 要列几行数据做对比 → 用 **table**，不要用多个 text 硬拼
+- 函数图像、趋势线 → 用 **curve**，给采样点
+
+## 输出格式
+
 {"steps":[{"elements":[
   {"kind":"rect","color":"#3b82f6","x":20,"y":25,"w":18,"h":18},
-  {"kind":"text","content":"a","color":"#ffffff","x":28,"y":46,"w":10,"h":8}
+  {"kind":"tex","tex":"a^2+b^2=c^2","x":30,"y":60,"w":40,"h":12}
 ]}]}
 
-约束：
+## 约束
+
 1. steps 数量必须等于 ${Math.min(section.lectureLines.length, section.animations.length)}。
-2. 每步 1~${LIMITS.maxElementsPerStep} 个元素（**超过会被打回重做**）；kind 只能是 text/rect/circle/line/formula。
-3. text/formula 必须给 content（≤20 字）；rect/circle/line 用 color 区分。
-4. 元素之间留出间距（同一行相邻元素 x 至少差 w+5），且都要完整落在 0~100 范围内。
-5. 颜色用浅色（#93c5fd / #fca5a5 / #86efac / #fde68a 之类），背景是黑色。
-6. **rect 必须同时有宽和高**（w/h 比值别超过 5:1）。要画线就用 line，别拿很扁的 rect 凑——
-   那会渲染成一个空心长框，不是一条线。`
+2. 每步 1~${LIMITS.maxElementsPerStep} 个元素（**超过会被打回重做**）。
+3. 元素之间留出间距（同一行相邻元素 x 至少差 w+5），且都要完整落在 0~100 范围内。
+4. 颜色用浅色（#93c5fd / #fca5a5 / #86efac / #fde68a 之类），背景是黑色。
+5. **rect 必须同时有宽和高**（w/h 比值别超过 5:1）。要画线就用 line，要画轴就用 axis。`
 }
 
 /**

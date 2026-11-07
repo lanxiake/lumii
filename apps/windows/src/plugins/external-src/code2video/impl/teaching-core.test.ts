@@ -297,6 +297,87 @@ describe('checkSceneLayout', () => {
   })
 })
 
+describe('parseSceneSpec 新 kind', () => {
+  const one = (el: Record<string, unknown>) => parseSceneSpec({ steps: [{ elements: [el] }] }, 1)
+
+  it('tex 保留 LaTeX 源码', () => {
+    const s = one({ kind: 'tex', tex: '(-3)\\times(-2)=6' })
+    expect(s?.steps[0]?.elements[0]?.tex).toBe('(-3)\\times(-2)=6')
+  })
+
+  it('tex 缺 tex 时丢弃', () => {
+    const s = one({ kind: 'tex' })
+    expect(s).toBeNull()
+  })
+
+  it('axis 收窄范围与刻度', () => {
+    const s = one({ kind: 'axis', x: 5, y: 40, w: 80, h: 12, axis: { from: -6, to: 6, marks: [0, 3, -3] } })
+    const el = s?.steps[0]?.elements[0]
+    expect(el?.axis?.from).toBe(-6)
+    expect(el?.axis?.marks).toEqual([0, 3, -3])
+  })
+
+  // 数轴的 from/to 是数值范围，不受 0~100 的坐标钳制影响
+  it('axis 的数值范围不会被钳到 0~100', () => {
+    const s = one({ kind: 'axis', axis: { from: -1000, to: 1000 } })
+    expect(s?.steps[0]?.elements[0]?.axis?.to).toBe(1000)
+  })
+
+  it('axis 范围相等时丢弃（画不出轴）', () => {
+    expect(one({ kind: 'axis', axis: { from: 5, to: 5 } })).toBeNull()
+  })
+
+  it('table 收窄表头与行', () => {
+    const s = one({
+      kind: 'table',
+      table: { headers: ['乘数', '结果'], rows: [['3', '-9'], ['2', '-6']], highlightRow: 1 },
+    })
+    const t = s?.steps[0]?.elements[0]?.table
+    expect(t?.headers).toEqual(['乘数', '结果'])
+    expect(t?.rows).toHaveLength(2)
+    expect(t?.highlightRow).toBe(1)
+  })
+
+  it('table 没有表头时丢弃', () => {
+    expect(one({ kind: 'table', table: { rows: [['a']] } })).toBeNull()
+  })
+
+  it('curve 至少需要两个点', () => {
+    expect(one({ kind: 'curve', curve: { points: [{ x: 1, y: 2 }] } })).toBeNull()
+    const s = one({ kind: 'curve', curve: { points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] } })
+    expect(s?.steps[0]?.elements[0]?.curve?.points).toHaveLength(2)
+  })
+
+  it('arrow 需要起点', () => {
+    expect(one({ kind: 'arrow', x: 50, y: 50 })).toBeNull()
+    const s = one({ kind: 'arrow', from: { x: 10, y: 10 }, x: 50, y: 50 })
+    expect(s?.steps[0]?.elements[0]?.from).toEqual({ x: 10, y: 10 })
+  })
+
+  it('brace 需要两端', () => {
+    expect(one({ kind: 'brace', from: { x: 10, y: 10 } })).toBeNull()
+    const s = one({ kind: 'brace', from: { x: 10, y: 10 }, to: { x: 10, y: 60 } })
+    expect(s?.steps[0]?.elements[0]?.to).toEqual({ x: 10, y: 60 })
+  })
+
+  it('code 保留行高亮', () => {
+    const s = one({ kind: 'code', content: 'if (x) {\n  y()\n}', code: { language: 'js', hl: [1] } })
+    const c = s?.steps[0]?.elements[0]?.code
+    expect(c?.language).toBe('js')
+    expect(c?.hl).toEqual([1])
+  })
+
+  it('code 缺 content 时丢弃', () => {
+    expect(one({ kind: 'code', code: { language: 'js' } })).toBeNull()
+  })
+
+  // 回归：极扁 rect 冒充数轴，新 kind 上线后仍要能被门禁抓到
+  it('highlight 不需要额外参数', () => {
+    const s = one({ kind: 'highlight', x: 10, y: 10, w: 40, h: 20 })
+    expect(s?.steps[0]?.elements[0]?.kind).toBe('highlight')
+  })
+})
+
 describe('declutterSteps', () => {
   it('完全重合的元素会被挪开', () => {
     const out = declutterSteps([
