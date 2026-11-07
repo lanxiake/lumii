@@ -1511,6 +1511,7 @@ async function play() {
   boot.classList.remove('fading'); boot.style.display = ''
   el.barFill.style.width = '0%'; el.pct.textContent = '0%'
   el.phase.textContent = 'STANDBY'
+  document.getElementById('phaseText').textContent = '准备启动'
   renderChecks(0)
   el.gate.classList.remove('open'); el.seam.classList.remove('open')
   el.sig.style.opacity = '0'
@@ -1559,7 +1560,7 @@ async function play() {
       stageIndex = Math.min(BOOT_STAGES.length - 1, Math.floor(progressRatio * BOOT_STAGES.length))
 
       // 进度条下方显示当前加载的阶段
-      el.phaseText.textContent = BOOT_STAGES[stageIndex]
+      document.getElementById('phaseText').textContent = BOOT_STAGES[stageIndex]
 
       // 右上角逐个添加（不是一次性全显示）
       renderChecks(stageIndex)
@@ -1575,7 +1576,7 @@ async function play() {
   /* 第五幕：门户 */
   setAct('gate')
   el.phase.textContent = '门户开启'
-  el.phaseText.textContent = '系统就绪'
+  document.getElementById('phaseText').textContent = '系统就绪'
   progress = 100
   el.barFill.style.width = '100%'
   el.pct.textContent = '100%'
