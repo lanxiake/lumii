@@ -151,6 +151,78 @@
   #boot[data-act="cognition"] .armor,
   #boot[data-act="gate"] .armor { opacity: .55; transform: none; }
 
+  /* ── 精密外框：双细线 + 角部罗盘 ──────────────────────────── */
+  /* 单线显得省事，双线才有「仪器面板」的层次：外粗内细，中间留一道缝。 */
+  .frame-line {
+    position: absolute; opacity: 0; transition: opacity .9s ease;
+    pointer-events: none;
+  }
+  .fl-top, .fl-bottom {
+    left: 62px; right: 62px; height: 3px;
+    border-top: 1px solid rgba(120,235,255,.62);
+    border-bottom: 1px solid rgba(120,235,255,.20);
+  }
+  .fl-top { top: 62px; }
+  .fl-bottom { bottom: 62px; transform: scaleY(-1); }
+  .fl-left, .fl-right {
+    top: 62px; bottom: 62px; width: 3px;
+    border-left: 1px solid rgba(120,235,255,.62);
+    border-right: 1px solid rgba(120,235,255,.20);
+  }
+  .fl-left { left: 62px; }
+  .fl-right { right: 62px; transform: scaleX(-1); }
+
+  /* 角部刻度环：用 repeating-conic 画刻度，
+     再用「中心挖空 + 四宫格切割」两层遮罩只留朝内的一弧。
+     注意两层 mask 必须都用 mask-composite 语义叠加，
+     浏览器默认是 intersect 才对；单写两个值在部分版本里会变成 union 导致整块消失。 */
+  .compass {
+    position: absolute; width: 104px; height: 104px;
+    opacity: 0; transition: opacity .9s ease;
+    border-radius: 50%;
+    background:
+      repeating-conic-gradient(
+        from 0deg,
+        rgba(140,240,255,.85) 0deg .7deg,
+        transparent .7deg 9deg
+      );
+    -webkit-mask-image: radial-gradient(circle, transparent 0 40px, #000 41px 52px, transparent 52.5px);
+    mask-image: radial-gradient(circle, transparent 0 40px, #000 41px 52px, transparent 52.5px);
+  }
+  /* 四个角只留朝向中心的一个象限 */
+  .cx-tl {
+    left: 54px; top: 54px;
+    clip-path: polygon(0 0, 100% 0, 100% 100%);
+    -webkit-clip-path: polygon(0 0, 100% 0, 100% 100%);
+  }
+  .cx-tr {
+    right: 54px; top: 54px;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+    -webkit-clip-path: polygon(0 0, 100% 0, 0 100%);
+  }
+  .cx-bl {
+    left: 54px; bottom: 54px;
+    clip-path: polygon(0 0, 100% 100%, 0 100%);
+    -webkit-clip-path: polygon(0 0, 100% 100%, 0 100%);
+  }
+  .cx-br {
+    right: 54px; bottom: 54px;
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
+    -webkit-clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  }
+
+  /* 三幕之后整组外框淡入。
+     必须写在基础规则之后——同样的选择器权重下，后写的赢。 */
+  #boot[data-act="neural"] .frame-line,
+  #boot[data-act="energize"] .frame-line,
+  #boot[data-act="cognition"] .frame-line,
+  #boot[data-act="gate"] .frame-line { opacity: 1 !important; }
+  #boot[data-act="neural"] .compass,
+  #boot[data-act="energize"] .compass,
+  #boot[data-act="cognition"] .compass,
+  #boot[data-act="gate"] .compass { opacity: .9 !important; }
+  /* 三幕之后整组外框淡入 */
+
   /* 顶部状态条 */
   .topbar {
     position: absolute; left: 46px; right: 46px; top: 46px;
@@ -397,6 +469,18 @@
     <div class="armor bl"></div>
     <div class="armor br"></div>
 
+    <!-- 精密仪器外框：极细双线 + 角部罗盘刻度。
+         高级感来自「精度」——线够细、刻度够匀，画面才像仪表而不是贴纸。 -->
+    <div class="frame-line fl-top"></div>
+    <div class="frame-line fl-bottom"></div>
+    <div class="frame-line fl-left"></div>
+    <div class="frame-line fl-right"></div>
+
+    <div class="compass cx-tl"></div>
+    <div class="compass cx-tr"></div>
+    <div class="compass cx-bl"></div>
+    <div class="compass cx-br"></div>
+
     <div class="topbar mono">
       <span><i class="led"></i>LUMII // UNIT-01 // BOOT</span>
       <span id="actName">STANDBY</span>
@@ -526,7 +610,9 @@ const el = {
 /* ── 画布 ─────────────────────────────────────────────────────── */
 const cv = $('fx')
 const ctx = cv.getContext('2d')
-const DPR = Math.min(window.devicePixelRatio || 1, 2)
+// 高清：不再死卡 2。3x 屏上 2x 会被放大插值，肉眼可见发软。
+// 上限 3 是「清晰」与「填充率」的折中——4x 屏太少，且烘焙代价翻倍。
+const DPR = Math.min(window.devicePixelRatio || 1, 3)
 let W = 0, H = 0, CX = 0, CY = 0
 
 let act = 'dark'
@@ -614,8 +700,10 @@ function makeNoise2D(seed) {
  * 最后叠一条斜向的暗尘带（真实星云都有暗带切割，这是「真实感」的来源）。
  */
 function bakeNebula() {
-  const nw = Math.max(320, Math.round(W / 3))
-  const nh = Math.max(200, Math.round(H / 3))
+  // 之前是 W/3，缩放到全屏后丝缕会糊成一团。
+  // 提到约 0.62 倍（并设上限防超大屏烘焙过久），细节能撑住又不至于拖慢首帧。
+  const nw = Math.max(420, Math.min(1400, Math.round(W * .62)))
+  const nh = Math.max(260, Math.min(900, Math.round(H * .62)))
   const c = document.createElement('canvas')
   c.width = nw; c.height = nh
   const g = c.getContext('2d')
@@ -704,8 +792,10 @@ function bakeNebula() {
  */
 function bakeStars() {
   const c = document.createElement('canvas')
-  c.width = W; c.height = H
+  // 按 DPR 出图：星点是 1px 级的东西，低分辨率贴上去再放大必然糊。
+  c.width = Math.round(W * DPR); c.height = Math.round(H * DPR)
   const g = c.getContext('2d')
+  g.scale(DPR, DPR)
 
   const count = Math.round(Math.min(1100, (W * H) / 1750))
   // 色温：多数冷白，少数偏蓝或偏暖
@@ -838,9 +928,14 @@ function drawBackdrop(dt) {
   )
   ctx.restore()
 
-  // 星场：几乎不动（远），但比星云多一点位移 → 视差
+  // 星场：几乎不动（远），但比星云多一点位移 → 视差。
+  // 源图是 DPR 倍尺寸，drawImage 的目标尺寸仍用 CSS 像素 —— ctx 已有 DPR 变换，
+  // 这样 1:1 映射到物理像素，星点不会因缩放而发糊。
   ctx.save()
   ctx.globalAlpha = 1
+  // 星场是细小的亮点，插值会让它们变软；这里保持高质量采样即可
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(starCanvas, -driftX * .18, -driftY * .18, W * 1.02, H * 1.02)
   ctx.restore()
 }
@@ -1140,31 +1235,84 @@ let coreGlow = 0
 function drawCore(t) {
   if (coreGlow <= .01) return
   // 心跳式搏动：不是正弦慢呼吸，而是每拍一个「咚」——冲击后快速衰减。
-  // 用 1 - bp 的高次幂做尖峰，视觉上是一下一下跳，而不是匀速涌动。
-  const thump = Math.pow(1 - beatPhase(), 4)     // 拍首为 1，迅速衰到 0
+  const thump = Math.pow(1 - beatPhase(), 4)
   const breathe = .84 + .16 * Math.sin(slowPhase(4) * Math.PI * 2) + thump * .22
-  const r = 8 + 5 * breathe + thump * 4
 
-  // 每拍向外荡出一圈细环，是「心跳」的可视化
+  /* ① 横向变形镜头光晕（anamorphic streak）
+     这是电影感最直接的来源：真实镜头里的强光会沿传感器轴向拉出一条
+     极扁的光带。少了它，再精细的图形也只是「发光 UI」而不是「拍出来的画面」。 */
+  const streakW = 520 * breathe
+  const streakH = 2.2 + thump * 1.6
+  const sg = ctx.createLinearGradient(CX - streakW, CY, CX + streakW, CY)
+  sg.addColorStop(0, 'rgba(90,180,255,0)')
+  sg.addColorStop(.28, `rgba(120,205,255,${(.16 * coreGlow).toFixed(3)})`)
+  sg.addColorStop(.5, `rgba(200,240,255,${(.55 * coreGlow).toFixed(3)})`)
+  sg.addColorStop(.72, `rgba(120,205,255,${(.16 * coreGlow).toFixed(3)})`)
+  sg.addColorStop(1, 'rgba(90,180,255,0)')
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.fillStyle = sg
+  ctx.beginPath()
+  ctx.ellipse(CX, CY, streakW, streakH, 0, 0, 6.2832)
+  ctx.fill()
+
+  /* ② 外围柔光：半径收小、强度降低。
+     之前是 130px 的大渐变，糊成一坨白 —— 现在是紧贴核心的一圈晕。 */
+  const haloR = 46 * breathe
+  const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR)
+  g.addColorStop(0, `rgba(180,240,255,${(.34 * coreGlow).toFixed(3)})`)
+  g.addColorStop(.45, `rgba(80,180,255,${(.13 * coreGlow).toFixed(3)})`)
+  g.addColorStop(1, 'rgba(40,120,220,0)')
+  ctx.fillStyle = g
+  ctx.beginPath(); ctx.arc(CX, CY, haloR, 0, 6.2832); ctx.fill()
+  ctx.restore()
+
+  /* ③ 心跳环：每拍荡出一圈细环 */
   for (let k = 0; k < 2; k++) {
     const ph = (beatPhase() + k * .5) % 1
-    const radius = 30 + ph * 150
+    const radius = 26 + ph * 132
     ctx.beginPath()
-    ctx.strokeStyle = `rgba(150,235,255,${((1 - ph) * .32 * coreGlow).toFixed(3)})`
-    ctx.lineWidth = 1.4 * (1 - ph) + .3
+    ctx.strokeStyle = `rgba(150,235,255,${((1 - ph) * .26 * coreGlow).toFixed(3)})`
+    ctx.lineWidth = 1.1 * (1 - ph) + .25
     ctx.arc(CX, CY, radius, 0, 6.2832)
     ctx.stroke()
   }
 
-  const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, 130 * breathe)
-  g.addColorStop(0, `rgba(235,255,255,${(.95 * coreGlow).toFixed(3)})`)
-  g.addColorStop(.16, `rgba(140,235,255,${(.55 * coreGlow).toFixed(3)})`)
-  g.addColorStop(.5, `rgba(50,150,230,${(.16 * coreGlow).toFixed(3)})`)
-  g.addColorStop(1, 'rgba(0,0,0,0)')
-  ctx.fillStyle = g
-  ctx.beginPath(); ctx.arc(CX, CY, 130 * breathe, 0, 6.2832); ctx.fill()
-  ctx.fillStyle = `rgba(255,255,255,${(.9 * coreGlow).toFixed(3)})`
-  ctx.beginPath(); ctx.arc(CX, CY, r, 0, 6.2832); ctx.fill()
+  /* ④ 精密刻度环：细到接近发丝，数量多、间隔匀。
+     这是「仪器」与「光球」的分界线——精度感来自这些不起眼的刻度。 */
+  const tickR = 30 * breathe
+  const tickN = 72
+  for (let i = 0; i < tickN; i++) {
+    const a = (i / tickN) * 6.2832 + slowPhase(16) * .6
+    // 每 6 格一根长刻度，其余短 —— 有节奏的疏密才有仪器感
+    const major = i % 6 === 0
+    const len = major ? 7 : 3
+    const rr0 = tickR + 8
+    const rr1 = rr0 + len
+    ctx.beginPath()
+    ctx.strokeStyle = `rgba(150,225,255,${((major ? .40 : .18) * coreGlow).toFixed(3)})`
+    ctx.lineWidth = major ? .9 : .6
+    ctx.moveTo(CX + Math.cos(a) * rr0, CY + Math.sin(a) * rr0)
+    ctx.lineTo(CX + Math.cos(a) * rr1, CY + Math.sin(a) * rr1)
+    ctx.stroke()
+  }
+
+  /* ⑤ 核心：锐利点光源，不是球。
+     中心极亮极小的白点 + 一圈紧致的冷光，才有「能量」而不是「灯泡」',
+     用 lighter 叠加让它真的发光。 */
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  const coreR = (3.4 + thump * 2.2) * (1 + .06 * Math.sin(beatClock * 9))
+  const cg = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR * 3.2)
+  cg.addColorStop(0, `rgba(255,255,255,${(.98 * coreGlow).toFixed(3)})`)
+  cg.addColorStop(.22, `rgba(225,250,255,${(.72 * coreGlow).toFixed(3)})`)
+  cg.addColorStop(1, 'rgba(120,220,255,0)')
+  ctx.fillStyle = cg
+  ctx.beginPath(); ctx.arc(CX, CY, coreR * 3.2, 0, 6.2832); ctx.fill()
+
+  ctx.fillStyle = `rgba(255,255,255,${(.97 * coreGlow).toFixed(3)})`
+  ctx.beginPath(); ctx.arc(CX, CY, coreR, 0, 6.2832); ctx.fill()
+  ctx.restore()
 }
 
 /* ── 电路纹路：从中心向外点亮（第二幕的「神经生长」） ──────── */
@@ -1710,6 +1858,15 @@ function animateActIn(name) {
   armors.forEach((armor) => {
     armor.style.opacity = '0.55'
     armor.style.transform = 'none'
+  })
+
+  // 精密外框与角部罗盘：直接写内联样式。
+  // CSS 选择器这条路在这里被别的规则干扰过，内联最可靠。
+  document.querySelectorAll('.hud-layer .frame-line').forEach((n) => {
+    n.style.opacity = '1'
+  })
+  document.querySelectorAll('.hud-layer .compass').forEach((n) => {
+    n.style.opacity = '.9'
   })
 }
 
