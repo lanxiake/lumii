@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>灵栖 Lumii — 开机动画</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+
+  /* 字体：片中文字一律楷/宋。黑体会让「仙」立刻变成「科技」 */
+  body {
+    font-family: "Kaiti SC", "STKaiti", "KaiTi", "楷体",
+                 "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 单光源色彩体系：月光是唯一冷光，其余全是它的反射与对比。
+     朱砂与鎏金只在「有灵力」时出现，用得越少越贵。 */
+  :root {
+    --yue: #dfe8e2;
+    --jin: #d8b36b;
+    --zhu: #b8402f;
+  }
+
+  /* ── 主界面占位：溶解交接时露出的就是这一层 ────────────── */
+  .app-under {
+    position: fixed; inset: 0; display: flex;
+    background: radial-gradient(ellipse 86% 74% at 60% 34%, #14120f 0%, #0a0908 52%, #050506 100%);
+    color: #9b8f7a; font-size: 12px;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  .app-side {
+    width: 208px; flex: none; padding: 18px 16px;
+    display: flex; flex-direction: column; gap: 15px;
+    border-right: 1px solid rgba(216, 179, 107, .08);
+    background: rgba(9, 8, 7, .72);
+  }
+  .app-logo { width: 26px; height: 26px; object-fit: contain; opacity: .9; }
+  .app-nav { padding: 7px 10px; border-radius: 2px; letter-spacing: .26em; color: rgba(200, 185, 155, .42); }
+  .app-nav.on { background: rgba(216, 179, 107, .09); color: #e6d3a8; }
+  .app-main { flex: 1; padding: 46px 52px; }
+  .app-line { height: 10px; margin-bottom: 16px; border-radius: 5px; background: rgba(200, 180, 140, .06); }
+  .w40 { width: 40%; } .w55 { width: 55%; } .w70 { width: 70%; }
+
+  /* ── 开机层 ─────────────────────────────────────────────── */
+  #boot {
+    position: fixed; inset: 0; overflow: hidden; background: #000;
+    transition:
+      opacity 1200ms cubic-bezier(.4, 0, .28, 1),
+      transform 1200ms cubic-bezier(.4, 0, .28, 1),
+      -webkit-mask-size 1200ms cubic-bezier(.4, 0, .28, 1),
+      mask-size 1200ms cubic-bezier(.4, 0, .28, 1);
+    /* 退场不是淡出，是从中心「化」开——墨散，边先没 */
+    -webkit-mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 100%, #000 100%);
+    mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 100%, #000 100%);
+    -webkit-mask-size: 300% 300%; mask-size: 300% 300%;
+    -webkit-mask-position: center; mask-position: center;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  }
+  #boot.fading {
+    opacity: 0; transform: scale(1.025);
+    -webkit-mask-image: radial-gradient(ellipse 0% 0% at 50% 50%, #000 0%, transparent 76%);
+    mask-image: radial-gradient(ellipse 0% 0% at 50% 50%, #000 0%, transparent 76%);
+    pointer-events: none;
+  }
+
+  canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  /* ── 竹简：真实加载阶段写在这上面 ─────────────────────────
+     全片唯一的文字，因为它是真信息而不是解释。
+     形是古物，内容是当前实际发生的事。 */
+  .slips {
+    position: absolute; right: 64px; top: 50%;
+    transform: translateY(-50%);
+    display: flex; flex-direction: row-reverse; gap: 8px;
+    align-items: center; pointer-events: none;
+    opacity: 0; transition: opacity 1.4s ease;
+  }
+  #boot[data-act="zhujian"] .slips,
+  #boot[data-act="fuzhen"] .slips,
+  #boot[data-act="xingju"] .slips,
+  #boot[data-act="taiji"] .slips { opacity: 1; }
+
+  .slip {
+    --age: 0;
+    width: 26px;
+    display: flex; align-items: center; justify-content: center;
+    writing-mode: vertical-rl; text-orientation: upright;
+    font-size: 12.5px; letter-spacing: .16em; line-height: 1;
+    padding: 14px 0;
+    color: rgba(232, 214, 176, .34);
+    background: linear-gradient(90deg,
+      rgba(58, 44, 28, .30) 0%, rgba(86, 66, 40, .42) 34%,
+      rgba(74, 57, 35, .34) 68%, rgba(48, 36, 23, .28) 100%);
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 1px rgba(180, 145, 90, .10);
+    transform: translateY(14px) scaleY(.90);
+    opacity: 0;
+    transition: opacity .9s ease, transform .9s cubic-bezier(.2, .9, .25, 1),
+                color .7s ease, box-shadow .7s ease;
+  }
+  .slip.show { opacity: calc(1 - var(--age) * .18); transform: none; }
+  .slip.done { color: rgba(226, 206, 168, .62); }
+  .slip.now {
+    color: rgba(255, 240, 208, .95);
+    box-shadow: inset 0 0 0 1px rgba(216, 179, 107, .30), 0 0 22px rgba(200, 158, 90, .22);
+  }
+
+  /* ── 进度：一根极细的墨线，不解释、不喧哗 ──────────────── */
+  .thread {
+    position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%);
+    width: min(560px, 62vw); height: 1px;
+    background: rgba(216, 179, 107, .10);
+    opacity: 0; transition: opacity 1.2s ease;
+  }
+  #boot[data-act="lingqi"] .thread,
+  #boot[data-act="zhujian"] .thread,
+  #boot[data-act="fuzhen"] .thread,
+  #boot[data-act="xingju"] .thread { opacity: 1; }
+  .thread i {
+    position: absolute; inset: 0 auto 0 0; width: 0%;
+    background: linear-gradient(90deg, rgba(216, 179, 107, .18), rgba(255, 240, 210, .92));
+    box-shadow: 0 0 12px rgba(220, 190, 130, .70);
+    transition: width .5s cubic-bezier(.3, .8, .35, 1);
+  }
+
+  /* ── 落款印：全片最后一笔，是「凭证」不是「说明」 ──────── */
+  .seal {
+    position: absolute; left: 88px; bottom: 74px;
+    width: 46px; height: 46px; opacity: 0;
+    transform: rotate(-3deg) scale(.9);
+    transition: opacity 1s ease, transform 1s cubic-bezier(.2, .9, .25, 1);
+    background: linear-gradient(158deg, #a8352a, #7d241d);
+    border-radius: 2px;
+    box-shadow: 0 0 24px rgba(180, 55, 38, .34), inset 0 0 0 1.5px rgba(255, 226, 208, .20);
+    display: grid; grid-template-columns: 1fr 1fr; place-items: center; padding: 5px;
+  }
+  .seal span { font-size: 15px; line-height: 1; color: #ffe9dc; }
+  #boot[data-act="taiji"] .seal { opacity: .95; transform: rotate(-3deg) scale(1); }
+
+  /* ── 电影遮幅 ───────────────────────────────────────────── */
+  .barTop, .barBot {
+    position: absolute; left: 0; right: 0; height: 0; background: #000;
+    z-index: 30; pointer-events: none;
+    transition: height 1.6s cubic-bezier(.2, .9, .25, 1);
+  }
+  .barTop { top: 0; } .barBot { bottom: 0; }
+  .barTop.on, .barBot.on { height: 7.4vh; }
+
+  /* ── 颗粒 / 暗角 ────────────────────────────────────────── */
+  .grain {
+    position: absolute; inset: -10%; pointer-events: none; opacity: .055;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+    animation: grainShift 1.1s steps(3) infinite;
+  }
+  @keyframes grainShift {
+    0%   { transform: translate(0, 0); }
+    33%  { transform: translate(-2.5%, 1.8%); }
+    66%  { transform: translate(1.8%, -2.2%); }
+    100% { transform: translate(0, 0); }
+  }
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 62% 56% at 50% 48%, transparent 22%, rgba(0, 0, 0, .50) 72%, rgba(0, 0, 0, .96) 100%);
+  }
+
+  /* ── 白场 ───────────────────────────────────────────────── */
+  .flash {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle at 50% 47%,
+      rgba(255, 252, 240, .97) 0%, rgba(226, 232, 220, .46) 30%, transparent 62%);
+  }
+  .flash.fire { animation: flashOut 1.2s cubic-bezier(.2, .6, .3, 1) forwards; }
+  @keyframes flashOut { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* ── 控制条（仅 DEMO） ──────────────────────────────────── */
+  .demo-ui {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; gap: 12px; align-items: center; z-index: 50;
+    font-size: 11px; color: rgba(190, 175, 145, .70);
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  .demo-ui button {
+    background: rgba(16, 14, 11, .88); color: rgba(232, 213, 170, .90);
+    border: 1px solid rgba(216, 179, 107, .22); border-radius: 2px;
+    padding: 5px 14px; font-size: 11px; cursor: pointer;
+    font-family: inherit; letter-spacing: .14em;
+  }
+  .demo-ui button:hover { background: rgba(38, 32, 24, .95); }
+  .demo-ui button.ghost { opacity: .55; }
+  .demo-ui label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<!-- 主界面占位 -->
+<div class="app-under">
+  <div class="app-side">
+    <img class="app-logo" src="logo.png" alt="" />
+    <span class="app-nav on">总览</span>
+    <span class="app-nav">问答</span>
+    <span class="app-nav">技艺</span>
+    <span class="app-nav">设置</span>
+  </div>
+  <div class="app-main">
+    <div class="app-line w40"></div>
+    <div class="app-line w70"></div>
+    <div class="app-line w55"></div>
+  </div>
+</div>
+
+<div id="boot" data-act="heian">
+  <canvas id="fx"></canvas>
+
+  <div class="slips" id="slips"></div>
+
+  <div class="thread" id="thread">
+    <i id="threadFill"></i>
+  </div>
+
+  <div class="seal">
+    <span>灵</span><span>栖</span><span>开</span><span>机</span>
+  </div>
+
+  <div class="flash" id="flash"></div>
+  <div class="grain"></div>
+  <div class="vignette"></div>
+  <div class="barTop" id="barTop"></div>
+  <div class="barBot" id="barBot"></div>
+</div>
+
+<div class="demo-ui">
+  <button id="replay">重放</button>
+  <button id="skip" class="ghost">至末尾</button>
+  <label><input type="checkbox" id="sound" checked /> 音</label>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   灵栖 · 万象归元
+   黑山 → 灵起 → 竹简 → 符阵 → 星聚 → 太极 → 归元
+
+   ── 四条铁律 ──────────────────────────────────────────────────
+   1. 单一光源。全片只有一轮月在左上，其余全是它的反射与阴影。
+      任何第二个亮点都会把画面劈成两半。
+   2. 真景深。远山三层，越远越淡、越雾、越偏冷，随镜头做视差。
+      有景深才有空间，有空间才有世界感。
+   3. 镜头运动。全片机位缓慢推近并轻微漂移，从不静止也不晃。
+   4. 不用文字解释。画面自己说话——符阵、竹简、太极都看得懂。
+      唯一的文字是竹简上的真实加载阶段，那是信息，不是说明。
+   ══════════════════════════════════════════════════════════════════ */
+
+const boot = document.getElementById('boot')
+const $ = (id) => document.getElementById(id)
+const FREEZE = new URLSearchParams(location.search).get('freeze')
+
+const cv = $('fx')
+const ctx = cv.getContext('2d')
+const DPR = Math.min(window.devicePixelRatio || 1, 3)
+let W = 0, H = 0, CX = 0, CY = 0
+
+const el = {
+  slips: $('slips'),
+  threadFill: $('threadFill'),
+  flash: $('flash'),
+  barTop: $('barTop'),
+  barBot: $('barBot'),
+}
+
+let act = 'heian'
+let running = false
+let abort = false
+let progress = 0
+
+/* ── 缓动 ─────────────────────────────────────────────────── */
+const EASE = {
+  outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  outExpo: (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t)),
+  inOut: (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+  outBack: (t) => {
+    const c1 = 1.70158, c3 = c1 + 1
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)
+  },
+}
+const clamp01 = (v) => Math.max(0, Math.min(1, v))
+
+/* ── 时间 ─────────────────────────────────────────────────── */
+let clock = 0
+let lastT = performance.now()
+
+function resize() {
+  W = cv.clientWidth; H = cv.clientHeight
+  CX = W * .5; CY = H * .46
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  placeMoon()
+  bakeMountains()
+  seedMotes()
+}
+
+/* ══ 光源 ══════════════════════════════════════════════════════ */
+const moon = { x: 0, y: 0, r: 0, glow: 0 }
+function placeMoon() {
+  moon.x = W * .235
+  moon.y = H * .215
+  moon.r = Math.min(W, H) * .030
+}
+function toMoon(x, y) {
+  const dx = moon.x - x, dy = moon.y - y
+  const d = Math.hypot(dx, dy) || 1
+  return { x: dx / d, y: dy / d, d }
+}
+
+/* ══ 远山 ══════════════════════════════════════════════════════
+   三层各自烘焙。越远越淡、越偏冷、边缘越糊——空气透视。
+   三层随镜头位移比例不同，就是视差。 */
+let mountainLayers = []
+
+function makeRidge(seed, roughness, baseY, peakH) {
+  // 中点位移，但刻意做两件事让它像国画山而不是噪声：
+  //  ① 细分次数少：山应是几个大山脊，不是毛毛刺
+  //  ② 只有少数中点被推高：有主峰、有配峰，山势才立得住
+  let pts = [{ x: 0, y: baseY }, { x: 1, y: baseY }]
+  let amp = peakH
+  let s = seed >>> 0
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296
+
+  for (let it = 0; it < 6; it++) {
+    const next = [pts[0]]
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i]
+      const mx = (a.x + b.x) / 2
+      const punch = rnd() < .34 ? 1 : .28
+      const my = (a.y + b.y) / 2 - (rnd() * 2 - .30) * amp * punch
+      next.push({ x: mx, y: my }, b)
+    }
+    pts = next
+    amp *= roughness
+  }
+  // 轻微平滑：去掉单点尖刺，留下山势
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 1; i < pts.length - 1; i++) {
+      pts[i].y = (pts[i - 1].y + pts[i].y * 2 + pts[i + 1].y) / 4
+    }
+  }
+  return pts
+}
+
+function bakeMountains() {
+  mountainLayers = []
+  const defs = [
+    { seed: 8123, peak: H * .16, base: H * .70, rough: .56, alpha: .30, blur: 2.6, tone: [ 96, 116, 122 ] },
+    { seed: 4197, peak: H * .21, base: H * .78, rough: .60, alpha: .50, blur: 1.2, tone: [ 54,  62,  64 ] },
+    { seed: 2711, peak: H * .26, base: H * .87, rough: .64, alpha: .82, blur: 0,   tone: [ 16,  17,  18 ] },
+  ]
+
+  for (const d of defs) {
+    const c = document.createElement('canvas')
+    c.width = Math.round(W * DPR); c.height = Math.round(H * DPR)
+    const g = c.getContext('2d')
+    g.scale(DPR, DPR)
+
+    const pts = makeRidge(d.seed, d.rough, d.base, d.peak)
+
+    g.beginPath()
+    g.moveTo(0, H)
+    for (const p of pts) g.lineTo(p.x * W, p.y)
+    g.lineTo(W, H)
+    g.closePath()
+
+    const [r, gg, b] = d.tone
+    const grad = g.createLinearGradient(0, d.base - d.peak, 0, H)
+    grad.addColorStop(0, `rgba(${r},${gg},${b},${d.alpha})`)
+    grad.addColorStop(.55, `rgba(${r * .8 | 0},${gg * .85 | 0},${b * .85 | 0},${d.alpha * .9})`)
+    grad.addColorStop(1, `rgba(${r * .35 | 0},${gg * .38 | 0},${b * .38 | 0},${d.alpha})`)
+    g.fillStyle = grad
+    g.fill()
+
+    // 山脊受月光的一侧：一道极淡的亮边（远山几乎看不见）
+    if (d.blur < 2) {
+      g.strokeStyle = `rgba(198, 216, 208, ${(.10 * (1.6 - d.blur / 2)).toFixed(3)})`
+      g.lineWidth = .9
+      g.beginPath()
+      pts.forEach((p, i) => i ? g.lineTo(p.x * W, p.y) : g.moveTo(p.x * W, p.y))
+      g.stroke()
+    }
+
+    if (d.blur > 0) {
+      // 离屏模糊 = 空气透视。只做一次，逐帧贴图不花代价
+      const bc = document.createElement('canvas')
+      bc.width = c.width; bc.height = c.height
+      const bg = bc.getContext('2d')
+      bg.filter = `blur(${d.blur * DPR}px)`
+      bg.drawImage(c, 0, 0)
+      mountainLayers.push({ canvas: bc })
+    } else {
+      mountainLayers.push({ canvas: c })
+    }
+  }
+}
+
+/* ══ 浮尘 ══════════════════════════════════════════════════════ */
+let motes = []
+function seedMotes() {
+  const n = Math.round(Math.min(90, (W * H) / 22000))
+  motes = Array.from({ length: n }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: .6 + Math.random() * 1.5,
+    a: .06 + Math.random() * .18,
+    vy: -.04 - Math.random() * .12,
+    vx: (Math.random() - .5) * .08,
+    ph: Math.random() * 6.2832,
+  }))
+}
+
+/* ══ 月与雾 ══════════════════════════════════════════════════ */
+function drawMoon() {
+  if (moon.glow <= .005) return
+  const g = moon.glow
+
+  const halo = ctx.createRadialGradient(moon.x, moon.y, moon.r * .6, moon.x, moon.y, moon.r * 22)
+  halo.addColorStop(0, `rgba(226, 238, 232, ${(.30 * g).toFixed(3)})`)
+  halo.addColorStop(.22, `rgba(190, 214, 212, ${(.13 * g).toFixed(3)})`)
+  halo.addColorStop(.55, `rgba(120, 150, 156, ${(.045 * g).toFixed(3)})`)
+  halo.addColorStop(1, 'rgba(60, 80, 90, 0)')
+  ctx.fillStyle = halo
+  ctx.beginPath(); ctx.arc(moon.x, moon.y, moon.r * 22, 0, 6.2832); ctx.fill()
+
+  // 月体：不死白，略偏青，边缘比中心暗（有体积）
+  const body = ctx.createRadialGradient(
+    moon.x - moon.r * .2, moon.y - moon.r * .24, 0,
+    moon.x, moon.y, moon.r
+  )
+  body.addColorStop(0, `rgba(250, 252, 246, ${(.96 * g).toFixed(3)})`)
+  body.addColorStop(.6, `rgba(226, 235, 228, ${(.86 * g).toFixed(3)})`)
+  body.addColorStop(.94, `rgba(178, 196, 194, ${(.62 * g).toFixed(3)})`)
+  body.addColorStop(1, `rgba(150, 172, 172, ${(.30 * g).toFixed(3)})`)
+  ctx.fillStyle = body
+  ctx.beginPath(); ctx.arc(moon.x, moon.y, moon.r, 0, 6.2832); ctx.fill()
+}
+
+/** 山间雾带：横向柔光带，把山分层，是「仙气」最省笔墨的做法 */
+function drawMist(strength) {
+  if (strength <= .01) return
+  for (let i = 0; i < 3; i++) {
+    const y = H * (.60 + i * .085)
+    const drift = Math.sin(clock * (.06 + i * .02) + i * 2.1) * W * .05
+    const h = H * (.05 + i * .012)
+    const g = ctx.createLinearGradient(0, y - h, 0, y + h)
+    g.addColorStop(0, 'rgba(180, 200, 200, 0)')
+    g.addColorStop(.5, `rgba(176, 198, 198, ${(.055 * strength * (1 - i * .18)).toFixed(3)})`)
+    g.addColorStop(1, 'rgba(180, 200, 200, 0)')
+    ctx.save()
+    ctx.translate(drift, 0)
+    ctx.fillStyle = g
+    ctx.fillRect(-W * .2, y - h, W * 1.4, h * 2)
+    ctx.restore()
+  }
+}
+
+function drawMainMountains(parallax) {
+  for (let i = 0; i < mountainLayers.length; i++) {
+    const k = (i + 1) / mountainLayers.length
+    const scale = 1 + (parallax - 1) * k * .55
+    const dx = -(parallax - 1) * W * .06 * k
+    const dy = (parallax - 1) * H * .02 * k
+
+    ctx.save()
+    ctx.translate(CX + dx, H + dy)
+    ctx.scale(scale, scale)
+    ctx.translate(-CX, -H)
+    ctx.drawImage(mountainLayers[i].canvas, 0, 0, W, H)
+    ctx.restore()
+  }
+}
+
+function drawMotes(dt) {
+  for (const p of motes) {
+    p.y += p.vy * dt * 60
+    p.x += p.vx * dt * 60
+    if (p.y < -8) { p.y = H + 8; p.x = Math.random() * W }
+    if (p.x < -8) p.x = W + 8
+    if (p.x > W + 8) p.x = -8
+
+    const tw = .4 + .6 * (.5 + .5 * Math.sin(clock * 1.1 + p.ph))
+    // 浮尘只在光源附近被看见：这是物理，也是画面纪律
+    const dm = toMoon(p.x, p.y)
+    const near = clamp01(1 - dm.d / (Math.min(W, H) * .9))
+    const a = p.a * tw * (.25 + near * 1.1)
+
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 6)
+    g.addColorStop(0, `rgba(232, 240, 228, ${a.toFixed(3)})`)
+    g.addColorStop(1, 'rgba(232, 240, 228, 0)')
+    ctx.fillStyle = g
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 6, 0, 6.2832); ctx.fill()
+  }
+}
+
+/* ══ 灵：自月而下的光丝 ════════════════════════════════════════
+   不做粒子爆炸，做「一缕一缕」——灵气是流动的，不是爆开的。 */
+let threads = []
+let threadIn = 0
+
+function seedThreads() {
+  threads = Array.from({ length: 22 }, () => ({
+    x: moon.x + (Math.random() - .5) * moon.r * 7,
+    y0: moon.y + moon.r * 1.4,
+    len: H * (.28 + Math.random() * .44),
+    swayAmp: 18 + Math.random() * 46,
+    swayFreq: .16 + Math.random() * .30,
+    ph: Math.random() * 6.2832,
+    w: .5 + Math.random() * 1.1,
+    a: .10 + Math.random() * .26,
+    drift: (Math.random() - .5) * 0.22,
+  }))
+}
+
+function drawThreads(dt) {
+  if (threadIn <= .005) return
+  const S = threadIn
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.lineCap = 'round'
+
+  for (const t of threads) {
+    t.x += t.drift * dt * 60
+    if (t.x < -60) t.x = W + 60
+    if (t.x > W + 60) t.x = -60
+
+    const steps = 18
+    ctx.beginPath()
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps
+      const y = t.y0 + t.len * u
+      // 越往下摆幅越大（气往下散）
+      const sway = Math.sin(u * 2.4 + clock * t.swayFreq * 2.6 + t.ph) * t.swayAmp * u
+      const x = t.x + sway
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+    }
+
+    const grad = ctx.createLinearGradient(0, t.y0, 0, t.y0 + t.len)
+    grad.addColorStop(0, `rgba(228, 240, 232, ${(t.a * S).toFixed(3)})`)
+    grad.addColorStop(.45, `rgba(206, 224, 216, ${(t.a * .55 * S).toFixed(3)})`)
+    grad.addColorStop(1, 'rgba(190, 214, 206, 0)')
+    ctx.strokeStyle = grad
+    ctx.lineWidth = t.w
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/* ══ 符阵 ══════════════════════════════════════════════════════
+   秩序不等于平均分布：每环转速不同、亮度不同，
+   才像一台在运转的阵，而不是一张对称的图案。 */
+let arrayIn = 0
+
+function drawArray(strength) {
+  if (strength <= .01) return
+  const S = Math.min(1, arrayIn) * strength
+  const R = Math.min(W, H) * .27
+
+  ctx.save()
+  ctx.translate(CX, CY)
+
+  const rings = [
+    { r: R * 1.42, dash: [1.5, 9], w: .8, a: .34, spd:  0.10 },
+    { r: R * 1.16, dash: [],        w: 1.0, a: .28, spd: -0.06 },
+    { r: R * 0.92, dash: [16, 12],  w: .7, a: .20, spd:  0.16 },
+  ]
+  for (const rg of rings) {
+    ctx.save()
+    ctx.rotate(clock * rg.spd)
+    ctx.beginPath()
+    ctx.setLineDash(rg.dash)
+    ctx.strokeStyle = `rgba(190, 214, 206, ${(rg.a * S).toFixed(3)})`
+    ctx.lineWidth = rg.w
+    ctx.arc(0, 0, rg.r, 0, 6.2832)
+    ctx.stroke()
+    ctx.restore()
+  }
+  ctx.setLineDash([])
+
+  // 八方节点：构成「阵」而不只是「圈」
+  const N = 8
+  const nodes = []
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * 6.2832 - Math.PI / 2 + clock * .045
+    const rr = R * 1.16
+    nodes.push({
+      x: Math.cos(a) * rr,
+      y: Math.sin(a) * rr,
+      local: clamp01((S - .15 - i * .045) / .4),
+    })
+  }
+
+  ctx.lineWidth = .65
+  const drawEdge = (p, q, alpha) => {
+    const k = Math.min(p.local, q.local)
+    if (k <= 0) return
+    ctx.beginPath()
+    ctx.strokeStyle = `rgba(196, 218, 210, ${(alpha * k * S).toFixed(3)})`
+    ctx.moveTo(p.x, p.y)
+    ctx.lineTo(q.x, q.y)
+    ctx.stroke()
+  }
+  for (let i = 0; i < N; i++) drawEdge(nodes[i], nodes[(i + 1) % N], .24)
+  // 隔点连：两个正方形交叠 = 八卦的几何骨架
+  for (let i = 0; i < N; i += 2) drawEdge(nodes[i], nodes[(i + 2) % N], .15)
+
+  for (let i = 0; i < N; i++) {
+    const n = nodes[i]
+    if (n.local <= 0) continue
+    const pulse = .55 + .45 * Math.sin(clock * 1.6 + i * .8)
+    const a = (.62 * n.local * pulse * S).toFixed(3)
+
+    ctx.beginPath()
+    ctx.strokeStyle = `rgba(222, 234, 224, ${a})`
+    ctx.lineWidth = .8
+    ctx.arc(n.x, n.y, 5.2 * n.local, 0, 6.2832)
+    ctx.stroke()
+    ctx.fillStyle = `rgba(246, 244, 226, ${a})`
+    ctx.beginPath(); ctx.arc(n.x, n.y, 1.5 * n.local, 0, 6.2832); ctx.fill()
+  }
+
+  // 阵眼：必须比月亮暗。第二个亮点会把画面劈成两半
+  const coreA = clamp01((S - .45) / .4)
+  if (coreA > 0) {
+    const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, R * .18)
+    cg.addColorStop(0, `rgba(255, 250, 230, ${(.34 * coreA * S).toFixed(3)})`)
+    cg.addColorStop(.28, `rgba(222, 212, 180, ${(.10 * coreA * S).toFixed(3)})`)
+    cg.addColorStop(1, 'rgba(200, 180, 140, 0)')
+    ctx.fillStyle = cg
+    ctx.beginPath(); ctx.arc(0, 0, R * .18, 0, 6.2832); ctx.fill()
+
+    ctx.fillStyle = `rgba(255, 252, 236, ${(.80 * coreA * S).toFixed(3)})`
+    ctx.beginPath(); ctx.arc(0, 0, 1.9, 0, 6.2832); ctx.fill()
+  }
+
+  ctx.restore()
+}
+
+/* ══ 星聚 ══════════════════════════════════════════════════════
+   万千光点从四方汇聚成字。要点：
+   - 起点在画面外深处，不是均匀圆环（均匀圆环一眼就是程序）
+   - 到达时间按离中心距离排序，形成由外向内收拢的浪
+   - 收功时被太极「吸」进去，而不是淡出消失 */
+let starParts = []
+let starIn = 0
+let starAbsorb = 0
+let starFallback = false
+
+const WORD = '灵栖'
+
+function sampleGlyph(text, fontSize) {
+  const pad = 40
+  const c = document.createElement('canvas')
+  const cx0 = c.getContext('2d')
+  const f = `600 ${fontSize}px "Kaiti SC","STKaiti","KaiTi","Songti SC","Noto Serif SC",serif`
+  cx0.font = f
+  const m = cx0.measureText(text)
+  c.width = Math.max(8, Math.ceil(m.width) + pad * 2)
+  c.height = Math.ceil(fontSize * 1.6)
+  const g = c.getContext('2d')
+  g.font = f
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillStyle = '#fff'
+  g.fillText(text, c.width / 2, c.height / 2)
+  const data = g.getImageData(0, 0, c.width, c.height).data
+  const pts = []
+  const gap = Math.max(2, Math.round(fontSize / 58))
+  for (let y = 0; y < c.height; y += gap) {
+    for (let x = 0; x < c.width; x += gap) {
+      if (data[(y * c.width + x) * 4 + 3] > 128) {
+        pts.push({ x: x - c.width / 2, y: y - c.height / 2 })
+      }
+    }
+  }
+  return pts
+}
+
+function buildStars() {
+  const fontSize = Math.min(200, Math.max(118, W / 7.2))
+  const pts = sampleGlyph(WORD, fontSize)
+  starFallback = pts.length < 140
+
+  const use = pts.slice(0, 3200)
+  for (let i = use.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0
+    ;[use[i], use[j]] = [use[j], use[i]]
+  }
+
+  const far = Math.max(W, H) * .95
+  starParts = use.map((p) => {
+    const a = Math.random() * 6.2832
+    const r = far * (.42 + Math.random() * .60)
+    return {
+      tx: p.x, ty: p.y,
+      sx: Math.cos(a) * r,
+      sy: Math.sin(a) * r * .74,
+      delay: clamp01(Math.hypot(p.x, p.y) / (fontSize * 1.1)) * .42 + Math.random() * .12,
+      jit: Math.random() * 6.2832,
+      size: .55 + Math.random() * 1.25,
+    }
+  })
+}
+
+function drawStars() {
+  if (starIn <= 0) return
+
+  if (starFallback) {
+    const S = Math.min(1, starIn)
+    const fontSize = Math.min(200, Math.max(118, W / 7.2))
+    ctx.save()
+    ctx.font = `600 ${fontSize}px "Kaiti SC","STKaiti","KaiTi","Songti SC",serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.shadowColor = 'rgba(226, 238, 228, .8)'
+    ctx.shadowBlur = 36 * S
+    ctx.fillStyle = `rgba(240, 246, 238, ${(S * .9).toFixed(3)})`
+    ctx.fillText(WORD, CX, CY)
+    ctx.restore()
+    return
+  }
+  if (!starParts.length) return
+
+  const S = Math.min(1, starIn)
+  const settle = S > .86 ? Math.max(0, EASE.outBack((S - .86) / .14) - 1) : 0
+  const scale = 1 + settle * .055
+  const breath = 1 + Math.sin(clock * .8) * .006
+  const absorb = EASE.inOut(clamp01(starAbsorb))
+
+  for (const p of starParts) {
+    const k = clamp01((S - p.delay) / (1 - p.delay || 1))
+    const e = EASE.outExpo(k)
+    const wob = e > .94 ? Math.sin(clock * 1.5 + p.jit) * .9 : 0
+
+    // 收功：字不消失，而是被太极大吸进去
+    let ox = (p.sx + (p.tx - p.sx) * e + wob) * scale * breath
+    let oy = (p.sy + (p.ty - p.sy) * e + wob * .6) * scale * breath
+    ox *= 1 - absorb
+    oy *= 1 - absorb
+
+    // 飞行途中偏暖（灵气），落位后转冷（月光）——颜色跟着叙事走
+    const warm = 1 - e
+    const r = Math.round(232 + warm * 20)
+    const gch = Math.round(240 + warm * 4 - warm * 20)
+    const b = Math.round(232 - warm * 30)
+    const a = (.10 + e * .78) * (1 - Math.pow(clamp01(starAbsorb), 3))
+
+    ctx.fillStyle = `rgba(${r},${gch},${b},${a.toFixed(3)})`
+    ctx.beginPath()
+    ctx.arc(CX + ox, CY + oy, p.size * (.65 + e * .85), 0, 6.2832)
+    ctx.fill()
+  }
+}
+
+/* ══ 太极 ══════════════════════════════════════════════════════
+   阴阳鱼是终点。要点全在「实体感」：
+   白鱼三色渐变（不是纯白）、阴鱼墨分浓淡、交界处相互洇过去一点。 */
+let taijiIn = 0
+let taijiAngle = 0
+
+function drawTaiji(dt, strength) {
+  if (strength <= .005) return
+  const S = Math.min(1, taijiIn)
+  const R = Math.min(W, H) * .205 * EASE.outCubic(S)
+
+  taijiAngle += dt * .16 * S
+
+  // 整体先给一层柔和底光，避免白鱼在黑底上「贴」上去
+  const baseGlow = ctx.createRadialGradient(CX, CY, R * .2, CX, CY, R * 1.35)
+  baseGlow.addColorStop(0, `rgba(210, 224, 218, ${(.10 * S * strength).toFixed(3)})`)
+  baseGlow.addColorStop(1, 'rgba(210, 224, 218, 0)')
+  ctx.fillStyle = baseGlow
+  ctx.beginPath(); ctx.arc(CX, CY, R * 1.35, 0, 6.2832)
+  ctx.fill()
+
+  ctx.save()
+  ctx.translate(CX, CY)
+  ctx.rotate(taijiAngle)
+
+  // 外环刻度：说明它不只是个图案
+  ctx.beginPath()
+  ctx.strokeStyle = `rgba(206, 222, 214, ${(.20 * S * strength).toFixed(3)})`
+  ctx.lineWidth = .8
+  ctx.arc(0, 0, R * 1.16, 0, 6.2832)
+  ctx.stroke()
+
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * 6.2832
+    const major = i % 6 === 0
+    const r0 = R * 1.16
+    const r1 = r0 + (major ? R * .045 : R * .022)
+    ctx.beginPath()
+    ctx.strokeStyle = `rgba(206, 222, 214, ${((major ? .26 : .11) * S * strength).toFixed(3)})`
+    ctx.lineWidth = major ? .9 : .5
+    ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0)
+    ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1)
+    ctx.stroke()
+  }
+
+  // ── 阳鱼（左）：白
+  const lightGrad = ctx.createRadialGradient(-R * .30, -R * .32, R * .02, 0, 0, R * 1.12)
+  lightGrad.addColorStop(0, `rgba(253, 254, 250, ${(.94 * strength).toFixed(3)})`)
+  lightGrad.addColorStop(.42, `rgba(232, 238, 231, ${(.90 * strength).toFixed(3)})`)
+  lightGrad.addColorStop(.78, `rgba(196, 208, 203, ${(.80 * strength).toFixed(3)})`)
+  lightGrad.addColorStop(1, `rgba(150, 166, 165, ${(.62 * strength).toFixed(3)})`)
+
+  ctx.beginPath()
+  ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2)
+  ctx.arc(0, R / 2, R / 2, Math.PI / 2, -Math.PI / 2, true)
+  ctx.arc(0, -R / 2, R / 2, Math.PI / 2, -Math.PI / 2, false)
+  ctx.closePath()
+  ctx.fillStyle = lightGrad
+  ctx.fill()
+
+  // ── 阴鱼（右）：墨。中心近黑但不死黑，边缘更沉——墨分浓淡
+  const darkGrad = ctx.createRadialGradient(R * .34, R * .30, R * .02, 0, 0, R * 1.12)
+  darkGrad.addColorStop(0, `rgba(46, 48, 50, ${(.97 * strength).toFixed(3)})`)
+  darkGrad.addColorStop(.45, `rgba(24, 25, 27, ${(.98 * strength).toFixed(3)})`)
+  darkGrad.addColorStop(.85, `rgba(11, 12, 13, ${(.99 * strength).toFixed(3)})`)
+  darkGrad.addColorStop(1, `rgba(4, 4, 5, ${(1 * strength).toFixed(3)})`)
+
+  ctx.beginPath()
+  ctx.arc(0, 0, R, Math.PI / 2, Math.PI * 1.5)
+  ctx.arc(0, -R / 2, R / 2, -Math.PI / 2, Math.PI / 2, true)
+  ctx.arc(0, R / 2, R / 2, -Math.PI / 2, Math.PI / 2, false)
+  ctx.closePath()
+  ctx.fillStyle = darkGrad
+  ctx.fill()
+
+  // ── 交界柔化：沿 S 形叠一道极淡的墨晕，让黑白相互洇过去一点
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2)
+  ctx.arc(0, R / 2, R / 2, Math.PI / 2, -Math.PI / 2, true)
+  ctx.arc(0, -R / 2, R / 2, Math.PI / 2, -Math.PI / 2, false)
+  ctx.closePath()
+  ctx.clip()
+  const seam = ctx.createRadialGradient(0, 0, R * .55, 0, 0, R * 1.02)
+  seam.addColorStop(0, 'rgba(90, 100, 98, 0)')
+  seam.addColorStop(1, `rgba(90, 100, 98, ${(.22 * strength).toFixed(3)})`)
+  ctx.fillStyle = seam
+  ctx.fillRect(-R, -R, R * 2, R * 2)
+  ctx.restore()
+
+  // ── 鱼眼
+  const eyeR = R * .155
+  ctx.beginPath()
+  ctx.fillStyle = `rgba(14, 15, 17, ${(.94 * strength).toFixed(3)})`
+  ctx.arc(0, -R / 2, eyeR, 0, 6.2832)
+  ctx.fill()
+
+  const eyeGrad = ctx.createRadialGradient(0, R / 2, 0, 0, R / 2, eyeR)
+  eyeGrad.addColorStop(0, `rgba(255, 253, 244, ${(.98 * strength).toFixed(3)})`)
+  eyeGrad.addColorStop(1, `rgba(214, 224, 216, ${(.92 * strength).toFixed(3)})`)
+  ctx.beginPath()
+  ctx.fillStyle = eyeGrad
+  ctx.arc(0, R / 2, eyeR, 0, 6.2832)
+  ctx.fill()
+
+  ctx.restore()
+
+  // 呼吸辉光，不旋转
+  const pulse = .5 + .5 * Math.sin(clock * 1.2)
+  const glowR = R * (1.5 + pulse * .10)
+  const halo = ctx.createRadialGradient(CX, CY, R * .9, CX, CY, glowR)
+  halo.addColorStop(0, `rgba(226, 238, 232, ${(.10 * S * strength).toFixed(3)})`)
+  halo.addColorStop(1, 'rgba(226, 238, 232, 0)')
+  ctx.fillStyle = halo
+  ctx.beginPath(); ctx.arc(CX, CY, glowR, 0, 6.2832); ctx.fill()
+}
+
+/* ══ 声音 ══════════════════════════════════════════════════════
+   电影配乐靠「层」，不靠「音效」。四层：
+     地声（两个低频缓慢推挤）/ 风（棕噪，是呼吸）/
+     古琴（散音与泛音，只在关键节点落）/ 钟（只给「开」与「合」）
+   ═══════════════════════════════════════════════════════════════ */
+let audio = null
+
+function createAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext
+  if (!AC) return null
+  const ac = new AC()
+
+  const master = ac.createGain()
+  master.gain.value = .0001
+  master.connect(ac.destination)
+  master.gain.linearRampToValueAtTime(.085, ac.currentTime + 2.2)
+
+  // 整体压暗高频：合成音不压，一听就是「网页音效」
+  const dark = ac.createBiquadFilter()
+  dark.type = 'lowpass'
+  dark.frequency.value = 4200
+  dark.Q.value = .4
+  dark.connect(master)
+
+  const stops = []
+  const noiseBuf = ac.createBuffer(1, ac.sampleRate * 4, ac.sampleRate)
+  {
+    const d = noiseBuf.getChannelData(0)
+    let last = 0
+    // 棕噪声：比白噪更接近风。白噪是「沙」，棕噪是「呼」
+    for (let i = 0; i < d.length; i++) {
+      const w = Math.random() * 2 - 1
+      last = (last + .02 * w) / 1.02
+      d[i] = last * 3.2
+    }
+  }
+  const noise = () => {
+    const n = ac.createBufferSource()
+    n.buffer = noiseBuf
+    n.loop = true
+    return n
+  }
+
+  const drone = {}
+  ;[[53.43, -5, .17], [80.15, 6, .10], [107.0, -3, .05]].forEach(([f, det, gain], i) => {
+    const o = ac.createOscillator()
+    o.type = 'sine'
+    o.frequency.value = f
+    o.detune.value = det
+    const g = ac.createGain()
+    g.gain.value = gain
+    o.connect(g).connect(dark)
+    o.start()
+    stops.push(o)
+    if (i === 0) drone.main = { gain: g }
+  })
+
+  const wind = noise()
+  const windBP = ac.createBiquadFilter()
+  windBP.type = 'bandpass'
+  windBP.frequency.value = 420
+  windBP.Q.value = .7
+  const windGain = ac.createGain()
+  windGain.gain.value = .045
+  wind.connect(windBP).connect(windGain).connect(dark)
+  wind.start()
+  stops.push(wind)
+
+  const api = {
+    setWind(v, sec = 2.5) {
+      const t = ac.currentTime
+      windGain.gain.cancelScheduledValues(t)
+      windGain.gain.setValueAtTime(windGain.gain.value, t)
+      windGain.gain.linearRampToValueAtTime(.012 + v * .075, t + sec)
+    },
+
+    setDrone(v, sec = 3) {
+      if (!drone.main) return
+      const t = ac.currentTime
+      drone.main.gain.gain.cancelScheduledValues(t)
+      drone.main.gain.gain.setValueAtTime(drone.main.gain.gain.value, t)
+      drone.main.gain.gain.linearRampToValueAtTime(.10 + v * .16, t + sec)
+    },
+
+    /**
+     * 古琴散音。泛音是它的灵魂：2/3/4 次分音各以更快速度衰减，
+     * 并留一点微失谐——完全整数倍听起来像电子琴。
+     */
+    pluck(freq = 146.83, amp = .30, dur = 4.2) {
+      const now = ac.currentTime
+      for (const [mult, ga] of [[1, 1], [2, .40], [3, .18], [4, .09], [5, .04]]) {
+        const o = ac.createOscillator()
+        o.type = 'sine'
+        o.frequency.value = freq * mult * (1 + (Math.random() - .5) * .0035)
+        const g = ac.createGain()
+        g.gain.setValueAtTime(.0001, now)
+        g.gain.linearRampToValueAtTime(amp * ga, now + .008)
+        g.gain.exponentialRampToValueAtTime(.0001, now + dur / (1 + (mult - 1) * .8))
+        o.connect(g).connect(dark)
+        o.start(now); o.stop(now + dur + .2)
+      }
+      // 指甲触弦：没有它就没有「拨」，只有「响」
+      const n = noise()
+      const hp = ac.createBiquadFilter()
+      hp.type = 'bandpass'
+      hp.frequency.value = 2600 + Math.random() * 1200
+      hp.Q.value = 1.2
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(amp * .10, now)
+      ng.gain.exponentialRampToValueAtTime(.0001, now + .05)
+      n.connect(hp).connect(ng).connect(dark)
+      n.start(now); n.stop(now + .07)
+    },
+
+    /** 钟：分音非整数倍，这是金属体在响的物理特征 */
+    bell(base = 261.63, amp = .13, dur = 5) {
+      const now = ac.currentTime
+      ;[1, 2.76, 5.40, 8.93, 13.34].forEach((p, i) => {
+        const o = ac.createOscillator()
+        o.type = 'sine'
+        o.frequency.value = base * p
+        const g = ac.createGain()
+        g.gain.setValueAtTime(.0001, now)
+        g.gain.linearRampToValueAtTime(amp * [1, .50, .30, .16, .07][i], now + .012)
+        g.gain.exponentialRampToValueAtTime(.0001, now + dur / (1 + i * 1.1))
+        o.connect(g).connect(dark)
+        o.start(now); o.stop(now + dur)
+      })
+    },
+
+    /** 灵气升起：一层极轻的上扫噪声，不用音高，用「气」 */
+    arise(dur = 3.2) {
+      const now = ac.currentTime
+      const n = noise()
+      const bp = ac.createBiquadFilter()
+      bp.type = 'bandpass'
+      bp.Q.value = 1.1
+      bp.frequency.setValueAtTime(260, now)
+      bp.frequency.exponentialRampToValueAtTime(2400, now + dur)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.0001, now)
+      g.gain.linearRampToValueAtTime(.055, now + dur * .55)
+      g.gain.exponentialRampToValueAtTime(.0001, now + dur * 1.1)
+      n.connect(bp).connect(g).connect(dark)
+      n.start(now); n.stop(now + dur * 1.2)
+    },
+
+    /** 符阵结节：一串极轻的木声，密而不响 */
+    taps(count = 9, span = 1.4) {
+      const now = ac.currentTime
+      for (let i = 0; i < count; i++) {
+        const t = now + (i / count) * span + Math.random() * .02
+        const n = noise()
+        const bp = ac.createBiquadFilter()
+        bp.type = 'bandpass'
+        bp.frequency.value = 1800 + Math.random() * 1600
+        bp.Q.value = 9
+        const g = ac.createGain()
+        g.gain.setValueAtTime(.0001, t)
+        g.gain.linearRampToValueAtTime(.045, t + .003)
+        g.gain.exponentialRampToValueAtTime(.0001, t + .05)
+        n.connect(bp).connect(g).connect(dark)
+        n.start(t); n.stop(t + .07)
+      }
+    },
+
+    /** 星聚：极密高频细响，越近越稀，最后收成一个和弦 */
+    converge(dur = 3.4) {
+      const now = ac.currentTime
+      for (let i = 0; i < 60; i++) {
+        const u = Math.random()
+        const t = now + u * dur * .86
+        const o = ac.createOscillator()
+        o.type = 'sine'
+        o.frequency.value = 1200 + Math.random() * 2800
+        const g = ac.createGain()
+        // 越靠后越轻：收拢时是「少而准」，不是「多而乱」
+        g.gain.setValueAtTime(.020 * (1 - u * .75), t)
+        g.gain.exponentialRampToValueAtTime(.0001, t + .07)
+        o.connect(g).connect(dark)
+        o.start(t); o.stop(t + .08)
+      }
+      ;[146.83, 220, 293.66, 440].forEach((f, i) => {
+        setTimeout(() => { try { api.pluck(f, .16, 5.4) } catch {} }, dur * 870 + i * 90)
+      })
+    },
+
+    stop() {
+      try { master.gain.value = 0 } catch {}
+      stops.forEach((n) => { try { n.stop() } catch {} })
+      stops.length = 0
+      setTimeout(() => ac.close().catch(() => {}), 1200)
+    },
+  }
+  return api
+}
+
+/* ══ 竹简：真实加载阶段 ════════════════════════════════════════
+   全片唯一的文字，内容是真的（真实启动阶段），形态是古的。
+   所以它要安静：字小、色淡、只在新阶段到达时亮一下。 */
+const BOOT_STAGES = [
+  '初始化运行时',
+  '装载核心扩展',
+  '构建主界面',
+  '创建窗口',
+  '读取配置',
+  '启动本地服务',
+  '同步内置技能',
+  '初始化技能引擎',
+  '监听技能变更',
+  '唤醒智能内核',
+  '连接外部服务',
+]
+
+const MAX_SLIPS = 7
+let slipCount = 0     // 已渲染到第几个阶段（总数，不等于 DOM 里现存数量）
+
+function renderSlips(count, allDone = false) {
+  const target = Math.max(0, Math.min(BOOT_STAGES.length, count))
+  if (target === slipCount) {
+    if (allDone) markAllSlipsDone()
+    return
+  }
+
+  if (target < slipCount) {
+    el.slips.innerHTML = ''
+    slipCount = 0
+  }
+
+  while (slipCount < target) {
+    const d = document.createElement('div')
+    d.className = 'slip show'
+    d.textContent = BOOT_STAGES[slipCount]
+    el.slips.appendChild(d)
+    slipCount++
+  }
+
+  // 只保留最近 MAX_SLIPS 片：竹简是「正在发生的事」，不是日志墙
+  while (el.slips.children.length > MAX_SLIPS) {
+    el.slips.removeChild(el.slips.firstElementChild)
+  }
+
+  const list = Array.from(el.slips.children)
+  list.forEach((node, i) => {
+    const age = list.length - 1 - i
+    node.style.setProperty('--age', String(age))
+    node.classList.toggle('now', age === 0 && !allDone)
+    node.classList.toggle('done', age > 0 || allDone)
+  })
+}
+
+function markAllSlipsDone() {
+  for (const c of el.slips.children) {
+    c.classList.remove('now')
+    c.classList.add('done')
+  }
+}
+
+/* ══ 幕 ════════════════════════════════════════════════════════ */
+function setAct(next) {
+  if (act === next) return
+  act = next
+  boot.dataset.act = next
+
+  if (next === 'lingqi') {
+    audio?.setWind(.55, 3)
+    audio?.setDrone(.5, 4)
+    audio?.arise(3.4)
+    setTimeout(() => audio?.pluck(110, .26, 5.2), 900)
+  }
+  if (next === 'zhujian') {
+    audio?.setWind(.30, 2.5)
+    audio?.pluck(164.81, .22, 4.6)
+  }
+  if (next === 'fuzhen') {
+    audio?.setWind(.18, 2)
+    audio?.taps(11, 1.6)
+    setTimeout(() => audio?.pluck(196, .24, 4.8), 420)
+  }
+  if (next === 'xingju') {
+    audio?.setWind(.62, 3)
+    audio?.converge(3.6)
+  }
+  if (next === 'taiji') {
+    audio?.setWind(.12, 3)
+    audio?.setDrone(.15, 4)
+    audio?.bell(146.83, .15, 6)
+  }
+  if (next === 'guiyuan') {
+    audio?.bell(220, .10, 5)
+  }
+}
+
+/* ══ 主循环 ════════════════════════════════════════════════════ */
+let frameError = ''
+
+function frame(now) {
+  try { frameInner(now) } catch (err) {
+    if (!frameError) {
+      frameError = String((err && err.message) || err)
+      console.error('[boot] frame error', err)
+    }
+  }
+  requestAnimationFrame(frame)
+}
+
+function frameInner(now) {
+  const dt = Math.min(.05, (now - lastT) / 1000)
+  lastT = now
+  clock += dt
+
+  const A = act
+  const isHei = A === 'heian'
+  const isLing = A === 'lingqi'
+  const isFu = A === 'fuzhen'
+  const isXing = A === 'xingju'
+  const isTai = A === 'taiji'
+  const isGui = A === 'guiyuan'
+
+  // 镜头：缓慢推近 + 极轻漂移。全片只推不拉，推近就是「接近」
+  const camT = clamp01(clock / 20)
+  const parallax = 1 + EASE.inOut(camT) * .085
+  const camX = Math.sin(clock * .12) * W * .004
+  const camY = Math.cos(clock * .09) * H * .003
+
+  ctx.clearRect(0, 0, W, H)
+
+  // 底色：最深处也带一点冷调，否则全片像关机
+  const bg = ctx.createLinearGradient(0, 0, 0, H)
+  bg.addColorStop(0, '#050708')
+  bg.addColorStop(.42, '#07090a')
+  bg.addColorStop(1, '#020304')
+  ctx.fillStyle = bg
+  ctx.fillRect(0, 0, W, H)
+
+  ctx.save()
+  ctx.translate(camX, camY)
+
+  moon.glow = isHei ? Math.min(.34, clock * .16)
+    : isLing ? .92
+    : A === 'zhujian' ? .62
+    : isFu ? .50
+    : isXing ? .40
+    : isTai ? .62
+    : isGui ? .86
+    : .30
+
+  drawMoon()
+
+  const mistStrength = isHei ? .35 : isLing ? 1 : A === 'zhujian' ? .72
+    : isFu ? .55 : isXing ? .48 : isTai ? .70 : .55
+  drawMist(mistStrength)
+  drawMainMountains(parallax)
+
+  if (isLing) {
+    if (!threads.length) seedThreads()
+    threadIn = Math.min(1, threadIn + dt * .5)
+  } else {
+    threadIn = Math.max(0, threadIn - dt * .6)
+  }
+  drawThreads(dt)
+
+  const arrayStrength = isFu ? 1 : isXing ? .46 : isTai ? .26 : 0
+  arrayIn = isFu ? Math.min(1, arrayIn + dt * .52)
+    : (isXing || isTai) ? 1 : Math.max(0, arrayIn - dt * .8)
+  drawArray(arrayStrength)
+
+  if (isXing) {
+    if (!starParts.length) buildStars()
+    starIn = Math.min(1, starIn + dt * .30)
+    starAbsorb = 0
+  } else if (isTai || isGui) {
+    // 星点被太极吸入，收完再退场
+    starAbsorb = Math.min(1, starAbsorb + dt * 1.35)
+    if (starAbsorb >= 1) starIn = 0
+  }
+
+  drawStars()
+
+  const taijiStrength = isTai ? 1 : isGui ? .55 : 0
+  taijiIn = isTai ? Math.min(1, taijiIn + dt * .40)
+    : isGui ? Math.max(0, taijiIn - dt * .5) : 0
+  drawTaiji(dt, taijiStrength)
+
+  drawMotes(dt)
+
+  ctx.restore()
+}
+
+/* ══ 播放 ══════════════════════════════════════════════════════ */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function resetAll() {
+  clock = 0; progress = 0
+  moon.glow = 0
+  threadIn = 0; arrayIn = 0; starIn = 0; starAbsorb = 0; taijiIn = 0
+  threads = []; starParts = []; slipCount = 0
+  act = 'heian'; boot.dataset.act = 'heian'
+  boot.classList.remove('fading'); boot.style.display = ''
+  el.slips.innerHTML = ''
+  el.threadFill.style.width = '0%'
+  el.flash.classList.remove('fire')
+  seedMotes()
+  lastT = performance.now()
+}
+
+async function play() {
+  if (running) return
+  running = true
+  abort = false
+  resetAll()
+
+  audio = $('sound').checked ? createAudio() : null
+
+  setTimeout(() => el.barTop.classList.add('on'), 120)
+  setTimeout(() => el.barBot.classList.add('on'), 120)
+
+  // 黑夜给足 2.6s——敢黑，是这一版最重要的决定
+  const timeline = [
+    { act: 'heian',   dur: 2600 },
+    { act: 'lingqi',  dur: 3000 },
+    { act: 'zhujian', dur: 3000 },
+    { act: 'fuzhen',  dur: 2800 },
+    { act: 'xingju',  dur: 3400 },
+    { act: 'taiji',   dur: 2600 },
+  ]
+
+  const total = timeline.length
+  let acc = 0
+  let stageIdx = -1
+
+  for (let i = 0; i < total; i++) {
+    if (abort) break
+    setAct(timeline[i].act)
+
+    const slices = 8
+    for (let k = 1; k <= slices; k++) {
+      if (abort) break
+      acc++
+      progress = (acc / (total * slices)) * 94
+      el.threadFill.style.width = progress.toFixed(1) + '%'
+
+      // 进度走到 92% 就得把 11 个阶段走完，
+      // 否则末段永远等不到，最后一条会停在半截。
+      const ratio = acc / (total * slices)
+      const nextStage = Math.min(
+        BOOT_STAGES.length,
+        Math.floor(ratio / .92 * BOOT_STAGES.length) + 1
+      )
+      if (nextStage !== stageIdx) {
+        stageIdx = nextStage
+        renderSlips(nextStage)
+      }
+
+      await sleep(timeline[i].dur / slices)
+    }
+  }
+
+  if (abort) { running = false; return }
+
+  /* 归元：太极定型 → 白光 → 化开 */
+  setAct('guiyuan')
+  el.threadFill.style.width = '100%'
+  renderSlips(BOOT_STAGES.length, true)
+
+  await sleep(900)
+  el.flash.classList.add('fire')
+  await sleep(700)
+
+  el.barTop.classList.remove('on')
+  el.barBot.classList.remove('on')
+  await sleep(420)
+
+  boot.classList.add('fading')
+  await sleep(1200)
+  boot.style.display = 'none'
+
+  audio?.stop(); audio = null
+  running = false
+}
+
+$('replay').addEventListener('click', () => {
+  abort = true
+  setTimeout(() => { void play() }, 120)
+})
+$('skip').addEventListener('click', () => { abort = true })
+window.addEventListener('resize', resize)
+
+resize()
+requestAnimationFrame(frame)
+
+if (FREEZE) {
+  setAct(FREEZE)
+  clock = 4
+  moon.glow = .8
+  threadIn = FREEZE === 'lingqi' ? 1 : 0
+  arrayIn = (FREEZE === 'fuzhen' || FREEZE === 'xingju' || FREEZE === 'taiji') ? 1 : 0
+  if (FREEZE === 'xingju') { starIn = 1; if (!starParts.length) buildStars() }
+  if (FREEZE === 'taiji' || FREEZE === 'guiyuan') { taijiIn = 1; starIn = 0 }
+  if (FREEZE === 'lingqi' && !threads.length) seedThreads()
+  renderSlips(FREEZE === 'heian' ? 0 : 6)
+} else {
+  setTimeout(() => { void play() }, 420)
+}
+</script>
+</body>
+</html>
