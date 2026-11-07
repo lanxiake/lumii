@@ -29,6 +29,7 @@ import {
 import { DEFAULT_STYLE } from './styles/registry'
 import type { StyleTheme, VisualStyle } from './styles/types'
 import { checkFrame, type FrameIssue, type FrameStats } from './gates/frame-check'
+import { cuesToSrt, type Cue } from './gates/narrate'
 export type { VisualStyle, StyleTheme } from './styles/types'
 
 /** 画面尺寸（固定，ffmpeg 要求同尺寸才能 concat） */
@@ -53,11 +54,19 @@ const STAGE_PX = {
 } as const
 
 /**
- * 由**结构化画面描述**生成 HTML（模型只出 JSON，HTML 由这里拼）。
+ * 由**结构化画面描述**生成 HTML。
  *
- * 为什么不直接让模型吐 HTML：单轮调用输出一整页 HTML 时，实测 10/10 次在
- * 80~120 秒后返回空；同一批次里只出 JSON 的调用 4~19 秒正常。这里把
- * 「描述画面」和「生成页面」分开，模型的输出量降一个数量级，页面由本地拼装。
+ * ## 元素身份 = 动画
+ *
+ * 同一个 `id` 在多个步出现 = **同一个对象在动**。渲染时只创建一次 DOM 元素，
+ * 每步通过 CSS transition 改 `left/top/width/height/color` —— 观众看到的是
+ * 一个东西在移动、变大、变色，而不是「消失再出现」。
+ *
+ * 这是「动画」与「幻灯片」的分界线。没有 id 时每步只能重画，五个静态画面
+ * 拼起来不叫讲解；有 id 时同一个三角形可以滑过去、翻过来、被拆开。
+ *
+ * 上一版只累积不消失，第 1 步的图形一直堆到第 4 步，和公式撞在一起
+ * （实测 `pythagoras-three-proofs` 第 1 节整屏重叠）。
  */
 export function buildSceneHtml(
   section: StoryboardSection,
@@ -66,7 +75,8 @@ export function buildSceneHtml(
 ): string {
   const lines = section.lectureLines.map((l) => clampLectureLine(l))
   const secs = sectionSeconds(section)
-  const perStep = secs / Math.max(1, scene.length)
+  // 有时间轴（配音给的）就按它算每步的起止，否则均分
+  const stepStarts = stepStartMs(section, scene.length)
 
   // 编号样式：数字用 1/2/3，圆点用 ·——后者更接近「白板笔记」而不是「步骤清单」
   const lectureHtml = lines
@@ -76,24 +86,73 @@ export function buildSceneHtml(
     })
     .join('\n')
 
-  // 每个元素带自己的出现时间（所在步的起点），渲染时按时间逐个亮起
+  // ---- 按 id 归拢：同一 id 的多次出现是同一个对象的状态序列 ----
+  interface Keyframe {
+    step: number
+    el: SceneElement
+  }
+  const byId = new Map<string, Keyframe[]>()
+  scene.forEach((step, si) => {
+    step.elements.forEach((el, ei) => {
+      const id = el.id ?? `s${si}e${ei}`
+      const list = byId.get(id) ?? []
+      // 同一步重复出现同 id：后一个覆盖前一个（模型偶尔这么写）
+      const existing = list.findIndex((k) => k.step === si)
+      if (existing >= 0) list[existing] = { step: si, el }
+      else list.push({ step: si, el })
+      byId.set(id, list)
+    })
+  })
+
   const elements: string[] = []
+  // 关键帧数据单独放一个 JSON 块：HTML 属性里的引号会被解析器吃掉
+  // （`data-kf="[{"at":0}]"` 到 DOM 里就剩 `[{"`），塞进 <script type="application/json"> 最稳
+  const kfData: Record<string, Array<{ at: number; h: string; s: Record<string, string> }>> = {}
+  for (const [id, frames] of byId) {
+    frames.sort((a, b) => a.step - b.step)
+    const first = frames[0]!
+    const kfs = frames.map((f) => ({
+      at: stepStarts[f.step] ?? 0,
+      h: renderElement(f.el, `${id}_${f.step}`),
+      s: {
+        left: `${f.el.x ?? 30}%`,
+        top: `${f.el.y ?? 40}%`,
+        width: `${f.el.w ?? 24}%`,
+        height: `${f.el.h ?? 14}%`,
+        ...(f.el.color ? { '--c': f.el.color } : {}),
+      },
+    }))
+    kfData[id] = kfs
+    // 消失时刻：until 指的步结束后
+    const lastFrame = frames[frames.length - 1]!
+    const untilStep = lastFrame.el.until
+    const hideAt =
+      untilStep !== undefined
+        ? (stepStarts[Math.min(untilStep + 1, scene.length)] ?? secs * 1000)
+        : null
+    const body = renderElement(first.el, `${id}_init`)
+    const initStyle = Object.entries({
+      left: `${first.el.x ?? 30}%`,
+      top: `${first.el.y ?? 40}%`,
+      width: `${first.el.w ?? 24}%`,
+      height: `${first.el.h ?? 14}%`,
+      ...(first.el.color ? { '--c': first.el.color } : {}),
+    })
+      .map(([k, v]) => `${k}:${v}`)
+      .join(';')
+    elements.push(
+      `<div class="el el-${first.el.kind}${first.el.kind === 'highlight' && first.el.content ? ' has-label' : ''}" data-el="${escapeAttr(id)}"${
+        hideAt !== null ? ` data-hide="${hideAt}"` : ''
+      // 初始 opacity 交给 CSS 的 `.el{opacity:0}`，**不要写进内联 style**：
+      // 内联样式的优先级高于类选择器，`.el.on{opacity:1}` 会被它压住，
+      // 元素永远不显示（实测整屏只有左侧讲义，右侧全空）
+      } style="${initStyle}">${body}</div>`,
+    )
+  }
+
   const timeline: string[] = []
   scene.forEach((step, si) => {
-    timeline.push(`{ at: ${Math.round(si * perStep * 1000)}, step: ${si} }`)
-    step.elements.forEach((el, ei) => {
-      const style = [
-        `left:${el.x ?? 30}%`,
-        `top:${el.y ?? 40}%`,
-        `width:${el.w ?? 24}%`,
-        `height:${el.h ?? 14}%`,
-        el.color ? `--c:${el.color}` : '',
-      ]
-        .filter(Boolean)
-        .join(';')
-      const body = renderElement(el, `s${si}e${ei}`)
-      elements.push(`<div class="el el-${el.kind}" style="${style}" data-step="${si}">${body}</div>`)
-    })
+    timeline.push(`{ at: ${stepStarts[si] ?? 0}, step: ${si} }`)
   })
 
   return `<!DOCTYPE html>
@@ -140,6 +199,14 @@ export function buildSceneHtml(
   .el-line{height:0 !important;border-top:${theme.strokeWidth}px solid var(--c,${theme.element})}
   .el-highlight{background:var(--c,${theme.accent});opacity:.14;border-radius:${theme.radius}px;
     filter:blur(2px);box-shadow:0 0 0 2px var(--c,${theme.accent}) inset}
+  /* 带标签的高亮：文字要压在模糊层之上，所以单独一个伪元素做底色 */
+  .el-highlight.has-label{display:flex;align-items:center;justify-content:center;
+    background:transparent;filter:none;box-shadow:none}
+  .el-highlight.has-label::before{content:'';position:absolute;inset:0;
+    background:var(--c,${theme.accent});opacity:.14;border-radius:${theme.radius}px;
+    filter:blur(2px);box-shadow:0 0 0 2px var(--c,${theme.accent}) inset}
+  .el-highlight.has-label > .hl-label{position:relative;font-size:${theme.elementSize}px;
+    color:var(--c,${theme.accent});font-weight:600;text-align:center;line-height:1.3}
   /* 数轴/曲线/箭头/括号都是内联 SVG，各自带像素宽高。
      **不能再写 width:100% / inset:0**：那会把 SVG 拉伸到盒子里，
      与 SVG 内部的像素坐标打架（实测刻度数字被压到轴线上）。 */
@@ -165,12 +232,29 @@ export function buildSceneHtml(
 </style></head><body>
 <div id="lecture"><div id="title">${escapeHtml(section.title)}</div><ul>${lectureHtml}</ul></div>
 <div id="stage">${elements.join('')}</div>
+<script type="application/json" id="kf">${JSON.stringify(kfData).replace(/</g, '\\u003c')}</script>
 <script>
+var KF=JSON.parse(document.getElementById('kf').textContent);
 var T=[${timeline.join(',')}];
 window.__seek=function(ms){
   var a=-1;for(var i=0;i<T.length;i++)if(ms>=T[i].at)a=T[i].step;
   document.querySelectorAll('.el').forEach(function(e){
-    e.classList.toggle('on', Number(e.dataset.step)<=a);
+    var kf=KF[e.dataset.el];
+    if(!kf||!kf.length)return;
+    var hide=e.dataset.hide?Number(e.dataset.hide):Infinity;
+    // 还没到首帧 或 已过消失时刻 → 隐藏
+    if(ms<kf[0].at||ms>=hide){e.classList.remove('on');return;}
+    // 找到当前所处的帧段
+    var k=0;for(var i=0;i<kf.length;i++)if(ms>=kf[i].at)k=i;
+    var cur=kf[k];
+    // 套用这一帧的样式（CSS transition 负责补间，于是同一个对象"移动"而不是"跳变"）
+    Object.keys(cur.s).forEach(function(p){
+      if(p==='--c')e.style.setProperty('--c',cur.s[p]);
+      else e.style[p]=cur.s[p];
+    });
+    // 内容随帧更新（同一个 id 的文字可能在后续步变了）
+    if(cur.h!==undefined&&e.innerHTML!==cur.h){e.innerHTML=cur.h;}
+    e.classList.add('on');
   });
   document.querySelectorAll('.line').forEach(function(e,i){
     e.classList.toggle('active', i===a);
@@ -215,7 +299,8 @@ function renderElement(el: SceneElement, key: string): string {
     case 'brace':
       return renderBrace(el)
     case 'highlight':
-      return ''
+      // 有 content 就渲染成「带标签的高亮」——一个纯色块观众不知道它指什么
+      return el.content ? `<span class="hl-label">${escapeHtml(el.content)}</span>` : ''
     default:
       return ''
   }
@@ -583,10 +668,36 @@ export function checkSectionLayout(section: StoryboardSection): LayoutIssue[] {
  * 再短的话单步动画刚出现就切走，看不清。
  */
 export function sectionSeconds(section: StoryboardSection): number {
+  // 有配音时间轴时，这一节的长度就是每步之和
+  if (section.stepSeconds?.length) {
+    return section.stepSeconds.reduce((a, b) => a + b, 0)
+  }
   if (typeof section.targetSeconds === 'number' && section.targetSeconds > 0) {
     return section.targetSeconds
   }
   return Math.max(6, Math.min(section.animations.length, section.lectureLines.length) * STEP_SECONDS)
+}
+
+/**
+ * 每一步的起始时刻（毫秒）。
+ *
+ * 有 `stepSeconds`（配音给的）就用它累加；没有就均分。
+ * 这是「动画跟着声音走」的落点：`__seek(t)` 按这些时刻切步。
+ */
+export function stepStartMs(section: StoryboardSection, stepCount: number): number[] {
+  const n = Math.max(1, stepCount)
+  if (section.stepSeconds?.length) {
+    const out: number[] = []
+    let cursor = 0
+    for (let i = 0; i < n; i++) {
+      out.push(Math.round(cursor * 1000))
+      cursor += section.stepSeconds[i] ?? section.stepSeconds[section.stepSeconds.length - 1] ?? 2
+    }
+    return out
+  }
+  const secs = sectionSeconds(section)
+  const per = (secs * 1000) / n
+  return Array.from({ length: n }, (_, i) => Math.round(i * per))
 }
 
 export function totalSeconds(storyboard: TeachingStoryboard): number {
@@ -619,6 +730,23 @@ export interface RenderDeps {
   onlySections?: ReadonlySet<number>
   /** 视觉风格；缺省用默认（3B1B） */
   style?: VisualStyle
+  /**
+   * 并发渲染的 worker 数（每个 worker 一个隐藏窗口）。
+   *
+   * 默认 2：5 节从 ~5 分钟压到 ~3 分钟。
+   * **不要超过 3**：无独显机器上多个窗口抢 GPU 合成，实测掉帧（帧间隔不均）。
+   */
+  concurrency?: number
+  /**
+   * 每节的讲解字幕（按节 id 索引）。给了就在渲染后把音频叠上去、字幕烧进去。
+   *
+   * 之所以放在渲染循环里做，而不是全部渲染完再统一做：每节渲染要 30~60 秒，
+   * 而配音+字幕只是一次 ffmpeg 编码；分开做能早发现音频问题，也能让
+   * `revise` 只重做点名的那节时顺带重配音。
+   */
+  narration?: ReadonlyMap<string, readonly Cue[]>
+  /** SRT 输出目录（整片字幕） */
+  srtOutPath?: string
 }
 
 /** 只取 drizzle 需要的最小面，便于单测造假对象 */
@@ -654,74 +782,154 @@ export async function renderStoryboard(
   deps: RenderDeps,
 ): Promise<RenderResult> {
   fs.mkdirSync(deps.outDir, { recursive: true })
-  const browser = await deps.launchBrowser()
-  const sectionVideos: string[] = []
   const frameIssues: Array<{ section: string; issues: FrameIssue[] }> = []
-  try {
-    for (let i = 0; i < storyboard.sections.length; i++) {
-      const section = storyboard.sections[i]!
-      const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
 
-      // revise：没点名且已有成片的节直接复用，不重新渲染
-      if (deps.onlySections && !deps.onlySections.has(i + 1) && fs.existsSync(outMp4)) {
-        sectionVideos.push(outMp4)
-        deps.log(`[render] 第 ${i + 1} 节未指定重做，复用已有 mp4`)
-        continue
+  // ---- 决定每个 worker 负责哪几节 ----
+  //
+  // 并发渲染是把 5 节串行（~5 分钟）压到 2~3 轮的关键，但**每个 worker 必须
+  // 有自己的 BrowserWindow**：同一个窗口被两个 renderSection 同时驱动，
+  // `__seek` 会互相踩，截出来的帧是另一个 worker 的时间点。
+  //
+  // 默认 2 个 worker。3 个以上在无独显的机器上会抢 GPU 合成，实测掉帧。
+  const workerCount = Math.max(1, Math.min(deps.concurrency ?? 2, storyboard.sections.length))
+  const queues: number[][] = Array.from({ length: workerCount }, () => [])
+  const toRender: number[] = []
+  for (let i = 0; i < storyboard.sections.length; i++) {
+    const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+    // revise：没点名且已有成片的节不重渲
+    if (deps.onlySections && !deps.onlySections.has(i + 1) && fs.existsSync(outMp4)) continue
+    toRender.push(i)
+  }
+  // 轮转分配：节数不整除时，前面的 worker 少拿一节
+  toRender.forEach((idx, n) => queues[n % workerCount]!.push(idx))
+
+  /** 每节的产物路径，按节号索引；并发时不能靠 push 顺序 */
+  const outputs = new Map<number, string>()
+
+  const runWorker = async (queue: number[]): Promise<void> => {
+    if (queue.length === 0) return
+    const browser = await deps.launchBrowser()
+    try {
+      for (const i of queue) {
+        const section = storyboard.sections[i]!
+        const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+        await renderOne(section, i, outMp4, browser, deps, frameIssues, outputs)
       }
-
-      // 优先用模型给的结构化画面；没有才退回纯文字模板
-      const theme = deps.style?.theme ?? DEFAULT_STYLE.theme
-      const html = section.scene?.length
-        ? buildSceneHtml(section, section.scene, theme)
-        : buildSectionHtml(section, undefined, theme)
-      const htmlPath = path.join(deps.outDir, `section_${i + 1}.html`)
-      fs.writeFileSync(htmlPath, html, 'utf8')
-
-      // 元素互相压住时先记日志再照常渲染：重叠是**质量缺陷**不是致命错误，
-      // 因为面板当前是文本块，轻微重叠仍可读。真正的判据在工具结果里如实回传。
-      const overlaps = checkSectionLayout(section)
-      if (overlaps.length > 0) {
-        deps.log(
-          `[render] 第 ${i + 1} 节布局问题: ${overlaps.map((o) => `[${o.kind}] ${o.detail}`).join('; ')}`,
-        )
-      }
-
-      const secs = sectionSeconds(section)
-      try {
-        await browser.renderSection(html, outMp4, secs * 1000, 12)
-        sectionVideos.push(outMp4)
-        deps.log(`[render] 第 ${i + 1}/${storyboard.sections.length} 节完成`)
-
-        // 抽帧自检：像素是唯一证据。这一步不阻断交付，但问题必须回传——
-        // 前几层门禁看的是数据，查不出「画了但小到看不见」。
-        const samples = browser.lastFrameSamples?.()
-        if (samples?.length) {
-          const issues = samples.flatMap((s, fi) => checkFrame(s, fi))
-          if (issues.length > 0) {
-            frameIssues.push({ section: section.title, issues })
-            deps.log(
-              `[render] 第 ${i + 1} 节画面自检: ${issues.map((x) => `[${x.kind}] ${x.detail}`).join('; ')}`,
-            )
-          }
-        }
-      } catch (err) {
-        deps.log(`[render] 第 ${i + 1} 节失败: ${err instanceof Error ? err.message : String(err)}`)
-      }
+    } finally {
+      await browser.close().catch(() => {})
     }
-  } finally {
-    await browser.close().catch(() => {})
+  }
+
+  await Promise.all(queues.map((q) => runWorker(q)))
+
+  // ---- 按节号拼顺序 ----
+  //
+  // 未重渲的节（revise 复用）直接取已有 mp4；重渲过的取 worker 的产出。
+  // **顺序必须按节号，不能按完成时间**——并发下完成顺序是乱的，
+  // 按完成顺序拼出来的视频节序是错的。
+  const sectionVideos: string[] = []
+  for (let i = 0; i < storyboard.sections.length; i++) {
+    const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+    const produced = outputs.get(i)
+    if (produced) {
+      sectionVideos.push(produced)
+      continue
+    }
+    if (deps.onlySections && !deps.onlySections.has(i + 1)) {
+      // 复用：优先用配过音的版本（上一轮 produce 留下的）
+      const narrated = outMp4.replace(/\.mp4$/, '.narrated.mp4')
+      const reuse = fs.existsSync(narrated) ? narrated : outMp4
+      if (fs.existsSync(reuse)) {
+        sectionVideos.push(reuse)
+        deps.log(`[render] 第 ${i + 1} 节未指定重做，复用已有 mp4`)
+      }
+      continue
+    }
   }
 
   if (sectionVideos.length === 0) {
-    return { ok: false, sectionVideos, error: '所有小节都渲染失败' }
+    return { ok: false, sectionVideos, frameIssues, error: '所有小节都渲染失败' }
   }
 
   const finalPath = path.join(deps.outDir, 'teaching-video.mp4')
   const merged = await concatVideos(sectionVideos, finalPath, deps.ffmpeg)
   if (!merged.ok) {
-    return { ok: false, sectionVideos, error: `合成失败：${merged.error}` }
+    return { ok: false, sectionVideos, frameIssues, error: `合成失败：${merged.error}` }
   }
   return { ok: true, videoPath: finalPath, sectionVideos, frameIssues }
+}
+
+/**
+ * 渲一节：HTML → 逐帧截图 → ffmpeg 编码 →（有配音时）叠音频+烧字幕。
+ *
+ * 抽出来单独一个函数，是为了让并发 worker 各自调用同一份逻辑，
+ * 而不是把整段循环复制一遍。
+ */
+async function renderOne(
+  section: TeachingStoryboard['sections'][number],
+  index: number,
+  outMp4: string,
+  browser: BrowserLike,
+  deps: RenderDeps,
+  frameIssues: Array<{ section: string; issues: FrameIssue[] }>,
+  outputs: Map<number, string>,
+): Promise<void> {
+  // 优先用模型给的结构化画面；没有才退回纯文字模板
+  const theme = deps.style?.theme ?? DEFAULT_STYLE.theme
+  const html = section.scene?.length
+    ? buildSceneHtml(section, section.scene, theme)
+    : buildSectionHtml(section, undefined, theme)
+  fs.writeFileSync(path.join(deps.outDir, `section_${index + 1}.html`), html, 'utf8')
+
+  const overlaps = checkSectionLayout(section)
+  if (overlaps.length > 0) {
+    deps.log(
+      `[render] 第 ${index + 1} 节布局问题: ${overlaps.map((o) => `[${o.kind}] ${o.detail}`).join('; ')}`,
+    )
+  }
+
+  const secs = sectionSeconds(section)
+  try {
+    await browser.renderSection(html, outMp4, secs * 1000, 12)
+    deps.log(`[render] 第 ${index + 1} 节完成`)
+
+    // 抽帧自检：像素是唯一证据。必须在同一个 worker 里立即读，
+    // 下一个节开始渲染后样本就被覆盖了。
+    const samples = browser.lastFrameSamples?.()
+    if (samples?.length) {
+      const issues = samples.flatMap((s, fi) => checkFrame(s, fi))
+      if (issues.length > 0) {
+        frameIssues.push({ section: section.title, issues })
+        deps.log(
+          `[render] 第 ${index + 1} 节画面自检: ${issues.map((x) => `[${x.kind}] ${x.detail}`).join('; ')}`,
+        )
+      }
+    }
+
+    // 有配音就叠音频 + 烧字幕。失败保留无声版继续——
+    // 一条无声视频仍可用，缺一节视频就废了。
+    const cues = deps.narration?.get(section.id)
+    if (cues?.length) {
+      const srtPath = path.join(deps.outDir, `section_${index + 1}.srt`)
+      fs.writeFileSync(srtPath, cuesToSrt(cues), 'utf8')
+      const narrated = outMp4.replace(/\.mp4$/, '.narrated.mp4')
+      const r = await addNarration(
+        { videoPath: outMp4, outputPath: narrated, cues, srtPath },
+        deps.ffmpeg,
+      )
+      if (r.ok) {
+        outputs.set(index, narrated)
+        deps.log(`[render] 第 ${index + 1} 节配音与字幕已合成`)
+      } else {
+        outputs.set(index, outMp4)
+        deps.log(`[render] 第 ${index + 1} 节配音合成失败，保留无声版：${r.error ?? ''}`)
+      }
+    } else {
+      outputs.set(index, outMp4)
+    }
+  } catch (err) {
+    deps.log(`[render] 第 ${index + 1} 节失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 /** ffmpeg concat 合成（同尺寸同编码，用 -c copy 直拼） */
@@ -745,6 +953,63 @@ export async function concatVideos(
   return r.ok ? { ok: true } : { ok: false, error: r.stderr.slice(-400) }
 }
 
+/**
+ * 给一节视频配上旁白并烧字幕。
+ *
+ * 顺序：把每句音频按 startMs 延时后用 `amix` 叠成一条音轨 → 同时把 SRT 烧进画面。
+ * 之所以不是「先拼音频再做视频」：视频已经渲染好了，重渲一遍要多等十几分钟；
+ * 这里只做一次编码。
+ *
+ * `ffmpeg` 的 `subtitles` 滤镜对路径转义很挑：Windows 盘符里的 `:` 要写成 `\\:`，
+ * 反斜杠要写成 `/`。这段转义是照 screen-record 那份踩过坑的实现来的。
+ */
+export async function addNarration(
+  opts: {
+    videoPath: string
+    outputPath: string
+    cues: readonly Cue[]
+    srtPath: string
+  },
+  ffmpeg: RenderDeps['ffmpeg'],
+): Promise<{ ok: boolean; error?: string }> {
+  const bin = await ffmpeg.resolve()
+  if (!bin) return { ok: false, error: 'ffmpeg 不可用' }
+  const withAudio = opts.cues.filter((c) => c.audioPath)
+  const args: string[] = ['-y', '-i', opts.videoPath]
+
+  // 每句音频各自一个输入
+  for (const c of withAudio) args.push('-i', c.audioPath!)
+
+  // 字幕滤镜。**必须并进 -filter_complex**：ffmpeg 不允许 -vf 与 -filter_complex
+  // 同时出现（-vf 会自己建一个 filtergraph，两者冲突 → 整个命令报错）。
+  // 实测就是这里导致 5 节全部「配音合成失败，保留无声版」。
+  const srtArg = opts.srtPath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")
+  const filters: string[] = [`[0:v]subtitles='${srtArg}'[vout]`]
+
+  if (withAudio.length > 0) {
+    // 每句按开始时间延迟，再全部混成一条
+    withAudio.forEach((c, i) => {
+      // 输入 0 是视频，音频从 1 开始
+      filters.push(`[${i + 1}:a]adelay=${Math.round(c.startMs)}|${Math.round(c.startMs)}[a${i}]`)
+    })
+    const mixInputs = withAudio.map((_, i) => `[a${i}]`).join('')
+    // 不用 `normalize=0`：包里那份 ffmpeg 是 2018 年的 N-92722，`amix` 还没有这个选项
+    // （实测 `Option 'normalize' not found` → 整条命令失败 → 全部退回无声版）。
+    // 句与句本来就不重叠（各自延时到不同时间点），归一化本来也不该生效。
+    filters.push(`${mixInputs}amix=inputs=${withAudio.length}:duration=longest[aout]`)
+    args.push('-filter_complex', filters.join(';'), '-map', '[vout]', '-map', '[aout]')
+    args.push('-c:a', 'aac', '-b:a', '128k')
+  } else {
+    args.push('-filter_complex', filters.join(';'), '-map', '[vout]')
+  }
+
+  args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '23')
+  args.push('-shortest', opts.outputPath)
+
+  const r = await ffmpeg.run(args, { timeoutMs: 300_000 })
+  return r.ok ? { ok: true } : { ok: false, error: r.stderr.slice(-500) }
+}
+
 // ---------------------------------------------------------------
 // 工具函数
 // ---------------------------------------------------------------
@@ -755,6 +1020,16 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+/** 属性值转义：data-* 里的 JSON 含引号与尖括号，不能直接拼进去 */
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function shorten(s: string, max: number): string {

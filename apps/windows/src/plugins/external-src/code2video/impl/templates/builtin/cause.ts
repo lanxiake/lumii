@@ -56,6 +56,11 @@ export const causeTemplate: TeachingTemplate = {
       kinds: ['brace', 'tex', 'arrow'],
     },
   ],
+  roles: [
+    { id: 'cause', kind: 'tex', purpose: '这一环的起因' },
+    { id: 'effect', kind: 'tex', purpose: '这一环导致的结果' },
+    { id: 'chain', kind: 'arrow', purpose: '把原因指到结果' },
+  ],
   example: {
     title: '为什么通货膨胀会让存款变少',
     lectureLines: ['央行多发了钱', '钱多了，商品没多', '物价被推高', '同样的钱买到的东西变少'],

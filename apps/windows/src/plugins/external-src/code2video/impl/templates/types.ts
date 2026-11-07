@@ -63,6 +63,30 @@ export interface TemplateExample {
   scene: SceneStep[]
 }
 
+/**
+ * 模板规定的一个**画面对象**。
+ *
+ * ## 为什么由模板规定对象，而不是让模型自己起 id
+ *
+ * 实测：提示词里明确写了「同一个 id 出现在多步 = 同一个东西在动」，
+ * 门禁也把不合格的画面打回重做三次——模型**每一版都还是每步重新画**。
+ * 它的注意力在「这一步讲什么」上，不在「这些是不是同一个东西」上。
+ *
+ * 而「这个模板需要哪几个对象」是结构问题，模板作者一次想清楚就行。
+ * 模型只需要回答「这一步这个对象在哪、是什么样」——那是它擅长的。
+ *
+ * 副作用是好的：对象的语义（`mover` 是那个移动的东西）由模板给定，
+ * 模型不容易画出「每步都换一个主角」的画面。
+ */
+export interface TemplateRole {
+  /** 对象 id，模型必须原样使用 */
+  id: string
+  /** 建议的元素类型；模型可以换成别的（比如 rect → circle），但不该换语义 */
+  kind: string
+  /** 这个对象是干什么的，给模型看 */
+  purpose: string
+}
+
 export interface TeachingTemplate {
   id: string
   /** 展示名 */
@@ -75,6 +99,13 @@ export interface TeachingTemplate {
   keywords: string[]
   /** 节骨架。数量即建议节数 */
   sections: TemplateSection[]
+  /**
+   * 这一套画面的**对象名册**。
+   *
+   * 给了它，模型就只能用这几个 id——元素身份由模板决定，
+   * 模型只填每步的位置与内容。这是「动画」而非「幻灯片」的关键。
+   */
+  roles?: TemplateRole[]
   /** 这类主题推荐用哪些视觉风格（风格 id） */
   styles?: string[]
   /** 一节真实成品 */

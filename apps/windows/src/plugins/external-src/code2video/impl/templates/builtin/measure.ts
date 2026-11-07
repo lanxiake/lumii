@@ -49,6 +49,12 @@ export const measureTemplate: TeachingTemplate = {
       kinds: ['axis', 'arrow', 'highlight'],
     },
   ],
+  roles: [
+    { id: 'axis', kind: 'axis', purpose: '数轴，只在第 1 步出现一次' },
+    { id: 'mover', kind: 'arrow', purpose: '从起点走到落点的那一支箭头' },
+    { id: 'label', kind: 'text', purpose: '当前标注的数值或方向' },
+    { id: 'span', kind: 'brace', purpose: '把走过的区间括起来' },
+  ],
   example: {
     title: '负数在数轴上的位置',
     lectureLines: ['原点在中间', '向右为正，向左为负', '-3 在 0 左边 3 格', '绝对值就是离 0 的距离'],

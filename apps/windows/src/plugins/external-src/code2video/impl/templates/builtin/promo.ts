@@ -49,6 +49,11 @@ export const promoTreeTemplate: TeachingTemplate = {
       kinds: ['text', 'highlight'],
     },
   ],
+  roles: [
+    { id: 'claim', kind: 'text', purpose: '一句话卖点' },
+    { id: 'proof', kind: 'table', purpose: '支撑它的数据' },
+    { id: 'cta', kind: 'text', purpose: '结尾的行动' },
+  ],
   example: {
     title: '一个缓存层的价值',
     lectureLines: ['接口每次都要查库', '加了缓存之后', '命中率 92%', '响应从 120ms 到 5ms'],

@@ -97,7 +97,7 @@ describe('checkFrame', () => {
   })
 
   // anything2explainer 的反例 05：背景散落几十个小图标
-  it('碎屑感被抓到', () => {
+  it('碎屑感被抓到（块很多且都很小）', () => {
     const rects = Array.from({ length: 30 }, (_, i) => ({
       x: (i % 6) * 16 + 2,
       y: Math.floor(i / 6) * 16 + 2,
@@ -106,6 +106,19 @@ describe('checkFrame', () => {
     }))
     const issues = checkFrame(statsOf(rects), 0)
     expect(issues.some((i) => i.kind === 'scattered')).toBe(true)
+  })
+
+  // 回归：一屏三行推导（3 个公式各占 1/3）被判 scattered —— 那是正常教学画面
+  it('少量大块不算零散', () => {
+    const issues = checkFrame(
+      statsOf([
+        { x: 5, y: 20, w: 80, h: 12 },
+        { x: 5, y: 40, w: 80, h: 12 },
+        { x: 5, y: 60, w: 80, h: 12 },
+      ]),
+      0,
+    )
+    expect(issues.some((i) => i.kind === 'scattered')).toBe(false)
   })
 
   // anything2explainer 的反例 01：手机占画面不到 1/4 且无光

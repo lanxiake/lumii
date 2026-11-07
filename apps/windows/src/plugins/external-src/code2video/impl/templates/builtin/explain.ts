@@ -57,6 +57,11 @@ export const explainTemplate: TeachingTemplate = {
       kinds: ['tex', 'highlight', 'text'],
     },
   ],
+  roles: [
+    { id: 'key', kind: 'tex', purpose: '这一节要讲的那个式子或结论，全程留在画面上' },
+    { id: 'focus', kind: 'highlight', purpose: '当前这一步在讲的部分，用来把注意力引过去' },
+    { id: 'note', kind: 'text', purpose: '补充说明的一句话' },
+  ],
   example: {
     title: '为什么 0.999… 等于 1',
     lectureLines: ['0.999… 一直在接近 1', '但它和 1 之间没有数', '设差为 d', 'd 比任何正数都小', '所以 d 只能等于 0'],

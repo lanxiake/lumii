@@ -4,6 +4,12 @@ import {
   buildOutlinePrompt,
   buildReviewMarkdown,
   buildSceneSpecPrompt,
+  autoHideCovered,
+  dedupeSameStep,
+  normalizeRoleIds,
+  liftOutOfSubtitleBand,
+  SUB_BAND_PCT,
+  CROSS_STEP_OVERLAP_THRESHOLD,
   checkSceneLayout,
   declutterSteps,
   parseSceneSpec,
@@ -14,6 +20,7 @@ import {
   overlapRatio,
   parseOutline,
   parseStoryboard,
+  type SceneStep,
 } from './teaching-core'
 
 describe('parseOutline', () => {
@@ -256,6 +263,268 @@ describe('parseSceneSpec', () => {
     expect(parseSceneSpec(null, 1)).toBeNull()
     expect(parseSceneSpec({ steps: [] }, 1)).toBeNull()
     expect(parseSceneSpec({ steps: [{ elements: [] }] }, 1)).toBeNull()
+  })
+})
+
+// 这一条是实测出来的硬教训：清理阈值与门禁阈值不一致时，
+// 中间那段重叠既不会被清掉、又会被判失败，模型连改三版都过不去，
+// 最后整节退回纯文字模板 —— 比有重叠还糟。
+describe('阈值一致性', () => {
+  it('autoHideCovered 与 checkSceneLayout 用同一个阈值', () => {
+    // 构造一个刚好在旧 gap（0.35~0.55）里的重叠：两个 40×20 的框，x 差 16
+    const gapSteps: SceneStep[] = [
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 10, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'text', content: 'B', x: 26, y: 30, w: 40, h: 20 }] },
+    ]
+    const cleaned = autoHideCovered(gapSteps)
+    const remaining = checkSceneLayout(cleaned).filter((x) => x.kind === 'cross_step_overlap')
+    // 要么被清理掉、要么门禁也认它通过——不能两边都不认
+    expect(remaining).toHaveLength(0)
+  })
+
+  it('常量在一个合理区间', () => {
+    expect(CROSS_STEP_OVERLAP_THRESHOLD).toBeGreaterThan(0.3)
+    expect(CROSS_STEP_OVERLAP_THRESHOLD).toBeLessThan(0.9)
+  })
+})
+
+describe('liftOutOfSubtitleBand', () => {
+  // 实测：元素画到最底部，和烧进去的字幕撞成两行同样的字
+  it('底部越界的元素被上移到字幕区之上', () => {
+    const out = liftOutOfSubtitleBand([
+      { elements: [{ kind: 'text', content: 'x', x: 10, y: 88, w: 40, h: 10 }] },
+    ])
+    const el = out[0]!.elements[0]!
+    expect((el.y ?? 0) + (el.h ?? 0)).toBeLessThanOrEqual(100 - SUB_BAND_PCT)
+  })
+
+  it('本来就在上方的元素不动', () => {
+    const out = liftOutOfSubtitleBand([
+      { elements: [{ kind: 'text', content: 'x', x: 10, y: 20, w: 40, h: 10 }] },
+    ])
+    expect(out[0]!.elements[0]!.y).toBe(20)
+  })
+
+  it('很高的元素也不会被推到负数', () => {
+    const out = liftOutOfSubtitleBand([
+      { elements: [{ kind: 'rect', x: 10, y: 80, w: 40, h: 60 }] },
+    ])
+    expect(out[0]!.elements[0]!.y).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('parseStoryboard 旁白', () => {
+  it('narration_lines 被保留', () => {
+    const b = parseStoryboard({
+      sections: [
+        {
+          title: 'T',
+          lecture_lines: ['标签'],
+          animations: ['动作'],
+          narration_lines: ['这是完整的一句话，用来讲清楚为什么。'],
+        },
+      ],
+    })
+    expect(b?.sections[0]?.narrationLines).toEqual(['这是完整的一句话，用来讲清楚为什么。'])
+  })
+
+  it('没有 narration_lines 时不带该字段', () => {
+    const b = parseStoryboard({ sections: [{ title: 'T', lecture_lines: ['a'], animations: ['x'] }] })
+    expect(b?.sections[0]?.narrationLines).toBeUndefined()
+  })
+})
+
+describe('normalizeRoleIds', () => {
+  const roles = [
+    { id: 'axis', kind: 'axis' },
+    { id: 'mover', kind: 'arrow' },
+    { id: 'expr', kind: 'tex' },
+  ]
+
+  it('名册里的 id 原样保留', () => {
+    const out = normalizeRoleIds(
+      [{ elements: [{ id: 'axis', kind: 'axis', x: 5, y: 40, w: 90, h: 14 }] }],
+      roles,
+    )
+    expect(out[0]!.elements[0]!.id).toBe('axis')
+  })
+
+  // 模型很可能写 triangle / box 这类名字，要归到名册里的角色
+  it('自造 id 按 kind 归到角色', () => {
+    const out = normalizeRoleIds(
+      [{ elements: [{ id: 'myarrow', kind: 'arrow', x: 10, y: 10, w: 20, h: 20 }] }],
+      roles,
+    )
+    expect(out[0]!.elements[0]!.id).toBe('mover')
+  })
+
+  it('同一个自造 id 在后续步归到同一个角色（保住跨步身份）', () => {
+    const out = normalizeRoleIds(
+      [
+        { elements: [{ id: 'myarrow', kind: 'arrow', x: 10, y: 10, w: 20, h: 20 }] },
+        { elements: [{ id: 'myarrow', kind: 'arrow', x: 50, y: 10, w: 20, h: 20 }] },
+      ],
+      roles,
+    )
+    expect(out[0]!.elements[0]!.id).toBe('mover')
+    expect(out[1]!.elements[0]!.id).toBe('mover')
+  })
+
+  it('同 kind 的角色用完时保留自造 id', () => {
+    const out = normalizeRoleIds(
+      [
+        {
+          elements: [
+            { id: 'a1', kind: 'tex', x: 10, y: 10, w: 20, h: 20 },
+            { id: 'a2', kind: 'tex', x: 40, y: 10, w: 20, h: 20 },
+          ],
+        },
+      ],
+      roles,
+    )
+    // 只有一个 tex 角色（expr），第二个保留自造 id
+    const ids = out[0]!.elements.map((e) => e.id)
+    expect(ids).toContain('expr')
+    expect(ids.some((x) => x && x !== 'expr')).toBe(true)
+  })
+
+  it('空名册时原样返回', () => {
+    const steps: SceneStep[] = [{ elements: [{ id: 'x', kind: 'rect', x: 1, y: 1, w: 1, h: 1 }] }]
+    expect(normalizeRoleIds(steps, [])[0]!.elements[0]!.id).toBe('x')
+  })
+
+  it('不修改入参', () => {
+    const steps: SceneStep[] = [{ elements: [{ id: 'myarrow', kind: 'arrow', x: 1, y: 1, w: 1, h: 1 }] }]
+    normalizeRoleIds(steps, roles)
+    expect(steps[0]!.elements[0]!.id).toBe('myarrow')
+  })
+})
+
+describe('dedupeSameStep', () => {
+  // 实测：模型在同一坐标连画两个东西，「第 1 步第 1 与第 2 个元素重叠 100%」
+  it('同一步内完全重合的只留一个', () => {
+    const out = dedupeSameStep([
+      {
+        elements: [
+          { kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 },
+          { kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 },
+        ],
+      },
+    ])
+    expect(out[0]!.elements).toHaveLength(1)
+    // 保留后出现的（模型后写的是它真想要的）
+    expect(out[0]!.elements[0]!.content).toBe('B')
+  })
+
+  // 「框里放文字」是正常设计，不能删
+  it('部分重叠不删（框里放文字是有意为之）', () => {
+    const out = dedupeSameStep([
+      {
+        elements: [
+          { kind: 'rect', x: 10, y: 20, w: 60, h: 40 },
+          { kind: 'text', content: '框里', x: 25, y: 30, w: 30, h: 15 },
+        ],
+      },
+    ])
+    expect(out[0]!.elements).toHaveLength(2)
+  })
+
+  it('不同步的相同位置不互相去重', () => {
+    const out = dedupeSameStep([
+      { elements: [{ kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ])
+    expect(out[0]!.elements).toHaveLength(1)
+    expect(out[1]!.elements).toHaveLength(1)
+  })
+})
+
+describe('autoHideCovered', () => {
+  // 实测的核心缺陷：第 1 步画的东西一直留到第 5 步，和后来的内容撞在一起
+  it('被后来者完全盖住的旧元素自动退场', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'old', kind: 'text', content: '旧', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ id: 'new', kind: 'text', content: '新', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'rect', x: 5, y: 80, w: 20, h: 10 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBe(0)
+  })
+
+  it('没被盖住的元素不动', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 5, y: 5, w: 20, h: 10 }] },
+      { elements: [{ id: 'b', kind: 'text', content: 'B', x: 70, y: 70, w: 20, h: 10 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBeUndefined()
+  })
+
+  // 回归：until 至少要等于元素自己出现的步，否则它一次都不显示（实测整屏空白）
+  it('第 1 步出现的元素被第 2 步盖住时，until 不小于它自己的步', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ])
+    // from=0, si=1 → max(0, 0) = 0，语义是「显示到第 0 步结束」= 至少显示过一次
+    expect(steps[0]!.elements[0]!.until).toBe(0)
+  })
+
+  it('until=0 能被解析保留（只显示第 0 步）', () => {
+    const s = parseSceneSpec(
+      { steps: [{ elements: [{ kind: 'text', content: 'x', until: 0 }] }] },
+      1,
+    )
+    expect(s?.steps[0]?.elements[0]?.until).toBe(0)
+  })
+
+  it('until=1 且元素在第 2 步出现时不会被丢掉', () => {
+    const s = parseSceneSpec(
+      {
+        steps: [
+          { elements: [{ kind: 'text', content: 'a' }] },
+          { elements: [{ kind: 'text', content: 'b', until: 1 }] },
+        ],
+      },
+      2,
+    )
+    expect(s?.steps[1]?.elements[0]?.until).toBe(1)
+  })
+
+  it('只盖住一部分时不自动删（可能是故意的标签放在形状上）', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ kind: 'rect', x: 50, y: 40, w: 40, h: 20 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBeUndefined()
+  })
+
+  it('模型已经写了 until 的以模型为准', () => {
+    const steps = autoHideCovered([
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20, until: 5 }] },
+      { elements: [{ id: 'b', kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ])
+    expect(steps[0]!.elements[0]!.until).toBe(5)
+  })
+
+  it('不修改传入的原数组', () => {
+    const input: SceneStep[] = [
+      { elements: [{ id: 'a', kind: 'text', content: 'A', x: 20, y: 30, w: 40, h: 20 }] },
+      { elements: [{ id: 'b', kind: 'text', content: 'B', x: 20, y: 30, w: 40, h: 20 }] },
+    ]
+    const before = input[0]!.elements[0]!.until
+    autoHideCovered(input)
+    expect(input[0]!.elements[0]!.until).toBe(before)
+    expect(input[0]!.elements[0]!.until).toBeUndefined()
+  })
+
+  it('清理后的跨步重叠显著减少', () => {
+    // 5 步，每步都在同一位置画新东西
+    const raw = Array.from({ length: 5 }, (_, i) => ({
+      elements: [{ id: `e${i}`, kind: 'text' as const, content: `${i}`, x: 20, y: 30, w: 40, h: 20 }],
+    }))
+    const before = checkSceneLayout(raw).filter((x) => x.kind === 'cross_step_overlap').length
+    const after = checkSceneLayout(autoHideCovered(raw)).filter((x) => x.kind === 'cross_step_overlap').length
+    expect(before).toBeGreaterThan(0)
+    expect(after).toBeLessThan(before)
   })
 })
 

@@ -29,6 +29,8 @@ export interface FrameStats {
   bbox: { x: number; y: number; w: number; h: number } | null
   /** 最大连通域的像素数（用来判断「是不是只有一小块内容」） */
   largestBlobPixels: number
+  /** 连通域个数。判「零散」靠它，不是靠最大块占比（见 checkFrame） */
+  blobCount?: number
   /**
    * 各颜色的像素数（按桶量化后的 RGB 键），用来判「有没有大片色块压在文字下」。
    *
@@ -81,12 +83,23 @@ export function checkFrame(stats: FrameStats, frameIndex: number): FrameIssue[] 
     return issues
   }
 
-  if (stats.inkPixels > 0 && stats.largestBlobPixels / stats.inkPixels < 0.35) {
-    issues.push({
-      kind: 'scattered',
-      frame: frameIndex,
-      detail: `第 ${frameIndex + 1} 帧最大一块只占内容的 ${Math.round((stats.largestBlobPixels / stats.inkPixels) * 100)}%，显得零散`,
-    })
+  // 「零散」的判据是**块数太多**，不是「最大一块占比小」。
+  //
+  // 实测教训：第 5 节画面有 3 个公式，每个约占内容的 1/3，被判 scattered——
+  // 但那是完全正常的教学画面（一屏三行推导）。真正的零散是几十个小图标散落
+  // （anything2explainer 反例 05 那种），特征不是「最大块小」，而是「块很多」。
+  //
+  // 改为：内容块数 > 12 且最大块占比 < 35% 才算零散。块多但占比也大
+  // （比如 2 个大块）不报。
+  if (stats.inkPixels > 0 && stats.blobCount !== undefined) {
+    const share = stats.largestBlobPixels / stats.inkPixels
+    if (stats.blobCount > 12 && share < 0.35) {
+      issues.push({
+        kind: 'scattered',
+        frame: frameIndex,
+        detail: `第 ${frameIndex + 1} 帧有 ${stats.blobCount} 个零散块，最大一块只占内容的 ${Math.round(share * 100)}%`,
+      })
+    }
   }
 
   const bbox = stats.bbox
@@ -215,6 +228,7 @@ export function analyzeFrame(
     inkPixels: ink,
     bbox: maxX >= 0 ? { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 } : null,
     largestBlobPixels: largest,
+    blobCount: sizes.size,
     colorBuckets,
   }
 }

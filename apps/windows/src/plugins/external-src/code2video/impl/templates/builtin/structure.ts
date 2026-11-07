@@ -47,6 +47,12 @@ export const structureTemplate: TeachingTemplate = {
       kinds: ['brace', 'tex', 'highlight'],
     },
   ],
+  roles: [
+    { id: 'part1', kind: 'rect', purpose: '第 1 个部件' },
+    { id: 'part2', kind: 'rect', purpose: '第 2 个部件' },
+    { id: 'part3', kind: 'rect', purpose: '第 3 个部件' },
+    { id: 'link', kind: 'arrow', purpose: '部件之间的流向' },
+  ],
   example: {
     title: '浏览器请求一个网页，经过哪些部分',
     lectureLines: ['浏览器先查本地缓存', '没有就问 DNS 拿 IP', '再建立 TCP 连接', '请求发出去了', '这四块各管一段'],

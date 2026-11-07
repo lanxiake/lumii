@@ -56,6 +56,11 @@ export const timelineTemplate: TeachingTemplate = {
       kinds: ['axis', 'highlight', 'tex'],
     },
   ],
+  roles: [
+    { id: 'axis', kind: 'axis', purpose: '时间轴，只在第 1 步出现一次' },
+    { id: 'ev', kind: 'text', purpose: '当前事件' },
+    { id: 'link', kind: 'arrow', purpose: '事件之间的因果' },
+  ],
   example: {
     title: 'HTTP 协议的演进',
     lectureLines: ['1991 只有 HTTP/0.9', '1996 HTTP/1.0 加了头部', '1999 HTTP/1.1 支持长连接', '2015 HTTP/2 多路复用'],

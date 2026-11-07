@@ -200,11 +200,106 @@ describe('buildSceneHtml 元素渲染', () => {
     expect(out).toContain('window.__seek')
   })
 
+  it('highlight 带 content 时渲染成带标签的高亮', () => {
+    const out = html([
+      { elements: [{ kind: 'highlight', id: 'h', x: 20, y: 20, w: 40, h: 20, content: '这一步' }] },
+    ])
+    expect(out).toContain('has-label')
+    expect(out).toContain('<span class="hl-label">这一步</span>')
+  })
+
+  it('highlight 没有 content 时仍是纯色块', () => {
+    const out = html([
+      { elements: [{ kind: 'highlight', id: 'h', x: 20, y: 20, w: 40, h: 20 }] },
+    ])
+    // 只看 <div id="stage"> 里的内容：CSS 与脚本里本来就有这些类名
+    const stage = /<div id="stage">([\s\S]*?)<\/div>\s*<script/.exec(out)?.[1] ?? ''
+    expect(stage).toContain('el-highlight')
+    expect(stage).not.toContain('has-label')
+    expect(stage).not.toContain('hl-label')
+  })
+
   it('HTML 转义仍然生效（防止模型内容注入标签）', () => {
     const out = html([
       { elements: [{ kind: 'text', x: 10, y: 10, w: 50, h: 10, content: '<script>bad()</script>' }] },
     ])
     expect(out).toContain('&lt;script&gt;')
     expect(out).not.toContain('<script>bad()</script>')
+  })
+
+  // ---- 元素身份 = 动画 ----
+  //
+  // 同一个 id 在多个步出现 = 同一个对象在动。这是「动画」与「幻灯片」的分界。
+  describe('跨步移动', () => {
+    it('同一 id 只创建一个 DOM 元素', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'ball', x: 10, y: 40, w: 10, h: 10 }] },
+        { elements: [{ kind: 'circle', id: 'ball', x: 70, y: 40, w: 10, h: 10 }] },
+      ])
+      const matches = out.match(/data-el="ball"/g) ?? []
+      expect(matches).toHaveLength(1)
+    })
+
+    it('关键帧记录了两步的坐标', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'ball', x: 10, y: 40, w: 10, h: 10 }] },
+        { elements: [{ kind: 'circle', id: 'ball', x: 70, y: 40, w: 10, h: 10 }] },
+      ])
+      expect(out).toContain('left:10%')
+      // 关键帧数据在 <script id="kf"> 里
+      const m = /<script type="application\/json" id="kf">([\s\S]*?)<\/script>/.exec(out)
+      expect(m).not.toBeNull()
+      const data = JSON.parse(m![1]!) as Record<
+        string,
+        Array<{ at: number; h: string; s: Record<string, string> }>
+      >
+      expect(Object.keys(data)).toEqual(['ball'])
+      expect(data.ball).toHaveLength(2)
+      expect(data.ball![0]!.s.left).toBe('10%')
+      expect(data.ball![1]!.s.left).toBe('70%')
+    })
+
+    it('不同 id 各建一个元素', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'a', x: 10, y: 10, w: 10, h: 10 }] },
+        { elements: [{ kind: 'circle', id: 'b', x: 50, y: 50, w: 10, h: 10 }] },
+      ])
+      expect(out).toContain('data-el="a"')
+      expect(out).toContain('data-el="b"')
+    })
+
+    // 回归：内联 opacity:0 的优先级高于 .el.on{opacity:1}，元素永远不显示
+    // （实测整片只有左侧讲义、右侧全空）
+    it('opacity 不写进内联样式（否则 .el.on 压不住）', () => {
+      const out = html([
+        { elements: [{ kind: 'circle', id: 'a', x: 10, y: 10, w: 10, h: 10 }] },
+      ])
+      const tag = /<div class="el el-[^"]*"[^>]*style="([^"]*)"/.exec(out)?.[1] ?? ''
+      expect(tag).not.toContain('opacity')
+      expect(out).toMatch(/\.el\{[^}]*opacity:0/)
+      expect(out).toMatch(/\.el\.on\{[^}]*opacity:1/)
+    })
+
+    it('没给 id 时按步号生成（等于只在该步出现）', () => {
+      const out = html([
+        { elements: [{ kind: 'rect', x: 10, y: 10, w: 20, h: 20 }] },
+        { elements: [{ kind: 'rect', x: 50, y: 50, w: 20, h: 20 }] },
+      ])
+      expect(out).toContain('data-el="s0e0"')
+      expect(out).toContain('data-el="s1e0"')
+    })
+
+    it('until 让元素在指定步之后消失', () => {
+      const out = html([
+        { elements: [{ kind: 'rect', id: 'gone', x: 10, y: 10, w: 20, h: 20, until: 1 }] },
+        { elements: [{ kind: 'rect', id: 'stay', x: 50, y: 50, w: 20, h: 20 }] },
+        { elements: [{ kind: 'rect', x: 80, y: 80, w: 10, h: 10 }] },
+      ])
+      // gone 有 data-hide，stay 没有
+      const goneTag = /<div[^>]*data-el="gone"[^>]*>/.exec(out)?.[0] ?? ''
+      const stayTag = /<div[^>]*data-el="stay"[^>]*>/.exec(out)?.[0] ?? ''
+      expect(goneTag).toContain('data-hide=')
+      expect(stayTag).not.toContain('data-hide=')
+    })
   })
 })

@@ -35,6 +35,7 @@
     "apps/windows/src/plugins/external-src/cloud-sync/index.ts",
     "apps/windows/src/plugins/external-src/code2video/impl/electron-renderer.ts",
     "apps/windows/src/plugins/external-src/code2video/impl/gates/frame-check.ts",
+    "apps/windows/src/plugins/external-src/code2video/impl/gates/narrate.ts",
     "apps/windows/src/plugins/external-src/code2video/impl/render-backend.ts",
     "apps/windows/src/plugins/external-src/code2video/impl/styles/registry.ts",
     "apps/windows/src/plugins/external-src/code2video/impl/styles/types.ts",

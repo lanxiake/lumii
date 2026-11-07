@@ -43,6 +43,31 @@ describe('模板库完整性', () => {
       expect(t.sections.some((s) => s.role === 'hold')).toBe(true)
     }
   })
+
+  /**
+   * roles 是「动画而非幻灯片」的唯一可靠保证：对象身份由模板定死，
+   * 模型只填位置。缺了它，模型就会每步重新画（实测过三次）。
+   */
+  it.each(TEMPLATES.map((t) => [t.id, t] as const))('%s 有对象名册且 id 唯一', (_id, t) => {
+    expect(t.roles?.length).toBeGreaterThanOrEqual(2)
+    const ids = (t.roles ?? []).map((r) => r.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const r of t.roles ?? []) {
+      expect(r.id.length).toBeGreaterThan(0)
+      expect(r.kind.length).toBeGreaterThan(0)
+      expect(r.purpose.length).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  // 名册里的 kind 必须是渲染器认识的
+  it.each(TEMPLATES.map((t) => [t.id, t] as const))('%s 的 roles kind 都是合法元素类型', (_id, t) => {
+    const VALID = new Set([
+      'text', 'rect', 'circle', 'line', 'formula', 'tex', 'axis', 'arrow', 'table', 'brace', 'curve', 'code', 'highlight',
+    ])
+    for (const r of t.roles ?? []) {
+      expect(VALID.has(r.kind)).toBe(true)
+    }
+  })
 })
 
 describe('模板 example 能真的渲染', () => {
@@ -57,9 +82,9 @@ describe('模板 example 能真的渲染', () => {
     const html = buildSceneHtml(section, t.example.scene)
     expect(html).toContain('<!DOCTYPE html>')
     expect(html).toContain('window.__seek')
-    // 画面步骤数与 scene 步数一致
-    const steps = new Set((html.match(/data-step="(\d+)"/g) ?? []).map((s) => s.replace(/\D/g, '')))
-    expect(steps.size).toBe(t.example.scene.length)
+    // 每个 example 至少有元素被渲染出来
+    const els = html.match(/<div class="el el-/g) ?? []
+    expect(els.length).toBeGreaterThan(0)
   })
 
   it.each(TEMPLATES.map((t) => [t.id, t] as const))('%s 的 example 没有元素越界', (_id, t) => {
@@ -108,6 +133,30 @@ describe('模板 example 能真的渲染', () => {
       }
     },
   )
+
+  /**
+   * example 是给模型照着学的 few-shot。
+   *
+   * 不给每个模板都加 id：单个 example 里的元素大多是「一次画完就不动」的
+   * （一张表格、一条时间轴），硬凑跨步复用反而失真。
+   *
+   * 改为守住**最关键的那一条**：至少有一个模板的 example 演示了跨步复用，
+   * 模型能从它学到「同一个对象在动」。至于渲染器支不支持，由
+   * `render-backend.test.ts` 的「跨步移动」一组专门测。
+   */
+  it('至少一个模板的 example 演示了跨步复用（同一 id 出现在多步）', () => {
+    const demos = TEMPLATES.filter((t) => {
+      const seen = new Map<string, number>()
+      for (const step of t.example.scene) {
+        for (const el of step.elements) {
+          if (!el.id) continue
+          seen.set(el.id, (seen.get(el.id) ?? 0) + 1)
+        }
+      }
+      return [...seen.values()].some((n) => n > 1)
+    })
+    expect(demos.length).toBeGreaterThan(0)
+  })
 })
 
 describe('模板匹配', () => {
