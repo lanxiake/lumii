@@ -200,6 +200,25 @@ describe('buildSceneHtml 元素渲染', () => {
     expect(out).toContain('window.__seek')
   })
 
+  it('highlight 带 content 时渲染成带标签的高亮', () => {
+    const out = html([
+      { elements: [{ kind: 'highlight', id: 'h', x: 20, y: 20, w: 40, h: 20, content: '这一步' }] },
+    ])
+    expect(out).toContain('has-label')
+    expect(out).toContain('<span class="hl-label">这一步</span>')
+  })
+
+  it('highlight 没有 content 时仍是纯色块', () => {
+    const out = html([
+      { elements: [{ kind: 'highlight', id: 'h', x: 20, y: 20, w: 40, h: 20 }] },
+    ])
+    // 只看 <div id="stage"> 里的内容：CSS 与脚本里本来就有这些类名
+    const stage = /<div id="stage">([\s\S]*?)<\/div>\s*<script/.exec(out)?.[1] ?? ''
+    expect(stage).toContain('el-highlight')
+    expect(stage).not.toContain('has-label')
+    expect(stage).not.toContain('hl-label')
+  })
+
   it('HTML 转义仍然生效（防止模型内容注入标签）', () => {
     const out = html([
       { elements: [{ kind: 'text', x: 10, y: 10, w: 50, h: 10, content: '<script>bad()</script>' }] },

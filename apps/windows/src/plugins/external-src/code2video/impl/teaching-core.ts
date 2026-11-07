@@ -1148,7 +1148,7 @@ ${exampleBlock}${paletteBlock}${rolesBlock}
 | **curve** | curve: {points:[{x,y}...]} | **折线/曲线**：给 2~10 个采样点，本地连线 |
 | **brace** | from + to | **花括号**：把纵向一段括起来 |
 | **code** | content + code:{hl:[行号]} | 代码块，可高亮几行 |
-| **highlight** | 只给 x/y/w/h | 高亮一个区域（半透明色块） |
+| **highlight** | 只给 x/y/w/h；给 content 就带标签 | 高亮一个区域（半透明色块）。**给 content 时会在块上写字**——空色块观众不知道它指什么，建议总给个短标签 |
 
 ## 选元素的判断
 

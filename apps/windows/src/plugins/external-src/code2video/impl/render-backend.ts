@@ -141,7 +141,7 @@ export function buildSceneHtml(
       .map(([k, v]) => `${k}:${v}`)
       .join(';')
     elements.push(
-      `<div class="el el-${first.el.kind}" data-el="${escapeAttr(id)}"${
+      `<div class="el el-${first.el.kind}${first.el.kind === 'highlight' && first.el.content ? ' has-label' : ''}" data-el="${escapeAttr(id)}"${
         hideAt !== null ? ` data-hide="${hideAt}"` : ''
       // 初始 opacity 交给 CSS 的 `.el{opacity:0}`，**不要写进内联 style**：
       // 内联样式的优先级高于类选择器，`.el.on{opacity:1}` 会被它压住，
@@ -199,6 +199,14 @@ export function buildSceneHtml(
   .el-line{height:0 !important;border-top:${theme.strokeWidth}px solid var(--c,${theme.element})}
   .el-highlight{background:var(--c,${theme.accent});opacity:.14;border-radius:${theme.radius}px;
     filter:blur(2px);box-shadow:0 0 0 2px var(--c,${theme.accent}) inset}
+  /* 带标签的高亮：文字要压在模糊层之上，所以单独一个伪元素做底色 */
+  .el-highlight.has-label{display:flex;align-items:center;justify-content:center;
+    background:transparent;filter:none;box-shadow:none}
+  .el-highlight.has-label::before{content:'';position:absolute;inset:0;
+    background:var(--c,${theme.accent});opacity:.14;border-radius:${theme.radius}px;
+    filter:blur(2px);box-shadow:0 0 0 2px var(--c,${theme.accent}) inset}
+  .el-highlight.has-label > .hl-label{position:relative;font-size:${theme.elementSize}px;
+    color:var(--c,${theme.accent});font-weight:600;text-align:center;line-height:1.3}
   /* 数轴/曲线/箭头/括号都是内联 SVG，各自带像素宽高。
      **不能再写 width:100% / inset:0**：那会把 SVG 拉伸到盒子里，
      与 SVG 内部的像素坐标打架（实测刻度数字被压到轴线上）。 */
@@ -291,7 +299,8 @@ function renderElement(el: SceneElement, key: string): string {
     case 'brace':
       return renderBrace(el)
     case 'highlight':
-      return ''
+      // 有 content 就渲染成「带标签的高亮」——一个纯色块观众不知道它指什么
+      return el.content ? `<span class="hl-label">${escapeHtml(el.content)}</span>` : ''
     default:
       return ''
   }
