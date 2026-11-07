@@ -26,6 +26,9 @@ import {
   type SceneElement,
   type SceneStep,
 } from './teaching-core'
+import { DEFAULT_STYLE } from './styles/registry'
+import type { StyleTheme, VisualStyle } from './styles/types'
+export type { VisualStyle, StyleTheme } from './styles/types'
 
 /** 画面尺寸（固定，ffmpeg 要求同尺寸才能 concat） */
 export const FRAME = { width: 1280, height: 720 } as const
@@ -55,16 +58,21 @@ const STAGE_PX = {
  * 80~120 秒后返回空；同一批次里只出 JSON 的调用 4~19 秒正常。这里把
  * 「描述画面」和「生成页面」分开，模型的输出量降一个数量级，页面由本地拼装。
  */
-export function buildSceneHtml(section: StoryboardSection, scene: SceneStep[]): string {
+export function buildSceneHtml(
+  section: StoryboardSection,
+  scene: SceneStep[],
+  theme: StyleTheme = DEFAULT_STYLE.theme,
+): string {
   const lines = section.lectureLines.map((l) => clampLectureLine(l))
   const secs = sectionSeconds(section)
   const perStep = secs / Math.max(1, scene.length)
 
+  // 编号样式：数字用 1/2/3，圆点用 ·——后者更接近「白板笔记」而不是「步骤清单」
   const lectureHtml = lines
-    .map(
-      (line, i) =>
-        `<li class="line" data-line="${i}"><span class="idx">${i + 1}</span><span class="txt">${escapeHtml(line)}</span></li>`,
-    )
+    .map((line, i) => {
+      const bullet = theme.bulletStyle === 'dot' ? '·' : String(i + 1)
+      return `<li class="line" data-line="${i}"><span class="idx">${bullet}</span><span class="txt">${escapeHtml(line)}</span></li>`
+    })
     .join('\n')
 
   // 每个元素带自己的出现时间（所在步的起点），渲染时按时间逐个亮起
@@ -92,13 +100,19 @@ export function buildSceneHtml(section: StoryboardSection, scene: SceneStep[]): 
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{width:${FRAME.width}px;height:${FRAME.height}px;overflow:hidden}
-  body{background:#000;color:#fff;display:flex;font-family:"Microsoft YaHei",system-ui,sans-serif}
-  #lecture{width:${LECTURE_RATIO * 100}%;padding:44px 22px 44px 36px;border-right:1px solid #1f2937}
-  #title{font-size:25px;font-weight:600;color:#93c5fd;line-height:1.35;margin-bottom:18px;
+  body{background:${theme.bg};color:${theme.text};display:flex;
+    font-family:${theme.fontFamily};
+    background-image:${theme.texture || 'none'};
+    background-size:${theme.texture.includes('linear-gradient') ? '24px 24px' : '7px 7px'}}
+  #lecture{width:${LECTURE_RATIO * 100}%;padding:44px 22px 44px 36px;
+    border-right:1px solid ${theme.divider};
+    background:${theme.lectureBg}}
+  #title{font-size:${theme.titleSize}px;font-weight:600;color:${theme.title};line-height:1.35;
+    margin-bottom:18px;
     /* 标题同样单行：换行会把第一行讲义挤下去（实测「第三次握手：补齐客户端的确认」折了两行） */
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   ul{list-style:none;display:flex;flex-direction:column;gap:20px}
-  .line{display:flex;gap:11px;font-size:23px;line-height:1.5;color:#4b5563;
+  .line{display:flex;gap:11px;font-size:${theme.lectureSize}px;line-height:1.5;color:${theme.muted};
     transition:color 420ms ease,text-shadow 420ms ease}
   /* 讲义**必须单行**：换行会挤掉下面几行、破坏左侧的阅读节奏（实测 TCP 那节
      「客户端回 ACK：收到服务器序号」换行后与第 3 行贴在一起）。字符数截断在
@@ -106,41 +120,46 @@ export function buildSceneHtml(section: StoryboardSection, scene: SceneStep[]): 
   .line .txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .line .idx{flex:0 0 auto}
 
-  .line.active{color:#fff;text-shadow:0 0 18px rgba(96,165,250,.55)}
-  .idx{flex:0 0 26px;height:26px;border-radius:50%;background:#1f2937;color:#6b7280;
+  .line.active{color:${theme.text};text-shadow:${theme.glow}}
+  .line.active .txt{color:${theme.accent}}
+  .idx{flex:0 0 26px;height:26px;border-radius:${theme.radius > 4 ? '50%' : '4px'};
+    background:${theme.muted}33;color:${theme.muted};
     font-size:14px;display:flex;align-items:center;justify-content:center}
-  .line.active .idx{background:#2563eb;color:#fff}
+  .line.active .idx{background:${theme.accent};color:${theme.bg}}
   #stage{position:relative;flex:1}
   .el{position:absolute;opacity:0;transition:opacity 420ms ease,transform 420ms ease;
     transform:translateY(8px)}
   .el.on{opacity:1;transform:translateY(0)}
   .el-text,.el-formula{display:flex;align-items:center;justify-content:center;
-    font-size:26px;color:var(--c,#93c5fd);text-align:center;line-height:1.3}
-  .el-formula{font-size:32px;font-style:italic;letter-spacing:1px}
-  .el-rect{background:transparent;border:2px solid var(--c,#3b82f6);border-radius:6px}
-  .el-circle{border:2px solid var(--c,#86efac);border-radius:50%}
-  .el-line{height:0 !important;border-top:3px solid var(--c,#fca5a5)}
-  .el-highlight{background:var(--c,#fde68a);opacity:.14;border-radius:8px;
-    filter:blur(2px);box-shadow:0 0 0 2px var(--c,#fde68a) inset}
+    font-size:${theme.elementSize}px;color:var(--c,${theme.element});text-align:center;line-height:1.3}
+  .el-formula{font-size:${Math.round(theme.elementSize * 1.23)}px;font-style:italic;letter-spacing:1px}
+  .el-rect{background:transparent;border:${theme.strokeWidth}px solid var(--c,${theme.element});
+    border-radius:${theme.radius}px}
+  .el-circle{border:${theme.strokeWidth}px solid var(--c,${theme.element});border-radius:50%}
+  .el-line{height:0 !important;border-top:${theme.strokeWidth}px solid var(--c,${theme.element})}
+  .el-highlight{background:var(--c,${theme.accent});opacity:.14;border-radius:${theme.radius}px;
+    filter:blur(2px);box-shadow:0 0 0 2px var(--c,${theme.accent}) inset}
   /* 数轴/曲线/箭头/括号都是内联 SVG，各自带像素宽高。
      **不能再写 width:100% / inset:0**：那会把 SVG 拉伸到盒子里，
      与 SVG 内部的像素坐标打架（实测刻度数字被压到轴线上）。 */
   .el-axis,.el-curve,.el-arrow,.el-brace{display:block;overflow:visible}
   .axis-svg,.curve-svg,.arrow-svg,.brace-svg{display:block;overflow:visible}
   .el-table{display:flex;align-items:center;justify-content:center}
-  .tbl{border-collapse:collapse;font-size:19px;color:#d1d5db}
-  .tbl th{padding:6px 14px;color:#93c5fd;font-weight:600;border-bottom:2px solid #374151;
-    white-space:nowrap}
-  .tbl td{padding:5px 14px;text-align:center;white-space:nowrap;border-bottom:1px solid #1f2937}
-  .tbl tr.hl td{background:rgba(59,130,246,.22);color:#fff}
+  .tbl{border-collapse:collapse;font-size:${theme.elementSize - 7}px;color:${theme.text}}
+  .tbl th{padding:6px 14px;color:${theme.accent};font-weight:600;
+    border-bottom:2px solid ${theme.divider};white-space:nowrap}
+  .tbl td{padding:5px 14px;text-align:center;white-space:nowrap;
+    border-bottom:1px solid ${theme.divider}}
+  .tbl tr.hl td{background:${theme.accent}22;color:${theme.accent}}
   .el-code{display:flex;flex-direction:column}
-  .clang{font-size:13px;color:#6b7280;letter-spacing:1px;margin-bottom:5px;text-transform:uppercase}
-  .code{font-family:"Cascadia Mono",Consolas,monospace;font-size:17px;line-height:1.55;
-    color:#cbd5e1;white-space:pre;margin:0}
+  .clang{font-size:13px;color:${theme.muted};letter-spacing:1px;margin-bottom:5px;
+    text-transform:uppercase}
+  .code{font-family:"Cascadia Mono",Consolas,monospace;font-size:${theme.elementSize - 9}px;
+    line-height:1.55;color:${theme.text};white-space:pre;margin:0}
   .cl{padding:0 8px;border-left:3px solid transparent}
-  .cl.hl{background:rgba(59,130,246,.2);border-left-color:#3b82f6;color:#fff}
+  .cl.hl{background:${theme.accent}22;border-left-color:${theme.accent};color:${theme.accent}}
   .el-tex{display:flex;align-items:center;justify-content:center}
-  .el-tex math{font-size:34px;color:var(--c,#e5e7eb)}
+  .el-tex math{font-size:${theme.texSize}px;color:var(--c,${theme.text})}
   .tex-fallback{font-family:Consolas,monospace;font-size:20px;color:#fca5a5}
 </style></head><body>
 <div id="lecture"><div id="title">${escapeHtml(section.title)}</div><ul>${lectureHtml}</ul></div>
@@ -371,7 +390,11 @@ function renderBrace(el: SceneElement): string {
  * 关键设计：动画用 **CSS transition + 预先算好的绝对定位**，不用 requestAnimationFrame
  * 累计时间——后者在无头浏览器里会被节流，帧与帧之间跳变。
  */
-export function buildSectionHtml(section: StoryboardSection, totalSeconds?: number): string {
+export function buildSectionHtml(
+  section: StoryboardSection,
+  totalSeconds?: number,
+  theme: StyleTheme = DEFAULT_STYLE.theme,
+): string {
   const lines = section.lectureLines.map((l) => clampLectureLine(l))
   const steps = section.animations.slice(0, lines.length)
   const secs = totalSeconds ?? Math.max(6, steps.length * STEP_SECONDS)
@@ -593,6 +616,8 @@ export interface RenderDeps {
    * 避免为了一节的改动把另外几节也重渲一遍（每节 10~20 秒）。
    */
   onlySections?: ReadonlySet<number>
+  /** 视觉风格；缺省用默认（3B1B） */
+  style?: VisualStyle
 }
 
 /** 只取 drizzle 需要的最小面，便于单测造假对象 */
@@ -634,9 +659,10 @@ export async function renderStoryboard(
       }
 
       // 优先用模型给的结构化画面；没有才退回纯文字模板
+      const theme = deps.style?.theme ?? DEFAULT_STYLE.theme
       const html = section.scene?.length
-        ? buildSceneHtml(section, section.scene)
-        : buildSectionHtml(section)
+        ? buildSceneHtml(section, section.scene, theme)
+        : buildSectionHtml(section, undefined, theme)
       const htmlPath = path.join(deps.outDir, `section_${i + 1}.html`)
       fs.writeFileSync(htmlPath, html, 'utf8')
 

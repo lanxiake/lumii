@@ -132,6 +132,7 @@ export const code2videoExtension = {
               stage?: 'draft' | 'produce' | 'revise'
               sectionIds?: number[]
               fromDir?: string
+              style?: string
             }
             if (!p.topic?.trim()) {
               return toolResult({ status: 'error', message: '缺少 topic（要讲的知识点）' })
@@ -147,6 +148,7 @@ export const code2videoExtension = {
                   ? { sectionIds: p.sectionIds.filter((n) => Number.isFinite(n)) }
                   : {}),
                 ...(p.fromDir?.trim() ? { fromDir: p.fromDir.trim() } : {}),
+                ...(p.style?.trim() ? { style: p.style.trim() } : {}),
               })
               if (!result.ok) {
                 return toolResult({
@@ -168,6 +170,8 @@ export const code2videoExtension = {
                   reviewPath: result.reviewPath,
                   sections: result.storyboard?.sections.length ?? 0,
                   videoSeconds: result.videoSeconds,
+                  template: result.template,
+                  visualStyle: result.visualStyle,
                   sectionTitles: result.storyboard?.sections.map((s, i) => `${i + 1}. ${s.title}`) ?? [],
                   hint:
                     '这是草稿。请在回复里用中文列出这几节讲什么，问用户「这个讲法对不对、有没有漏掉的前提」，' +
@@ -180,6 +184,8 @@ export const code2videoExtension = {
                 videoPath: result.videoPath,
                 outputDir,
                 sections: result.storyboard?.sections.length ?? 0,
+                template: result.template,
+                visualStyle: result.visualStyle,
                 // 两个量分开给：模型曾把生成耗时当成视频时长汇报
                 videoSeconds: result.videoSeconds,
                 generationMs: result.generationMs,

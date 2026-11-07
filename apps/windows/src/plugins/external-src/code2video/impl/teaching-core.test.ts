@@ -378,6 +378,48 @@ describe('parseSceneSpec 新 kind', () => {
   })
 })
 
+describe('buildSceneSpecPrompt', () => {
+  const section = {
+    id: 'section_1',
+    title: '测试',
+    lectureLines: ['一', '二'],
+    animations: ['a', 'b'],
+  }
+
+  it('不带 example 与配色时是最小提示词', () => {
+    const p = buildSceneSpecPrompt(section)
+    expect(p).toContain('测试')
+    expect(p).not.toContain('样例')
+    expect(p).not.toContain('这一版用的配色')
+  })
+
+  it('带 example 时注入 few-shot', () => {
+    const p = buildSceneSpecPrompt(section, {
+      title: '样例',
+      lectureLines: ['x'],
+      scene: [{ elements: [{ kind: 'rect', x: 10, y: 10, w: 20, h: 20 }] }],
+    })
+    expect(p).toContain('## 样例')
+    expect(p).toContain('样例')
+    expect(p).toContain('"kind":"rect"')
+  })
+
+  // 回归：选了黑板风，模型仍给 #93c5fd 的默认蓝，深墨绿底上的冷蓝字看着像贴上去的
+  it('带配色时把该风格的色值写进提示词', () => {
+    const p = buildSceneSpecPrompt(section, undefined, {
+      name: '黑板',
+      bg: '#1c2b26',
+      text: '#eef2ef',
+      element: '#e8e4d0',
+      accent: '#f5f0d8',
+    })
+    expect(p).toContain('这一版用的配色')
+    expect(p).toContain('#1c2b26')
+    expect(p).toContain('#e8e4d0')
+    expect(p).toContain('不要用默认的蓝色系')
+  })
+})
+
 describe('declutterSteps', () => {
   it('完全重合的元素会被挪开', () => {
     const out = declutterSteps([

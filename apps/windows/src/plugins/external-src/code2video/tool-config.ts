@@ -31,6 +31,15 @@ export const TeachingVideoParams = Type.Object({
         'revise 用于只重做某几节（配合 sectionIds + fromDir），不必整条重跑。',
     }),
   ),
+  style: Type.Optional(
+    Type.String({
+      description:
+        '视觉风格。可选：3b1b（近黑深蓝底、细亮线，数学/物理默认）、' +
+        'chalkboard（绿黑板粉笔，课堂推导）、clean（白底深线，产品/商业）、' +
+        'metro（线路图，决策/分岔）、tech-dark（暗色青绿，技术/代码）。' +
+        '留空时按用户的话自动选；用户说了「黑板」「白底」「科技感」这类词就直接传对应的。',
+    }),
+  ),
   sectionIds: Type.Optional(
     Type.Array(Type.Number(), {
       description: '仅 `revise` 阶段使用：要重做的小节序号（1 起）。留空 = 全部重做。',

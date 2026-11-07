@@ -799,6 +799,8 @@ export function checkSceneLayout(steps: readonly SceneStep[], overlapThreshold =
 export function buildSceneSpecPrompt(
   section: StoryboardSection,
   example?: { title: string; lectureLines: string[]; scene: SceneStep[] },
+  /** 当前视觉风格；给了就把它的配色写进提示词，避免模型给的元素颜色与底冲突 */
+  palette?: { name: string; bg: string; text: string; element: string; accent: string },
 ): string {
   const exampleBlock = example
     ? `\n## 样例（同模板的一节真实成品，照着这个密度和元素选择来）
@@ -809,12 +811,22 @@ export function buildSceneSpecPrompt(
 ${JSON.stringify({ steps: example.scene })}
 `
     : ''
+  // 配色必须跟着风格走：实测选了黑板风，模型仍给 #93c5fd 的默认蓝，
+  // 深墨绿底上的冷蓝字看着像贴上去的
+  const paletteBlock = palette
+    ? `\n## 这一版用的配色（风格：${palette.name}）
+
+背景是 ${palette.bg}，正文是 ${palette.text}，强调色是 ${palette.accent}。
+**元素的 color 必须从这套配色里取**，不要用默认的蓝色系——它会和背景冲突。
+要区分多个元素时，在 ${palette.element} / ${palette.accent} 以及它们更亮/更暗的变体里挑。
+`
+    : ''
   return `你在为一段教学动画设计每一帧的画面布局。只输出 JSON，不要解释。
 
 小节：${section.title}
 讲义行：${JSON.stringify(section.lectureLines)}
 动画步骤：${JSON.stringify(section.animations)}
-${exampleBlock}
+${exampleBlock}${paletteBlock}
 右侧动画区是一个坐标系：x/y 是元素**左上角**在右区里的百分比（0~100），w/h 是宽高百分比。
 每个动画步骤一组元素，元素逐个按出现顺序摆放，**不要互相重叠**。
 

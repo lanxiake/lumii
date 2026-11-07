@@ -60,10 +60,22 @@ export function getTemplate(id: string): TeachingTemplate | undefined {
  * 打分规则：命中的关键词越多越优先；同等命中数时，**关键词越长越具体**
  * （「一步步推导」比「什么」有信息量）。不追求准，只求召回——真拿不准时
  * 还有第二级「让模型选」兜着。
+ *
+ * **只看第一句**：Agent 会把整段详细需求塞进 `topic`，实测一条 400 字的
+ * 需求里同时出现「为什么」（命中 explain）和「数据」（命中 pattern）。
+ * 匹配被长文本稀释后，任意一个泛词都可能把模板带偏。真正的主题总在**第一句**，
+ * 所以按句末标点截断后再匹配。
+ *
+ * 截断兜底：没有句末标点时取前 `HEAD_CHARS` 字（宁可少看，不要被后半段带偏）。
  */
 export function matchTemplateByKeyword(text: string): TemplateMatch | null {
   if (!text?.trim()) return null
-  const hay = text.toLowerCase()
+  const HEAD_CHARS = 80
+  const trimmed = text.trim()
+  // 第一个句末标点（中英文）之后的内容不参与匹配
+  const stop = trimmed.search(/[。！？!?\n\r]/)
+  const head = (stop > 0 ? trimmed.slice(0, stop) : trimmed).slice(0, HEAD_CHARS)
+  const hay = head.toLowerCase()
 
   let best: { template: TeachingTemplate; hits: string[]; score: number } | null = null
   for (const template of TEMPLATES) {

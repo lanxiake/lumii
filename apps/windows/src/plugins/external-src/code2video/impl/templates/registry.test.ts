@@ -142,6 +142,22 @@ describe('模板匹配', () => {
     expect(matchTemplateByKeyword('')).toBeNull()
   })
 
+  // 回归：Agent 会把整段需求塞进 topic。实测一条 400 字的需求里同时有
+  // 「为什么」（explain）和「数据」（pattern），长文本让泛词稀释了匹配
+  it('长文本只看开头，不被后半段的泛词带偏', () => {
+    const long = '手机电量为什么掉得快。' + '下面是详细要求，请按步骤来。'.repeat(30)
+    const m = matchTemplateByKeyword(long)
+    // 「为什么」在开头，命中 explain 是对的
+    expect(m?.template.id).toBe('explain')
+  })
+
+  it('真正的主题在开头时优先', () => {
+    const long =
+      '在数轴上演示负数乘法。' + '另外补充：为什么这样、原理是什么、怎么理解。'.repeat(20)
+    const m = matchTemplateByKeyword(long)
+    expect(m?.template.id).toBe('measure')
+  })
+
   it('模型给出合法 id 时采用', () => {
     const m = resolveTemplateChoice('compare')
     expect(m.template.id).toBe('compare')

@@ -37,6 +37,11 @@ import {
   resolveTemplateChoice,
   type TemplateMatch,
 } from './templates/registry'
+import {
+  DEFAULT_STYLE,
+  getStyle,
+  matchStyleByKeyword,
+} from './styles/registry'
 
 export interface TeachingVideoDeps {
   callLLM: (prompt: string, purpose: string) => Promise<string>
@@ -86,6 +91,11 @@ export interface GenerateInput {
   /** 阶段，默认 `produce` */
   stage?: TeachingStage
   /**
+   * 视觉风格 id（如 `3b1b` / `chalkboard` / `clean` / `metro` / `tech-dark`）。
+   * 不填时按关键词选；都不命中跟随结构模板的推荐。
+   */
+  style?: string
+  /**
    * `revise` 阶段要重做的小节（1 起）。留空 = 全部重做。
    * 与 `draft` 配合：用户看完 review.md 说「第 2 节讲错了」→ 改完只重渲第 2 节。
    */
@@ -125,6 +135,9 @@ export interface GenerateResult {
   generationMs?: number
   /** 成片时长（秒），由分镜的每节时长累加而来 */
   videoSeconds?: number
+  /** 本次使用的结构模板与视觉风格（回传给模型/界面做说明） */
+  template?: { id: string; name: string }
+  visualStyle?: { id: string; name: string }
   error?: string
 }
 
@@ -257,9 +270,11 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       : path.join(deps.outputRoot(), safeDirName(topic))
     fs.mkdirSync(outDir, { recursive: true })
 
-    // ---- 0. 选结构模板（本地关键词优先，命中就不花 token）----
+    // ---- 0. 选结构模板与视觉风格（本地关键词优先，命中就不花 token）----
     // 模板决定论证骨架：模型不用重新发明分节，token 与不确定性都降。
+    // 风格决定长什么样：与模板正交，同一个 compare 可以配黑板也可以配科技暗色。
     const templateMatch = await pickTemplate(topic)
+    const visualStyle = pickStyle(topic)
 
     // ---- 1. 大纲（已有则直接读：draft → produce 不重复花 token）----
     deps.onProgress?.({ stage: '大纲', percent: 5 })
@@ -277,6 +292,29 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       outline = (await askOutline())!
     }
     if (input.audience?.trim()) outline.targetAudience = input.audience.trim()
+
+    function pickStyle(topic: string) {
+      // 优先级：用户显式指定 > 关键词命中 > 模板推荐的第一套 > 默认
+      if (input.style) {
+        const explicit = getStyle(input.style)
+        if (explicit) {
+          deps.log(`[teaching-video] 风格由用户指定：${explicit.name}`)
+          return explicit
+        }
+        deps.log(`[teaching-video] 未知风格 "${input.style}"，按关键词选`)
+      }
+      const byKeyword = matchStyleByKeyword(topic)
+      // 关键词没命中时 matchStyleByKeyword 返回默认；这时再看模板推荐哪套
+      if (byKeyword === DEFAULT_STYLE && templateMatch.template.styles?.length) {
+        const preferred = getStyle(templateMatch.template.styles[0]!)
+        if (preferred) {
+          deps.log(`[teaching-video] 风格跟随模板推荐：${preferred.name}`)
+          return preferred
+        }
+      }
+      deps.log(`[teaching-video] 风格：${byKeyword.name}`)
+      return byKeyword
+    }
 
     async function pickTemplate(topic: string): Promise<TemplateMatch> {
       const local = matchTemplateByKeyword(topic)
@@ -383,6 +421,8 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         storyboardPath,
         videoSeconds: totalSeconds(storyboard),
         generationMs: Date.now() - startedAt,
+        template: { id: templateMatch.template.id, name: templateMatch.template.name },
+        visualStyle: { id: visualStyle.id, name: visualStyle.name },
       }
     }
 
@@ -408,7 +448,17 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
         const stepCount = Math.min(section.lectureLines.length, section.animations.length)
         // 模板的 example 只给第一节用：它是最标准的「好画面长什么样」，
         // 给每一节都塞会让 prompt 多背几百 token，边际收益很低
-        const prompt = buildSceneSpecPrompt(section, i === 0 ? templateMatch.template.example : undefined)
+        const prompt = buildSceneSpecPrompt(
+          section,
+          i === 0 ? templateMatch.template.example : undefined,
+          {
+            name: visualStyle.name,
+            bg: visualStyle.theme.bg,
+            text: visualStyle.theme.text,
+            element: visualStyle.theme.element,
+            accent: visualStyle.theme.accent,
+          },
+        )
         let scene: SceneStep[] | null = null
         let lastIssues: SceneIssue[] = []
         for (let attempt = 1; attempt <= sceneRetries; attempt++) {
@@ -462,6 +512,7 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       ffmpeg: deps.ffmpeg,
       outDir,
       log: deps.log,
+      style: visualStyle,
       ...(reviseSet ? { onlySections: reviseSet } : {}),
     })
 
@@ -498,6 +549,8 @@ export function createTeachingVideoService(deps: TeachingVideoDeps) {
       // 之前混用一个 durationMs，模型把它当视频时长汇报过一次（203592ms vs 实际 60s）。
       generationMs: Date.now() - startedAt,
       videoSeconds: totalSeconds(storyboard),
+      template: { id: templateMatch.template.id, name: templateMatch.template.name },
+      visualStyle: { id: visualStyle.id, name: visualStyle.name },
     }
   }
 
