@@ -731,6 +731,13 @@ export interface RenderDeps {
   /** 视觉风格；缺省用默认（3B1B） */
   style?: VisualStyle
   /**
+   * 并发渲染的 worker 数（每个 worker 一个隐藏窗口）。
+   *
+   * 默认 2：5 节从 ~5 分钟压到 ~3 分钟。
+   * **不要超过 3**：无独显机器上多个窗口抢 GPU 合成，实测掉帧（帧间隔不均）。
+   */
+  concurrency?: number
+  /**
    * 每节的讲解字幕（按节 id 索引）。给了就在渲染后把音频叠上去、字幕烧进去。
    *
    * 之所以放在渲染循环里做，而不是全部渲染完再统一做：每节渲染要 30~60 秒，
@@ -775,95 +782,154 @@ export async function renderStoryboard(
   deps: RenderDeps,
 ): Promise<RenderResult> {
   fs.mkdirSync(deps.outDir, { recursive: true })
-  const browser = await deps.launchBrowser()
-  const sectionVideos: string[] = []
   const frameIssues: Array<{ section: string; issues: FrameIssue[] }> = []
-  try {
-    for (let i = 0; i < storyboard.sections.length; i++) {
-      const section = storyboard.sections[i]!
-      const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
 
-      // revise：没点名且已有成片的节直接复用，不重新渲染
-      if (deps.onlySections && !deps.onlySections.has(i + 1) && fs.existsSync(outMp4)) {
-        sectionVideos.push(outMp4)
-        deps.log(`[render] 第 ${i + 1} 节未指定重做，复用已有 mp4`)
-        continue
+  // ---- 决定每个 worker 负责哪几节 ----
+  //
+  // 并发渲染是把 5 节串行（~5 分钟）压到 2~3 轮的关键，但**每个 worker 必须
+  // 有自己的 BrowserWindow**：同一个窗口被两个 renderSection 同时驱动，
+  // `__seek` 会互相踩，截出来的帧是另一个 worker 的时间点。
+  //
+  // 默认 2 个 worker。3 个以上在无独显的机器上会抢 GPU 合成，实测掉帧。
+  const workerCount = Math.max(1, Math.min(deps.concurrency ?? 2, storyboard.sections.length))
+  const queues: number[][] = Array.from({ length: workerCount }, () => [])
+  const toRender: number[] = []
+  for (let i = 0; i < storyboard.sections.length; i++) {
+    const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+    // revise：没点名且已有成片的节不重渲
+    if (deps.onlySections && !deps.onlySections.has(i + 1) && fs.existsSync(outMp4)) continue
+    toRender.push(i)
+  }
+  // 轮转分配：节数不整除时，前面的 worker 少拿一节
+  toRender.forEach((idx, n) => queues[n % workerCount]!.push(idx))
+
+  /** 每节的产物路径，按节号索引；并发时不能靠 push 顺序 */
+  const outputs = new Map<number, string>()
+
+  const runWorker = async (queue: number[]): Promise<void> => {
+    if (queue.length === 0) return
+    const browser = await deps.launchBrowser()
+    try {
+      for (const i of queue) {
+        const section = storyboard.sections[i]!
+        const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+        await renderOne(section, i, outMp4, browser, deps, frameIssues, outputs)
       }
-
-      // 优先用模型给的结构化画面；没有才退回纯文字模板
-      const theme = deps.style?.theme ?? DEFAULT_STYLE.theme
-      const html = section.scene?.length
-        ? buildSceneHtml(section, section.scene, theme)
-        : buildSectionHtml(section, undefined, theme)
-      const htmlPath = path.join(deps.outDir, `section_${i + 1}.html`)
-      fs.writeFileSync(htmlPath, html, 'utf8')
-
-      // 元素互相压住时先记日志再照常渲染：重叠是**质量缺陷**不是致命错误，
-      // 因为面板当前是文本块，轻微重叠仍可读。真正的判据在工具结果里如实回传。
-      const overlaps = checkSectionLayout(section)
-      if (overlaps.length > 0) {
-        deps.log(
-          `[render] 第 ${i + 1} 节布局问题: ${overlaps.map((o) => `[${o.kind}] ${o.detail}`).join('; ')}`,
-        )
-      }
-
-      const secs = sectionSeconds(section)
-      try {
-        await browser.renderSection(html, outMp4, secs * 1000, 12)
-        deps.log(`[render] 第 ${i + 1}/${storyboard.sections.length} 节完成`)
-
-        // 有配音就给这一节叠音频 + 烧字幕。
-        // 失败了保留无声版本继续——一条无声视频仍可用，缺一节视频就废了。
-        const cues = deps.narration?.get(section.id)
-        if (cues?.length) {
-          const srtPath = path.join(deps.outDir, `section_${i + 1}.srt`)
-          fs.writeFileSync(srtPath, cuesToSrt(cues), 'utf8')
-          const narrated = outMp4.replace(/\.mp4$/, '.narrated.mp4')
-          const r = await addNarration(
-            { videoPath: outMp4, outputPath: narrated, cues, srtPath },
-            deps.ffmpeg,
-          )
-          if (r.ok) {
-            sectionVideos.push(narrated)
-            deps.log(`[render] 第 ${i + 1} 节配音与字幕已合成`)
-          } else {
-            sectionVideos.push(outMp4)
-            deps.log(`[render] 第 ${i + 1} 节配音合成失败，保留无声版：${r.error ?? ''}`)
-          }
-        } else {
-          sectionVideos.push(outMp4)
-        }
-
-        // 抽帧自检：像素是唯一证据。这一步不阻断交付，但问题必须回传——
-        // 前几层门禁看的是数据，查不出「画了但小到看不见」。
-        const samples = browser.lastFrameSamples?.()
-        if (samples?.length) {
-          const issues = samples.flatMap((s, fi) => checkFrame(s, fi))
-          if (issues.length > 0) {
-            frameIssues.push({ section: section.title, issues })
-            deps.log(
-              `[render] 第 ${i + 1} 节画面自检: ${issues.map((x) => `[${x.kind}] ${x.detail}`).join('; ')}`,
-            )
-          }
-        }
-      } catch (err) {
-        deps.log(`[render] 第 ${i + 1} 节失败: ${err instanceof Error ? err.message : String(err)}`)
-      }
+    } finally {
+      await browser.close().catch(() => {})
     }
-  } finally {
-    await browser.close().catch(() => {})
+  }
+
+  await Promise.all(queues.map((q) => runWorker(q)))
+
+  // ---- 按节号拼顺序 ----
+  //
+  // 未重渲的节（revise 复用）直接取已有 mp4；重渲过的取 worker 的产出。
+  // **顺序必须按节号，不能按完成时间**——并发下完成顺序是乱的，
+  // 按完成顺序拼出来的视频节序是错的。
+  const sectionVideos: string[] = []
+  for (let i = 0; i < storyboard.sections.length; i++) {
+    const outMp4 = path.join(deps.outDir, `section_${i + 1}.mp4`)
+    const produced = outputs.get(i)
+    if (produced) {
+      sectionVideos.push(produced)
+      continue
+    }
+    if (deps.onlySections && !deps.onlySections.has(i + 1)) {
+      // 复用：优先用配过音的版本（上一轮 produce 留下的）
+      const narrated = outMp4.replace(/\.mp4$/, '.narrated.mp4')
+      const reuse = fs.existsSync(narrated) ? narrated : outMp4
+      if (fs.existsSync(reuse)) {
+        sectionVideos.push(reuse)
+        deps.log(`[render] 第 ${i + 1} 节未指定重做，复用已有 mp4`)
+      }
+      continue
+    }
   }
 
   if (sectionVideos.length === 0) {
-    return { ok: false, sectionVideos, error: '所有小节都渲染失败' }
+    return { ok: false, sectionVideos, frameIssues, error: '所有小节都渲染失败' }
   }
 
   const finalPath = path.join(deps.outDir, 'teaching-video.mp4')
   const merged = await concatVideos(sectionVideos, finalPath, deps.ffmpeg)
   if (!merged.ok) {
-    return { ok: false, sectionVideos, error: `合成失败：${merged.error}` }
+    return { ok: false, sectionVideos, frameIssues, error: `合成失败：${merged.error}` }
   }
   return { ok: true, videoPath: finalPath, sectionVideos, frameIssues }
+}
+
+/**
+ * 渲一节：HTML → 逐帧截图 → ffmpeg 编码 →（有配音时）叠音频+烧字幕。
+ *
+ * 抽出来单独一个函数，是为了让并发 worker 各自调用同一份逻辑，
+ * 而不是把整段循环复制一遍。
+ */
+async function renderOne(
+  section: TeachingStoryboard['sections'][number],
+  index: number,
+  outMp4: string,
+  browser: BrowserLike,
+  deps: RenderDeps,
+  frameIssues: Array<{ section: string; issues: FrameIssue[] }>,
+  outputs: Map<number, string>,
+): Promise<void> {
+  // 优先用模型给的结构化画面；没有才退回纯文字模板
+  const theme = deps.style?.theme ?? DEFAULT_STYLE.theme
+  const html = section.scene?.length
+    ? buildSceneHtml(section, section.scene, theme)
+    : buildSectionHtml(section, undefined, theme)
+  fs.writeFileSync(path.join(deps.outDir, `section_${index + 1}.html`), html, 'utf8')
+
+  const overlaps = checkSectionLayout(section)
+  if (overlaps.length > 0) {
+    deps.log(
+      `[render] 第 ${index + 1} 节布局问题: ${overlaps.map((o) => `[${o.kind}] ${o.detail}`).join('; ')}`,
+    )
+  }
+
+  const secs = sectionSeconds(section)
+  try {
+    await browser.renderSection(html, outMp4, secs * 1000, 12)
+    deps.log(`[render] 第 ${index + 1} 节完成`)
+
+    // 抽帧自检：像素是唯一证据。必须在同一个 worker 里立即读，
+    // 下一个节开始渲染后样本就被覆盖了。
+    const samples = browser.lastFrameSamples?.()
+    if (samples?.length) {
+      const issues = samples.flatMap((s, fi) => checkFrame(s, fi))
+      if (issues.length > 0) {
+        frameIssues.push({ section: section.title, issues })
+        deps.log(
+          `[render] 第 ${index + 1} 节画面自检: ${issues.map((x) => `[${x.kind}] ${x.detail}`).join('; ')}`,
+        )
+      }
+    }
+
+    // 有配音就叠音频 + 烧字幕。失败保留无声版继续——
+    // 一条无声视频仍可用，缺一节视频就废了。
+    const cues = deps.narration?.get(section.id)
+    if (cues?.length) {
+      const srtPath = path.join(deps.outDir, `section_${index + 1}.srt`)
+      fs.writeFileSync(srtPath, cuesToSrt(cues), 'utf8')
+      const narrated = outMp4.replace(/\.mp4$/, '.narrated.mp4')
+      const r = await addNarration(
+        { videoPath: outMp4, outputPath: narrated, cues, srtPath },
+        deps.ffmpeg,
+      )
+      if (r.ok) {
+        outputs.set(index, narrated)
+        deps.log(`[render] 第 ${index + 1} 节配音与字幕已合成`)
+      } else {
+        outputs.set(index, outMp4)
+        deps.log(`[render] 第 ${index + 1} 节配音合成失败，保留无声版：${r.error ?? ''}`)
+      }
+    } else {
+      outputs.set(index, outMp4)
+    }
+  } catch (err) {
+    deps.log(`[render] 第 ${index + 1} 节失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 /** ffmpeg concat 合成（同尺寸同编码，用 -c copy 直拼） */
