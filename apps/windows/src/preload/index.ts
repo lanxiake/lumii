@@ -365,6 +365,15 @@ export interface ElectronAPI {
   splash: {
     /** 是否应跳过开机画面（托盘静默启动 / 测试模式 / 环境变量�?*/
     shouldSkip: () => boolean
+    /** 订阅启动阶段进度；返回取消订阅函数 */
+    onProgress: (
+      callback: (payload: { phase: string; index: number; total: number }) => void,
+    ) => () => void
+    /** 拉取已经发生过的启动阶段（广播在窗口加载前就发完了，收不到） */
+    history: () => Promise<{
+      phases: Array<{ phase: string; index: number; total: number }>
+      total: number
+    }>
   }
   /** 内置使用指南（extraResources/user-guides，后续可扩展为 Wiki 种子） */
   userGuides: {

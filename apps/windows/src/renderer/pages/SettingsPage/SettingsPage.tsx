@@ -291,6 +291,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [settings, toast, updateSystem])
 
   /**
+   * 切换开机音效（同样立即写 localStorage，供下次启动 early-splash 读取）
+   */
+  const handleToggleSplashSound = useCallback((enable: boolean) => {
+    updateSystem({ splashSound: enable })
+    try {
+      const nextSystem = { ...settings.system, splashSound: enable }
+      const nextSettings = { ...settings, system: nextSystem }
+      localStorage.setItem('mtbot-assistant-settings', JSON.stringify(nextSettings))
+      toast.success(enable ? '已开启开机音效' : '已关闭开机音效')
+    } catch (err) {
+      console.error('[SettingsPage] 保存开机音效设置失败:', err)
+      toast.error('保存失败')
+    }
+  }, [settings, toast, updateSystem])
+
+  /**
    * 渲染账户设置
    */
   const renderAccountSettings = () => (
@@ -319,6 +335,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </Checkbox>
           <span className={styles['setting-hint']}>
             关闭后主窗口直接进入界面；文件预览等独立窗口本就不播放
+          </span>
+        </div>
+        <div className={styles['setting-item']}>
+          <Checkbox
+            checked={settings.system?.splashSound !== false}
+            onChange={(checked) => handleToggleSplashSound(checked)}
+            disabled={settings.system?.showSplashOnStartup === false}
+          >
+            开机动画播放音效
+          </Checkbox>
+          <span className={styles['setting-hint']}>
+            很低的环境音与进度提示音；关闭后静音启动
           </span>
         </div>
       </div>

@@ -41,4 +41,27 @@ export const splashApi = {
     || process.argv.includes('--test-mode')
     || process.argv.includes('--startup-launched')
     || process.env.LUMII_SKIP_SPLASH === '1',
+  /**
+   * 订阅主进程的启动阶段进度，返回取消订阅函数。
+   *
+   * 早期画面在 React 挂载前就要听，所以这里是 `on` 而不是 `invoke`：
+   * 广播是单向的，不需要回执。
+   */
+  onProgress: (callback: (payload: { phase: string; index: number; total: number }) => void) => {
+    const listener = (_e: unknown, payload: { phase: string; index: number; total: number }) =>
+      callback(payload)
+    ipcRenderer.on('startup:progress', listener)
+    return () => ipcRenderer.removeListener('startup:progress', listener)
+  },
+  /**
+   * 拉取已经发生过的启动阶段。
+   *
+   * 启动的大部分阶段在窗口加载页面之前就发完了，广播全落空；
+   * 渲染层就绪后主动问一次，才知道进度该从哪一格开始。
+   */
+  history: () =>
+    ipcRenderer.invoke('splash:history') as Promise<{
+      phases: Array<{ phase: string; index: number; total: number }>
+      total: number
+    }>,
 }

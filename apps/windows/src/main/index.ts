@@ -52,7 +52,7 @@ process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
 import { execSync, execFile as _execFile, spawn } from 'child_process'
 import { promisify as _promisify } from 'util'
 import path from 'path'
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import qrcode from 'qrcode'
 import { showDesktopTaskNotification as showDesktopNotify } from './desktop-notify'
 import {
@@ -1102,9 +1102,11 @@ function readStartupFlags() {
  * 跑一个启动阶段：测耗时、写进性能监控、失败照常上抛。
  *
  * 阶段名进性能日志的 startupPhase，是「启动预算」那条门禁的数据来源。
+ * 同时向渲染层的开机动画广播进度——真实阶段驱动，不靠固定时长假装加载。
  */
 async function runStartupStage<T>(name: string, fn: () => Promise<T> | T): Promise<T> {
   const startedAt = performance.now()
+  notifyBootProgress(name)
   try {
     return await fn()
   } finally {
@@ -1112,6 +1114,72 @@ async function runStartupStage<T>(name: string, fn: () => Promise<T> | T): Promi
     performanceMonitor?.recordStartupPhase(name, durationMs)
     log.info(`[Startup] ${name} ${durationMs.toFixed(0)}ms`)
   }
+}
+
+/** 启动阶段总数，与 `boot-visual` 的 TOTAL_PHASES 保持一致（含 renderer 侧的 `window` 阶段） */
+const BOOT_TOTAL_PHASES = 11
+let bootPhaseIndex = 0
+/**
+ * 已发出但渲染层还没就绪的阶段。
+ *
+ * 启动的绝大多数阶段都发生在窗口加载页面之前，此时 `send` 会静默落空——
+ * 结果是开机动画永远收不到真实进度，只能靠时间曲线假装加载。
+ * 这里把发过的存下来，等页面 ready 后一次性补发。
+ */
+const pendingBootPhases: Array<{ phase: string; index: number; total: number }> = []
+let bootPhasesFlushed = false
+
+/** 渲染层就绪后补发历史阶段，之后改为直接推送 */
+function flushBootProgress(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  bootPhasesFlushed = true
+  // 不清空历史：页面重载（F5 / dev HMR）后渲染层会重新订阅，
+  // 那时仍然需要这份阶段记录，否则重载后开机动画又变回「假进度」。
+  for (const payload of pendingBootPhases) {
+    try {
+      mainWindow.webContents.send('startup:progress', payload)
+    } catch {
+      return
+    }
+  }
+}
+
+/**
+ * 向渲染层广播启动进度。
+ *
+ * 渲染层没就绪时先存着（见 `pendingBootPhases`），就绪后补发；
+ * 这样开机画面显示的始终是真实阶段，而不是兜底曲线编出来的数字。
+ */
+function notifyBootProgress(phase: string): void {
+  bootPhaseIndex += 1
+  const payload = { phase, index: bootPhaseIndex, total: BOOT_TOTAL_PHASES }
+
+  if (bootPhasesFlushed) {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    try {
+      mainWindow.webContents.send('startup:progress', payload)
+    } catch {
+      // 窗口正在销毁：不是错误，开机动画用兜底曲线走完
+    }
+    return
+  }
+
+  pendingBootPhases.push(payload)
+  flushBootProgress()
+}
+
+/**
+ * 供渲染层主动拉取已发生的启动阶段。
+ *
+ * 广播的时机不可靠：启动的绝大多数阶段发生在窗口加载页面之前，
+ * 而 `did-finish-load` 又可能早于渲染层的订阅。所以渲染层就绪后
+ * 主动问一次，比主进程猜时机稳。
+ */
+function registerSplashHistoryIpc(): void {
+  ipcMain.handle('splash:history', () => ({
+    phases: pendingBootPhases.slice(),
+    total: BOOT_TOTAL_PHASES,
+  }))
 }
 
 /**
@@ -1424,9 +1492,26 @@ function summarizeExtensions(): Array<{
 async function initUiStages(flags: ReturnType<typeof readStartupFlags>): Promise<void> {
   const { isTestMode, isHeadless, isStartupLaunch } = flags
   if (!isHeadless) {
+    // 渲染层要能随时问到「已经过了哪些阶段」，必须在建窗口之前就绪
+    registerSplashHistoryIpc()
+
     const windowStartTime = performance.now()
     await createWindow(isTestMode, isStartupLaunch)
     performanceMonitor?.recordStartupPhase('window', performance.now() - windowStartTime)
+    notifyBootProgress('window')
+
+    /**
+     * 页面每次加载完补发一次早期阶段。
+     *
+     * 补发时机不可靠（did-finish-load 可能早于渲染层订阅），
+     * 所以真正的兜底是渲染层主动调 `splash:history` 拉取，
+     * 这里只是让「已经订阅上」的情况能更快拿到。
+     */
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.on('did-finish-load', () => {
+        flushBootProgress()
+      })
+    }
 
     // 更新器要窗口引用：扩展激活时窗口还没建，这里补一次。
     // 扩展被禁用时 updaterService 为 null，整段自动跳过。

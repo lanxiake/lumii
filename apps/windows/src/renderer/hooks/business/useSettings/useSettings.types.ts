@@ -68,6 +68,11 @@ export interface SystemConfig {
    * 关闭后主窗口直接进入界面；独立预览窗等本就不播放。
    */
   showSplashOnStartup: boolean
+  /**
+   * 开机动画播放音效（默认 true）。
+   * 音效为 WebAudio 现场合成，无音频文件；关闭后静音启动。
+   */
+  splashSound: boolean
 }
 
 /** 记忆注入配置（Windows 客户端） */
