@@ -1,227 +1,1616 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<title>灵栖启动动画</title>
+<meta charset="UTF-8" />
+<title>灵栖 Lumii — 开机动画 DEMO v4 · 机甲觉醒</title>
 <style>
-body { margin: 0; background: #000; overflow: hidden; font-family: monospace; }
-canvas { display: block; width: 100vw; height: 100vh; background: #0a0e1a; }
-.ui { position: fixed; top: 20px; left: 20px; color: #0ff; font-size: 12px; z-index: 10; }
-.btn { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); }
-button { background: rgba(0,255,255,0.1); color: #0ff; border: 1px solid #0ff; padding: 8px 16px; font-size: 12px; cursor: pointer; margin: 0 5px; }
-button:hover { background: rgba(0,255,255,0.3); }
-.prog { position: fixed; bottom: 60px; left: 50%; width: 300px; transform: translateX(-50%); height: 2px; background: rgba(0,255,255,0.2); }
-.prog-fill { height: 100%; background: linear-gradient(90deg, #0ff, #ff0080); width: 0%; box-shadow: 0 0 10px #0ff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #020408; overflow: hidden; }
+  body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+  /*
+   * 色彩只允许三个来源：冷青（机器本体）、琥珀（能量/警示）、纯白（高光）。
+   * 三色制是机甲题材的视觉纪律——多一个色相就变成廉价霓虹。
+   */
+  :root {
+    --cy: #4fd8ff;
+    --cy-dim: rgba(79, 216, 255, .35);
+    --amber: #ff9d4d;
+    --amber-hot: #ffd08a;
+    --void: #020408;
+  }
+
+  #boot {
+    position: fixed; inset: 0; overflow: hidden;
+    background: var(--void); color: var(--cy);
+    opacity: 1; transition: opacity 460ms ease;
+  }
+  #boot.fading { opacity: 0; pointer-events: none; }
+
+  /* ── 层 1：深空 ─────────────────────────────────────────── */
+  .void-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 38% 30% at 50% 46%, rgba(40,140,220,.13) 0%, transparent 70%),
+      radial-gradient(ellipse 26% 20% at 16% 78%, rgba(255,140,60,.06) 0%, transparent 70%);
+    transition: opacity 1s ease;
+  }
+
+  /* ── 层 2：透视网格（向前推进 = 速度感） ────────────────── */
+  .floor {
+    position: absolute; left: -50%; right: -50%; bottom: -18%; height: 62%;
+    opacity: 0; transform-origin: 50% 100%;
+    background-image:
+      linear-gradient(rgba(79,216,255,.22) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,216,255,.22) 1px, transparent 1px);
+    background-size: 64px 64px;
+    transform: perspective(420px) rotateX(72deg);
+    -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.95) 0%, transparent 72%);
+    mask-image: linear-gradient(to top, rgba(0,0,0,.95) 0%, transparent 72%);
+    animation: floorRun 1.8s linear infinite;
+    transition: opacity 1.1s ease;
+  }
+  @keyframes floorRun { to { background-position: 0 64px, 0 64px; } }
+  #boot[data-act="neural"]   .floor { opacity: .35; }
+  #boot[data-act="energize"] .floor { opacity: .75; animation-duration: .65s; }
+  #boot[data-act="cognition"] .floor { opacity: .5; animation-duration: 1.2s; }
+  #boot[data-act="gate"]     .floor { opacity: .28; }
+
+  /* ── 层 3：主画布（粒子 / 电路 / 流线） ──────────────────── */
+  /* 画布本身做极轻微的位移+缩放 = 手持镜头感。
+     transform 走合成层，不触发重排，代价可以忽略。 */
+  canvas#fx {
+    position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+    will-change: transform;
+  }
+
+  /* ── 层 4：写死的 HUD（不跟镜头缩放，保证文字清晰） ──────── */
+  .hud-layer { position: absolute; inset: 0; pointer-events: none; }
+
+  /* 机甲装甲角：斜切而不是圆角，直角+倒角才有金属味 */
+  .armor {
+    position: absolute; width: 78px; height: 78px; opacity: 0;
+    transition: opacity .7s ease, transform .8s cubic-bezier(.2,.9,.25,1);
+  }
+  .armor::before {
+    content: ''; position: absolute; inset: 0;
+    border-left: 2px solid var(--cy-dim);
+    border-top: 2px solid var(--cy-dim);
+  }
+  .armor::after {
+    content: ''; position: absolute; left: 0; top: 0;
+    width: 26px; height: 2px; background: var(--cy);
+    box-shadow: 0 0 10px var(--cy);
+  }
+  .armor.tl { left: 26px; top: 26px; transform: translate(-14px,-14px); }
+  .armor.tr { right: 26px; top: 26px; transform: translate(14px,-14px) scaleX(-1); }
+  .armor.bl { left: 26px; bottom: 26px; transform: translate(-14px,14px) scaleY(-1); }
+  .armor.br { right: 26px; bottom: 26px; transform: translate(14px,14px) scale(-1); }
+  #boot[data-act="neural"] .armor,
+  #boot[data-act="energize"] .armor,
+  #boot[data-act="cognition"] .armor,
+  #boot[data-act="gate"] .armor { opacity: .55; transform: none; }
+
+  /* 顶部状态条 */
+  .topbar {
+    position: absolute; left: 46px; right: 46px; top: 46px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10px; letter-spacing: .26em; opacity: 0;
+    transition: opacity .6s ease;
+  }
+  #boot[data-act="neural"] .topbar,
+  #boot[data-act="energize"] .topbar,
+  #boot[data-act="cognition"] .topbar,
+  #boot[data-act="gate"] .topbar { opacity: .5; }
+
+  .led { display: inline-block; width: 6px; height: 6px; margin-right: 8px;
+    background: var(--cy); box-shadow: 0 0 8px var(--cy);
+    animation: ledPulse 1.4s ease-in-out infinite; }
+  @keyframes ledPulse { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
+  #actName { color: var(--amber); opacity: .85; }
+
+  /* 左侧遥测：三条竖排读数 */
+  .telemetry {
+    position: absolute; left: 46px; bottom: 74px;
+    font-size: 10px; letter-spacing: .1em; line-height: 1.9; opacity: 0;
+    transition: opacity .6s ease;
+  }
+  #boot[data-act="neural"] .telemetry,
+  #boot[data-act="energize"] .telemetry,
+  #boot[data-act="cognition"] .telemetry,
+  #boot[data-act="gate"] .telemetry { opacity: .4; }
+  .telemetry .k { color: rgba(120,190,220,.55); }
+  .telemetry .v { color: var(--amber-hot); font-variant-numeric: tabular-nums; }
+
+  /* 右侧系统清单 */
+  .checks {
+    position: absolute; right: 46px; top: 84px;
+    font-size: 10.5px; letter-spacing: .1em; line-height: 2.15;
+    text-align: right; opacity: 0; transition: opacity .6s ease;
+  }
+  #boot[data-act="neural"] .checks,
+  #boot[data-act="energize"] .checks,
+  #boot[data-act="cognition"] .checks,
+  #boot[data-act="gate"] .checks { opacity: .42; }
+  .checks div { color: rgba(120,190,220,.5); transition: color .4s ease; }
+  .checks div.on { color: var(--amber-hot); }
+  .checks i { font-style: normal; display: inline-block; width: 14px; opacity: .35; }
+  .checks div.on i { opacity: 1; color: var(--amber); }
+
+  /* 底部进度：做成能量条，带分段刻度 */
+  .bar-wrap {
+    position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%);
+    width: min(640px, 76vw); opacity: 0; transition: opacity .7s ease;
+  }
+  #boot[data-act="neural"] .bar-wrap,
+  #boot[data-act="energize"] .bar-wrap,
+  #boot[data-act="cognition"] .bar-wrap,
+  #boot[data-act="gate"] .bar-wrap { opacity: 1; }
+
+  .bar { position: relative; height: 3px; background: rgba(79,216,255,.10); overflow: hidden; }
+  .bar-fill {
+    position: absolute; inset: 0 auto 0 0; width: 0%;
+    background: linear-gradient(90deg, rgba(79,216,255,.5), var(--cy) 62%, #e8ffff);
+    box-shadow: 0 0 16px rgba(110,225,255,.9);
+    transition: width .28s ease-out;
+  }
+  .bar-fill::after {
+    content: ''; position: absolute; right: -3px; top: -4px;
+    width: 26px; height: 11px;
+    background: radial-gradient(ellipse, rgba(230,255,255,.95), transparent 72%);
+  }
+  .bar-ticks {
+    position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(90deg,
+      transparent 0 30px, rgba(2,4,8,.85) 30px 32px);
+    pointer-events: none;
+  }
+
+  .bar-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 11px; font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+  }
+  #phaseText { color: rgba(160,220,240,.6); }
+  #pctText { color: var(--amber-hot); font-variant-numeric: tabular-nums; letter-spacing: .08em; }
+
+  /* ── 层 5：门户 ─────────────────────────────────────────── */
+  .gate {
+    position: absolute; left: 50%; top: 46%;
+    width: 66vw; height: 62vh; border-radius: 50%;
+    transform: translate(-50%,-50%) scaleX(.006) scaleY(0);
+    background:
+      radial-gradient(ellipse 50% 50% at 50% 50%,
+        #ffffff 0%, #dff7ff 12%, #8fe4ff 30%, rgba(60,170,255,.55) 52%, rgba(20,80,160,.15) 70%, transparent 82%);
+    opacity: 0; pointer-events: none;
+    filter: blur(1px);
+  }
+  .gate.open { animation: gateOpen 1.9s cubic-bezier(.16,.86,.3,1) forwards; }
+  @keyframes gateOpen {
+    0%   { opacity: 0; transform: translate(-50%,-50%) scaleX(.006) scaleY(0); }
+    16%  { opacity: 1; transform: translate(-50%,-50%) scaleX(.010) scaleY(1); }
+    52%  { opacity: 1; transform: translate(-50%,-50%) scaleX(.62) scaleY(1); }
+    78%  { opacity: 1; transform: translate(-50%,-50%) scaleX(1) scaleY(1.02); }
+    100% { opacity: 1; transform: translate(-50%,-50%) scaleX(1.25) scaleY(1.12); }
+  }
+  /* 门缝阶段的竖光 */
+  .gate-seam {
+    position: absolute; left: 50%; top: 46%; width: 3px; height: 0;
+    transform: translate(-50%,-50%);
+    background: linear-gradient(to bottom, transparent, #ffffff 22%, #ffffff 78%, transparent);
+    box-shadow: 0 0 30px 8px rgba(150,235,255,.9);
+    opacity: 0;
+  }
+  .gate-seam.open { animation: seamOpen 1.1s cubic-bezier(.2,.9,.3,1) forwards; }
+  @keyframes seamOpen {
+    0%   { height: 0; opacity: 0; }
+    28%  { height: 62vh; opacity: 1; }
+    100% { height: 62vh; opacity: 0; }
+  }
+
+  /* 结尾 logo：从门户中心飞出，落到屏幕**右上角**。
+     尺寸对齐主界面品牌标识（26px），left/top 都由 JS 按视口算，
+     这里只定样式，避免写死数值随窗口大小漂移。 */
+  .signature {
+    position: absolute; left: 0; top: 0;
+    width: 26px; height: 26px;
+    border-radius: 5px; opacity: 0;
+    filter: brightness(1.45) saturate(.75)
+      drop-shadow(0 0 14px rgba(190,240,255,.95));
+    pointer-events: none;
+    will-change: transform, opacity;
+  }
+
+  /* ── 层 6：质感叠加 ─────────────────────────────────────── */
+  .scanlines {
+    position: absolute; inset: 0; pointer-events: none; opacity: .38;
+    background: repeating-linear-gradient(to bottom,
+      rgba(140,230,255,.045) 0 1px, transparent 1px 3px);
+  }
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 74% 66% at 50% 46%, transparent 40%, rgba(0,2,6,.88) 100%);
+  }
+  .noise {
+    position: absolute; inset: 0; pointer-events: none; opacity: .028;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* 闪光 / 故障 / 抖动 */
+  .flash {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(circle at 50% 46%, rgba(235,255,255,.98) 0%, rgba(150,230,255,.5) 30%, transparent 62%);
+  }
+  .flash.fire { animation: flashOut .9s ease-out forwards; }
+  @keyframes flashOut { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+  .glitch {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: repeating-linear-gradient(to bottom,
+      rgba(140,240,255,.22) 0 2px, transparent 2px 7px,
+      rgba(255,160,80,.16) 7px 9px, transparent 9px 16px);
+    mix-blend-mode: screen;
+  }
+  .glitch.fire { animation: glitchFlash .26s steps(2, end) forwards; }
+  @keyframes glitchFlash {
+    0% { opacity: .9; transform: translateX(-8px) scaleY(1.004); }
+    50% { opacity: .6; transform: translateX(6px); }
+    100% { opacity: 0; transform: none; }
+  }
+
+  .shock {
+    position: absolute; left: 50%; top: 46%; width: 120px; height: 120px;
+    margin: -60px 0 0 -60px; border-radius: 50%;
+    border: 2px solid rgba(200,250,255,.9); opacity: 0; pointer-events: none;
+  }
+  .shock.fire { animation: shockwave .95s cubic-bezier(.15,.7,.3,1) forwards; }
+  @keyframes shockwave {
+    0% { opacity: 1; transform: scale(.4); border-width: 5px; }
+    100% { opacity: 0; transform: scale(7); border-width: 1px; }
+  }
+
+  /* 电影遮幅 */
+  .barTop, .barBot {
+    position: absolute; left: 0; right: 0; height: 0; background: #000;
+    z-index: 30; pointer-events: none;
+    transition: height .9s cubic-bezier(.2,.9,.25,1);
+  }
+  .barTop { top: 0; } .barBot { bottom: 0; }
+  .barTop.on, .barBot.on { height: 7.5vh; }
+
+  /* ── DEMO 控制条 ────────────────────────────────────────── */
+  .demo-ui {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    display: flex; gap: 10px; align-items: center; z-index: 50;
+    font-size: 12px; color: #8fb6c9;
+  }
+  .demo-ui button {
+    background: rgba(12,26,40,.92); color: #9fe8ff;
+    border: 1px solid rgba(90,200,255,.3); border-radius: 3px;
+    padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit;
+    letter-spacing: .04em;
+  }
+  .demo-ui button:hover { background: rgba(24,52,78,.95); }
+  .demo-ui button.ghost { opacity: .65; }
+  .demo-ui label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 </style>
 </head>
 <body>
 
-<div class="ui">
-  <div id="info">[ INIT ]</div>
-  <div id="prog" style="margin-top: 10px;">0%</div>
+<div id="boot" data-act="dark">
+  <div class="void-bg"></div>
+  <div class="floor"></div>
+  <canvas id="fx"></canvas>
+
+  <div class="hud-layer">
+    <div class="armor tl"></div>
+    <div class="armor tr"></div>
+    <div class="armor bl"></div>
+    <div class="armor br"></div>
+
+    <div class="topbar mono">
+      <span><i class="led"></i>LUMII // UNIT-01 // BOOT</span>
+      <span id="actName">STANDBY</span>
+    </div>
+
+    <div class="telemetry mono">
+      <div><span class="k">CORE</span> &nbsp;<span class="v" id="tCore">0x00</span></div>
+      <div><span class="k">PWR&nbsp;</span> &nbsp;<span class="v" id="tPwr">0.0%</span></div>
+      <div><span class="k">SYNC</span> &nbsp;<span class="v" id="tSync">--</span></div>
+    </div>
+
+    <div class="checks mono" id="checks"></div>
+
+    <div class="bar-wrap">
+      <div class="bar">
+        <div class="bar-fill" id="barFill"></div>
+        <div class="bar-ticks"></div>
+      </div>
+      <div class="bar-row mono">
+        <span id="phaseText">STANDBY</span>
+        <span id="pctText">0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate" id="gate"></div>
+  <div class="gate-seam" id="gateSeam"></div>
+  <img class="signature" id="signature" src="logo.png" alt="" />
+
+  <div class="shock" id="shock"></div>
+  <div class="flash" id="flash"></div>
+  <div class="glitch" id="glitch"></div>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+  <div class="noise"></div>
+  <div class="barTop" id="barTop"></div>
+  <div class="barBot" id="barBot"></div>
 </div>
 
-<div class="prog">
-  <div class="prog-fill" id="progFill"></div>
+<div class="demo-ui">
+  <button id="replay">重新播放</button>
+  <button id="skip" class="ghost">跳到结尾</button>
+  <label><input type="checkbox" id="sound" checked /> 音效</label>
 </div>
-
-<div class="btn">
-  <button onclick="start()">▶ 开始</button>
-  <button onclick="stop()">⏹ 停止</button>
-</div>
-
-<canvas id="canvas"></canvas>
 
 <script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+/* ══════════════════════════════════════════════════════════════════
+   机甲觉醒 · 开机动画
+   五幕：DARK → DORMANT → NEURAL → ENERGIZE → COGNITION → GATE
+   每一幕的画面与声音是同一件事的两种表达，不是各放各的。
+   ══════════════════════════════════════════════════════════════════ */
 
-const W = canvas.width;
-const H = canvas.height;
-const CX = W / 2;
-const CY = H / 2;
+const boot = document.getElementById('boot')
+const $ = (id) => document.getElementById(id)
 
-let running = false;
-let time = 0;
-let dt = 0;
-let lastT = 0;
-let codes = [];
+/** ?debug=1 时暴露内部状态到 HUD，方便定位「画面没出现」 */
+const DEBUG = new URLSearchParams(location.search).has('debug')
+/** ?freeze=<act> 定格某幕，仅用于截图验证 */
+const FREEZE = new URLSearchParams(location.search).get('freeze')
 
-function createCodes() {
-  codes = [];
-  for (let i = 0; i < 200; i++) {
-    codes.push({
-      x: Math.random() * W,
-      y: Math.random() * H - H,
-      vy: 30 + Math.random() * 100,
-      char: Math.floor(Math.random() * 16).toString(16).toUpperCase(),
-      size: 12 + Math.random() * 5,
-      opacity: 0.3 + Math.random() * 0.5
-    });
+/* ══ 节奏系统 ═══════════════════════════════════════════════════════
+   灵动感来自节奏，不是来自「效果多」。四条纪律：
+
+   1. **全局节拍器**：90 BPM，每拍 667ms。所有循环动效（呼吸、脉冲、
+      扫光、闪烁）都按节拍对齐，视觉上才会「有拍子」而不是各转各的。
+   2. **预备 → 发力 → 过冲 → 回弹**：任何一次状态变化都不是匀速Ease，
+      先反向蓄力再冲出目标再回弹。机械体尤其要这个，因为它有质量。
+   3. **错峰跟随**（overlapping action）：同一件事的多个元素不同时动，
+      相邻元素错开 40–90ms，形成「波浪」而不是「一起亮」。
+   4. **持续微动**：静止时也绝不能真的静止——呼吸偏移、噪点抖动、
+      扫描呼吸。完全静止的帧一出现，整段就死了。
+   ════════════════════════════════════════════════════════════════ */
+
+/** 全局节拍：90 BPM */
+const BPM = 90
+const BEAT = 60 / BPM          // 0.667s
+let beatClock = 0              // 从播放起点累积的秒数
+let lastBeatNo = -1            // 上一次触发的拍号（跨拍检测用）
+/** 当前拍相位 0→1，用于对齐所有循环动效 */
+const beatPhase = () => (beatClock % BEAT) / BEAT
+/** 每 N 拍的相位（做更长周期的呼吸） */
+const slowPhase = (beats = 4) => (beatClock % (BEAT * beats)) / (BEAT * beats)
+
+const EASE = {
+  /** 标准缓出：快进慢停，最常用 */
+  outCubic: (t) => 1 - Math.pow(1 - t, 3),
+  /** 强缓出：前 20% 走完 60%，用于「猛冲出去」 */
+  outExpo: (t) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t)),
+  /**
+   * 过冲回弹：冲过目标 12% 再回来。
+   * 机械感的来源之一——真实物体有惯性，不会精确停在目标点。
+   */
+  outBack: (t) => {
+    const c1 = 1.70158, c3 = c1 + 1
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)
+  },
+  /** 预备动作：先向反方向退一点，再冲出去 */
+  anticipate: (t) => {
+    if (t < .18) return -(t / .18) * .12          // 反向蓄力
+    const k = (t - .18) / .82
+    return -.12 + 1.12 * EASE.outExpo(k)
+  },
+  /** 弹性：结尾连续弹跳，用于「落位」 */
+  elastic: (t) => {
+    if (t <= 0) return 0
+    if (t >= 1) return 1
+    const p = .34
+    return Math.pow(2, -9 * t) * Math.sin((t - p / 4) * (2 * Math.PI) / p) + 1
+  },
+}
+
+/** 在 [start, start+dur] 区间内把 p 归一化到 0→1（区间外夹紧） */
+const seg = (p, start, dur) => Math.max(0, Math.min(1, (p - start) / dur))
+
+/** 错峰：给第 i 个元素一个延迟（秒），形成波浪 */
+const stagger = (i, stepMs = 45) => (i * stepMs) / 1000
+
+const el = {
+  barFill: $('barFill'), pct: $('pctText'), phase: $('phaseText'),
+  act: $('actName'), checks: $('checks'),
+  tCore: $('tCore'), tPwr: $('tPwr'), tSync: $('tSync'),
+  gate: $('gate'), seam: $('gateSeam'), sig: $('signature'),
+  flash: $('flash'), glitch: $('glitch'), shock: $('shock'),
+  barTop: $('barTop'), barBot: $('barBot'),
+}
+
+/* ── 画布 ─────────────────────────────────────────────────────── */
+const cv = $('fx')
+const ctx = cv.getContext('2d')
+const DPR = Math.min(window.devicePixelRatio || 1, 2)
+let W = 0, H = 0, CX = 0, CY = 0
+
+let act = 'dark'
+let progress = 0
+let running = false
+let abort = false
+
+/* 粒子池：全部复用，避免每帧 new */
+let dust = []        // 背景浮尘
+let streams = []     // 向心流动的数据流粒子
+let textParts = []   // 聚合成字的粒子
+let sparks = []      // 能量爆发火花
+
+function resize() {
+  W = cv.clientWidth; H = cv.clientHeight
+  CX = W / 2; CY = H * 0.46
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
+  seedDust()
+}
+
+function seedDust() {
+  const n = Math.round(Math.min(220, (W * H) / 9000))
+  dust = Array.from({ length: n }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: .4 + Math.random() * 1.3,
+    a: .08 + Math.random() * .3,
+    vy: -.06 - Math.random() * .22,
+    vx: (Math.random() - .5) * .1,
+    ph: Math.random() * 6.28,
+  }))
+}
+
+/* ── 背景浮尘：整场都在，是最安静的一层 ───────────────────── */
+function drawDust(dt, t) {
+  // 每拍一次微弱「涌动」：整片浮尘同时向外推一点点，然后回位。
+  // 这是「持续微动」——即使最安静的层也在呼吸，画面不会死。
+  const surge = Math.pow(1 - beatPhase(), 5) * 5
+  const cxs = CX, cys = CY
+
+  for (const p of dust) {
+    p.y += p.vy * dt * 60
+    p.x += p.vx * dt * 60
+    if (p.y < -8) { p.y = H + 8; p.x = Math.random() * W }
+    if (p.x < -8) p.x = W + 8
+    if (p.x > W + 8) p.x = -8
+
+    // 错峰闪烁：每颗有自己的相位，整片像萤火虫
+    const tw = .45 + .55 * Math.pow(.5 + .5 * Math.sin(beatClock * 2.2 + p.ph), 2)
+    let dx = 0, dy = 0
+    if (surge > .05) {
+      const vx = p.x - cxs, vy = p.y - cys
+      const d = Math.hypot(vx, vy) || 1
+      dx = (vx / d) * surge
+      dy = (vy / d) * surge
+    }
+    ctx.fillStyle = `rgba(150,225,255,${(p.a * tw).toFixed(3)})`
+    ctx.beginPath(); ctx.arc(p.x + dx, p.y + dy, p.r * (1 + surge * .04), 0, 6.2832); ctx.fill()
   }
 }
 
-function drawFrame() {
-  // 清屏
-  ctx.fillStyle = '#0a0e1a';
-  ctx.fillRect(0, 0, W, H);
+/* ── 数据流：粒子沿螺旋被吸向核心（第二幕主角） ──────────── */
+let streamInflow = 0
+function seedStreams() {
+  streamInflow = 1
+  const n = Math.round(Math.min(420, (W * H) / 4200))
+  streams = Array.from({ length: n }, () => makeStream(true))
+}
+function makeStream(initial) {
+  const a = Math.random() * Math.PI * 2
+  const rad = initial ? 60 + Math.random() * Math.max(W, H) * .55 : 60
+  return {
+    a, rad,
+    spin: (0.5 + Math.random() * 1.6) * (Math.random() < .5 ? 1 : -1),
+    inward: 26 + Math.random() * 90,
+    size: .5 + Math.random() * 1.6,
+    life: 0,
+    hue: Math.random() < .18 ? 'amber' : 'cy',
+  }
+}
+function drawStreams(dt) {
+  if (streamInflow <= 0.01) return
+  const maxRad = Math.max(W, H) * .62
+  for (const p of streams) {
+    p.a += p.spin * dt * .9
+    p.rad -= p.inward * dt * (1 + (1 - p.rad / maxRad) * 1.4)
+    if (p.rad < 30) {
+      Object.assign(p, makeStream(false))
+      p.rad = maxRad * (.7 + Math.random() * .35)
+    }
+    const x = CX + Math.cos(p.a) * p.rad
+    const y = CY + Math.sin(p.a) * p.rad * .78
+    const near = 1 - Math.min(1, p.rad / maxRad)
+    const alpha = (.16 + near * .82) * streamInflow
+    const color = p.hue === 'amber'
+      ? `rgba(255,175,105,${alpha.toFixed(3)})`
+      : `rgba(140,235,255,${alpha.toFixed(3)})`
+    // 近核心时拖尾：画一条短线段指向上一点
+    if (near > .55) {
+      const px = CX + Math.cos(p.a - .06 * p.spin) * (p.rad + 12)
+      const py = CY + Math.sin(p.a - .06 * p.spin) * (p.rad + 12) * .78
+      ctx.strokeStyle = color
+      ctx.lineWidth = p.size * .8
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke()
+    } else {
+      ctx.fillStyle = color
+      ctx.beginPath(); ctx.arc(x, y, p.size, 0, 6.2832); ctx.fill()
+    }
+  }
+}
 
-  if (!running) {
-    requestAnimationFrame(drawFrame);
-    return;
+/* ── 能量环（第三幕）：分层反向旋转 + 每拍齿轮式顿挫 ────────── */
+let ringSpin = 0
+let ringPulses = []
+
+/**
+ * 齿轮式旋转：每拍转 1/N 圈然后「咔」一下停住。
+ * 匀速旋转看起来像加载动画，顿挫才像有齿的机械结构在转。
+ */
+function gearedSpin(beatsPerTurn = 6) {
+  const turn = beatClock / BEAT / beatsPerTurn   // 已完成的「拍数/每圈」
+  const whole = Math.floor(turn)
+  const frac = turn - whole
+  // 前 55% 的拍位转完这一格，后 45% 停住（停顿 = 顿挫感）
+  const k = Math.min(1, frac / .55)
+  return (whole + EASE.outBack(k)) * (Math.PI * 2) / beatsPerTurn
+}
+
+function drawRings(dt, strength) {
+  if (strength <= .02) return
+  ringSpin = gearedSpin(6)
+
+  // 三层环：不同齿数、不同节拍倍数 → 相位不断交错，永远不会「一起转」
+  const ringDefs = [
+    { r: 118, seg: 12, gap: .34, color: 'rgba(120,230,255,', w: 2.4, dir: 1,  beats: 6 },
+    { r: 152, seg: 8,  gap: .52, color: 'rgba(120,230,255,', w: 1.4, dir: -1, beats: 9 },
+    { r: 186, seg: 36, gap: .10, color: 'rgba(90,190,240,',  w: 1,   dir: 1,  beats: 4 },
+  ]
+  for (const d of ringDefs) {
+    const seg = (Math.PI * 2) / d.seg
+    const base = d.dir > 0 ? gearedSpin(d.beats) : -gearedSpin(d.beats)
+    // 每拍整圈亮度脉冲：拍首亮、拍尾暗，与核心心跳同步
+    const glow = .40 + .18 * Math.pow(1 - beatPhase(), 3)
+    for (let i = 0; i < d.seg; i++) {
+      const a0 = base + i * seg
+      const a1 = a0 + seg * (1 - d.gap)
+      ctx.beginPath()
+      ctx.strokeStyle = `${d.color}${(glow * strength).toFixed(3)})`
+      ctx.lineWidth = d.w
+      ctx.arc(CX, CY, d.r, a0, a1)
+      ctx.stroke()
+    }
   }
 
-  // 阶段计算
-  const initPhase = Math.min(1, time / 1.5);
-  const loadPhase = Math.max(0, Math.min(1, (time - 1.5) / 2.5));
-  const readyPhase = Math.max(0, Math.min(1, (time - 4.0) / 2.5));
+  // 环上的能量脉冲：拍首瞬间更亮，跟着节拍闪
+  for (let i = ringPulses.length - 1; i >= 0; i--) {
+    const p = ringPulses[i]
+    p.a += p.spd * dt
+    p.life -= dt
+    if (p.life <= 0) { ringPulses.splice(i, 1); continue }
+    const t = Math.min(1, p.life / p.max)
+    const x = CX + Math.cos(p.a) * p.r
+    const y = CY + Math.sin(p.a) * p.r
+    const beatBoost = 1 + Math.pow(1 - beatPhase(), 4) * .8
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 15)
+    g.addColorStop(0, `rgba(255,225,180,${Math.min(1, .95 * t * strength * beatBoost).toFixed(3)})`)
+    g.addColorStop(1, 'rgba(255,150,60,0)')
+    ctx.fillStyle = g
+    ctx.beginPath(); ctx.arc(x, y, 15, 0, 6.2832); ctx.fill()
+  }
+}
+function emitRingPulse() {
+  const rs = [118, 152, 186]
+  ringPulses.push({
+    a: Math.random() * 6.2832,
+    r: rs[(Math.random() * rs.length) | 0],
+    spd: 2.6 + Math.random() * 2.2,
+    life: 1.5, max: 1.5,
+  })
+}
 
-  // 代码雨
-  if (initPhase > 0) {
-    ctx.fillStyle = 'rgba(0,255,255,' + (initPhase * 0.5) + ')';
-    for (const c of codes) {
-      c.y += c.vy * dt;
-      if (c.y > H) {
-        c.y = -50;
-        c.x = Math.random() * W;
+/* ── 聚合成字（第四幕高潮） ─────────────────────────────────── */
+/** 把文字栅格化成点集：这就是「数据流聚合成字」的目标坐标 */
+function sampleText(text, fontSize) {
+  const pad = 40
+  const c = document.createElement('canvas')
+  const cx = c.getContext('2d')
+  cx.font = `700 ${fontSize}px "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif`
+  const metrics = cx.measureText(text)
+  c.width = Math.ceil(metrics.width) + pad * 2
+  c.height = Math.ceil(fontSize * 1.5)
+  const g = c.getContext('2d')
+  g.font = `700 ${fontSize}px "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif`
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillStyle = '#fff'
+  g.fillText(text, c.width / 2, c.height / 2)
+
+  const data = g.getImageData(0, 0, c.width, c.height).data
+  const pts = []
+  // 采样步长决定粒子密度：字高 150px 时取 2px 一格，约 2000–3000 个点，
+  // 足以看清笔画；再密就是浪费 fill 调用。
+  const gap = Math.max(2, Math.round(fontSize / 60))
+  for (let y = 0; y < c.height; y += gap) {
+    for (let x = 0; x < c.width; x += gap) {
+      if (data[(y * c.width + x) * 4 + 3] > 120) {
+        pts.push({ x: x - c.width / 2, y: y - c.height / 2 })
       }
-      ctx.font = 'bold ' + c.size + 'px monospace';
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = c.opacity * initPhase;
-      ctx.fillText(c.char, c.x, c.y);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  // 网格
-  if (initPhase > 0) {
-    ctx.strokeStyle = 'rgba(0,255,255,' + (initPhase * 0.15) + ')';
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i < 15; i++) {
-      ctx.beginPath();
-      ctx.moveTo(0, CY + (i - 7) * 50);
-      ctx.lineTo(W, CY + (i - 7) * 50);
-      ctx.stroke();
     }
   }
+  // 洗牌：让粒子的来源方向分散，聚拢更有「数据汇入」感
+  for (let i = pts.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0
+    ;[pts[i], pts[j]] = [pts[j], pts[i]]
+  }
+  return pts
+}
 
-  // 能量线
-  if (loadPhase > 0) {
-    for (let i = 0; i < 24; i++) {
-      const angle = (i / 24) * Math.PI * 2;
-      const wave = Math.sin(time * 2.5);
-      const dist = 300 + wave * 80;
+const TEXT_LABEL = '灵栖'
+let textAssemble = 0   // 0 → 1，聚拢进度
+/** 聚字已累积的秒数（帧间累加，不依赖绝对时钟） */
+let cognitionElapsed = 0
+/** 采样失败（缺中文字体等）时的兜底：直接画字形，保证这一秒一定有东西 */
+let textFallback = false
 
-      const x1 = CX + Math.cos(angle) * dist;
-      const y1 = CY + Math.sin(angle) * dist;
-      const x2 = CX + Math.cos(angle) * 60 * loadPhase;
-      const y2 = CY + Math.sin(angle) * 60 * loadPhase;
+function buildTextParticles() {
+  const fontSize = Math.min(150, Math.max(96, W / 9))
+  const pts = sampleText(TEXT_LABEL, fontSize)
+  const max = 2600
+  const use = pts.slice(0, max)
 
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.strokeStyle = 'rgba(0,255,255,' + (loadPhase * 0.6) + ')';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+  // 采样不到足够的点 = 当前环境没有可用中文字体。
+  // 与其让这一秒空着，不如退化成「画字形 + 少量粒子掠过」。
+  textFallback = use.length < 120
+  if (textFallback) { textParts = []; return }
+
+  textParts = use.map((p) => {
+    // 起点：从画面外围随机方向飞来。
+    // 存的是**相对核心的偏移**，不是绝对坐标——绘制时统一加 CX/CY，
+    // 存绝对坐标再叠加一次中心点会把整片粒子推到画面外（v4 第一版的 bug）。
+    const a = Math.random() * 6.2832
+    const r = Math.max(W, H) * (.42 + Math.random() * .5)
+    return {
+      tx: p.x, ty: p.y,
+      sx: Math.cos(a) * r,
+      sy: Math.sin(a) * r * .8,
+      delay: Math.random() * .42,
+      jitter: Math.random() * 6.2832,
+      size: .7 + Math.random() * 1.5,
     }
+  })
+}
+
+function drawText(dt, t) {
+  if (textAssemble <= 0) return
+
+  // 兜底路径：没有中文字体时直接画字形，透明度随聚拢进度上升
+  if (textFallback) {
+    const S = Math.min(1, textAssemble)
+    const fontSize = Math.min(150, Math.max(96, W / 9))
+    ctx.save()
+    ctx.font = `700 ${fontSize}px "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.shadowColor = 'rgba(140,235,255,.9)'
+    ctx.shadowBlur = 30 * S
+    ctx.fillStyle = `rgba(225,250,255,${(S * .92).toFixed(3)})`
+    ctx.fillText(TEXT_LABEL, CX, CY)
+    ctx.restore()
+    return
   }
 
-  // 粒子汇聚
-  if (loadPhase > 0) {
-    for (let i = 0; i < 200; i++) {
-      const angle = (i / 200) * Math.PI * 2;
-      const r1 = 100 + Math.random() * 150;
-      const r2 = 50;
+  if (!textParts.length) return
+  const S = Math.min(1, textAssemble)
 
-      const x = CX + Math.cos(angle) * (r1 + (r2 - r1) * loadPhase * 1.5);
-      const y = CY + Math.sin(angle) * (r1 + (r2 - r1) * loadPhase * 1.5);
+  // 落位冲击：S 接近 1 的那一小段做一个弹性过冲，整块字「砸」下来
+  const impact = S > .82 ? EASE.elastic(seg(S, .82, .18)) : 0
+  const scale = 1 + Math.max(0, impact - 1) * .16   // 只取过冲的正部分
+  // 落位后整块字随节拍呼吸，永不完全静止
+  const textBreath = 1 + Math.sin(slowPhase(2) * Math.PI * 2) * .008
 
-      const hue = (i / 200 * 360 + time * 50) % 360;
-      ctx.fillStyle = 'hsl(' + hue + ',100%,50%)';
-      ctx.globalAlpha = loadPhase * 0.7;
-      ctx.beginPath();
-      ctx.arc(x, y, 1.5, 0, Math.PI * 2);
-      ctx.fill();
+  for (const p of textParts) {
+    const k = Math.max(0, Math.min(1, (S - p.delay) / (1 - p.delay || 1)))
+    const e = 1 - Math.pow(1 - k, 3)   // easeOutCubic
+    // 到位后加一点呼吸抖动，让字「活着」而不是死图
+    const wob = e > .92 ? Math.sin(beatClock * 2.4 + p.jitter) * 1.2 : 0
+    // sx/sy 与 tx/ty 都是相对核心的偏移，最后统一加 CX/CY
+    const ox = (p.sx + (p.tx - p.sx) * e + wob) * scale * textBreath
+    const oy = (p.sy + (p.ty - p.sy) * e + wob * .7) * scale * textBreath
+    const x = CX + ox
+    const y = CY + oy
+    // 飞行途中偏青，落位后偏白。粒子要够亮，否则叠在黑底上看不见
+    const white = e * e
+    const r = Math.round(170 + 85 * white)
+    const gch = Math.round(240 + 15 * white)
+    const b = 255
+    // 落位瞬间点亮一拍，之后随节拍微闪
+    const flash = e > .95 ? .12 * Math.pow(1 - beatPhase(), 3) : 0
+    ctx.fillStyle = `rgba(${r},${gch},${b},${Math.min(1, .55 + e * .45 + flash).toFixed(3)})`
+    ctx.beginPath(); ctx.arc(x, y, p.size * (1.1 + e * .9), 0, 6.2832); ctx.fill()
+  }
+
+  // 字定型后的外发光扫描：一道亮线从左到右扫过整块字
+  if (S >= .99) {
+    const sweep = (beatClock / (BEAT * 2)) % 1
+    const bandX = CX - 200 + sweep * 400
+    const g2 = ctx.createLinearGradient(bandX - 40, 0, bandX + 40, 0)
+    g2.addColorStop(0, 'rgba(180,245,255,0)')
+    g2.addColorStop(.5, 'rgba(210,250,255,.12)')
+    g2.addColorStop(1, 'rgba(180,245,255,0)')
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.fillStyle = g2
+    ctx.fillRect(bandX - 40, CY - 90, 80, 180)
+    ctx.restore()
+  }
+}
+
+/* ── 火花：能量爆发与门户开启时用 ───────────────────────────── */
+function emitSparks(count, speed = 320) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * 6.2832
+    const s = speed * (.35 + Math.random() * .9)
+    sparks.push({
+      x: CX, y: CY,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s * .8,
+      life: .7 + Math.random() * .9,
+      max: 1.6,
+      size: .6 + Math.random() * 1.4,
+      amber: Math.random() < .35,
+    })
+  }
+}
+function drawSparks(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const p = sparks[i]
+    p.x += p.vx * dt; p.y += p.vy * dt
+    p.vx *= .965; p.vy = p.vy * .965 + 26 * dt
+    p.life -= dt
+    if (p.life <= 0 || p.x < -60 || p.x > W + 60 || p.y > H + 60) {
+      sparks.splice(i, 1); continue
     }
-    ctx.globalAlpha = 1;
+    const a = Math.min(1, p.life / .5)
+    ctx.fillStyle = p.amber
+      ? `rgba(255,190,120,${a.toFixed(3)})`
+      : `rgba(170,240,255,${a.toFixed(3)})`
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.2832); ctx.fill()
+  }
+}
+
+/* ── 核心光点：第一幕唯一的主角 ─────────────────────────────── */
+let coreGlow = 0
+function drawCore(t) {
+  if (coreGlow <= .01) return
+  // 心跳式搏动：不是正弦慢呼吸，而是每拍一个「咚」——冲击后快速衰减。
+  // 用 1 - bp 的高次幂做尖峰，视觉上是一下一下跳，而不是匀速涌动。
+  const thump = Math.pow(1 - beatPhase(), 4)     // 拍首为 1，迅速衰到 0
+  const breathe = .84 + .16 * Math.sin(slowPhase(4) * Math.PI * 2) + thump * .22
+  const r = 8 + 5 * breathe + thump * 4
+
+  // 每拍向外荡出一圈细环，是「心跳」的可视化
+  for (let k = 0; k < 2; k++) {
+    const ph = (beatPhase() + k * .5) % 1
+    const radius = 30 + ph * 150
+    ctx.beginPath()
+    ctx.strokeStyle = `rgba(150,235,255,${((1 - ph) * .32 * coreGlow).toFixed(3)})`
+    ctx.lineWidth = 1.4 * (1 - ph) + .3
+    ctx.arc(CX, CY, radius, 0, 6.2832)
+    ctx.stroke()
   }
 
-  // 核心光晕
-  if (readyPhase > 0) {
-    const pulse = Math.sin(time * 3) * 0.5 + 0.5;
-    const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, 200);
-    g.addColorStop(0, 'rgba(0,255,255,' + (readyPhase * pulse * 0.5) + ')');
-    g.addColorStop(1, 'rgba(0,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(CX, CY, 200, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, 130 * breathe)
+  g.addColorStop(0, `rgba(235,255,255,${(.95 * coreGlow).toFixed(3)})`)
+  g.addColorStop(.16, `rgba(140,235,255,${(.55 * coreGlow).toFixed(3)})`)
+  g.addColorStop(.5, `rgba(50,150,230,${(.16 * coreGlow).toFixed(3)})`)
+  g.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = g
+  ctx.beginPath(); ctx.arc(CX, CY, 130 * breathe, 0, 6.2832); ctx.fill()
+  ctx.fillStyle = `rgba(255,255,255,${(.9 * coreGlow).toFixed(3)})`
+  ctx.beginPath(); ctx.arc(CX, CY, r, 0, 6.2832); ctx.fill()
+}
 
-  // 脉冲环
-  if (readyPhase > 0) {
-    for (let k = 0; k < 8; k++) {
-      const t = (time * 2 - k * 0.1) % 1.3;
-      if (t >= 0 && t <= 1) {
-        const r = 80 + t * 250;
-        ctx.beginPath();
-        ctx.arc(CX, CY, r, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,0,128,' + ((1 - t) * readyPhase) + ')';
-        ctx.lineWidth = 2 * (1 - t) + 0.5;
-        ctx.stroke();
+/* ── 电路纹路：从中心向外点亮（第二幕的「神经生长」） ──────── */
+const circuits = [
+  [[0,-40],[0,-96],[38,-134],[38,-196],[96,-254]],
+  [[0,-40],[0,-96],[-38,-134],[-38,-196],[-96,-254]],
+  [[0,40],[0,96],[42,138],[42,196],[104,258]],
+  [[0,40],[0,96],[-42,138],[-42,196],[-104,258]],
+  [[40,0],[96,0],[140,44],[206,44]],
+  [[-40,0],[-96,0],[-140,44],[-206,44]],
+  [[40,0],[96,0],[140,-44],[206,-44]],
+  [[-40,0],[-96,0],[-140,-44],[-206,-44]],
+]
+let circuitGrow = 0
+function drawCircuits(strength) {
+  if (strength <= .01) return
+  const K = Math.min(1, circuitGrow)
+  ctx.lineWidth = 1.2
+
+  for (let i = 0; i < circuits.length; i++) {
+    const path = circuits[i]
+    // 每条线的生长起点错开，看起来是「依次通电」而不是一起亮
+    const local = Math.max(0, Math.min(1, (K - i * .05) / .72))
+    if (local <= 0) continue
+
+    // 预先把折线点算成数组，后面既画线也用来跑电流脉冲
+    const pts = []
+    let totalSeg = 0
+    for (let s = 0; s < path.length; s++) {
+      pts.push([CX + path[s][0], CY + path[s][1]])
+      if (s > 0) {
+        totalSeg += Math.hypot(path[s][0] - path[s - 1][0], path[s][1] - path[s - 1][1])
       }
     }
+    const drawLen = totalSeg * local
+
+    ctx.beginPath()
+    ctx.moveTo(pts[0][0], pts[0][1])
+    let drawn = 0
+    for (let s = 1; s < pts.length; s++) {
+      const [x0, y0] = pts[s - 1]
+      const [x1, y1] = pts[s]
+      const len = Math.hypot(x1 - x0, y1 - y0)
+      if (drawn + len <= drawLen) {
+        ctx.lineTo(x1, y1)
+        drawn += len
+      } else {
+        const t = (drawLen - drawn) / len
+        ctx.lineTo(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+        break
+      }
+    }
+    // 底线条
+    ctx.strokeStyle = `rgba(90,215,255,${(.34 * strength).toFixed(3)})`
+    ctx.stroke()
+
+    // 电流脉冲：每个拍子从中心向外跑一道亮头。
+    // 错峰用 i（每条线延迟不同），形成一圈圈向外扩散的波。
+    if (local >= .999 && totalSeg > 0) {
+      const offset = i * 0.055
+      const head = ((beatClock / BEAT + offset) % 1.2) / 1.2   // 跑满 1.2 拍
+      if (head < 1) {
+        const dist = totalSeg * head
+        let acc = 0
+        for (let s = 1; s < pts.length; s++) {
+          const [x0, y0] = pts[s - 1]
+          const [x1, y1] = pts[s]
+          const len = Math.hypot(x1 - x0, y1 - y0)
+          if (acc + len >= dist) {
+            const tt = (dist - acc) / len
+            const hx = x0 + (x1 - x0) * tt
+            const hy = y0 + (y1 - y0) * tt
+            const fade = 1 - head
+            const gg = ctx.createRadialGradient(hx, hy, 0, hx, hy, 9)
+            gg.addColorStop(0, `rgba(215,250,255,${(.95 * fade * strength).toFixed(3)})`)
+            gg.addColorStop(1, 'rgba(120,230,255,0)')
+            ctx.fillStyle = gg
+            ctx.beginPath(); ctx.arc(hx, hy, 9, 0, 6.2832); ctx.fill()
+            break
+          }
+          acc += len
+        }
+      }
+    }
+
+    // 端点：按节拍闪烁，不是匀速呼吸
+    const end = pts[pts.length - 1]
+    const blink = .3 + .7 * Math.pow(1 - ((beatClock / (BEAT * 2) + i * .12) % 1), 3)
+    ctx.fillStyle = `rgba(200,250,255,${(.8 * strength * blink).toFixed(3)})`
+    ctx.beginPath(); ctx.arc(end[0], end[1], 2.2, 0, 6.2832); ctx.fill()
+  }
+}
+
+/* ══ 音效引擎 ═══════════════════════════════════════════════════════
+   全部 WebAudio 现场合成。机甲的「机械感」来自三样东西：
+   1) 噪声经窄带滤波 → 金属摩擦、液压排气
+   2) 低频正弦快速下滑 → 撞击、锁扣、引擎点火
+   3) 极短包络 + 高 Q 值 → 伺服电机、电路滴答
+   这些用采样反而更难对齐动画，合成才是可控的。
+   ════════════════════════════════════════════════════════════════ */
+let audio = null
+
+function createAudioEngine() {
+  const AC = window.AudioContext || window.webkitAudioContext
+  if (!AC) return null
+  const ac = new AC()
+
+  const master = ac.createGain()
+  master.gain.value = 0
+  master.connect(ac.destination)
+  master.gain.linearRampToValueAtTime(.085, ac.currentTime + 1.1)
+
+  // 柔化高频，避免合成音刺耳；电影感很大一部分来自这种「闷」
+  const tame = ac.createBiquadFilter()
+  tame.type = 'lowpass'
+  tame.frequency.value = 6200
+  tame.connect(master)
+
+  const nodes = []
+
+  /** 白噪声缓冲（复用，避免每次 new） */
+  const noiseBuf = ac.createBuffer(1, ac.sampleRate * 3, ac.sampleRate)
+  {
+    const d = noiseBuf.getChannelData(0)
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+  }
+  const noise = () => {
+    const n = ac.createBufferSource()
+    n.buffer = noiseBuf
+    n.loop = true
+    return n
   }
 
-  // 更新UI
-  const stage = time < 1.5 ? 'INIT' : time < 4 ? 'LOAD' : 'READY';
-  document.getElementById('info').textContent = '[ ' + stage + ' ]';
+  /* ── 底座：三层低频 + 一层气流噪声 ─────────────────────── */
+  ;[[41.2, -7], [61.7, 4], [82.4, -3]].forEach(([f, det]) => {
+    const o = ac.createOscillator()
+    o.type = 'sine'
+    o.frequency.value = f
+    o.detune.value = det
+    const g = ac.createGain()
+    g.gain.value = .26
+    o.connect(g).connect(tame)
+    o.start()
+    nodes.push(o)
+  })
 
-  const progress = Math.min(100, (time / 6.5) * 100);
-  document.getElementById('prog').textContent = Math.floor(progress) + '%';
-  document.getElementById('progFill').style.width = progress + '%';
-
-  time += dt;
-
-  if (time > 6.5) {
-    running = false;
+  // 气流：极窄带通的高频噪声，像机舱里的通风
+  {
+    const n = noise()
+    const bp = ac.createBiquadFilter()
+    bp.type = 'bandpass'
+    bp.frequency.value = 1400
+    bp.Q.value = 6
+    const g = ac.createGain()
+    g.gain.value = .055
+    n.connect(bp).connect(g).connect(tame)
+    n.start()
+    nodes.push(n)
   }
 
-  requestAnimationFrame(drawFrame);
+  const api = {
+    /** 心跳：两下闷响，是「沉睡中的机器」 */
+    heartbeat(strength = 1) {
+      const now = ac.currentTime
+      const thump = (t0, amp) => {
+        const o = ac.createOscillator()
+        o.type = 'sine'
+        o.frequency.setValueAtTime(64, t0)
+        o.frequency.exponentialRampToValueAtTime(34, t0 + .18)
+        const g = ac.createGain()
+        g.gain.setValueAtTime(0, t0)
+        g.gain.linearRampToValueAtTime(amp, t0 + .012)
+        g.gain.exponentialRampToValueAtTime(.0001, t0 + .34)
+        o.connect(g).connect(tame)
+        o.start(t0); o.stop(t0 + .4)
+      }
+      thump(now, .5 * strength)
+      thump(now + .19, .32 * strength)
+    },
+
+    /**
+     * 节拍脉冲（重音）。
+     *
+     * 这是「有节奏」里最容易被忽略的一半：画面按拍子在跳，
+     * 声音却只有一连串不相关的音效，就会显得没对齐。
+     * 每拍一个极轻的低频点，把画面与声音钉在同一个网格上。
+     */
+    beat(strong = false) {
+      const now = ac.currentTime
+      const o = ac.createOscillator()
+      o.type = 'sine'
+      o.frequency.setValueAtTime(strong ? 96 : 72, now)
+      o.frequency.exponentialRampToValueAtTime(strong ? 48 : 38, now + .1)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(0, now)
+      g.gain.linearRampToValueAtTime(strong ? .26 : .12, now + .008)
+      g.gain.exponentialRampToValueAtTime(.0001, now + (strong ? .26 : .16))
+      o.connect(g).connect(tame)
+      o.start(now); o.stop(now + .3)
+
+      // 重音拍配一声金属泛音，强调「咔」
+      if (strong) {
+        const n = noise()
+        const bp = ac.createBiquadFilter()
+        bp.type = 'bandpass'; bp.Q.value = 14
+        bp.frequency.value = 3200
+        const ng = ac.createGain()
+        ng.gain.setValueAtTime(.0001, now)
+        ng.gain.linearRampToValueAtTime(.12, now + .004)
+        ng.gain.exponentialRampToValueAtTime(.0001, now + .07)
+        n.connect(bp).connect(ng).connect(tame)
+        n.start(now); n.stop(now + .08)
+      }
+    },
+
+    /** 伺服电机启动：锯齿 + 带通扫频 + 机械摩擦噪声 */
+    servo() {
+      const now = ac.currentTime
+      const o = ac.createOscillator()
+      o.type = 'sawtooth'
+      o.frequency.setValueAtTime(88, now)
+      o.frequency.exponentialRampToValueAtTime(186, now + .55)
+      o.frequency.exponentialRampToValueAtTime(150, now + 1.0)
+      const bp = ac.createBiquadFilter()
+      bp.type = 'bandpass'; bp.Q.value = 5.5
+      bp.frequency.setValueAtTime(320, now)
+      bp.frequency.exponentialRampToValueAtTime(1250, now + .8)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.0001, now)
+      g.gain.linearRampToValueAtTime(.14, now + .12)
+      g.gain.linearRampToValueAtTime(.09, now + .7)
+      g.gain.exponentialRampToValueAtTime(.0001, now + 1.15)
+      o.connect(bp).connect(g).connect(tame)
+      o.start(now); o.stop(now + 1.2)
+
+      const n = noise()
+      const nbp = ac.createBiquadFilter()
+      nbp.type = 'bandpass'; nbp.Q.value = 12
+      nbp.frequency.setValueAtTime(2600, now)
+      nbp.frequency.linearRampToValueAtTime(4200, now + .9)
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(.0001, now)
+      ng.gain.linearRampToValueAtTime(.05, now + .2)
+      ng.gain.exponentialRampToValueAtTime(.0001, now + 1.0)
+      n.connect(nbp).connect(ng).connect(tame)
+      n.start(now); n.stop(now + 1.05)
+    },
+
+    /** 机械锁扣：噪声爆点 + 低频撞击，机甲最标志性的一声 */
+    clunk(strength = 1) {
+      const now = ac.currentTime
+      // 金属：短促高 Q 噪声
+      const n = noise()
+      const bp = ac.createBiquadFilter()
+      bp.type = 'bandpass'; bp.Q.value = 9
+      bp.frequency.value = 2200 + Math.random() * 900
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(.0001, now)
+      ng.gain.linearRampToValueAtTime(.32 * strength, now + .004)
+      ng.gain.exponentialRampToValueAtTime(.0001, now + .1)
+      n.connect(bp).connect(ng).connect(tame)
+      n.start(now); n.stop(now + .12)
+      // 撞击体
+      const o = ac.createOscillator()
+      o.type = 'sine'
+      o.frequency.setValueAtTime(120, now)
+      o.frequency.exponentialRampToValueAtTime(44, now + .12)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.42 * strength, now)
+      g.gain.exponentialRampToValueAtTime(.0001, now + .22)
+      o.connect(g).connect(tame)
+      o.start(now); o.stop(now + .24)
+    },
+
+    /** 电路滴答：极短高频，做「数据在流」的听感 */
+    tick(strength = 1) {
+      const now = ac.currentTime
+      const o = ac.createOscillator()
+      o.type = 'square'
+      o.frequency.value = 1800 + Math.random() * 2200
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.055 * strength, now)
+      g.gain.exponentialRampToValueAtTime(.0001, now + .035)
+      const hp = ac.createBiquadFilter()
+      hp.type = 'highpass'; hp.frequency.value = 900
+      o.connect(hp).connect(g).connect(tame)
+      o.start(now); o.stop(now + .04)
+    },
+
+    /** 充能：长上扫 + 谐波堆叠，能量注入的主角音 */
+    charge(dur = 1.6) {
+      const now = ac.currentTime
+      // 上扫锯齿
+      const o = ac.createOscillator()
+      o.type = 'sawtooth'
+      o.frequency.setValueAtTime(62, now)
+      o.frequency.exponentialRampToValueAtTime(440, now + dur)
+      const lp = ac.createBiquadFilter()
+      lp.type = 'lowpass'
+      lp.frequency.setValueAtTime(260, now)
+      lp.frequency.exponentialRampToValueAtTime(3400, now + dur)
+      lp.Q.value = 3
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.0001, now)
+      g.gain.linearRampToValueAtTime(.16, now + dur * .75)
+      g.gain.exponentialRampToValueAtTime(.0001, now + dur + .25)
+      o.connect(lp).connect(g).connect(tame)
+      o.start(now); o.stop(now + dur + .3)
+
+      // 空气感：带通噪声同步上扫
+      const n = noise()
+      const bp = ac.createBiquadFilter()
+      bp.type = 'bandpass'; bp.Q.value = 2.4
+      bp.frequency.setValueAtTime(420, now)
+      bp.frequency.exponentialRampToValueAtTime(5200, now + dur)
+      const ng = ac.createGain()
+      ng.gain.setValueAtTime(.0001, now)
+      ng.gain.linearRampToValueAtTime(.09, now + dur * .8)
+      ng.gain.exponentialRampToValueAtTime(.0001, now + dur + .3)
+      n.connect(bp).connect(ng).connect(tame)
+      n.start(now); n.stop(now + dur + .35)
+    },
+
+    /** 聚合成字：先是密集的高频「汇聚」，落位一瞬间收成一个和弦 */
+    assemble(dur = 1.9) {
+      const now = ac.currentTime
+      // 汇聚段：频率随机的高频短音，密度递减
+      for (let i = 0; i < 46; i++) {
+        const t = now + Math.random() * dur * .85
+        const f = 900 + Math.random() * 2600
+        const o = ac.createOscillator()
+        o.type = 'sine'; o.frequency.value = f
+        const g = ac.createGain()
+        const amp = .045 * (1 - (t - now) / dur)
+        g.gain.setValueAtTime(Math.max(.004, amp), t)
+        g.gain.exponentialRampToValueAtTime(.0001, t + .045)
+        o.connect(g).connect(tame)
+        o.start(t); o.stop(t + .05)
+      }
+      // 落位和弦：A 大调加九
+      const t0 = now + dur * .86
+      ;[440, 554.37, 659.25, 830.61, 1108.73].forEach((f, i) => {
+        const o = ac.createOscillator()
+        o.type = 'sine'; o.frequency.value = f
+        const g = ac.createGain()
+        const st = t0 + i * .022
+        g.gain.setValueAtTime(0, st)
+        g.gain.linearRampToValueAtTime(.15, st + .03)
+        g.gain.exponentialRampToValueAtTime(.0001, st + 1.5)
+        o.connect(g).connect(tame)
+        o.start(st); o.stop(st + 1.6)
+      })
+    },
+
+    /** 门户：低频轰鸣 + 长上扫 + 明亮收尾，整段的终点 */
+    gate() {
+      const now = ac.currentTime
+      // 轰鸣
+      const o = ac.createOscillator()
+      o.type = 'sine'
+      o.frequency.setValueAtTime(58, now)
+      o.frequency.exponentialRampToValueAtTime(26, now + 1.6)
+      const g = ac.createGain()
+      g.gain.setValueAtTime(.55, now)
+      g.gain.exponentialRampToValueAtTime(.0001, now + 2.2)
+      o.connect(g).connect(tame)
+      o.start(now); o.stop(now + 2.3)
+
+      // 上扫：像是穿过一道门
+      const s = ac.createOscillator()
+      s.type = 'sawtooth'
+      s.frequency.setValueAtTime(120, now + .1)
+      s.frequency.exponentialRampToValueAtTime(2200, now + 1.5)
+      const lp = ac.createBiquadFilter()
+      lp.type = 'lowpass'
+      lp.frequency.setValueAtTime(400, now)
+      lp.frequency.exponentialRampToValueAtTime(7000, now + 1.5)
+      const sg = ac.createGain()
+      sg.gain.setValueAtTime(.0001, now)
+      sg.gain.linearRampToValueAtTime(.12, now + .9)
+      sg.gain.exponentialRampToValueAtTime(.0001, now + 1.9)
+      s.connect(lp).connect(sg).connect(tame)
+      s.start(now); s.stop(now + 2)
+
+      // 明亮尾韵：高八度的长音
+      ;[880, 1318.5].forEach((f, i) => {
+        const t0 = now + .75 + i * .06
+        const o2 = ac.createOscillator()
+        o2.type = 'sine'; o2.frequency.value = f
+        const g2 = ac.createGain()
+        g2.gain.setValueAtTime(0, t0)
+        g2.gain.linearRampToValueAtTime(.09, t0 + .06)
+        g2.gain.exponentialRampToValueAtTime(.0001, t0 + 2.1)
+        o2.connect(g2).connect(tame)
+        o2.start(t0); o2.stop(t0 + 2.2)
+      })
+
+      master.gain.cancelScheduledValues(now + 1.2)
+      master.gain.setValueAtTime(master.gain.value, now + 1.2)
+      master.gain.linearRampToValueAtTime(0, now + 2.6)
+    },
+
+    stop() {
+      try { master.gain.value = 0 } catch {}
+      nodes.forEach((n) => { try { n.stop() } catch {} })
+      nodes.length = 0
+      setTimeout(() => ac.close().catch(() => {}), 900)
+    },
+  }
+  return api
 }
 
-function start() {
-  running = true;
-  time = 0;
-  createCodes();
+/* ══ 幕：五段叙事 ══════════════════════════════════════════════════
+   每一段是「画面状态 + 进度区间 + 声音事件」，三段一一对应。
+   ════════════════════════════════════════════════════════════════ */
+const ACTS = [
+  { id: 'dark',      from: 0,  to: 6,  label: 'STANDBY' },
+  { id: 'dormant',   from: 6,  to: 18, label: 'CORE WAKE' },
+  { id: 'neural',    from: 18, to: 40, label: 'NEURAL LINK' },
+  { id: 'energize',  from: 40, to: 66, label: 'ENERGIZE' },
+  { id: 'cognition', from: 66, to: 90, label: 'COGNITION' },
+  { id: 'gate',      from: 90, to: 100, label: 'GATE OPEN' },
+]
+
+const CHECK_ITEMS = ['框架', '神经', '能源', '意识', '门户']
+let checkedCount = 0
+
+function renderChecks(n) {
+  if (n === checkedCount) return
+  checkedCount = n
+  el.checks.innerHTML = CHECK_ITEMS.map((c, i) =>
+    `<div class="${i < n ? 'on' : ''}"><i>${i < n ? '◆' : '◇'}</i>${c}</div>`
+  ).join('')
 }
 
-function stop() {
-  running = false;
-  time = 0;
-  ctx.fillStyle = '#0a0e1a';
-  ctx.fillRect(0, 0, W, H);
+/**
+ * logo 从门户中心飞向左上角，落到主界面侧栏原位。
+ *
+ * 为什么用 JS 逐帧而不是 CSS keyframes：终点必须精确对齐主界面
+ * `.sidebar-logo` 的位置（left 16 / top 16 / 26px），而起点是门户中心，
+ * 两个点都依赖运行时尺寸，写死在 CSS 里会随窗口大小漂移。
+ */
+function flySignature() {
+  const img = el.sig
+  const targetSize = 26
+  // 右上角，留与主界面品牌区相同的边距（24px）
+  const margin = 24
+  const targetX = window.innerWidth - margin - targetSize
+  const targetY = margin
+  const startX = CX - 90, startY = CY - 90
+  const dur = 900
+  const t0 = performance.now()
+
+  img.style.width = '180px'
+  img.style.height = '180px'
+  img.style.left = '0'
+  img.style.top = '0'
+  img.style.opacity = '1'
+
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / dur)
+    // 先亮后落：前半段保持大尺寸做「登场」，后半段收缩归位
+    const e = 1 - Math.pow(1 - k, 3)
+    const size = 180 + (targetSize - 180) * e
+    // 起点按当前尺寸居中，终点按最终尺寸落在右上角，避免收缩时位置偏移
+    const x = startX + (targetX - startX) * e
+    const y = startY + (targetY - startY) * e
+    img.style.width = size + 'px'
+    img.style.height = size + 'px'
+    img.style.transform = `translate(${x}px, ${y}px)`
+    img.style.opacity = String(k < .12 ? k / .12 : 1 - Math.max(0, (k - .88) / .12) * .35)
+    if (k < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
 }
 
-// 启动主循环
-let lastFrameT = performance.now();
-function mainLoop(now) {
-  dt = (now - lastFrameT) / 1000;
-  lastFrameT = now;
-  dt = Math.min(dt, 0.05);
-  drawFrame();
-  requestAnimationFrame(mainLoop);
+/** 定格模式用：不经飞行动画，直接把 logo 落到终点位置 */
+let freezeSigPlaced = false
+function placeSignatureAtTarget() {
+  const img = el.sig
+  const targetSize = 26
+  const margin = 24
+  img.style.width = targetSize + 'px'
+  img.style.height = targetSize + 'px'
+  img.style.transform =
+    `translate(${window.innerWidth - margin - targetSize}px, ${margin}px)`
+  img.style.opacity = '1'
 }
 
-// 自动开始
-setTimeout(() => {
-  start();
-}, 800);
+function setAct(next) {
+  if (act === next) return
+  act = next
+  boot.dataset.act = next
+  const def = ACTS.find((a) => a.id === next)
+  el.act.textContent = def ? def.label : next.toUpperCase()
 
-requestAnimationFrame(mainLoop);
+  // 幕切换的入场：HUD 逐项错峰弹出（不是整块一起出现）
+  animateActIn(next)
+  if (next === 'neural') audio?.servo()
+  if (next === 'energize') audio?.charge(1.8)
+  if (next === 'cognition') audio?.assemble(2.0)
+  if (next === 'gate') audio?.gate()
+}
+
+/**
+ * 幕入场的错峰动画。
+ *
+ * 四角装甲 → 顶条 → 遥测 → 清单 → 进度条，每项延迟 70ms，
+ * 形成一条从外向内的波浪。所有元素同时出现会显得「假」，
+ * 错开之后就像系统在逐级上电。
+ */
+function animateActIn(name) {
+  if (name === 'dark' || name === 'dormant') return
+
+  const items = [
+    ...document.querySelectorAll('.hud-layer .armor'),
+    document.querySelector('.topbar'),
+    document.querySelector('.telemetry'),
+    document.querySelector('.checks'),
+    document.querySelector('.bar-wrap'),
+  ].filter(Boolean)
+
+  items.forEach((node, i) => {
+    node.animate(
+      [
+        { opacity: 0, transform: 'translateY(-6px) scale(.98)' },
+        { opacity: 1, transform: 'none' },
+      ],
+      {
+        duration: 380,
+        delay: stagger(i, 70) * 1000,
+        easing: 'cubic-bezier(.2,.9,.25,1)',
+        fill: 'backwards',
+      },
+    )
+  })
+}
+
+/* ── 主循环 ─────────────────────────────────────────────────── */
+let lastT = performance.now()
+let startedAt = performance.now()
+let corePhase = 0
+
+let frameError = ''
+function frame(now) {
+  try { frameInner(now) } catch (err) {
+    // 一次异常就把整条 rAF 链掐断，画面会停在异常前那一帧上。
+    // 捕获后写进 HUD，别让「画面不动」变成无头案。
+    if (!frameError) {
+      frameError = String(err && err.message || err)
+      console.error('[boot] frame error', err)
+      el.tSync.textContent = 'ERR ' + frameError.slice(0, 40)
+    }
+  }
+  requestAnimationFrame(frame)
+}
+
+function frameInner(now) {
+  const dt = Math.min(.05, (now - lastT) / 1000)
+  lastT = now
+  const t = now - startedAt
+
+  // 节拍时钟：所有循环动效都以它为基准，整段才有「拍子」
+  beatClock += dt
+  const bp = beatPhase()        // 单拍相位 0→1
+  const sp = slowPhase(4)       // 四拍呼吸相位 0→1
+
+  // 节拍音：检测「跨过拍点」，每拍一声，每 4 拍一个重音。
+  // 用相位回绕判断而不是定时器——这样声音与画面共用同一个时钟，
+  // 帧率变化时会一起抖，不会出现「画面对了声音错半拍」。
+  const beatNo = Math.floor(beatClock / BEAT)
+  if (beatNo !== lastBeatNo) {
+    lastBeatNo = beatNo
+    if (running) audio?.beat(beatNo % 4 === 0)
+  }
+
+  ctx.clearRect(0, 0, W, H)
+
+  // 各层的强度都由当前幕推导，不在各处写魔法数字
+  const isDark = act === 'dark'
+  const isDormant = act === 'dormant'
+  const isNeural = act === 'neural'
+  const isEnergize = act === 'energize'
+  const isCognition = act === 'cognition'
+  const isGate = act === 'gate'
+
+  // 聚字时核心主动退场：光晕会盖掉粒子字（v4 第二版的 bug）
+  targetCore = isDark ? .18
+    : isDormant ? 1
+    : isCognition ? .10
+    : isGate ? .35
+    : .72
+  coreGlow += (targetCore - coreGlow) * Math.min(1, dt * 3)
+
+  streamInflow = isNeural ? Math.min(1, streamInflow + dt * .7)
+    : isEnergize || isCognition || isGate ? Math.max(0, streamInflow - dt * .35)
+    : 0
+
+  circuitGrow = isNeural ? Math.min(1, circuitGrow + dt * .55)
+    : isEnergize || isCognition ? 1
+    : isGate ? Math.max(0, circuitGrow - dt * .6) : 0
+
+  drawDust(dt, t)
+  if (streamInflow > 0 && !streams.length) seedStreams()
+  drawStreams(dt)
+  drawCircuits(isNeural ? .5 + streamInflow * .5 : (circuitGrow > 0 ? .55 : 0))
+  drawCore(t)
+
+  const ringStrength = isEnergize ? 1 : isCognition ? .75 : isGate ? .5 : 0
+  drawRings(dt, ringStrength)
+  if (isEnergize && Math.random() < dt * 7) emitRingPulse()
+
+  if (isCognition) {
+    // 用**帧间累积**而不是绝对时钟：rAF 的 now 与定时器/performance.now()
+    // 在虚拟时间环境里不同基，用绝对差会让进度恒为 0（字永远不出现）。
+    cognitionElapsed += dt
+    textAssemble = Math.min(1, Math.max(0, (cognitionElapsed - 0.12) / 1.75))
+    if (!textParts.length) buildTextParticles()
+  } else if (isGate) {
+    // 门户开启时字慢慢退场，让位给门
+    textAssemble = Math.max(0, textAssemble - dt * .8)
+  }
+  // ?freeze=<act>：定格某幕的完成态。必须放在累积逻辑**之后**，
+  // 否则刚设好的值会被下一帧的累加覆盖（无头截图帧数极少，累积永远到不了 1）。
+  if (FREEZE) {
+    if (act !== FREEZE) setAct(FREEZE)
+    streamInflow = FREEZE === 'neural' ? 1 : 0
+    circuitGrow = FREEZE === 'neural' || FREEZE === 'energize' ? 1 : 0
+    coreGlow = FREEZE === 'cognition' ? .1 : .72
+    if (FREEZE === 'cognition') {
+      if (!textParts.length) buildTextParticles()
+      textAssemble = 1
+    }
+    if (FREEZE === 'gate' && !freezeSigPlaced) {
+      freezeSigPlaced = true
+      placeSignatureAtTarget()
+    }
+  }
+
+  drawText(dt, t)
+
+  drawSparks(dt)
+  // 镜头呼吸：画布整体做亚像素级位移 + 极轻微缩放。
+  // 幅度必须小（≤1.5px），大了是「晕船」而不是「灵动」。
+  if (cv) {
+    const camX = Math.sin(sp * Math.PI * 2) * 1.5
+    const camY = Math.cos(sp * Math.PI * 2 * .7) * 1.2
+    const camScale = 1.008 + Math.sin(sp * Math.PI * 2) * .006
+    cv.style.transform = `translate(${camX.toFixed(2)}px, ${camY.toFixed(2)}px) scale(${camScale.toFixed(4)})`
+  }
+
+  // DEBUG：?debug=1 时在左下角显示内部状态，便于定位「画面没出现」这类问题
+  if (DEBUG) {
+    const p0 = textParts[0]
+    el.tCore.textContent = `a=${act} n=${textParts.length} f=${textFallback ? 1 : 0}`
+    el.tPwr.textContent = `S=${textAssemble.toFixed(2)} ${p0 ? `t=(${p0.tx | 0},${p0.ty | 0})` : '-='}`
+    el.tSync.textContent = `p=${progress.toFixed(0)} cx=${CX | 0}`
+  }
+
+  // 遥测
+  if ((now | 0) % 5 === 0) {
+    el.tCore.textContent = '0x' + ((Math.random() * 255) | 0).toString(16).toUpperCase().padStart(2, '0')
+    el.tPwr.textContent = progress.toFixed(1) + '%'
+    el.tSync.textContent = isGate ? 'LOCKED' : isCognition ? 'MERGING' : isEnergize ? 'CHARGING' : 'SYNC'
+  }
+}
+let targetCore = .18
+
+/* ── 播放 ───────────────────────────────────────────────────── */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function play() {
+  if (running) return
+  running = true
+  abort = false
+
+  // 重置
+  progress = 0; textAssemble = 0; circuitGrow = 0; streamInflow = 0; cognitionElapsed = 0
+  beatClock = 0; lastBeatNo = -1
+  textParts = []; sparks = []; ringPulses = []; streams = []
+  coreGlow = 0; checkedCount = -1
+  act = 'dark'; boot.dataset.act = 'dark'
+  boot.classList.remove('fading'); boot.style.display = ''
+  el.barFill.style.width = '0%'; el.pct.textContent = '0%'
+  el.phase.textContent = 'STANDBY'
+  el.gate.classList.remove('open'); el.seam.classList.remove('open')
+  el.sig.style.opacity = '0'
+  el.sig.style.transform = ''
+  el.flash.classList.remove('fire')
+  renderChecks(0)
+  seedDust()
+  startedAt = performance.now()
+
+  audio = document.getElementById('sound').checked ? createAudioEngine() : null
+  audio?.heartbeat(1)
+
+  // 开场：黑边收拢，进入「放映」状态
+  setTimeout(() => el.barTop.classList.add('on'), 100)
+  setTimeout(() => el.barBot.classList.add('on'), 100)
+
+  /** 把总时长切成幕；每个阶段按真实启动阶段推进（DEMO 里用固定节奏模拟） */
+  const timeline = [
+    { act: 'dark',      dur: 620,  phase: '' },
+    { act: 'dormant',   dur: 1900, phase: '核心唤醒' },
+    { act: 'neural',    dur: 2300, phase: '神经链接' },
+    { act: 'energize',  dur: 2100, phase: '能量充能' },
+    { act: 'cognition', dur: 2400, phase: '意识聚合' },
+  ]
+
+  let acc = 0
+  for (let i = 0; i < timeline.length; i++) {
+    if (abort) break
+    const seg = timeline[i]
+    setAct(seg.act)
+    if (seg.phase) el.phase.textContent = seg.phase
+    audio?.heartbeat(i === 0 ? 1 : .45)
+
+    const slices = 6
+    for (let k = 1; k <= slices; k++) {
+      if (abort) break
+      // 前五幕共占 0–90%，末段 90–100% 留给门户
+      acc += 1
+      progress = (acc / (timeline.length * slices)) * 90
+      el.barFill.style.width = progress.toFixed(1) + '%'
+      el.pct.textContent = Math.round(progress) + '%'
+      // 每推进一格，机械感的一小声
+      if (k % 2 === 0) audio?.tick(.7)
+      if (i === 2 && k === 3) audio?.clunk(1)
+      await sleep(seg.dur / slices)
+    }
+    renderChecks(Math.min(4, Math.round(((i + 1) / timeline.length) * 4)))
+  }
+
+  if (abort) { running = false; return }
+
+  /* 第五幕：门户 */
+  setAct('gate')
+  el.phase.textContent = '门户开启'
+  progress = 100
+  el.barFill.style.width = '100%'
+  el.pct.textContent = '100%'
+  renderChecks(5)
+
+  // 竖缝先裂开
+  el.seam.classList.add('open')
+  audio?.clunk(1.2)
+  await sleep(320)
+
+  // 门向两侧张开 + 火花
+  el.gate.classList.add('open')
+  emitSparks(90, 420)
+  audio?.clunk(1.5)
+  await sleep(680)
+
+  // logo 从门户中心飞向左上角（主界面侧栏原位），边飞边缩到 26px
+  flySignature()
+  emitSparks(60, 260)
+  await sleep(760)
+
+  // 白场 + 冲击波，然后淡出
+  el.flash.classList.add('fire')
+  el.shock.classList.remove('fire'); void el.shock.offsetWidth
+  el.shock.classList.add('fire')
+  emitSparks(70, 520)
+  await sleep(560)
+
+  el.barTop.classList.remove('on')
+  el.barBot.classList.remove('on')
+  await sleep(340)
+
+  boot.classList.add('fading')
+  await sleep(460)
+  boot.style.display = 'none'
+
+  audio?.stop(); audio = null
+  running = false
+}
+
+$('replay').addEventListener('click', () => {
+  abort = true
+  setTimeout(() => { void play() }, 80)
+})
+$('skip').addEventListener('click', () => { abort = true })
+
+window.addEventListener('resize', resize)
+
+resize()
+renderChecks(0)
+requestAnimationFrame(frame)
+// 定格模式下不自动播放：play() 的时间线会和定格状态互相打架
+if (!FREEZE) setTimeout(() => { void play() }, 400)
 </script>
-
 </body>
 </html>
