@@ -16,8 +16,9 @@ const MODEL_IDS = [
   'tts-qwen3-1.7b-custom',
   'tts-qwen3-0.6b-base',
   'tts-qwen3-1.7b-base',
-  // PyTorch CUDA 运行时只服务 Qwen3 的 GPU 推理；归到这里，
-  // 禁用 Qwen3 后它才不会在模型面板里残留一个 2.29GB 的无用条目。
+  // PyTorch CUDA 运行时只服务本地 GPU 推理；归到这里，
+  // 禁用 Qwen3 后它才不会在模型面板里残留一个 2.3GB 的无用条目。
+  // （Breeze 也用同一份运行时，但那个插件默认关闭，不指望它在场。）
   'runtime-pytorch-cu121',
 ]
 

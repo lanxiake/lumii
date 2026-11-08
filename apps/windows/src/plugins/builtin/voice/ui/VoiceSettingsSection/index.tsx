@@ -587,19 +587,15 @@ export function VoiceSettingsSection() {
                 <Select
                   value={voiceConfig.tts.provider}
                   options={ttsEngines.map((e) => ({
-                    // 未就绪时补一句原因，避免用户以为点了没反应。
-                    // 「需先下载」只对有本地模型的引擎成立；Breeze 那种是没配好，
-                    // 说成"下载"会把用户引向错误的方向。
+                    // 未就绪**不置灰**：置灰就选不中，而配置面板只在选中后渲染，
+                    // 用户会永远卡在「进不去配置」这一步。改为选中后给一条明确的原因。
                     label: e.ready
                       ? e.label
-                      : `${e.label}（${e.requiresModel ? '需先下载' : '需先配置'}）`,
+                      : `${e.label}（${e.requiresModel ? '需先下载模型' : '需先完成配置'}）`,
                     value: e.id,
-                    disabled: !e.ready,
                   }))}
                   onChange={(e) => {
                     const v = e.target.value
-                    const opt = ttsEngines.find((x) => x.id === v)
-                    if (!opt?.ready) return
                     if (v === 'qwen3') {
                       const prefer = qwen3Custom06Ready ? '0.6b-custom' : '1.7b-custom'
                       saveVoiceConfig({
@@ -610,6 +606,18 @@ export function VoiceSettingsSection() {
                     saveVoiceConfig({ tts: { provider: v, qwen3CloneEnabled: false } })
                   }}
                 />
+                {/* 选中的引擎还没就绪：说清楚缺什么、去哪里补 */}
+                {(() => {
+                  const cur = ttsEngines.find((x) => x.id === voiceConfig.tts.provider)
+                  if (!cur || cur.ready) return null
+                  return (
+                    <span className={styles['setting-hint']}>
+                      {cur.requiresModel
+                        ? '该引擎的本地模型还没下载，展开下方「下载」面板获取。'
+                        : '该引擎需要先完成配置，在下方填写后即可使用。'}
+                    </span>
+                  )
+                })()}
                 {ttsEngines.length === 0 && (
                   <span className={styles['setting-hint']}>
                     没有可用的合成引擎。请到「设置 › 插件」启用至少一个 TTS 插件。

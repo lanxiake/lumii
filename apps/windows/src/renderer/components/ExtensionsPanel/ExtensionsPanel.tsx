@@ -18,6 +18,9 @@ import { Modal } from '../ui/Modal/Modal'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import styles from './ExtensionsPanel.module.css'
 
+/** 分组折叠状态的 localStorage 键 */
+const COLLAPSE_KEY = 'lumii.plugins.collapsed'
+
 /**
  * 设置 › 插件：**一张表**看清「装了哪些插件、谁没起来、为什么」。
  *
@@ -244,6 +247,26 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
   const [aiBrief, setAiBrief] = useState('')
   const [query, setQuery] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('name')
+  // 分组折叠：插件一多，两组各几十张卡片滚起来很难找。
+  // 状态存 localStorage —— 这是纯展示偏好，丢了只是回到展开态。
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '{}') as Record<string, boolean>
+    } catch {
+      return {}
+    }
+  })
+  const toggleSection = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      try {
+        localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next))
+      } catch {
+        /* 隐私模式下写不了，忽略即可 */
+      }
+      return next
+    })
+  }, [])
   // 运行时组件状态来自全局 context：依赖行与独立组件卡片共用
   const {
     statuses: assetStatuses,
@@ -298,6 +321,9 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
 
   const visibleExternal = filter(externalRows)
   const visibleBuiltin = filter(builtinRows)
+  // 搜索时强制展开：折叠着却搜到结果，用户只会以为没搜到
+  const collapsedExternal = collapsed.external === true && query.trim() === ''
+  const collapsedBuiltin = collapsed.builtin === true && query.trim() === ''
 
   const refresh = useCallback(async () => {
     try {
@@ -780,14 +806,27 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
       ) : (
         <>
           <section className={styles.section}>
-            <header className={styles.sectionHeader}>
+            <header
+              className={`${styles.sectionHeader} ${styles.sectionHeaderClickable}`}
+              onClick={() => toggleSection('external')}
+              role="button"
+              tabIndex={0}
+              aria-expanded={!collapsedExternal}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  toggleSection('external')
+                }
+              }}
+            >
+              <span className={styles.chevron}>{collapsedExternal ? '▸' : '▾'}</span>
               <h3 className={styles.sectionTitle}>外部插件</h3>
               <span className={styles.hint}>即时生效；组件按需下载</span>
               <span className={styles.count}>
                 {visibleExternal.length}/{externalRows.length}
               </span>
             </header>
-            {externalRows.length === 0 ? (
+            {collapsedExternal ? null : externalRows.length === 0 ? (
               <p className={styles.empty}>还没有外部插件</p>
             ) : visibleExternal.length === 0 ? (
               <p className={styles.empty}>没有匹配的插件</p>
@@ -797,14 +836,27 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
           </section>
 
           <section className={styles.section}>
-            <header className={styles.sectionHeader}>
+            <header
+              className={`${styles.sectionHeader} ${styles.sectionHeaderClickable}`}
+              onClick={() => toggleSection('builtin')}
+              role="button"
+              tabIndex={0}
+              aria-expanded={!collapsedBuiltin}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  toggleSection('builtin')
+                }
+              }}
+            >
+              <span className={styles.chevron}>{collapsedBuiltin ? '▸' : '▾'}</span>
               <h3 className={styles.sectionTitle}>内置插件</h3>
               <span className={styles.hint}>随应用发版，只能禁用</span>
               <span className={styles.count}>
                 {visibleBuiltin.length}/{builtinRows.length}
               </span>
             </header>
-            {visibleBuiltin.length === 0 ? (
+            {collapsedBuiltin ? null : visibleBuiltin.length === 0 ? (
               <p className={styles.empty}>没有匹配的插件</p>
             ) : (
               <div className={styles.grid}>{visibleBuiltin.map(renderRow)}</div>

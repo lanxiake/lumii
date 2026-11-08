@@ -1,50 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import os from 'node:os'
-import fs from 'node:fs'
-import path from 'node:path'
-import { isBreezeConfigured, s16leToFloat32 } from './breeze-client'
-
-describe('Breeze 就绪判定', () => {
-  it('填了已运行的服务地址即视为可配置（只连不管）', () => {
-    expect(isBreezeConfigured({ baseUrl: 'http://127.0.0.1:7860' })).toBe(true)
-  })
-
-  it('什么都没填 → 不可用（下拉置灰，而不是选中后才报错）', () => {
-    expect(isBreezeConfigured({})).toBe(false)
-  })
-
-  it('仓库路径不是 Breeze 仓库 → 不可用', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-not-repo-'))
-    try {
-      expect(isBreezeConfigured({ repoPath: dir })).toBe(false)
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('仓库对了但没有 python → 不可用', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'breeze-no-py-'))
-    try {
-      fs.mkdirSync(path.join(dir, 'breeze_infer'), { recursive: true })
-      fs.writeFileSync(path.join(dir, 'breeze_infer', 'api.py'), '')
-      expect(isBreezeConfigured({ repoPath: dir })).toBe(false)
-      // 显式给了解释器就算就绪
-      expect(isBreezeConfigured({ repoPath: dir, python: 'C:/py/python.exe' })).toBe(true)
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
-    }
-  })
-})
+import { s16leToFloat32 } from './breeze-client'
 
 describe('Breeze PCM 转换', () => {
   it('s16le 小端 → [-1, 1]', () => {
     // 0, 32767, -32768, 16384
-    const bytes = new Uint8Array([
-      0x00, 0x00,
-      0xff, 0x7f,
-      0x00, 0x80,
-      0x00, 0x40,
-    ])
+    const bytes = new Uint8Array([0x00, 0x00, 0xff, 0x7f, 0x00, 0x80, 0x00, 0x40])
     const out = s16leToFloat32(bytes)
     expect(out).toHaveLength(4)
     expect(out[0]).toBe(0)

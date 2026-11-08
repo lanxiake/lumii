@@ -3,40 +3,28 @@ import { definePlugin } from '@mtbot/plugin-core'
 import type { MainEvents } from '../../../main/kernel/events'
 import { registerTtsEngine } from '../../../shared/tts-engine-registry'
 import type { VoiceTtsConfig } from '../../../shared/voice-events'
-import { BreezeTtsProvider, isBreezeConfigured } from './breeze-client.js'
+import { BreezeTtsProvider } from './breeze-client.js'
 
-/** 从配置里抽出 Breeze 的部署参数（provider 与就绪判定共用） */
-function breezeConfigOf(cfg: VoiceTtsConfig) {
-  return {
-    repoPath: cfg.breezeRepoPath,
-    modelDir: cfg.breezeModelDir,
-    port: cfg.breezePort,
-    baseUrl: cfg.breezeBaseUrl,
-    python: cfg.breezePython,
-    cfgScale: cfg.breezeCfgScale,
-    instruction: cfg.breezeInstruction,
-  }
-}
+const MODEL_ID = 'tts-breeze-2'
 
 /**
- * Breeze TTS 2 —— 接本地已有部署，不代为安装。
+ * Breeze TTS 2 —— 与 MeloTTS / Qwen3 同一套用法：**代码内置，只下模型**。
  *
- * 它是独立仓库（Linux/CUDA 为主，但也回落 CPU）的 Python 服务，本插件只做三件事：
- * 按设置里的仓库路径拉起进程、健康检查、把流式 PCM 转成 `TtsChunk`。
+ * 推理代码随应用发版（`assets/breeze/`，来自 Apache-2.0 的上游仓库），
+ * 用户只需在「设置 › 语音」下载 7.7GB 权重即可使用。
  *
- * **默认关闭**（`defaultEnabled: false`）：没部署 Breeze 的用户点开它只会看到
- * 一串「找不到 Python」的报错。等用户在插件页主动开启，才需要填路径。
- * 无本地模型下载，所以 `modelIds` 为空——模型面板不显示任何条目。
+ * 与 Qwen3 共用同一个托管 Python 环境（两者都需要 torch 2.9.1 + CUDA）。
+ * 不装 flash-attn：它要在 Windows 上编译 CUDA 扩展，多数用户会卡在这里；
+ * 上游默认的 `attn_implementation="eager"` 不需要它。
  */
 export const ttsBreezeExtension = {
   manifest: {
     id: 'com.lumii.tts.breeze',
     name: 'Breeze TTS 2',
     version: '0.1.0',
-    description: '接入本机已部署的 Breeze TTS 2（声音克隆 / 声音设计 / 风格指令）',
+    description: '高表现力中英双语合成，支持声音克隆与自然语言风格指令（需下载 7.7GB 模型）',
     engines: { lumii: '>=0.1.0' },
     kind: 'code' as const,
-    defaultEnabled: false,
   },
   definition: definePlugin<MainEvents>({
     id: 'com.lumii.tts.breeze',
@@ -44,14 +32,24 @@ export const ttsBreezeExtension = {
       ctx.effect(
         registerTtsEngine({
           id: 'breeze',
-          label: 'Breeze TTS 2（本地服务，需自行部署）',
-          modelIds: [],
-          // 服务端是单并发（内建 _request_lock，并发请求返回 409）
+          label: 'Breeze TTS 2（本地，声音克隆 + 风格指令）',
+          // 模型本体 + GPU 运行时（与 Qwen3 共用同一份 torch 2.9.1）
+          modelIds: [MODEL_ID, 'runtime-pytorch-cu121'],
+          // 服务端内建单并发锁，并发请求直接 409
           concurrency: 1,
           outputFormat: 'pcm',
-          // 没有本地模型可下，可用性完全取决于用户填的部署参数
-          isReady: (cfg) => isBreezeConfigured(breezeConfigOf(cfg)),
-          create: async (_host, cfg) => new BreezeTtsProvider(breezeConfigOf(cfg)),
+          create: async (host, cfg: VoiceTtsConfig) => {
+            if (!host.isModelReady(MODEL_ID)) {
+              throw new Error(
+                'Breeze 模型未下载，请前往「设置 → 语音」下载后重试',
+              )
+            }
+            return new BreezeTtsProvider({
+              modelDir: host.modelDir(MODEL_ID),
+              cfgScale: cfg.breezeCfgScale,
+              instruction: cfg.breezeInstruction,
+            })
+          },
         }),
       )
       ctx.log.info('Breeze TTS 引擎已注册')

@@ -35,19 +35,23 @@ const log = {
 export const WAKE_CALL_ID = '__wake__'
 
 /**
- * 若已下载任意 Qwen3 TTS 权重，后台预装 qwen-tts（不阻塞 UI）
+ * 若已下载任意本地 TTS 权重，后台预装推理依赖（不阻塞 UI）。
+ *
+ * Qwen3 与 Breeze 共用同一个托管 Python（都钉 torch 2.9.1 / cu128），
+ * 依赖也一次装全，所以任一引擎的模型到位都值得触发一次。
  */
 function maybePrepareQwen3Runtime(
   modelManager: VoiceModelManager,
   voiceService: VoiceCallService,
   reason: string,
 ): void {
-  const hasQwenModel =
+  const hasLocalTtsModel =
     modelManager.isModelDownloaded('tts-qwen3-0.6b-custom') ||
     modelManager.isModelDownloaded('tts-qwen3-1.7b-custom') ||
     modelManager.isModelDownloaded('tts-qwen3-0.6b-base') ||
-    modelManager.isModelDownloaded('tts-qwen3-1.7b-base')
-  if (!hasQwenModel) return
+    modelManager.isModelDownloaded('tts-qwen3-1.7b-base') ||
+    modelManager.isModelDownloaded('tts-breeze-2')
+  if (!hasLocalTtsModel) return
   const devicePref = voiceService.getConfig().tts.qwen3Device ?? 'auto'
   log.info(`[prepareQwen3] 触发预装 reason=${reason} device=${devicePref}`)
   void prepareQwen3TtsRuntime(devicePref).catch((e) => {
@@ -175,10 +179,11 @@ export function registerVoiceIpc(
             (progress) => {
               sendModelProgress(command.modelId, progress)
               if (progress.state !== 'ready') return
-              // Qwen3 权重下完后立刻后台预装 pip 依赖
+              // 本地引擎权重下完后立刻后台预装 pip 依赖（Qwen3 与 Breeze 共用一套）
               if (
-                String(command.modelId).startsWith('tts-qwen3-') &&
-                !String(command.modelId).includes('tokenizer')
+                (String(command.modelId).startsWith('tts-qwen3-') &&
+                  !String(command.modelId).includes('tokenizer')) ||
+                command.modelId === 'tts-breeze-2'
               ) {
                 maybePrepareQwen3Runtime(modelManager, voiceService, `download-ready:${command.modelId}`)
               }

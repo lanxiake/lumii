@@ -284,21 +284,14 @@ export type VoiceTtsConfig = {
    */
   language?: string
 
-  // ── Breeze TTS（外部部署，插件为 com.lumii.tts.breeze）──────────────────
-  /** Breeze 仓库根目录（含 breeze_infer/） */
-  breezeRepoPath?: string
-  /** checkpoint 目录；相对路径按 breezeRepoPath 解析 */
-  breezeModelDir?: string
-  /** 服务端口（默认 7860） */
-  breezePort?: number
-  /** 已运行的服务地址；填了就直接连，不自动拉起 */
-  breezeBaseUrl?: string
-  /** Python 解释器；缺省用 <repoPath>/.venv */
-  breezePython?: string
+  // ── Breeze TTS（插件 com.lumii.tts.breeze）────────────────────────────
+  // 代码与运行环境内置、模型走统一的「下载」面板，所以没有路径类配置项。
   /** 指令强度（README 推荐 4 能明显增强指令跟随） */
   breezeCfgScale?: number
   /** 声音设计 / 风格指令 */
   breezeInstruction?: string
+  /** 服务端口；仅自动拉起时生效，一般不用改 */
+  breezePort?: number
 }
 
 /** Qwen3 CustomVoice 内置音色（含方言） */

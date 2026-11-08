@@ -33,6 +33,31 @@
   gap: var(--spacing-3);
 }
 
+/* 分组可折叠：整行是点击区，给一点内边距让可点范围够大 */
+.sectionHeaderClickable {
+  cursor: pointer;
+  user-select: none;
+  padding: var(--spacing-1) 0;
+  border-radius: var(--radius-sm);
+}
+
+.sectionHeaderClickable:hover {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.04));
+}
+
+.sectionHeaderClickable:focus-visible {
+  outline: 2px solid var(--color-accent, #4c9aff);
+  outline-offset: 2px;
+}
+
+.chevron {
+  display: inline-block;
+  width: 1em;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  transition: transform 0.15s ease;
+}
+
 .sectionTitle {
   margin: 0;
   font-size: var(--font-size-base);

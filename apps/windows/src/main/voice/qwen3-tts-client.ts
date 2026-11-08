@@ -345,8 +345,8 @@ async function installTorchStack(
     [
       '--no-cache-dir',
       '--force-reinstall',
-      'torch==2.5.1',
-      'torchaudio==2.5.1',
+      'torch==2.9.1',
+      'torchaudio==2.9.1',
       '--index-url',
       'https://download.pytorch.org/whl/cpu',
     ],
@@ -438,7 +438,11 @@ async function probeTorchCudaOnly(pythonExe: string): Promise<boolean> {
 }
 
 /**
- * 安装 qwen-tts + faster-qwen3-tts（CUDA Graph 加速）推理依赖
+ * 安装推理依赖：qwen-tts + faster-qwen3-tts + Breeze TTS 的 Web 服务依赖。
+ *
+ * 两个引擎共用同一个托管 Python（都钉 torch 2.9.1 / cu128），所以依赖一次性装全：
+ * 分成两套环境会让用户在切换引擎时反复重装 torch。fastapi / uvicorn /
+ * python-multipart 是 Breeze HTTP 服务所需，体积很小，对 Qwen3 无副作用。
  */
 async function installQwenDeps(pythonExe: string): Promise<void> {
   await pipInstall(
@@ -451,14 +455,18 @@ async function installQwenDeps(pythonExe: string): Promise<void> {
       'soundfile',
       'numpy',
       'librosa',
+      'einops',
+      // Breeze TTS 的 HTTP 服务依赖（breeze_infer/api.py 用 FastAPI 提供流式接口）
+      'fastapi>=0.115',
+      'uvicorn>=0.30',
+      'python-multipart>=0.0.18',
       // onnxruntime 1.20.1 钉版是 Windows 专属规避（Win10 19045 LoadLibrary 1114，
       // 见 python-env.BUNDLED_ONNXRUNTIME_SPEC）；Linux 不钉，取当前可用版本。
       ...(process.platform === 'win32' ? [BUNDLED_ONNXRUNTIME_SPEC] : []),
-      'einops',
       '-i',
       PYPI_MIRROR,
     ],
-    '正在安装 qwen-tts / faster-qwen3-tts 及相关依赖…',
+    '正在安装推理依赖（qwen-tts / faster-qwen3-tts / Breeze）…',
   )
 }
 
@@ -519,7 +527,7 @@ async function ensureQwenTtsPackage(
     'models',
     'voice',
     'runtime',
-    'pytorch-cu121',
+    'pytorch-cu128',
   )
   log.info(`[ensureQwenTtsPackage] pref=${devicePref} wantCuda=${wantCuda} nvidia=${hasNvidiaGpu()} wheelDir=${wheelDir}`)
 

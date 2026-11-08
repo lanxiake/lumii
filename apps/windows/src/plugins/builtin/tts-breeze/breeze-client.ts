@@ -1,20 +1,23 @@
 /**
  * Breeze TTS 2 客户端（HTTP，本地 FastAPI sidecar）。
  *
- * Breeze 是独立仓库（E:\ai\breeze-tts）的 Python 服务，不在本应用内运行。
- * 「安装」= 用户在本机部署好它，然后把仓库路径 / 模型目录 / 端口填进设置；
- * 本插件负责按需拉起服务、健康检查、流式合成。
+ * 与 MeloTTS/Qwen3 一样是**内置**引擎：推理代码随应用发版（`assets/breeze/`），
+ * 用户只要下模型。这里负责用托管 Python 拉起 `python -m breeze_infer.api`，
+ * 健康检查，流式合成。
  *
  * 接口（breeze_infer/api.py）：
- * - `GET  /health`                         未加载完返回 503 `{"status":"loading"}`
- * - `POST /v1/audio/speech`                multipart；响应体是流式 **s16le PCM**，
- *                                          采样率在响应头 `X-Sample-Rate`
+ * - `GET  /health`               未加载完返回 503 `{"status":"loading"}`
+ * - `POST /v1/audio/speech`      multipart；响应体是流式 **s16le PCM**，
+ *                                采样率在响应头 `X-Sample-Rate`
  * - 单并发：已有请求在跑时返回 409
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { app } from 'electron'
 import type { TtsChunk, TtsProvider } from '../../../shared/tts-engine'
+import { ensureBundledPython, getBundledPythonExe } from '../../../main/python-env.js'
+import { ensurePythonVenv, getPythonVenvExe } from '../../../main/python-venv.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[TtsBreeze]', ...args),
@@ -24,54 +27,62 @@ const log = {
 }
 
 /** 模型加载很慢（7.7GB 权重，CPU 上更久），给足时间 */
-const READY_TIMEOUT_MS = 300_000
+const READY_TIMEOUT_MS = 600_000
 const HEALTH_POLL_MS = 1_000
 
 export interface BreezeConfig {
-  /** Breeze 仓库根目录（含 breeze_infer/，用于 `python -m breeze_infer.api`） */
-  repoPath?: string
-  /** checkpoint 目录；相对路径按 repoPath 解析 */
-  modelDir?: string
-  /** 服务端口 */
+  /** 本地模型目录（由 hostContext.modelDir 给出） */
+  modelDir: string
   port?: number
-  /** 已运行的服务地址；填了就直接连，不自己拉起 */
-  baseUrl?: string
-  /** Python 解释器；缺省用 <repoPath>/.venv 里的 */
-  python?: string
   cfgScale?: number
-  /** 声音设计/风格指令 */
+  /** 声音设计 / 风格指令 */
   instruction?: string
   /** 参考音频（克隆）本地路径 */
   refAudioPath?: string
   refText?: string
 }
 
-/** 该路径是否是 Breeze 仓库根（能 `python -m breeze_infer.api` 的前提） */
-export function looksLikeBreezeRepo(dir: string): boolean {
-  return fs.existsSync(path.join(dir, 'breeze_infer', 'api.py'))
-}
-
-/** 解析 venv 里的 python 可执行文件 */
-export function resolveVenvPython(repoPath: string): string | null {
-  const candidates =
-    process.platform === 'win32'
-      ? [path.join(repoPath, '.venv', 'Scripts', 'python.exe')]
-      : [path.join(repoPath, '.venv', 'bin', 'python')]
-  return candidates.find((p) => fs.existsSync(p)) ?? null
-}
-
 /**
- * 配置是否完整到「可以尝试拉起服务」。
+ * 内置推理代码的根目录（含 `breeze_infer/` 与 `configs/`）。
  *
- * 两种情况算就绪：要么用户填了已运行的服务地址（我们只连不管），
- * 要么仓库路径指向真实的 Breeze 仓库且能找到 python。其余一律不可用——
- * 让下拉置灰，比让用户选中后合成时才收到「找不到 Python」更早暴露问题。
+ * 开发态用源码树，打包态从 `resources/assets/breeze` 取（见 electron-builder 的
+ * extraResources：整个 assets 目录会原样拷贝）。
  */
-export function isBreezeConfigured(cfg: BreezeConfig): boolean {
-  if (cfg.baseUrl?.trim()) return true
-  const repo = cfg.repoPath?.trim()
-  if (!repo || !looksLikeBreezeRepo(repo)) return false
-  return Boolean(cfg.python?.trim() || resolveVenvPython(repo))
+export function resolveBundledBreezeRoot(): string {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'assets', 'breeze')]
+    : [
+        path.join(app.getAppPath(), 'assets', 'breeze'),
+        path.join(process.cwd(), 'apps/windows/assets/breeze'),
+      ]
+  const hit = candidates.find((p) => fs.existsSync(path.join(p, 'breeze_infer', 'api.py')))
+  if (!hit) throw new Error(`找不到内置的 Breeze 推理代码（查找过：${candidates.join(', ')}）`)
+  return hit
+}
+
+/** 与 Qwen3 共用同一个托管 Python（两者都钉 torch 2.9.1） */
+async function resolvePythonExe(): Promise<string> {
+  if (process.platform !== 'win32') return ensurePythonVenv(() => undefined)
+  return ensureBundledPython(() => undefined)
+}
+
+function isAppManagedPython(pythonExe: string): boolean {
+  return process.platform === 'win32'
+    ? pythonExe === getBundledPythonExe()
+    : pythonExe === getPythonVenvExe()
+}
+
+/** 清掉 conda/PYTHONPATH，避免加载到系统站点包 */
+function buildIsolatedPythonEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...extra }
+  delete env.PYTHONPATH
+  delete env.PYTHONHOME
+  delete env.CONDA_PREFIX
+  delete env.CONDA_DEFAULT_ENV
+  delete env.CONDA_PYTHON_EXE
+  env.PYTHONNOUSERSITE = '1'
+  env.PYTHONIOENCODING = 'utf-8'
+  return env
 }
 
 export class BreezeTtsProvider implements TtsProvider {
@@ -80,22 +91,16 @@ export class BreezeTtsProvider implements TtsProvider {
   sampleRate = 24_000
 
   private child: ChildProcess | null = null
-  /** 我们自己拉起的才在 destroy 时关掉；用户自启的服务不动 */
-  private ownsProcess = false
   private baseUrl: string
 
   constructor(private cfg: BreezeConfig) {
-    this.baseUrl = cfg.baseUrl?.trim().replace(/\/+$/, '') || `http://127.0.0.1:${cfg.port ?? 7860}`
+    this.baseUrl = `http://127.0.0.1:${cfg.port ?? 7860}`
   }
 
   async initialize(): Promise<void> {
     if (await this.healthOk()) {
       log.info(`[initialize] 复用已在运行的服务: ${this.baseUrl}`)
       return
-    }
-    if (this.cfg.baseUrl?.trim()) {
-      // 用户显式给了地址，说明服务该由他自己管；连不上就是配置错了，不要偷偷另起一个
-      throw new Error(`连不上 Breeze 服务 ${this.baseUrl}，请确认已启动或检查端口`)
     }
     await this.spawnAndWait()
   }
@@ -112,28 +117,35 @@ export class BreezeTtsProvider implements TtsProvider {
   }
 
   private async spawnAndWait(): Promise<void> {
-    const repoPath = this.cfg.repoPath?.trim()
-    if (!repoPath) throw new Error('未配置 Breeze 仓库路径')
-    if (!looksLikeBreezeRepo(repoPath)) {
-      throw new Error(`「${repoPath}」不是 Breeze 仓库根目录（缺 breeze_infer/api.py）`)
+    const root = resolveBundledBreezeRoot()
+    const python = await resolvePythonExe()
+    if (!isAppManagedPython(python)) {
+      throw new Error(`Breeze 需要应用托管的 Python，当前解释器不受管：${python}`)
     }
-
-    const modelDir = this.resolveModelDir(repoPath)
-    const python = this.cfg.python?.trim() || resolveVenvPython(repoPath)
-    if (!python) {
-      throw new Error(
-        '找不到 Python 解释器。请先在 Breeze 仓库里建好 .venv 并安装依赖，或在设置里指定 python 路径',
-      )
+    if (!fs.existsSync(this.cfg.modelDir)) {
+      throw new Error(`Breeze 模型目录不存在：${this.cfg.modelDir}`)
     }
 
     const port = this.cfg.port ?? 7860
-    log.info(`[spawn] ${python} -m breeze_infer.api ${modelDir} --port ${port}`)
-    this.child = spawn(
-      python,
-      ['-m', 'breeze_infer.api', modelDir, '--host', '127.0.0.1', '--port', String(port)],
-      { cwd: repoPath, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
-    )
-    this.ownsProcess = true
+    log.info(`[spawn] root=${root} model=${this.cfg.modelDir} port=${port}`)
+
+    // 不能用 `-m breeze_infer.api` + PYTHONPATH：内置 embed Python 会忽略 PYTHONPATH
+    // （实测 ModuleNotFoundError），而 `-m` 要求模块在 sys.path 里。
+    // 用 `-c` 显式把代码根目录插进去最稳，也顺便固定了 argv。
+    const bootScript = [
+      'import sys',
+      `sys.path.insert(0, ${JSON.stringify(root)})`,
+      `sys.argv = ['breeze_infer.api', ${JSON.stringify(this.cfg.modelDir)}, '--host', '127.0.0.1', '--port', '${port}']`,
+      'from breeze_infer.api import main',
+      'main()',
+    ].join('\n')
+
+    this.child = spawn(python, ['-c', bootScript], {
+      cwd: root,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: buildIsolatedPythonEnv(),
+    })
 
     // 子进程日志转进主日志，模型加载失败时能直接看到原因
     this.child.stdout?.on('data', (b: Buffer) => log.debug(String(b).trimEnd()))
@@ -150,17 +162,11 @@ export class BreezeTtsProvider implements TtsProvider {
         return
       }
       if (!this.child) {
-        throw new Error('Breeze 进程已退出，请查看日志（多半是依赖未装或模型目录不对）')
+        throw new Error('Breeze 进程已退出，请查看日志（多半是依赖未装完或模型不完整）')
       }
       await new Promise((r) => setTimeout(r, HEALTH_POLL_MS))
     }
     throw new Error(`Breeze 服务在 ${READY_TIMEOUT_MS / 1000}s 内未就绪（模型加载较慢）`)
-  }
-
-  private resolveModelDir(repoPath: string): string {
-    const raw = this.cfg.modelDir?.trim()
-    if (!raw) return path.resolve(repoPath, '..', 'breeze-tts-2')
-    return path.isAbsolute(raw) ? raw : path.resolve(repoPath, raw)
   }
 
   async synthesize(
@@ -172,7 +178,7 @@ export class BreezeTtsProvider implements TtsProvider {
 
     const form = new FormData()
     form.set('text', text)
-    // 0.6B/1.7B 的指令跟随在 cfg_scale=4 时明显更强（README 的推荐值）
+    // README 推荐 4 能明显增强指令跟随，代价是更慢
     form.set('cfg_scale', String(this.cfg.cfgScale ?? 1.0))
     if (this.cfg.instruction?.trim()) form.set('instruction', this.cfg.instruction.trim())
 
@@ -180,7 +186,11 @@ export class BreezeTtsProvider implements TtsProvider {
     if (this.cfg.refAudioPath && this.cfg.refText) {
       try {
         const buf = await fs.promises.readFile(this.cfg.refAudioPath)
-        form.set('ref_audio', new Blob([buf], { type: 'audio/wav' }), path.basename(this.cfg.refAudioPath))
+        form.set(
+          'ref_audio',
+          new Blob([buf], { type: 'audio/wav' }),
+          path.basename(this.cfg.refAudioPath),
+        )
         form.set('ref_text', this.cfg.refText)
       } catch (e) {
         log.warn(`[synthesize] 读取参考音频失败，改用无参考模式: ${(e as Error).message}`)
@@ -236,28 +246,22 @@ export class BreezeTtsProvider implements TtsProvider {
       }
       if (!bytes.length) continue
 
-      onChunk({
-        samples: s16leToFloat32(bytes),
-        sampleRate,
-        isFinal: false,
-      })
+      onChunk({ samples: s16leToFloat32(bytes), sampleRate, isFinal: false })
     }
 
     if (!signal?.aborted) onChunk({ samples: [], sampleRate, isFinal: true })
   }
 
   destroy(): void {
-    // 用户自启的服务不归我们管
-    if (this.ownsProcess && this.child) {
+    if (this.child) {
       try {
         this.child.kill()
-        log.info('[destroy] 已停止自己拉起的 Breeze 进程')
+        log.info('[destroy] 已停止 Breeze 进程')
       } catch (e) {
         log.warn(`[destroy] 停止进程失败: ${(e as Error).message}`)
       }
     }
     this.child = null
-    this.ownsProcess = false
   }
 }
 

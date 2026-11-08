@@ -90,14 +90,54 @@ interface HttpFileMapping {
   sizeBytes?: number
 }
 
-/** PyTorch CUDA 运行时（与语音模型同 UI：进度 / 暂停 / 续传 / 取消） */
+/**
+ * PyTorch CUDA 运行时（与语音模型同 UI：进度 / 暂停 / 续传 / 取消）。
+ *
+ * **2026-11 升级到 2.9.1 / cu128**：Breeze TTS 2 要求 torch 2.9.1，而 Qwen3 原先钉
+ * 2.5.1。两者共用同一个托管 Python 环境，装不下两个版本，所以统一升到 2.9.1。
+ * Qwen3 的 sidecar 只用到 `torch.backends.cuda.matmul.allow_tf32` 这类稳定 API。
+ * cu121 与 cu128 的 wheel 不通用，整个运行时需要重下（模型 id 保持不变，
+ * 老用户的已装运行时会被版本校验判为不符而重新下载）。
+ */
 export const PYTORCH_CUDA_RUNTIME_ID = 'runtime-pytorch-cu121' as const
 
-const TORCH_CU121_WHL = 'torch-2.5.1+cu121-cp311-cp311-win_amd64.whl'
-const TORCHAUDIO_CU121_WHL = 'torchaudio-2.5.1+cu121-cp311-cp311-win_amd64.whl'
-const TORCH_CU121_SIZE = 2_449_385_544
-const TORCHAUDIO_CU121_SIZE = 4_136_125
-const PYTORCH_CUDA_RUNTIME_SIZE = TORCH_CU121_SIZE + TORCHAUDIO_CU121_SIZE
+const TORCH_CUDA_WHL = 'torch-2.9.1+cu128-cp311-cp311-win_amd64.whl'
+const TORCHAUDIO_CUDA_WHL = 'torchaudio-2.9.1+cu128-cp311-cp311-win_amd64.whl'
+const TORCH_CUDA_SIZE = 2_449_385_544
+const TORCHAUDIO_CUDA_SIZE = 4_136_125
+const PYTORCH_CUDA_RUNTIME_SIZE = TORCH_CUDA_SIZE + TORCHAUDIO_CUDA_SIZE
+
+/**
+ * Breeze TTS 2 权重（HuggingFace `BreezeBlue/breeze-tts-2`，共 7.68GB）。
+ *
+ * 走 hf-mirror 国内镜像；官方 huggingface.co 作为备用源。
+ * 断点续传由下载器统一提供（partial 文件 + Range），这里只声明文件清单。
+ * `audio_tokenizer/` 必须一起下——模型包里自带，缺了 api 启动就会报错。
+ */
+const BREEZE_HF_FILES = [
+  ['config.json', 10_161],
+  ['generation_config.json', 251],
+  ['model.safetensors.index.json', 109_004],
+  ['tokenizer.json', 33_386_945],
+  ['tokenizer_config.json', 1_157_960],
+  ['special_tokens_map.json', 886],
+  ['model-00001-of-00002.safetensors', 4_961_989_890],
+  ['model-00002-of-00002.safetensors', 2_004_567_152],
+  ['audio_tokenizer/config.json', 2_336],
+  ['audio_tokenizer/configuration.json', 76],
+  ['audio_tokenizer/preprocessor_config.json', 234],
+  ['audio_tokenizer/model.safetensors', 682_293_092],
+] as const
+
+const BREEZE_TOTAL_SIZE = BREEZE_HF_FILES.reduce((sum, [, size]) => sum + size, 0)
+
+const BREEZE_FILES: HttpFileMapping[] = BREEZE_HF_FILES.map(([name, size]) => ({
+  local: name,
+  sizeBytes: size,
+  // 主源：国内镜像。备用：官方，镜像挂了也能续上
+  url: `https://hf-mirror.com/BreezeBlue/breeze-tts-2/resolve/main/${name}`,
+  urls: [`https://huggingface.co/BreezeBlue/breeze-tts-2/resolve/main/${name}`],
+}))
 
 /**
  * 解析 HTTP 条目的全部候选 URL（主源 + 备用）
@@ -326,33 +366,51 @@ const MODEL_CATALOG = {
     id: PYTORCH_CUDA_RUNTIME_ID,
     name: 'PyTorch CUDA 运行时（GPU 加速）',
     description:
-      'Qwen3 GPU 合成依赖（约 2.3GB）。支持断点续传；下载完成后自动安装到内置 Python。仅 CPU 可跳过。',
+      'Qwen3 / Breeze GPU 合成依赖（约 2.3GB）。支持断点续传；下载完成后自动安装到内置 Python。仅 CPU 可跳过。',
     group: 'tts-synth' as const,
     sizeBytes: PYTORCH_CUDA_RUNTIME_SIZE,
-    dir: 'runtime/pytorch-cu121',
-    files: [TORCH_CU121_WHL, TORCHAUDIO_CU121_WHL],
+    dir: 'runtime/pytorch-cu128',
+    files: [TORCH_CUDA_WHL, TORCHAUDIO_CUDA_WHL],
     downloadUrl: '',
     type: 'wheels' as const,
     httpFiles: [
       {
-        local: TORCH_CU121_WHL,
-        sizeBytes: TORCH_CU121_SIZE,
-        url: `https://mirrors.aliyun.com/pytorch-wheels/cu121/${TORCH_CU121_WHL}`,
+        local: TORCH_CUDA_WHL,
+        sizeBytes: TORCH_CUDA_SIZE,
+        url: `https://mirrors.aliyun.com/pytorch-wheels/cu128/${TORCH_CUDA_WHL}`,
         urls: [
-          `https://download-r2.pytorch.org/whl/cu121/${TORCH_CU121_WHL}`,
-          `https://download.pytorch.org/whl/cu121/torch/${TORCH_CU121_WHL}`,
+          `https://download-r2.pytorch.org/whl/cu128/${TORCH_CUDA_WHL}`,
+          `https://download.pytorch.org/whl/cu128/torch/${TORCH_CUDA_WHL}`,
         ],
       },
       {
-        local: TORCHAUDIO_CU121_WHL,
-        sizeBytes: TORCHAUDIO_CU121_SIZE,
-        url: `https://mirrors.aliyun.com/pytorch-wheels/cu121/${TORCHAUDIO_CU121_WHL}`,
+        local: TORCHAUDIO_CUDA_WHL,
+        sizeBytes: TORCHAUDIO_CUDA_SIZE,
+        url: `https://mirrors.aliyun.com/pytorch-wheels/cu128/${TORCHAUDIO_CUDA_WHL}`,
         urls: [
-          `https://download-r2.pytorch.org/whl/cu121/${TORCHAUDIO_CU121_WHL}`,
-          `https://download.pytorch.org/whl/cu121/torchaudio/${TORCHAUDIO_CU121_WHL}`,
+          `https://download-r2.pytorch.org/whl/cu128/${TORCHAUDIO_CUDA_WHL}`,
+          `https://download.pytorch.org/whl/cu128/torchaudio/${TORCHAUDIO_CUDA_WHL}`,
         ],
       },
     ] as HttpFileMapping[],
+  },
+  'tts-breeze-2': {
+    id: 'tts-breeze-2',
+    name: 'Breeze TTS 2（7.7GB）',
+    description: '高表现力中英双语合成，支持声音克隆与风格指令。下载后可直接使用',
+    group: 'tts-synth' as const,
+    sizeBytes: BREEZE_TOTAL_SIZE,
+    dir: 'tts/breeze-2',
+    files: [
+      'config.json',
+      'model.safetensors.index.json',
+      'tokenizer.json',
+      'audio_tokenizer/config.json',
+    ],
+    /** 权重是分片文件名，按 index 文件里的映射命名；这里只用于「下载完没」的粗判 */
+    downloadUrl: '',
+    type: 'dir' as const,
+    httpFiles: BREEZE_FILES,
   },
 } as const
 
