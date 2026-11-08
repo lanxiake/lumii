@@ -17,7 +17,7 @@
 }
 
 .containerClickable:focus-visible {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mt-accent-500) 40%, transparent);
+  box-shadow: var(--mt-focus-ring);
 }
 
 .header {
@@ -95,8 +95,4 @@
   border-left: 3px solid rgba(var(--mt-ritual-amber-rgb), 0.85);
   background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.1) 50%, transparent);
   transition: border-color 0.2s ease, background-color 0.2s ease;
-}
-
-.containerClickable:focus-visible {
-  box-shadow: var(--mt-focus-ring);
 }
