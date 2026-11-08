@@ -4,11 +4,13 @@
   z-index: 1000;
   min-width: 168px;
   padding: var(--mt-space-1);
-  border: 1px solid var(--mt-glass-stroke);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 45%, var(--mt-glass-stroke));
   border-radius: var(--mt-radius-lg);
   background: var(--mt-glass-bg);
   backdrop-filter: blur(18px) saturate(1.4);
-  box-shadow: var(--mt-shadow-lg);
+  box-shadow:
+    var(--mt-shadow-lg),
+    0 0 18px rgba(var(--mt-ritual-cyan-rgb), 0.1);
   animation: mt-context-menu-enter var(--mt-dur-fast) var(--mt-ease-spring);
 }
 
@@ -48,8 +50,14 @@
 }
 
 .context-menu-item:hover:not(:disabled) {
-  background: var(--mt-surface-2);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.1) 55%, var(--mt-surface-2));
   color: var(--mt-fg-1);
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.75);
+}
+
+.context-menu-item:focus-visible:not(:disabled) {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .context-menu-item.danger {
@@ -76,7 +84,8 @@
 }
 
 .context-menu-item:hover:not(:disabled) .context-menu-icon {
-  color: var(--mt-accent-500);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  filter: drop-shadow(0 0 4px rgba(var(--mt-ritual-cyan-rgb), 0.35));
 }
 
 .context-menu-item.danger .context-menu-icon,

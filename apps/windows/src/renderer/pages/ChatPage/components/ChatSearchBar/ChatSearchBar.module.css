@@ -8,10 +8,17 @@
   align-items: center;
   gap: 4px;
   padding: 4px 4px 4px 10px;
-  border: 1px solid var(--mt-border-hairline);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 45%, var(--mt-border-hairline));
   border-radius: var(--mt-radius-lg, 8px);
   background: var(--mt-surface-2);
-  box-shadow: var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35));
+  box-shadow:
+    var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35)),
+    0 0 16px rgba(var(--mt-ritual-cyan-rgb), 0.1);
+}
+
+.bar:focus-within {
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.5) 50%, var(--mt-border-hairline));
+  box-shadow: var(--mt-focus-ring), var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35));
 }
 
 .input {
@@ -55,8 +62,9 @@
 }
 
 .navBtn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mt-accent-500) 16%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.14) 60%, transparent);
   color: var(--mt-fg-1);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .navBtn:disabled {

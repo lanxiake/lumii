@@ -30,9 +30,9 @@
   margin: 0 1px;
   padding: 0 4px;
   border-radius: var(--mt-radius-sm);
-  background: var(--color-accent-soft);
-  box-shadow: inset 0 0 0 1px var(--color-accent-15);
-  color: var(--mt-accent-500);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.12) 70%, var(--color-accent-soft, transparent));
+  box-shadow: inset 0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.28);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   font-size: 0.94em;
   line-height: inherit;
   vertical-align: baseline;
@@ -41,15 +41,18 @@
 }
 
 .composer-chip:hover {
-  background: var(--color-accent-15);
-  box-shadow: inset 0 0 0 1px var(--mt-accent-500);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.18) 70%, transparent);
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.5),
+    0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.16);
 }
 
 /* 引用块左侧加一道竖线：一眼分出「这是引用」而不是「这是个文件」 */
 .composer-chip--quote {
-  border-left: 2px solid var(--mt-accent-500);
+  border-left: 2px solid rgba(var(--mt-ritual-amber-rgb), 0.85);
   border-top-left-radius: 2px;
   border-bottom-left-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(var(--mt-ritual-amber-rgb), 0.22);
 }
 
 .composer-chip-label {

@@ -39,8 +39,9 @@
 
 /* hover 转 accent，提示 chip 可点击定位 */
 .attachment-chip:hover {
-  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.5) 50%, var(--mt-border));
   color: var(--mt-accent-500);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .attachment-chip-icon {
@@ -113,10 +114,11 @@
 }
 
 .input-card:focus-within {
-  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.55) 55%, var(--mt-accent-500));
   box-shadow:
     var(--mt-shadow-lg),
-    0 0 0 3px color-mix(in srgb, var(--mt-accent-500) 15%, transparent);
+    var(--mt-glow-cyan),
+    0 0 0 3px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
 /* 有输入内容时加深底色，避免与下方消息文字互相干扰。
@@ -138,10 +140,11 @@
 }
 
 .input-card-dragover {
-  border-color: var(--mt-accent-500);
+  border-color: rgba(var(--mt-ritual-amber-rgb), 0.75);
   box-shadow:
     var(--mt-shadow-lg),
-    0 0 0 3px color-mix(in srgb, var(--mt-accent-500) 28%, transparent);
+    var(--mt-glow-amber),
+    0 0 0 3px rgba(var(--mt-ritual-amber-rgb), 0.18);
 }
 
 /* 「+」与文本域同一行 — 已迁至底部工具栏，保留兼容 */
@@ -271,9 +274,15 @@
 }
 
 .toolbar-select-wrapper:hover {
-  border-color: var(--mt-border);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.4) 45%, var(--mt-border));
   background: var(--mt-surface-2);
   color: var(--mt-fg-1);
+  box-shadow: var(--mt-glow-cyan);
+}
+
+.toolbar-select-wrapper:focus-within {
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.5) 50%, var(--mt-border));
+  box-shadow: var(--mt-focus-ring);
 }
 
 .toolbar-select-wrapper:active {
@@ -377,18 +386,20 @@
 }
 
 .thinking-controls:hover {
-  border-color: var(--mt-border);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.35) 40%, var(--mt-border));
   background: var(--mt-surface-2);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 /* 思考开启：整块提示为激活，避免用户只能靠 Switch 小圆点判断状态 */
 .thinking-controls-on {
-  border-color: color-mix(in srgb, var(--mt-accent-500) 38%, transparent);
-  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.45) 50%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.12) 70%, transparent);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-amber-rgb), 0.14);
 }
 
 .thinking-controls-on .thinking-toggle-label {
-  color: var(--mt-accent-500);
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
   font-weight: var(--mt-fw-medium);
 }
 
@@ -737,10 +748,14 @@
   bottom: calc(100% + 6px);
   left: 0;
   min-width: 180px;
-  background: var(--color-bg-elevated, var(--color-bg-secondary));
-  border: 1px solid var(--color-border);
+  background: var(--mt-glass-bg, var(--color-bg-elevated, var(--color-bg-secondary)));
+  backdrop-filter: blur(var(--mt-glass-blur, 16px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--mt-glass-blur, 16px)) saturate(160%);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 45%, var(--mt-glass-stroke, var(--color-border)));
   border-radius: var(--radius-lg, 10px);
-  box-shadow: var(--mt-shadow-xl, 0 8px 24px rgba(0, 0, 0, 0.25));
+  box-shadow:
+    var(--mt-shadow-xl, 0 8px 24px rgba(0, 0, 0, 0.25)),
+    0 0 20px rgba(var(--mt-ritual-cyan-rgb), 0.1);
   z-index: 200;
   overflow: hidden;
   padding: 4px 0;
@@ -772,12 +787,14 @@
 }
 
 .command-item:hover {
-  background: var(--color-bg-hover, var(--mt-border-hairline));
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.1) 55%, var(--color-bg-hover, var(--mt-border-hairline)));
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.75);
 }
 
 .command-item--active {
-  background: rgba(var(--color-primary-rgb, 59, 130, 246), 0.12);
-  color: var(--color-primary);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.12);
+  color: var(--mt-accent-500, var(--color-primary));
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.9);
 }
 
 .command-item-icon {
@@ -815,20 +832,34 @@
   gap: 6px;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(var(--color-primary-rgb, 59, 130, 246), 0.26);
-  background: rgba(var(--color-primary-rgb, 59, 130, 246), 0.09);
-  color: var(--color-primary);
+  border: 1px solid rgba(var(--mt-ritual-cyan-rgb), 0.32);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.1);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   font-size: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   flex-shrink: 0;
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
 .streaming-status-active {
-  border-color: rgba(234, 179, 8, 0.35);
-  background: rgba(234, 179, 8, 0.14);
-  color: #a16207;
+  border-color: rgba(var(--mt-ritual-amber-rgb), 0.4);
+  background: rgba(var(--mt-ritual-amber-rgb), 0.14);
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-amber-rgb), 0.18);
+  animation: streaming-status-breathe var(--mt-pulse-dur, 1.8s) ease-in-out infinite;
+}
+
+@keyframes streaming-status-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0.3); }
+  50% { box-shadow: 0 0 0 5px rgba(var(--mt-ritual-amber-rgb), 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streaming-status-active {
+    animation: none;
+  }
 }
 
 .streaming-status-dot {
@@ -975,10 +1006,14 @@
   bottom: calc(100% + 8px);
   right: 0;
   width: 280px;
-  background: var(--color-bg-elevated, var(--color-bg-secondary));
-  border: 1px solid var(--color-border);
+  background: var(--mt-glass-bg, var(--color-bg-elevated, var(--color-bg-secondary)));
+  backdrop-filter: blur(var(--mt-glass-blur, 16px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--mt-glass-blur, 16px)) saturate(160%);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 45%, var(--color-border));
   border-radius: var(--radius-xl);
-  box-shadow: var(--mt-shadow-xl, 0 8px 32px rgba(0,0,0,0.28));
+  box-shadow:
+    var(--mt-shadow-xl, 0 8px 32px rgba(0,0,0,0.28)),
+    0 0 18px rgba(var(--mt-ritual-cyan-rgb), 0.1);
   z-index: 300;
   overflow: hidden;
   animation: help-panel-enter 0.18s ease-out;
@@ -1094,10 +1129,14 @@
 
 .slash-panel {
   margin-bottom: var(--spacing-2);
-  background: var(--color-bg-elevated, var(--color-bg-secondary));
-  border: 1px solid var(--color-border);
+  background: var(--mt-glass-bg, var(--color-bg-elevated, var(--color-bg-secondary)));
+  backdrop-filter: blur(var(--mt-glass-blur, 16px)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--mt-glass-blur, 16px)) saturate(160%);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 45%, var(--color-border));
   border-radius: var(--radius-xl);
-  box-shadow: var(--mt-shadow-xl, 0 8px 32px rgba(0,0,0,0.28));
+  box-shadow:
+    var(--mt-shadow-xl, 0 8px 32px rgba(0,0,0,0.28)),
+    0 0 18px rgba(var(--mt-ritual-cyan-rgb), 0.1);
   overflow: hidden;
   animation: slash-panel-enter 0.15s ease-out;
   /* 命令 + 技能数量变多后，一屏能预览的条目翻倍 */
@@ -1152,11 +1191,13 @@
 
 .slash-item:hover,
 .slash-item--active {
-  background: rgba(var(--mt-accent-rgb), 0.1);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.1);
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.75);
 }
 
 .slash-item--active {
-  background: rgba(var(--mt-accent-rgb), 0.14);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.14);
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.9);
 }
 
 .slash-item-name {
