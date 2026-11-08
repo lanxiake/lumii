@@ -15,13 +15,37 @@
 }
 
 .empty-icon-large {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
   color: var(--color-primary);
   margin-bottom: var(--spacing-4);
   animation: float 4s ease-in-out infinite;
-  opacity: 0.85;
+  opacity: 0.9;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(var(--mt-ritual-cyan-rgb), 0.18), transparent 62%),
+    color-mix(in srgb, var(--mt-surface-2) 70%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.28);
+  filter: drop-shadow(0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.22));
+}
+
+.empty-icon-large::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--mt-ritual-cyan-rgb), 0.28);
+  pointer-events: none;
+  animation: empty-ring-breathe var(--mt-pulse-dur, 1.8s) ease-in-out infinite;
+}
+
+@keyframes empty-ring-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(0.98); }
+  50% { opacity: 0.85; transform: scale(1.03); }
 }
 
 @keyframes float {
@@ -71,10 +95,10 @@
 
 .suggestion-btn:hover {
   background: var(--color-bg-tertiary);
-  border-color: var(--color-primary);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.55) 50%, var(--color-primary));
   color: var(--color-text-primary);
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md), var(--mt-glow-cyan);
 }
 
 .suggestion-btn:hover .suggestion-icon {
@@ -138,9 +162,17 @@
 .shortcut-hint kbd {
   padding: 2px var(--spacing-2);
   background: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 40%, var(--color-border));
   border-radius: var(--radius-sm);
   font-family: inherit;
   font-size: 11px;
   color: var(--color-text-secondary);
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-cyan-rgb), 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-icon-large,
+  .empty-icon-large::after {
+    animation: none;
+  }
 }

@@ -41,6 +41,7 @@
 .footer-btn:hover {
   border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
   background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .footer-btn:active {
@@ -89,7 +90,10 @@
   background: var(--mt-bg-secondary);
   color: var(--mt-accent-500);
   font-weight: var(--mt-fw-medium);
-  box-shadow: var(--mt-shadow-xs);
+  box-shadow:
+    var(--mt-shadow-xs),
+    inset 0 -2px 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.75),
+    0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
 /* 运行中指示：强调色小圆点 + 轻脉冲，用于 Tab / 折叠分组标题 */
@@ -98,22 +102,22 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--mt-accent-500);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
-  animation: mt-running-dot-pulse 1.8s ease-out infinite;
+  background: rgba(var(--mt-ritual-amber-rgb), 0.95);
+  box-shadow: 0 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0.45);
+  animation: mt-running-dot-pulse var(--mt-pulse-dur, 1.8s) ease-out infinite;
 }
 
 @keyframes mt-running-dot-pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+    box-shadow: 0 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0.45);
     opacity: 1;
   }
   70% {
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--mt-accent-500) 0%, transparent);
+    box-shadow: 0 0 0 6px rgba(var(--mt-ritual-amber-rgb), 0);
     opacity: 0.85;
   }
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-accent-500) 0%, transparent);
+    box-shadow: 0 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0);
     opacity: 1;
   }
 }
@@ -399,23 +403,34 @@
 
 /* 空组占位说明（Agent 职责）：完整展示，不截断 */
 .group-empty-desc {
-  padding: 2px 16px 10px;
+  margin: 0 10px 8px;
+  padding: 8px 12px;
   font-size: calc(12px * var(--app-font-scale, 1));
   line-height: 1.5;
   color: var(--color-text-tertiary);
   white-space: normal;
   overflow: visible;
   word-break: break-word;
+  border: 1px dashed rgba(var(--mt-ritual-cyan-rgb), 0.2);
+  border-radius: var(--mt-radius-md);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.05) 50%, transparent);
 }
 
 /* Empty states */
 .no-conversations,
 .no-search-results {
+  margin: var(--mt-space-3);
   padding: var(--mt-space-5) var(--mt-space-3);
   text-align: center;
   color: var(--mt-fg-3);
   font-size: calc(var(--mt-fs-xs) * var(--session-list-font-boost));
   line-height: var(--mt-lh-normal);
+  border: 1px dashed rgba(var(--mt-ritual-cyan-rgb), 0.28);
+  border-radius: var(--mt-radius-lg);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(var(--mt-ritual-cyan-rgb), 0.08), transparent 70%),
+    transparent;
+  box-shadow: inset 0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.06);
 }
 
 /* 移动端滑出由最外层 Sidebar 负责，这里不再自己定位 */
@@ -479,9 +494,13 @@
 }
 
 .channel-empty {
-  padding: 6px 16px 10px;
+  margin: 0 10px 8px;
+  padding: 8px 12px;
   font-size: calc(13.2px * var(--app-font-scale, 1));
   color: var(--color-text-tertiary);
+  border: 1px dashed rgba(var(--mt-ritual-cyan-rgb), 0.2);
+  border-radius: var(--mt-radius-md);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.05) 50%, transparent);
 }
 
 .evolution-entry {

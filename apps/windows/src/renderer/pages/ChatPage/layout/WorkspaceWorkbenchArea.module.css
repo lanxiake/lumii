@@ -5,14 +5,21 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 24px;
+  margin: 12px;
+  padding: 28px 24px;
   text-align: center;
+  border: 1px dashed rgba(var(--mt-ritual-cyan-rgb), 0.3);
+  border-radius: 12px;
+  background:
+    radial-gradient(ellipse at 50% 30%, rgba(var(--mt-ritual-cyan-rgb), 0.1), transparent 68%),
+    transparent;
 }
 
 .emptyTitle {
   margin: 0;
   font-size: 13px;
   color: var(--mt-fg-2);
+  text-shadow: 0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.18);
 }
 
 .emptyHint {
@@ -32,11 +39,16 @@
   color: var(--mt-fg-2);
   font-size: 11px;
   cursor: pointer;
+  transition:
+    border-color var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .emptyAction:hover {
   border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
   color: var(--mt-accent-500);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 /* main 里「内容 + 提议面板 + 动作条」这一列（P1 遗漏的类，P2 提案面板需要） */
