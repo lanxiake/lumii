@@ -378,8 +378,9 @@
 }
 
 .subagentRow.running {
-  border-left-color: var(--color-primary-400);
-  background: rgba(99, 102, 241, 0.07);
+  border-left-color: rgba(var(--mt-ritual-amber-rgb), 0.9);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.1) 50%, transparent);
+  box-shadow: 0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
 .subagentRow.failed {
