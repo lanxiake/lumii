@@ -39,6 +39,11 @@ describe("normalizeLlmError", () => {
     expect(e.retryable).toBe(true);
   });
 
+  it("undici 的 terminated 判为可重试，账号封禁不算", () => {
+    expect(normalizeLlmError("terminated").retryable).toBe(true);
+    expect(normalizeLlmError("Your account has been terminated").retryable).toBe(false);
+  });
+
   it("输出截断（Unterminated string）识别为可重试的 output_truncated", () => {
     const e = normalizeLlmError("Unterminated string in JSON at position 9723");
     expect(e.code).toBe("output_truncated");

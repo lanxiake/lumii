@@ -11,7 +11,7 @@
  * 计划依据: .qoder/plan/2026-06-26-plan-B-agent-host.md §B4
  */
 
-import { streamSimple } from "@earendil-works/pi-ai/compat";
+import { getModel, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Model } from "@earendil-works/pi-ai/compat";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { captureLLMCall } from "./prompt-capture";
@@ -94,6 +94,11 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
     // 补全这些字段，否则 pi-ai 内部 undefined.includes 崩溃。
     const m = model as Partial<Model<string>> & { id: string };
     const profile = opts.resolveModelProfile?.(m.id) ?? {};
+    // Anthropic 新模型（Opus 4.7+ / Opus 5.x）只认 adaptive thinking，但「哪些模型
+    // 必须 adaptive」写在 pi-ai 内置目录的 compat 里。调用方只传 {id, api}，不补的话
+    // pi-ai 按老式 thinking.budget_tokens 发送，服务端直接 400。thinkingLevelMap 同理：
+    // off 为 null 表示该模型不能用 thinking.type=disabled 关思考，只能整个省略。
+    const catalog = catalogCapabilities(m.id, normalizedApi);
     // z.ai 端点服务端默认开启思考，且其「显式关闭」分支依赖 model.reasoning 为真
     // （置 false 会导致该分支被跳过，反而回到服务端默认思考），故 zai-like 一律支持思考。
     const isZaiLike =
@@ -112,7 +117,13 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
       name: m.name ?? m.id,
       api: normalizedApi,
       baseUrl: model.baseUrl && model.baseUrl.length > 0 ? model.baseUrl : baseUrl ?? "",
-      compat: buildCompat(m.compat, thinkingFormat, profile.thinkingFormat, reasoningSupported),
+      ...(catalog?.thinkingLevelMap ? { thinkingLevelMap: catalog.thinkingLevelMap } : {}),
+      compat: buildCompat(
+        { ...(catalog?.compat ?? {}), ...((m.compat as object | undefined) ?? {}) },
+        thinkingFormat,
+        profile.thinkingFormat,
+        reasoningSupported,
+      ),
     } as Model<typeof model.api>;
 
     opts.log?.(
@@ -220,6 +231,35 @@ function resolveThinkingFormat(
 ): 'openai' | 'qwen' | 'zai' {
   if (explicit === 'openai' || explicit === 'qwen' || explicit === 'zai') return explicit;
   return isZaiLike ? 'zai' : 'openai';
+}
+
+/**
+ * 查 pi-ai 内置目录里同 id 的思考能力标记。
+ *
+ * 只取影响思考格式与 temperature 的三项：forceAdaptiveThinking 决定走 adaptive 还是
+ * budget_tokens，thinkingLevelMap 的 off=null 决定关思考时是省略还是发 disabled，
+ * supportsTemperature 决定要不要发 temperature（Opus 4.7+ 拒收非默认值）。
+ * supportsMidConvoEffort / supportsStrictTools 等会让中继端点收到 beta 头、合成
+ * system 消息和 strict 工具 schema，与本次故障无关，暂不继承。
+ *
+ * 目录只收官方模型 id；中转上的自建模型查不到 → undefined，行为与之前一致。
+ */
+function catalogCapabilities(
+  modelId: string,
+  api: string,
+): { thinkingLevelMap?: Model<'anthropic-messages'>['thinkingLevelMap']; compat?: Record<string, unknown> } | undefined {
+  if (api !== 'anthropic-messages') return undefined;
+  // 类型上 getModel 只收目录里的字面量 id，运行时按字符串查（未命中返回 undefined）
+  const lookup = getModel as unknown as (
+    provider: string,
+    id: string,
+  ) => Pick<Model<'anthropic-messages'>, 'thinkingLevelMap' | 'compat'> | undefined;
+  const entry = lookup('anthropic', modelId);
+  if (!entry) return undefined;
+  const compat: Record<string, unknown> = {};
+  if (entry.compat?.forceAdaptiveThinking === true) compat.forceAdaptiveThinking = true;
+  if (entry.compat?.supportsTemperature === false) compat.supportsTemperature = false;
+  return { thinkingLevelMap: entry.thinkingLevelMap, compat };
 }
 
 /** 各 API 家族的模型输出上限兜底（Anthropic/Gemini 真实上限远高于旧值 8192） */

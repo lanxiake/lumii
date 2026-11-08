@@ -75,6 +75,12 @@ describe("SelfHealController", () => {
     expect(classifyLlmError("some random fatal error")).toBe("unrecoverable");
   });
 
+  it("undici 掐断连接的 terminated 判为可重试，但账号封禁不算", () => {
+    expect(classifyLlmError("terminated")).toBe("server_error");
+    expect(classifyLlmError("terminated: other side closed")).toBe("server_error");
+    expect(classifyLlmError("Your account has been terminated")).toBe("unrecoverable");
+  });
+
   it("不可恢复错误返回 false", () => {
     const { deps, continueAgent } = makeDeps([errorMsg("some random fatal error")]);
     const c = new SelfHealController(deps);

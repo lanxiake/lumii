@@ -72,7 +72,9 @@ function isRetryableNetworkMessage(raw: string): boolean {
     lower.includes("timeout") ||
     // 流在终态事件前被对端掐断（responses 端点实测高频）
     lower.includes("stream ended before a terminal response event") ||
-    lower.includes("ended without")
+    lower.includes("ended without") ||
+    // undici 掐断进程连接时的原文，只有这一个词，无状态码
+    /^terminated\b/.test(lower)
   );
 }
 

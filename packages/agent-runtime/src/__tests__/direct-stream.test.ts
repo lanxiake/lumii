@@ -269,6 +269,44 @@ describe("resolveModelProfile 注入", () => {
     expect(model.reasoning).toBe(true);
   });
 
+  it("从 pi-ai 内置目录继承 forceAdaptiveThinking（Opus 5.5 只认 adaptive）", () => {
+    const { model } = callWith(() => ({ reasoning: true }), {
+      id: "claude-opus-5-5",
+      api: "anthropic-messages",
+      reasoning: undefined,
+    });
+
+    const compat = model.compat as Record<string, unknown>;
+    expect(compat.forceAdaptiveThinking).toBe(true);
+    // Opus 4.7+ 拒收非默认 temperature
+    expect(compat.supportsTemperature).toBe(false);
+    // off=null：关思考时只能整个省略，不能发 thinking.type=disabled
+    expect((model.thinkingLevelMap as Record<string, unknown>).off).toBeNull();
+  });
+
+  it("老 anthopic 模型不继承 adaptive 标记（仍走 budget_tokens）", () => {
+    const { model } = callWith(() => ({ reasoning: true }), {
+      id: "claude-sonnet-4-5",
+      api: "anthropic-messages",
+      reasoning: undefined,
+    });
+
+    expect((model.compat as Record<string, unknown>).forceAdaptiveThinking).toBeUndefined();
+  });
+
+  it("目录查不到的中转模型不注入任何 anthropic 能力标记", () => {
+    const { model } = callWith(() => ({ reasoning: true }), {
+      id: "my-relay-model",
+      api: "anthropic-messages",
+      reasoning: undefined,
+    });
+
+    const compat = model.compat as Record<string, unknown>;
+    expect(compat.forceAdaptiveThinking).toBeUndefined();
+    expect(compat.supportsTemperature).toBeUndefined();
+    expect(model.thinkingLevelMap).toBeUndefined();
+  });
+
   it("google 家族模型输出上限抬到 65536，并修正 google-genai 别名", () => {
     const { model } = callWith(() => ({ reasoning: true }), {
       id: "gemini-2.5-pro",

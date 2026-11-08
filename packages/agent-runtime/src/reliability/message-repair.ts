@@ -161,10 +161,12 @@ const OUTPUT_TRUNCATED_PATTERNS = [
 /**
  * 传输层抖动 —— 连接被对端提前掐断 / 等响应头超时。与 HTTP 5xx 同类，隔一下重来即可。
  *
- * 这两条是 llm-link 中转的实测高频形态（一次会话里 8 次 stream-ended、4 次 timed out，
+ * 这几条是 llm-link 中转的实测高频形态（一次会话里 8 次 stream-ended、4 次 timed out，
  * 而同期 75 次请求成功）：repair 无关，重放原请求就能过。
  * - responses 端点中途断流时 pi-ai 抛 "OpenAI Responses stream ended before a terminal response event"
  * - openai SDK 等响应头超时抛 "Request timed out."
+ * - 连接被对端直接掐断时 undici 只留一句 "terminated"（无状态码、无堆栈），
+ *   客户端曾把它归为不可恢复，用户看到的是「模型调用失败：terminated」且永不重试。
  */
 const TRANSIENT_TRANSPORT_PATTERNS = [
   "stream ended before a terminal response event",
@@ -172,6 +174,16 @@ const TRANSIENT_TRANSPORT_PATTERNS = [
   "ended without",
   "socket hang up",
 ];
+
+/**
+ * undici 掐断连接的原文，形如 "terminated" 或 "terminated: other side closed"。
+ *
+ * 单独判定而不是塞进上面的子串表：子串会把「account has been terminated」这类
+ * 真正的账号封禁错误也当成可重试的网络抖动。
+ */
+function isTerminatedConnection(lower: string): boolean {
+  return /^terminated\b/.test(lower);
+}
 
 export function classifyLlmError(errorText: string): LlmErrorCategory {
   const lower = errorText.toLowerCase();
@@ -198,6 +210,7 @@ export function classifyLlmError(errorText: string): LlmErrorCategory {
   for (const p of TRANSIENT_TRANSPORT_PATTERNS) {
     if (lower.includes(p)) return "server_error";
   }
+  if (isTerminatedConnection(lower)) return "server_error";
   // DeepSeek 思考模式：reasoning_content 必须回传
   if (lower.includes("reasoning_content") && lower.includes("thinking mode")) {
     return "thinking_required";
