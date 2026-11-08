@@ -12,10 +12,11 @@
 }
 
 .fold--streaming {
-  border-color: color-mix(in srgb, var(--color-primary-400) 40%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.55) 50%, var(--color-primary-400));
+  box-shadow: 0 0 20px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
-/* 流式时顶部一条流光扫描线，表达「正在执行」的科技感 */
+/* 流式时顶部一条流光扫描线：青 → 琥珀，对齐开机仪式色 */
 .fold--streaming::before {
   content: '';
   display: block;
@@ -23,13 +24,14 @@
   background: linear-gradient(
     90deg,
     transparent,
-    var(--color-primary-400),
-    var(--mt-violet),
+    rgba(var(--mt-ritual-cyan-rgb), 0.95),
+    rgba(var(--mt-ritual-amber-rgb), 0.9),
     transparent
   );
   background-size: 40% 100%;
   background-repeat: no-repeat;
   animation: activityScan 1.4s var(--mt-ease-standard) infinite;
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-cyan-rgb), 0.45);
 }
 
 @keyframes activityScan {
@@ -60,7 +62,7 @@
 }
 
 .header--expanded {
-  border-bottom: 1px solid var(--mt-border-hairline);
+  border-bottom: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.35) 40%, var(--mt-border-hairline));
 }
 
 /* 左侧 chevron：折叠→收起随状态旋转，符合用户习惯 */
@@ -202,11 +204,12 @@
 }
 
 .feedLine--running .feedText {
-  color: var(--color-primary-400);
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
 }
 
 .feedLine--running .feedIcon {
-  color: var(--color-primary-400);
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
+  filter: drop-shadow(0 0 5px rgba(var(--mt-ritual-amber-rgb), 0.55));
 }
 
 .feedLine--failed .feedText {
@@ -233,7 +236,12 @@
 .progressFill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--color-primary-400), var(--mt-violet));
+  background: linear-gradient(
+    90deg,
+    rgba(var(--mt-ritual-cyan-rgb), 0.95),
+    rgba(var(--mt-ritual-amber-rgb), 0.9)
+  );
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-cyan-rgb), 0.35);
   transition: width var(--mt-dur-normal) var(--mt-ease-standard);
 }
 

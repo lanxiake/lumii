@@ -33,18 +33,30 @@
   text-align: left;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  transition: all 0.2s;
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .settings-nav-item:hover {
   background-color: var(--color-gray-600);
   color: var(--color-text-primary);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.1);
 }
 
 .settings-nav-item.active {
   background-color: var(--color-primary-light);
   color: var(--color-primary-500);
   font-weight: 500;
+  box-shadow:
+    inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.9),
+    0 0 16px rgba(var(--mt-ritual-cyan-rgb), 0.16);
+}
+
+.settings-nav-item:focus-visible {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 /* 分组标签：分隔「设置分类」与「功能页跳转」 */
@@ -67,6 +79,7 @@
 
 .settings-nav-item.active .nav-icon {
   color: var(--color-primary-500);
+  filter: drop-shadow(0 0 5px rgba(var(--mt-ritual-cyan-rgb), 0.45));
 }
 
 /* 设置内容 */
