@@ -108,6 +108,8 @@ function mountEarlySplash(): void {
         for (const p of history) cb(p)
         return () => listeners.delete(cb)
       },
+      // audio 可能稍后才创建；调用时再读，挂载失败也不会先开底噪
+      onStall: (stalled) => audio?.setStalled(stalled),
     })
     console.info('[early-splash] 已挂载，节点数=', document.querySelectorAll(`#${EARLY_ID}`).length)
   } catch (err) {
@@ -119,6 +121,7 @@ function mountEarlySplash(): void {
     try {
       audio = createBootAudio()
       let lastPhase = ''
+      // 视觉订阅先入 listeners，解卡时会先 applyStall(false) 再轮到 pulse
       listeners.add((p) => {
         if (p.phase === lastPhase) return
         lastPhase = p.phase

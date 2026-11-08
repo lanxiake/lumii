@@ -18,6 +18,8 @@ const MASTER_GAIN = 0.06
 export interface BootAudioHandle {
   /** 进度推进时调用；同一阶段重复调用由调用方去重 */
   pulse: () => void
+  /** 卡住态：切到低频心跳；退出后恢复母增益 */
+  setStalled: (stalled: boolean) => void
   /** 主壳就绪：上行和音 + 淡出 */
   finish: () => Promise<void>
   /** 立即静音并释放 */
@@ -35,15 +37,22 @@ export function createBootAudio(): BootAudioHandle {
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
       : undefined
 
+  const noop: BootAudioHandle = {
+    pulse: () => undefined,
+    setStalled: () => undefined,
+    finish: async () => undefined,
+    stop: () => undefined,
+  }
+
   if (!Ctx) {
-    return { pulse: () => undefined, finish: async () => undefined, stop: () => undefined }
+    return noop
   }
 
   let ctx: AudioContext
   try {
     ctx = new Ctx()
   } catch {
-    return { pulse: () => undefined, finish: async () => undefined, stop: () => undefined }
+    return noop
   }
 
   const master = ctx.createGain()
@@ -106,9 +115,30 @@ export function createBootAudio(): BootAudioHandle {
   if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined)
   startDrone()
 
+  let stalled = false
+  let heartbeatTimer = 0
+
+  /** 卡住态低频心跳：极轻的「咚」，表明系统还在 */
+  const beatOnce = () => {
+    // suspended 时 currentTime 不走，继续排程会在 resume 时一起爆响
+    if (ctx.state !== 'running' || !stalled) return
+    const now = ctx.currentTime
+    const osc = ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(72, now)
+    osc.frequency.exponentialRampToValueAtTime(48, now + 0.18)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0, now)
+    g.gain.linearRampToValueAtTime(0.18, now + 0.02)
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.28)
+    osc.connect(g).connect(master)
+    osc.start(now)
+    osc.stop(now + 0.3)
+  }
+
   return {
     pulse() {
-      if (ctx.state === 'closed') return
+      if (ctx.state === 'closed' || stalled) return
       const now = ctx.currentTime
       const osc = ctx.createOscillator()
       osc.type = 'triangle'
@@ -124,8 +154,29 @@ export function createBootAudio(): BootAudioHandle {
       osc.stop(now + 0.14)
     },
 
+    setStalled(next: boolean) {
+      if (ctx.state === 'closed' || next === stalled) return
+      stalled = next
+      window.clearInterval(heartbeatTimer)
+      heartbeatTimer = 0
+      try {
+        master.gain.cancelScheduledValues(ctx.currentTime)
+        // 卡住时略降母增益，心跳才能听清又不吵
+        const target = next ? MASTER_GAIN * 0.55 : MASTER_GAIN
+        master.gain.setValueAtTime(master.gain.value, ctx.currentTime)
+        master.gain.linearRampToValueAtTime(target, ctx.currentTime + 0.35)
+      } catch {
+        // ignore
+      }
+      if (next) {
+        beatOnce()
+        heartbeatTimer = window.setInterval(beatOnce, 1600) as unknown as number
+      }
+    },
+
     async finish() {
       if (ctx.state === 'closed') return
+      this.setStalled(false)
       const now = ctx.currentTime
       // 上行三和音：A4 → C#5 → E5，各错开 70ms，收成一个大三和弦
       for (const [i, freq] of [440, 554.37, 659.25].entries()) {
@@ -150,6 +201,9 @@ export function createBootAudio(): BootAudioHandle {
     },
 
     stop() {
+      window.clearInterval(heartbeatTimer)
+      heartbeatTimer = 0
+      stalled = false
       try {
         master.gain.cancelScheduledValues(ctx.currentTime)
         master.gain.setValueAtTime(0, ctx.currentTime)

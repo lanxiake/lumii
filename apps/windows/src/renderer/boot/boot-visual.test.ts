@@ -1,11 +1,49 @@
 /**
  * 开机动画的纯逻辑自检。
  *
- * 只测不依赖 DOM 渲染的部分：阶段名映射、阶段总数、退场时长。
+ * 只测不依赖 DOM 渲染的部分：阶段名映射、阶段总数、退场时长、卡住态文案。
  * 视觉呈现（分形星云、粒子、溶解退场）靠真机验收，不在单测里假装能测。
  */
 import { describe, expect, it } from 'vitest'
+import {
+  formatStallPhaseText,
+  shouldApplyFallbackCurve,
+  shouldEnterStall,
+  STALL_MS,
+} from './boot-stall'
 import { _phaseLabelFor, _TOTAL_PHASES, BOOT_FADE_MS } from './boot-visual'
+
+describe('boot-stall 卡住态', () => {
+  it('同一阶段超过阈值进入卡住态', () => {
+    expect(shouldEnterStall(10_000, 3_000)).toBe(true)
+    expect(shouldEnterStall(3_000 + STALL_MS, 3_000)).toBe(true)
+  })
+
+  it('未到阈值不进入卡住态', () => {
+    expect(shouldEnterStall(3_000 + STALL_MS - 1, 3_000)).toBe(false)
+  })
+
+  it('完成后不再进入卡住态', () => {
+    expect(shouldEnterStall(99_000, 0, { completed: true })).toBe(false)
+  })
+
+  it('卡住文案含阶段名与等待秒数', () => {
+    expect(formatStallPhaseText('启动本地服务', 8)).toBe('仍在：启动本地服务 · 已等待 8s')
+  })
+
+  it('无阶段名时回退等待启动信号', () => {
+    expect(formatStallPhaseText('', 6)).toBe('仍在：等待启动信号 · 已等待 6s')
+  })
+
+  it('卡住态关闭兜底曲线假爬升', () => {
+    expect(
+      shouldApplyFallbackCurve({ completed: false, hasRealProgress: false, stalled: true }),
+    ).toBe(false)
+    expect(
+      shouldApplyFallbackCurve({ completed: false, hasRealProgress: false, stalled: false }),
+    ).toBe(true)
+  })
+})
 
 describe('boot-visual 阶段映射', () => {
   it('主进程广播的每个阶段都有中文标签（不留内部名给用户看）', () => {

@@ -132,7 +132,11 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
   #lumii-boot .armor.tr{ right: 26px; top: 26px; transform: translate(14px,-14px) scaleX(-1); }
   #lumii-boot .armor.bl{ left: 26px; bottom: 26px; transform: translate(-14px,14px) scaleY(-1); }
   #lumii-boot .armor.br{ right: 26px; bottom: 26px; transform: translate(14px,14px) scale(-1); }
-  #lumii-boot[data-act="neural"] .armor, #lumii-boot[data-act="energize"] .armor, #lumii-boot[data-act="cognition"] .armor, #lumii-boot[data-act="gate"] .armor{ opacity: 1; transform: none; }
+  /* 前弱后强：neural 半隐，cognition/gate 全开 */
+  #lumii-boot[data-act="neural"] .armor{ opacity: .42; transform: none; }
+  #lumii-boot[data-act="energize"] .armor{ opacity: .78; transform: none; }
+  #lumii-boot[data-act="cognition"] .armor,
+  #lumii-boot[data-act="gate"] .armor{ opacity: 1; transform: none; }
 
   
   
@@ -194,9 +198,14 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
   }
 
   
-  #lumii-boot[data-act="neural"] .frame-line, #lumii-boot[data-act="energize"] .frame-line, #lumii-boot[data-act="cognition"] .frame-line, #lumii-boot[data-act="gate"] .frame-line{ opacity: 1 !important; }
-  #lumii-boot[data-act="neural"] .compass, #lumii-boot[data-act="energize"] .compass, #lumii-boot[data-act="cognition"] .compass, #lumii-boot[data-act="gate"] .compass{ opacity: .9 !important; }
-  
+  #lumii-boot[data-act="neural"] .frame-line{ opacity: .4 !important; }
+  #lumii-boot[data-act="energize"] .frame-line{ opacity: .75 !important; }
+  #lumii-boot[data-act="cognition"] .frame-line,
+  #lumii-boot[data-act="gate"] .frame-line{ opacity: 1 !important; }
+  #lumii-boot[data-act="neural"] .compass{ opacity: .28 !important; }
+  #lumii-boot[data-act="energize"] .compass{ opacity: .55 !important; }
+  #lumii-boot[data-act="cognition"] .compass,
+  #lumii-boot[data-act="gate"] .compass{ opacity: .9 !important; }
 
   
   #lumii-boot .topbar{
@@ -207,7 +216,13 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     text-shadow: 0 0 9px rgba(50,150,220,.5);
     transition: opacity .6s ease;
   }
-  #lumii-boot[data-act="neural"] .topbar, #lumii-boot[data-act="energize"] .topbar, #lumii-boot[data-act="cognition"] .topbar, #lumii-boot[data-act="gate"] .topbar{ opacity: .95; }
+  /* 极早幕也留一行品牌，克制但不空白 */
+  #lumii-boot[data-act="dark"] .topbar{ opacity: .28; }
+  #lumii-boot[data-act="dormant"] .topbar{ opacity: .5; }
+  #lumii-boot[data-act="neural"] .topbar{ opacity: .72; }
+  #lumii-boot[data-act="energize"] .topbar,
+  #lumii-boot[data-act="cognition"] .topbar,
+  #lumii-boot[data-act="gate"] .topbar{ opacity: .95; }
 
   #lumii-boot .led{ display: inline-block; width: 6px; height: 6px; margin-right: 8px;
     background: var(--cy); box-shadow: 0 0 8px var(--cy);
@@ -222,7 +237,11 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     font-size: 11px; letter-spacing: .1em; line-height: 1.95; opacity: 0;
     transition: opacity .6s ease;
   }
-  #lumii-boot[data-act="neural"] .telemetry, #lumii-boot[data-act="energize"] .telemetry, #lumii-boot[data-act="cognition"] .telemetry, #lumii-boot[data-act="gate"] .telemetry{ opacity: .92; }
+  #lumii-boot[data-act="neural"] .telemetry{ opacity: .4; }
+  #lumii-boot[data-act="energize"] .telemetry{ opacity: .72; }
+  #lumii-boot[data-act="cognition"] .telemetry,
+  #lumii-boot[data-act="gate"] .telemetry{ opacity: .92; }
+  #lumii-boot[data-stall="1"] .telemetry{ opacity: .88; }
   #lumii-boot .telemetry .k{
     color: rgba(150,215,245,.85);
     text-shadow: 0 0 8px rgba(60,150,220,.5);
@@ -238,7 +257,10 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     font-size: 11px; letter-spacing: .1em; line-height: 2.15;
     text-align: right; opacity: 0; transition: opacity .6s ease;
   }
-  #lumii-boot[data-act="neural"] .checks, #lumii-boot[data-act="energize"] .checks, #lumii-boot[data-act="cognition"] .checks, #lumii-boot[data-act="gate"] .checks{ opacity: .92; }
+  #lumii-boot[data-act="neural"] .checks{ opacity: .32; }
+  #lumii-boot[data-act="energize"] .checks{ opacity: .7; }
+  #lumii-boot[data-act="cognition"] .checks,
+  #lumii-boot[data-act="gate"] .checks{ opacity: .95; }
   #lumii-boot .checks div{
     color: rgba(160,220,250,.78);
     text-shadow: 0 0 8px rgba(50,140,210,.45);
@@ -264,7 +286,33 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%);
     width: min(640px, 76vw); opacity: 0; transition: opacity .7s ease;
   }
-  #lumii-boot[data-act="neural"] .bar-wrap, #lumii-boot[data-act="energize"] .bar-wrap, #lumii-boot[data-act="cognition"] .bar-wrap, #lumii-boot[data-act="gate"] .bar-wrap{ opacity: 1; }
+  #lumii-boot[data-act="dormant"] .bar-wrap{ opacity: .45; }
+  #lumii-boot[data-act="neural"] .bar-wrap,
+  #lumii-boot[data-act="energize"] .bar-wrap,
+  #lumii-boot[data-act="cognition"] .bar-wrap,
+  #lumii-boot[data-act="gate"] .bar-wrap{ opacity: 1; }
+  /* 卡住时必须看清阶段与耗时，哪怕还在极早幕 */
+  #lumii-boot[data-stall="1"] .bar-wrap{ opacity: 1; }
+  #lumii-boot[data-stall="1"] .topbar{ opacity: .9; }
+  #lumii-boot[data-stall="1"] .led{
+    animation: ledPulseStall 2.4s ease-in-out infinite;
+  }
+  @keyframes ledPulseStall { 0%,100% { opacity: .2; } 50% { opacity: 1; } }
+  #lumii-boot[data-stall="1"] .bar-fill{
+    box-shadow: 0 0 18px rgba(110,225,255,.55), 0 0 36px rgba(255,157,77,.22);
+  }
+  #lumii-boot[data-stall="1"] #bk-phase-text{
+    color: #ffe0b8;
+    letter-spacing: .14em;
+    text-shadow: 0 0 12px rgba(255,157,77,.55);
+  }
+  #lumii-boot[data-act="cognition"] .bar-fill{
+    box-shadow: 0 0 22px rgba(110,225,255,1), 0 0 40px rgba(255,208,138,.35);
+  }
+  #lumii-boot[data-act="cognition"] .scanlines{ opacity: .48; }
+  #lumii-boot[data-act="dark"] .scanlines,
+  #lumii-boot[data-act="dormant"] .scanlines{ opacity: .12; }
+  #lumii-boot[data-act="neural"] .scanlines{ opacity: .22; }
 
   #lumii-boot .bar{ position: relative; height: 3px; background: rgba(79,216,255,.10); overflow: hidden; }
   #lumii-boot .bar-fill{

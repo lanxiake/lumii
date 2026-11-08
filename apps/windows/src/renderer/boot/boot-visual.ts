@@ -10,10 +10,19 @@
  *   两者都是一次性烘焙成位图，逐帧只贴图，代价接近零。
  * - **五幕叙事**：standby → 核心唤醒 → 神经链接 → 能量充能 → 意识聚合 → 门户。
  *   每幕的粒子与音效都跟同一个节拍时钟走，画面才有「拍子」。
+ *   气质：前段克制极简，cognition / gate 才仪式爆发。
+ * - **卡住态**：同一阶段约 6s 无进展 → 慢呼吸 +「仍在：阶段 · 已等待 Ns」，
+ *   进度条不假爬升、不提供跳过（见 `boot-stall.ts`）。
  * - 音效由 `boot-audio.ts` 现场合成，不引入音频文件。
  */
 
 import logoSrc from '@app-assets/logo.png'
+import {
+  formatStallPhaseText,
+  shouldApplyFallbackCurve,
+  shouldEnterStall,
+  STALL_MS,
+} from './boot-stall'
 import { BOOT_STYLE } from './boot-style'
 
 export const BOOT_ID = 'lumii-boot'
@@ -84,6 +93,12 @@ export interface BootVisualOptions {
   subscribe?: (cb: (p: BootProgress) => void) => () => void
   /** 每推进一个真实阶段时回调，供音效层跟随 */
   onPhase?: (label: string, index: number) => void
+  /** 卡住态进入 / 退出时回调，供音效层切心跳 */
+  onStall?: (stalled: boolean) => void
+  /** 可注入时钟（单测用假时间）；默认 performance.now */
+  now?: () => number
+  /** 卡住阈值覆盖（毫秒）；默认 STALL_MS */
+  stallMs?: number
 }
 
 export interface BootVisualHandle {
@@ -267,6 +282,13 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   let circuitGrow = 0
   let streamInflow = 0
 
+  const clock = options.now ?? (() => performance.now())
+  const stallThreshold = options.stallMs ?? STALL_MS
+  let lastPhaseAt = clock()
+  let phaseLabel = '准备启动'
+  let lastProgressIndex = 0
+  let stalled = false
+
   const reduced =
     options.reducedMotion ??
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ??
@@ -279,6 +301,9 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   const pctEl = q<HTMLElement>('#bk-pct-text')!
   const fillEl = q<HTMLElement>('#bk-bar-fill')!
   const actNameEl = q<HTMLElement>('#bk-act-name')!
+  const syncEl = q<HTMLElement>('#bk-t-sync')!
+  const coreEl = q<HTMLElement>('#bk-t-core')!
+  const pwrEl = q<HTMLElement>('#bk-t-pwr')!
 
   function renderChecks(count: number, allDone = false): void {
     const target = Math.max(0, Math.min(TOTAL_PHASES, count))
@@ -306,23 +331,56 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     act = next
     root.dataset.act = next
     actNameEl.textContent = ACT_LABELS[next]
-    if (next !== 'dark' && next !== 'dormant') {
-      root.querySelectorAll('.armor').forEach((n) => {
-        ;(n as HTMLElement).style.opacity = '1'
-        ;(n as HTMLElement).style.transform = 'none'
-      })
-      root.querySelectorAll('.frame-line').forEach((n) => {
-        ;(n as HTMLElement).style.opacity = '1'
-      })
-      root.querySelectorAll('.compass').forEach((n) => {
-        ;(n as HTMLElement).style.opacity = '.9'
-      })
+    // 装甲 / 框线 / 罗盘透明度交给 CSS 的 data-act 控制，避免 inline 盖掉「前弱后强」
+  }
+
+  /** 卡住态展示用的阶段名：无真实进度时走规格文案「等待启动信号」 */
+  function stallLabel(): string {
+    return hasRealProgress ? phaseLabel : ''
+  }
+
+  /**
+   * 刷新卡住态：进入时改文案与 SYNC；退出时恢复阶段名。
+   */
+  function refreshStall(): void {
+    if (destroyed || completed) {
+      if (stalled) applyStall(false)
+      return
+    }
+    const now = clock()
+    const next = shouldEnterStall(now, lastPhaseAt, {
+      completed,
+      stallMs: stallThreshold,
+    })
+    if (next !== stalled) applyStall(next)
+    if (stalled) {
+      const waitedSec = (now - lastPhaseAt) / 1000
+      const text = formatStallPhaseText(stallLabel(), waitedSec)
+      if (phaseTextEl.textContent !== text) phaseTextEl.textContent = text
+      if (syncEl.textContent !== 'HOLD') syncEl.textContent = 'HOLD'
+    }
+  }
+
+  /** 写入卡住态 DOM / 回调 */
+  function applyStall(next: boolean): void {
+    stalled = next
+    if (next) {
+      root.dataset.stall = '1'
+      syncEl.textContent = 'HOLD'
+      options.onStall?.(true)
+    } else {
+      delete root.dataset.stall
+      phaseTextEl.textContent = phaseLabel
+      options.onStall?.(false)
     }
   }
 
   /* ── 订阅真实进度 ───────────────────────────────────────────── */
   const off = options.subscribe?.((p) => {
     if (destroyed || completed) return
+    // 广播补发 / history 可能重复同一批阶段：忽略回退索引，避免重置卡住计时
+    if (p.index <= lastProgressIndex) return
+    lastProgressIndex = p.index
     const total = p.total > 0 ? p.total : TOTAL_PHASES
 
     // 进度条与右上角清单必须同源：都按「已完成阶段数」折算。
@@ -335,11 +393,17 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     hasRealProgress = true
 
     const label = _phaseLabelFor(p.phase)
-    phaseTextEl.textContent = label
+    phaseLabel = label
+    lastPhaseAt = clock()
+    if (stalled) applyStall(false)
+    else phaseTextEl.textContent = label
     renderChecks(p.index)
     setAct(actForPhase(p.index, total))
     options.onPhase?.(label, p.index)
   })
+
+  /** 卡住态轮询：不依赖 rAF，假时钟单测也能推进 */
+  const stallTimer = window.setInterval(refreshStall, 250)
 
   /* ── 底图烘焙 ───────────────────────────────────────────────── */
   function makeNoise2D(seed: number): (x: number, y: number) => number {
@@ -603,17 +667,21 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   /* ── 核心与刻度环 ───────────────────────────────────────────── */
   function drawCore(): void {
     if (coreGlow <= 0.01) return
-    const thump = Math.pow(1 - beatPhase(), 4)
-    const breathe = 0.84 + 0.16 * Math.sin(slowPhase(4) * Math.PI * 2) + thump * 0.22
+    const thump = stalled ? 0 : Math.pow(1 - beatPhase(), 4)
+    // 卡住态：更慢、更大的「仍在唤醒」呼吸；正常态跟拍子
+    const breathe = stalled
+      ? 0.78 + 0.28 * Math.sin(slowPhase(8) * Math.PI * 2)
+      : 0.84 + 0.16 * Math.sin(slowPhase(4) * Math.PI * 2) + thump * 0.22
+    const glowMul = stalled ? 1.15 : act === 'cognition' ? 1.2 : 1
 
     // 横向变形镜头光晕：电影感最直接的来源
-    const streakW = 520 * breathe
-    const streakH = 2.2 + thump * 1.6
+    const streakW = (stalled ? 620 : act === 'cognition' ? 580 : 520) * breathe
+    const streakH = 2.2 + thump * 1.6 + (stalled ? 1.1 : 0)
     const sg = ctx.createLinearGradient(CX - streakW, CY, CX + streakW, CY)
     sg.addColorStop(0, 'rgba(90,180,255,0)')
-    sg.addColorStop(0.28, `rgba(120,205,255,${(0.16 * coreGlow).toFixed(3)})`)
-    sg.addColorStop(0.5, `rgba(200,240,255,${(0.55 * coreGlow).toFixed(3)})`)
-    sg.addColorStop(0.72, `rgba(120,205,255,${(0.16 * coreGlow).toFixed(3)})`)
+    sg.addColorStop(0.28, `rgba(120,205,255,${(0.16 * coreGlow * glowMul).toFixed(3)})`)
+    sg.addColorStop(0.5, `rgba(200,240,255,${(0.55 * coreGlow * glowMul).toFixed(3)})`)
+    sg.addColorStop(0.72, `rgba(120,205,255,${(0.16 * coreGlow * glowMul).toFixed(3)})`)
     sg.addColorStop(1, 'rgba(90,180,255,0)')
     ctx.save()
     ctx.globalCompositeOperation = 'lighter'
@@ -622,10 +690,10 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     ctx.ellipse(CX, CY, streakW, streakH, 0, 0, 6.2832)
     ctx.fill()
 
-    const haloR = 46 * breathe
+    const haloR = (stalled ? 62 : 46) * breathe
     const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, haloR)
-    g.addColorStop(0, `rgba(180,240,255,${(0.34 * coreGlow).toFixed(3)})`)
-    g.addColorStop(0.45, `rgba(80,180,255,${(0.13 * coreGlow).toFixed(3)})`)
+    g.addColorStop(0, `rgba(180,240,255,${(0.34 * coreGlow * glowMul).toFixed(3)})`)
+    g.addColorStop(0.45, `rgba(80,180,255,${(0.13 * coreGlow * glowMul).toFixed(3)})`)
     g.addColorStop(1, 'rgba(40,120,220,0)')
     ctx.fillStyle = g
     ctx.beginPath()
@@ -633,11 +701,12 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     ctx.fill()
     ctx.restore()
 
-    for (let k = 0; k < 2; k++) {
-      const ph = (beatPhase() + k * 0.5) % 1
-      const radius = 26 + ph * 132
+    const ringN = stalled ? 3 : 2
+    for (let k = 0; k < ringN; k++) {
+      const ph = (beatPhase() + k * (1 / ringN)) % 1
+      const radius = 26 + ph * (stalled ? 160 : 132)
       ctx.beginPath()
-      ctx.strokeStyle = `rgba(150,235,255,${((1 - ph) * 0.26 * coreGlow).toFixed(3)})`
+      ctx.strokeStyle = `rgba(150,235,255,${((1 - ph) * 0.26 * coreGlow * glowMul).toFixed(3)})`
       ctx.lineWidth = 1.1 * (1 - ph) + 0.25
       ctx.arc(CX, CY, radius, 0, 6.2832)
       ctx.stroke()
@@ -802,8 +871,32 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     const isCognition = act === 'cognition'
     const isGate = act === 'gate'
 
-    targetCore = act === 'dark' ? 0.18 : isCognition ? 0.12 : isGate ? 0.35 : 0.72
+    // 前段克制、高潮更亮；卡住态保持可见呼吸底光
+    targetCore = stalled
+      ? Math.max(0.42, act === 'dark' || act === 'dormant' ? 0.48 : 0.55)
+      : act === 'dark'
+        ? 0.22
+        : act === 'dormant'
+          ? 0.32
+          : isCognition
+            ? 0.88
+            : isGate
+              ? 0.55
+              : isEnergize
+                ? 0.72
+                : 0.58
     coreGlow += (targetCore - coreGlow) * Math.min(1, dt * 3)
+
+    {
+      const coreText = `0x${Math.round(coreGlow * 255).toString(16).padStart(2, '0')}`
+      if (coreEl.textContent !== coreText) coreEl.textContent = coreText
+      const pwrText = `${progress.toFixed(1)}%`
+      if (pwrEl.textContent !== pwrText) pwrEl.textContent = pwrText
+      if (!stalled) {
+        const syncText = hasRealProgress ? `${Math.round(progress)}%` : '--'
+        if (syncEl.textContent !== syncText) syncEl.textContent = syncText
+      }
+    }
 
     streamInflow = isNeural
       ? Math.min(1, streamInflow + dt * 0.7)
@@ -819,17 +912,19 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
           ? Math.max(0, circuitGrow - dt * 0.6)
           : 0
 
-    // 兜底曲线：只在一条真实信号都没收到时接管。
-    // 一旦有真进度就必须让位——否则它会一路推到 88%，
-    // 而阶段清单还停在第 4 条，画面自相矛盾。
-    if (!completed && !hasRealProgress) {
+    // 兜底曲线：只在一条真实信号都没收到、且未卡住时接管。
+    // 卡住态必须冻结进度条——否则文案说「已等待」，条却还在假爬升。
+    if (shouldApplyFallbackCurve({ completed, hasRealProgress, stalled })) {
       const curve = CURVE_CEILING * (1 - Math.exp(-(now - startedAt) / 5200))
       targetProgress = Math.max(targetProgress, curve)
     }
     const cap = completed ? 100 : 96
     const goal = Math.min(targetProgress, cap)
-    progress += (goal - progress) * 0.12
-    if (Math.abs(goal - progress) < 0.05) progress = goal
+    // 卡住态冻结百分比：不 lerp、不曲线，避免「等待文案 vs 条还在动」
+    if (!stalled || completed) {
+      progress += (goal - progress) * 0.12
+      if (Math.abs(goal - progress) < 0.05) progress = goal
+    }
 
     fillEl.style.width = `${progress.toFixed(1)}%`
     pctEl.textContent = `${Math.round(progress)}%`
@@ -873,6 +968,7 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
 
   function cleanup(): void {
     destroyed = true
+    window.clearInterval(stallTimer)
     cancelAnimationFrame(raf)
     window.removeEventListener('resize', onResize)
     off?.()
@@ -882,6 +978,8 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     async complete() {
       if (completed || destroyed) return
       completed = true
+      if (stalled) applyStall(false)
+      phaseLabel = '系统就绪'
       targetProgress = 100
       progress = 100
       fillEl.style.width = '100%'
