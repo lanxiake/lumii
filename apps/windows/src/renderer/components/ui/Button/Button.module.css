@@ -26,11 +26,7 @@
 
 .btn:focus-visible {
   outline: none;
-  /* 双环：内圈画布色隔开，外圈 accent + 淡青光 */
-  box-shadow:
-    0 0 0 2px var(--mt-bg-primary),
-    0 0 0 4px var(--mt-accent-500),
-    0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.35);
+  box-shadow: var(--mt-focus-ring);
 }
 
 /* Sizes */

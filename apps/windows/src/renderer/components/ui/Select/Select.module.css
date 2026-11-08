@@ -33,7 +33,7 @@
 
 .select-field:focus {
   border-color: var(--mt-accent-500);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.20);
+  box-shadow: var(--mt-focus-ring);
 }
 
 .select-field:disabled {

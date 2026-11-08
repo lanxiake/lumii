@@ -9,9 +9,9 @@
   z-index: var(--z-tooltip, 1800);
   padding: var(--spacing-2) var(--spacing-3);
   background-color: rgba(var(--mt-surface-rgb), 0.96);
-  border: 1px solid var(--mt-border);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.35) 40%, var(--mt-border));
   border-radius: var(--mt-radius-md);
-  box-shadow: var(--mt-shadow-md);
+  box-shadow: var(--mt-shadow-md), 0 0 16px rgba(var(--mt-ritual-cyan-rgb), 0.12);
   pointer-events: none;
   animation: tooltip-fade-in var(--mt-dur-fast) var(--mt-ease-decel);
   width: fit-content;

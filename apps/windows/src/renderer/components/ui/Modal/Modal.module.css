@@ -54,14 +54,18 @@
   backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
   border: 1px solid var(--mt-glass-stroke);
-  box-shadow: var(--mt-shadow-xl), var(--mt-shadow-inner);
+  box-shadow:
+    var(--mt-shadow-xl),
+    var(--mt-shadow-inner),
+    0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.12),
+    0 0 40px rgba(var(--mt-ritual-cyan-rgb), 0.1);
   border-radius: var(--mt-radius-2xl);
   width: 100%;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  animation: modal-slide-in var(--mt-dur-normal) var(--mt-ease-spring);
+  animation: modal-slide-in var(--mt-dur-slow) var(--mt-ease-spring);
 }
 
 /* Settings Hub 大尺寸：与聊天同款 mesh + 网格底，玻璃描边 */
@@ -108,11 +112,13 @@
 @keyframes modal-slide-in {
   from {
     opacity: 0;
-    transform: translateY(-16px) scale(0.97);
+    transform: translateY(-12px) scale(0.96);
+    filter: blur(2px);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+    filter: none;
   }
 }
 
@@ -159,6 +165,12 @@
 .modal-close:hover {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
+  box-shadow: var(--mt-glow-cyan);
+}
+
+.modal-close:focus-visible {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .modal-body {

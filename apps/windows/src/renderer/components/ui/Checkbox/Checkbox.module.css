@@ -47,12 +47,18 @@
 
 .checkbox-wrapper:hover:not(.checkbox-disabled) .checkbox-inner {
   border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px rgba(var(--mt-ritual-cyan-rgb), 0.18);
 }
 
 .checkbox-wrapper.checkbox-checked .checkbox-inner,
 .checkbox-wrapper.checkbox-indeterminate .checkbox-inner {
   background-color: var(--color-primary-500);
   border-color: var(--color-primary-500);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-amber-rgb), 0.35);
+}
+
+.checkbox-input:focus-visible + .checkbox-inner {
+  box-shadow: var(--mt-focus-ring);
 }
 
 .checkbox-wrapper.checkbox-checked:hover:not(.checkbox-disabled) .checkbox-inner,
@@ -88,8 +94,3 @@
   color: var(--color-text-disabled);
 }
 
-/* Focus styles */
-.checkbox-input:focus-visible + .checkbox-inner {
-  outline: 2px solid var(--color-primary-500);
-  outline-offset: 2px;
-}

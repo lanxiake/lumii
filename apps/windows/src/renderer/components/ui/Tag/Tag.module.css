@@ -17,9 +17,10 @@
 }
 
 .tag-primary {
-  background-color: rgba(99, 102, 241, 0.1);
+  background-color: rgba(var(--mt-accent-rgb), 0.12);
   color: var(--color-primary-400);
-  border-color: rgba(99, 102, 241, 0.3);
+  border-color: rgba(var(--mt-accent-rgb), 0.32);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
 .tag-success {
@@ -41,9 +42,9 @@
 }
 
 .tag-info {
-  background-color: rgba(59, 130, 246, 0.1);
+  background-color: rgba(var(--mt-ritual-cyan-rgb), 0.1);
   color: var(--color-info);
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: rgba(var(--mt-ritual-cyan-rgb), 0.3);
 }
 
 .tag-icon {

@@ -56,7 +56,7 @@
 .card-hover:hover {
   border-color: var(--mt-accent-500);
   transform: translateY(-2px);
-  box-shadow: var(--mt-shadow-md);
+  box-shadow: var(--mt-shadow-md), var(--mt-glow-cyan);
 }
 
 .card-clickable {

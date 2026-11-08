@@ -7,7 +7,9 @@
   border-radius: var(--radius-full);
   background-color: var(--color-gray-600);
   cursor: pointer;
-  transition: background-color var(--transition-fast);
+  transition:
+    background-color var(--transition-fast),
+    box-shadow var(--mt-dur-normal, 220ms) var(--mt-ease-standard, ease);
   outline: none;
 }
 
@@ -17,6 +19,8 @@
 
 .switch-checked {
   background-color: var(--color-primary-500);
+  /* 开态琥珀外晕：默认干净，打开才仪式化 */
+  box-shadow: var(--mt-glow-amber);
 }
 
 .switch-checked:hover:not(.switch-disabled) {
@@ -29,8 +33,12 @@
 }
 
 .switch:focus-visible {
-  outline: 2px solid var(--color-primary-500);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
+}
+
+.switch-checked:focus-visible {
+  box-shadow: var(--mt-glow-amber), var(--mt-focus-ring);
 }
 
 /* Sizes */

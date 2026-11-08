@@ -158,6 +158,11 @@
   --mt-ritual-amber-rgb: 255, 157, 77;
   --mt-glow-cyan:  0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.28), 0 0 18px rgba(var(--mt-ritual-cyan-rgb), 0.28);
   --mt-glow-amber: 0 0 0 1px rgba(var(--mt-ritual-amber-rgb), 0.32), 0 0 20px rgba(var(--mt-ritual-amber-rgb), 0.35);
+  /* 统一焦点双环：内圈画布色隔开，外圈 accent + 淡青光 */
+  --mt-focus-ring:
+    0 0 0 2px var(--mt-bg-primary, #0f172a),
+    0 0 0 4px var(--mt-accent-500),
+    0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.28);
   --mt-pulse-dur:  1.8s;
 
   /* 布局尺寸 */
