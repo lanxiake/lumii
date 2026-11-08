@@ -5,22 +5,23 @@
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; font-weight: 500; padding: 2px 8px;
   border-radius: var(--mt-radius-full, 9999px);
-  background: rgba(var(--mt-warning-rgb), 0.12);
-  color: var(--mt-warning);
-  border: 1px solid rgba(var(--mt-warning-rgb), 0.28);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.14) 70%, transparent);
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.35) 55%, transparent);
   cursor: pointer; white-space: nowrap; line-height: 1.6;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
   user-select: none;
 }
 .badge:hover {
-  background: rgba(var(--mt-warning-rgb), 0.2);
-  border-color: rgba(var(--mt-warning-rgb), 0.45);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.22) 70%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.5) 55%, transparent);
+  box-shadow: var(--mt-glow-amber);
 }
 .badge-dot {
   width: 5px; height: 5px; border-radius: 50%;
-  background: var(--mt-warning);
+  background: rgba(var(--mt-ritual-amber-rgb), 0.95);
   flex-shrink: 0;
-  animation: badge-pulse 2s ease-in-out infinite;
+  animation: badge-pulse var(--mt-pulse-dur, 1.8s) ease-in-out infinite;
 }
 @keyframes badge-pulse {
   0%, 100% { opacity: 1; }
@@ -97,15 +98,16 @@
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; font-weight: 500; padding: 4px 10px;
   border-radius: var(--mt-radius-md, 6px);
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--mt-accent-500);
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.14) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.35) 55%, transparent);
   cursor: pointer; white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 .btn-download:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.28);
-  border-color: rgba(59, 130, 246, 0.45);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.24) 70%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.5) 55%, transparent);
+  box-shadow: var(--mt-glow-cyan);
 }
 .btn-download:disabled { opacity: 0.55; cursor: default; }
 
@@ -140,13 +142,14 @@
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; font-weight: 500; padding: 6px 16px;
   border-radius: var(--mt-radius-lg, 8px);
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--mt-accent-500);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.12) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.3) 55%, transparent);
   cursor: pointer; width: 100%; justify-content: center;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 .btn-goto-store:hover {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.4);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 70%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.45) 55%, transparent);
+  box-shadow: var(--mt-glow-cyan);
 }

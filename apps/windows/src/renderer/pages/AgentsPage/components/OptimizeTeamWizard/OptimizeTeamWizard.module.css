@@ -18,11 +18,13 @@
   max-width: 92vw;
   max-height: 88vh;
   background: var(--mt-glass-bg, var(--bg-surface));
-  border: 1px solid var(--mt-glass-stroke);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.3) 45%, var(--mt-glass-stroke));
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--mt-shadow-xl, 0 24px 64px rgba(0, 0, 0, 0.5));
+  box-shadow:
+    var(--mt-shadow-xl, 0 24px 64px rgba(0, 0, 0, 0.5)),
+    0 0 24px rgba(var(--mt-ritual-amber-rgb), 0.1);
   backdrop-filter: blur(12px) saturate(160%);
   -webkit-backdrop-filter: blur(12px) saturate(160%);
 }
@@ -120,11 +122,13 @@
 
 .agentItem:hover {
   background: var(--mt-bg-tertiary);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.1);
 }
 
 .agentItemSelected {
-  border-color: var(--mt-accent-500);
-  background: rgba(59, 130, 246, 0.08);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.55) 50%, var(--mt-accent-500));
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.1);
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.85);
 }
 
 .agentItemEmoji {
@@ -140,7 +144,8 @@
 }
 
 .checkIcon {
-  color: var(--mt-accent-400);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  filter: drop-shadow(0 0 4px rgba(var(--mt-ritual-cyan-rgb), 0.4));
   flex-shrink: 0;
 }
 
@@ -403,11 +408,13 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s, opacity 0.12s;
+  box-shadow: 0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.2);
+  transition: background 0.12s, opacity 0.12s, box-shadow 0.12s;
 }
 
 .primaryBtn:not(:disabled):hover {
   background: var(--mt-accent-600);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .primaryBtn:disabled {
