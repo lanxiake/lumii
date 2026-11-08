@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { Button } from '../../../../../renderer/components/ui/Button/Button'
 import { Input } from '../../../../../renderer/components/ui/Input/Input'
@@ -59,6 +59,23 @@ export function VoiceSettingsSection() {
   const previewVolumeRef = useRef(1.0)
   const previewIdRef = useRef<string | null>(null)
 
+  /**
+   * 拉一次「已启用引擎 + 各自就绪状态」。
+   *
+   * 要被三处复用（挂载、插件启停、配置保存后），所以提到组件层而不是放在 effect 里：
+   * Breeze 这类靠配置判定可用性的引擎，用户填完路径必须先重新问一次才知道能用了。
+   */
+  const loadEngines = useCallback(() => {
+    const electronAPI = (window as any).electronAPI
+    if (!electronAPI?.voice?.sendCommand) return
+    electronAPI.voice
+      .sendCommand({ type: 'voice:tts:engines' })
+      .then((list: any) => {
+        if (Array.isArray(list)) setTtsEngines(list)
+      })
+      .catch(() => undefined)
+  }, [])
+
   useEffect(() => {
     const electronAPI = (window as any).electronAPI
     if (!electronAPI?.voice?.sendCommand) return
@@ -90,14 +107,6 @@ export function VoiceSettingsSection() {
       applyModelReady(list)
     }).catch(() => undefined)
 
-    const loadEngines = () => {
-      electronAPI.voice
-        .sendCommand({ type: 'voice:tts:engines' })
-        .then((list: any) => {
-          if (Array.isArray(list)) setTtsEngines(list)
-        })
-        .catch(() => undefined)
-    }
     loadEngines()
 
     // 插件启停是「安装/卸载 TTS 引擎」的那一下：注册表变了，下拉必须跟着变，
@@ -115,7 +124,7 @@ export function VoiceSettingsSection() {
       offPluginState()
       if (typeof unsub === 'function') unsub()
     }
-  }, [])
+  }, [loadEngines])
 
   useEffect(() => {
     const electronAPI = (window as any).electronAPI
@@ -225,6 +234,8 @@ export function VoiceSettingsSection() {
     setVoiceSaving(true)
     try {
       await electronAPI.voice.sendCommand({ type: 'voice:config:set', config: partial })
+      // 配置变了可能改变引擎可用性（如 Breeze 填完仓库路径就从未就绪变可用）
+      loadEngines()
     } finally {
       setVoiceSaving(false)
     }
