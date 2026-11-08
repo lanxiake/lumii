@@ -11,6 +11,7 @@ import {
 describe('boot-climax 高潮判定', () => {
   it('后段阶段用 climax 音效，中前段用 pulse', () => {
     expect(audioCueForProgress(6, 11)).toBe('pulse')
+    expect(audioCueForProgress(8, 11)).toBe('pulse')
     expect(audioCueForProgress(9, 11)).toBe('climax')
     expect(audioCueForProgress(11, 11)).toBe('pulse')
     expect(audioCueForProgress(0, 11)).toBe('none')

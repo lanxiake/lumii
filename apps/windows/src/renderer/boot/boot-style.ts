@@ -97,8 +97,11 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     transition: opacity 1.1s ease;
   }
   @keyframes floorRun { to { background-position: 0 64px, 0 64px; } }
-  #lumii-boot[data-act="neural"]   .floor{ opacity: .35; }
-  #lumii-boot[data-act="energize"] .floor{ opacity: .75; animation-duration: .65s; }
+  /* 地平面密度对齐 boot-density：neural 稀疏，energize 才成面 */
+  #lumii-boot[data-act="dark"]     .floor{ opacity: 0; }
+  #lumii-boot[data-act="dormant"]  .floor{ opacity: 0; }
+  #lumii-boot[data-act="neural"]   .floor{ opacity: .22; }
+  #lumii-boot[data-act="energize"] .floor{ opacity: .7; animation-duration: .65s; }
   #lumii-boot[data-act="cognition"] .floor{ opacity: .5; animation-duration: 1.2s; }
   #lumii-boot[data-act="gate"]     .floor{ opacity: .28; }
 
@@ -132,9 +135,11 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
   #lumii-boot .armor.tr{ right: 26px; top: 26px; transform: translate(14px,-14px) scaleX(-1); }
   #lumii-boot .armor.bl{ left: 26px; bottom: 26px; transform: translate(-14px,14px) scaleY(-1); }
   #lumii-boot .armor.br{ right: 26px; bottom: 26px; transform: translate(14px,14px) scale(-1); }
-  /* 前弱后强：neural 半隐，cognition/gate 全开 */
-  #lumii-boot[data-act="neural"] .armor{ opacity: .42; transform: none; }
-  #lumii-boot[data-act="energize"] .armor{ opacity: .78; transform: none; }
+  /* 前弱后强：dark/dormant 关装甲，neural 淡入，energize 才明显 */
+  #lumii-boot[data-act="dark"] .armor,
+  #lumii-boot[data-act="dormant"] .armor{ opacity: 0; }
+  #lumii-boot[data-act="neural"] .armor{ opacity: .28; transform: none; }
+  #lumii-boot[data-act="energize"] .armor{ opacity: .7; transform: none; }
   #lumii-boot[data-act="cognition"] .armor,
   #lumii-boot[data-act="gate"] .armor{ opacity: 1; transform: none; }
 
@@ -198,12 +203,16 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
   }
 
   
-  #lumii-boot[data-act="neural"] .frame-line{ opacity: .4 !important; }
-  #lumii-boot[data-act="energize"] .frame-line{ opacity: .75 !important; }
+  #lumii-boot[data-act="dark"] .frame-line,
+  #lumii-boot[data-act="dormant"] .frame-line{ opacity: 0 !important; }
+  #lumii-boot[data-act="neural"] .frame-line{ opacity: .28 !important; }
+  #lumii-boot[data-act="energize"] .frame-line{ opacity: .68 !important; }
   #lumii-boot[data-act="cognition"] .frame-line,
   #lumii-boot[data-act="gate"] .frame-line{ opacity: 1 !important; }
-  #lumii-boot[data-act="neural"] .compass{ opacity: .28 !important; }
-  #lumii-boot[data-act="energize"] .compass{ opacity: .55 !important; }
+  #lumii-boot[data-act="dark"] .compass,
+  #lumii-boot[data-act="dormant"] .compass{ opacity: 0 !important; }
+  #lumii-boot[data-act="neural"] .compass{ opacity: .18 !important; }
+  #lumii-boot[data-act="energize"] .compass{ opacity: .48 !important; }
   #lumii-boot[data-act="cognition"] .compass,
   #lumii-boot[data-act="gate"] .compass{ opacity: .9 !important; }
 
@@ -217,10 +226,10 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     transition: opacity .6s ease;
   }
   /* 极早幕也留一行品牌，克制但不空白 */
-  #lumii-boot[data-act="dark"] .topbar{ opacity: .28; }
-  #lumii-boot[data-act="dormant"] .topbar{ opacity: .5; }
-  #lumii-boot[data-act="neural"] .topbar{ opacity: .72; }
-  #lumii-boot[data-act="energize"] .topbar,
+  #lumii-boot[data-act="dark"] .topbar{ opacity: .18; }
+  #lumii-boot[data-act="dormant"] .topbar{ opacity: .38; }
+  #lumii-boot[data-act="neural"] .topbar{ opacity: .62; }
+  #lumii-boot[data-act="energize"] .topbar{ opacity: .88; }
   #lumii-boot[data-act="cognition"] .topbar,
   #lumii-boot[data-act="gate"] .topbar{ opacity: .95; }
 
@@ -237,8 +246,10 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     font-size: 11px; letter-spacing: .1em; line-height: 1.95; opacity: 0;
     transition: opacity .6s ease;
   }
-  #lumii-boot[data-act="neural"] .telemetry{ opacity: .4; }
-  #lumii-boot[data-act="energize"] .telemetry{ opacity: .72; }
+  #lumii-boot[data-act="dark"] .telemetry,
+  #lumii-boot[data-act="dormant"] .telemetry{ opacity: 0; }
+  #lumii-boot[data-act="neural"] .telemetry{ opacity: .28; }
+  #lumii-boot[data-act="energize"] .telemetry{ opacity: .62; }
   #lumii-boot[data-act="cognition"] .telemetry,
   #lumii-boot[data-act="gate"] .telemetry{ opacity: .92; }
   #lumii-boot[data-stall="1"] .telemetry{ opacity: .88; }
@@ -257,8 +268,10 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     font-size: 11px; letter-spacing: .1em; line-height: 2.15;
     text-align: right; opacity: 0; transition: opacity .6s ease;
   }
-  #lumii-boot[data-act="neural"] .checks{ opacity: .32; }
-  #lumii-boot[data-act="energize"] .checks{ opacity: .7; }
+  #lumii-boot[data-act="dark"] .checks,
+  #lumii-boot[data-act="dormant"] .checks{ opacity: 0; }
+  #lumii-boot[data-act="neural"] .checks{ opacity: .22; }
+  #lumii-boot[data-act="energize"] .checks{ opacity: .58; }
   #lumii-boot[data-act="cognition"] .checks,
   #lumii-boot[data-act="gate"] .checks{ opacity: .95; }
   #lumii-boot .checks div{
@@ -294,11 +307,16 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%);
     width: min(640px, 76vw); opacity: 0; transition: opacity .7s ease;
   }
-  #lumii-boot[data-act="dormant"] .bar-wrap{ opacity: .45; }
-  #lumii-boot[data-act="neural"] .bar-wrap,
+  /* 进度条：dormant 隐约 → neural 可读 → energize 起成锚点 */
+  #lumii-boot[data-act="dark"] .bar-wrap{ opacity: 0; }
+  #lumii-boot[data-act="dormant"] .bar-wrap{ opacity: .32; }
+  #lumii-boot[data-act="neural"] .bar-wrap{ opacity: .7; }
   #lumii-boot[data-act="energize"] .bar-wrap,
   #lumii-boot[data-act="cognition"] .bar-wrap,
   #lumii-boot[data-act="gate"] .bar-wrap{ opacity: 1; }
+  #lumii-boot[data-act="energize"] .bar-fill{
+    box-shadow: 0 0 18px rgba(110,225,255,.85), 0 0 28px rgba(255,157,77,.2);
+  }
   /* 卡住时必须看清阶段与耗时，哪怕还在极早幕 */
   #lumii-boot[data-stall="1"] .bar-wrap{ opacity: 1; }
   #lumii-boot[data-stall="1"] .topbar{ opacity: .9; }
@@ -321,11 +339,12 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
       0 0 72px rgba(255,157,77,.22);
     background: linear-gradient(90deg, rgba(79,216,255,.55), var(--cy) 48%, var(--amber-hot) 88%, #fff6e8);
   }
+  #lumii-boot[data-act="dark"] .scanlines{ opacity: .08; }
+  #lumii-boot[data-act="dormant"] .scanlines{ opacity: .12; }
+  #lumii-boot[data-act="neural"] .scanlines{ opacity: .18; }
+  #lumii-boot[data-act="energize"] .scanlines{ opacity: .32; }
   #lumii-boot[data-act="cognition"] .scanlines{ opacity: .48; }
   #lumii-boot[data-act="gate"] .scanlines{ opacity: .32; }
-  #lumii-boot[data-act="dark"] .scanlines,
-  #lumii-boot[data-act="dormant"] .scanlines{ opacity: .12; }
-  #lumii-boot[data-act="neural"] .scanlines{ opacity: .22; }
 
   #lumii-boot .bar{ position: relative; height: 3px; background: rgba(79,216,255,.10); overflow: hidden; }
   #lumii-boot .bar-fill{

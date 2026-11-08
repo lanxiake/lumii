@@ -166,6 +166,29 @@ describe('mountBootVisual 挂载与收尾', () => {
     handle.destroy()
   })
 
+  it('前中段阶段按密度阶梯切幕：dormant→neural→energize', () => {
+    let fire: ((p: { phase: string; index: number; total: number }) => void) | null = null
+    const handle = mountBootVisual({
+      subscribe: (cb) => {
+        fire = cb
+        return () => {
+          fire = null
+        }
+      },
+    })
+
+    fire!({ phase: 'S0-app-shell', index: 1, total: 11 })
+    expect(document.getElementById(BOOT_ID)?.dataset.act).toBe('dormant')
+
+    fire!({ phase: 'window', index: 4, total: 11 })
+    expect(document.getElementById(BOOT_ID)?.dataset.act).toBe('neural')
+
+    fire!({ phase: 'S7-services', index: 6, total: 11 })
+    expect(document.getElementById(BOOT_ID)?.dataset.act).toBe('energize')
+
+    handle.destroy()
+  })
+
   it('complete 触发门户裂开与高潮回调', async () => {
     vi.useFakeTimers()
     const climaxes: string[] = []

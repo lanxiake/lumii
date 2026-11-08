@@ -17,7 +17,8 @@ export type BootAudioCue = 'pulse' | 'climax' | 'none'
 export function audioCueForProgress(index: number, total: number): BootAudioCue {
   if (total <= 0 || index <= 0) return 'none'
   const r = index / total
-  if (r > 0.72 && r < 1) return 'climax'
+  // 与 actForPhase 的 cognition 窗对齐（r > 0.73）
+  if (r > 0.73 && r < 1) return 'climax'
   return 'pulse'
 }
 

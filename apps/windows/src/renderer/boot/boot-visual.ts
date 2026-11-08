@@ -22,6 +22,11 @@ import {
   coreGlowMultiplier,
 } from './boot-climax'
 import {
+  coreTargetForAct,
+  ringStrengthForAct,
+  type BootAct,
+} from './boot-density'
+import {
   formatStallPhaseText,
   shouldApplyFallbackCurve,
   shouldEnterStall,
@@ -132,7 +137,7 @@ const EASE = {
 }
 
 /** 五幕的叙事顺序，portal 单独收尾 */
-type Act = 'dark' | 'dormant' | 'neural' | 'energize' | 'cognition' | 'gate'
+type Act = BootAct
 
 const ACT_LABELS: Record<Act, string> = {
   dark: 'STANDBY',
@@ -148,13 +153,16 @@ const ACT_LABELS: Record<Act, string> = {
  *
  * 启动阶段的先后顺序是固定的，但视觉叙事只有五幕，
  * 所以按索引把阶段分配到幕上：前段是唤醒与生长，中段是充能，后段是聚合并开启。
+ *
+ * 阈值保证 11 阶段下 dark→dormant→neural→energize 都能落到真实 index
+ *（首包 index=1，旧阈值 0.09 会直接跳过 dormant）。
  */
 function actForPhase(index: number, total: number): Act {
   const r = index / Math.max(1, total)
-  if (r <= 0.09) return 'dormant'
-  if (r <= 0.45) return 'neural'
-  if (r <= 0.72) return 'energize'
-  if (r < 1) return 'cognition'
+  if (r <= 0.2) return 'dormant' // ~1–2
+  if (r <= 0.45) return 'neural' // ~3–4
+  if (r <= 0.73) return 'energize' // ~5–8
+  if (r < 1) return 'cognition' // ~9–10
   return 'gate'
 }
 
@@ -911,20 +919,8 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     const isCognition = act === 'cognition'
     const isGate = act === 'gate'
 
-    // 前段克制、高潮更亮；卡住态保持可见呼吸底光
-    targetCore = stalled
-      ? Math.max(0.42, act === 'dark' || act === 'dormant' ? 0.48 : 0.55)
-      : act === 'dark'
-        ? 0.22
-        : act === 'dormant'
-          ? 0.32
-          : isCognition
-            ? 0.88
-            : isGate
-              ? 0.55
-              : isEnergize
-                ? 0.72
-                : 0.58
+    // 前段克制、高潮更亮；密度表见 boot-density；卡住态抬高早幕底光
+    targetCore = coreTargetForAct(act, stalled)
     coreGlow += (targetCore - coreGlow) * Math.min(1, dt * 3)
 
     {
@@ -977,7 +973,7 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     drawStreams(dt)
     drawCircuits(isNeural ? 0.5 + streamInflow * 0.5 : circuitGrow > 0 ? 0.55 : 0)
     drawCore()
-    drawRings(isEnergize ? 1 : isCognition ? 0.75 : isGate ? 0.5 : 0)
+    drawRings(ringStrengthForAct(act))
 
     // 镜头呼吸：幅度必须小，大了是晕船
     const sp = slowPhase(4)
