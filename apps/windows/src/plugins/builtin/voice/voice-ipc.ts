@@ -7,14 +7,15 @@ import type { IpcHandleRegistrar } from '../../../main/kernel/ipc-registry'
 import { type VoiceCallService } from './voice-service.js'
 import { type VoiceModelManager, PYTORCH_CUDA_RUNTIME_ID } from './model-manager.js'
 import { AsrTestSession } from './asr-test-session.js'
-import type { VoiceCommand } from '../../../shared/voice-commands.js'
+import type { VoiceCommand, VoiceTtsEngineOption } from '../../../shared/voice-commands.js'
+import { listTtsEngines } from '../../../shared/tts-engine-registry.js'
 import { isQwen3CloneVariant } from '../../../shared/voice-events.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
 import {
   prepareQwen3TtsRuntime,
   invalidateQwen3TtsPrepare,
   resetSharedQwen3TtsClient,
-} from './qwen3-tts-client.js'
+} from '../../../main/voice/qwen3-tts-client.js'
 import { saveTempCloneRefAudio } from './voice-temp-ref.js'
 import { createMeasuredHandler } from '../../../main/kernel/measured-handler'
 import type { PerfMonitorLike } from '../../../shared/performance'
@@ -237,6 +238,29 @@ export function registerVoiceIpc(
 
         case 'voice:config:get':
           return voiceService.getConfig()
+
+        // 已启用的 TTS 引擎（设置页下拉数据源）。引擎都来自注册表，
+        // 插件被禁用 ⇒ 不在这里 ⇒ 下拉里消失。
+        case 'voice:tts:engines': {
+          const engines = listTtsEngines().map(
+            (e): VoiceTtsEngineOption => ({
+              id: e.id,
+              label: e.label,
+              ready: e.modelIds.length === 0 || e.modelIds.some((id) => modelManager.isModelDownloaded(id)),
+              requiresModel: e.modelIds.length > 0,
+            }),
+          )
+          // 当前选中的引擎被禁用时，这里顺手把配置修好：
+          // 否则设置页会显示一个下拉里不存在的值，用户只能靠重启才恢复正常。
+          const current = voiceService.getConfig().tts.provider
+          if (engines.length > 0 && !engines.some((e) => e.id === current)) {
+            const fallback = engines.some((e) => e.id === 'edge') ? 'edge' : engines[0]!.id
+            log.warn(`[voice:tts:engines] 引擎「${current}」未启用，回落到 ${fallback}`)
+            await voiceService.setTtsProvider(fallback)
+            await saveVoiceEngineConfig(voiceService.getConfig())
+          }
+          return engines
+        }
 
         case 'voice:config:set': {
           const prevDevice = voiceService.getConfig().tts.qwen3Device ?? 'auto'

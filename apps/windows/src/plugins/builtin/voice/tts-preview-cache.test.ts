@@ -13,6 +13,24 @@ import {
   TTS_SENTENCE_CACHE_MAX_CHARS,
 } from './tts-preview-cache.js'
 import type { VoiceTtsConfig } from '../../../shared/voice-events.js'
+import {
+  registerTtsEngine,
+  type TtsEngineEntry,
+} from '../../../shared/tts-engine-registry.js'
+
+/** 注册表测试用的最小引擎条目（create 不会被调用） */
+function minimalEngine(id: string, concurrency: number): TtsEngineEntry {
+  return {
+    id,
+    label: id,
+    modelIds: [],
+    concurrency,
+    outputFormat: 'pcm',
+    create: () => {
+      throw new Error('测试不构建 provider')
+    },
+  }
+}
 
 /** 构造最小 TTS 配置 */
 function makeTts(partial: Partial<VoiceTtsConfig> = {}): VoiceTtsConfig {
@@ -117,9 +135,32 @@ describe('mapPoolOrdered / runOrderedSynthPipeline', () => {
     expect(maxInflight).toBeGreaterThan(1)
   })
 
-  it('getTtsSynthConcurrency 按 provider 区分', () => {
-    expect(getTtsSynthConcurrency('qwen3', 2)).toBe(2)
-    expect(getTtsSynthConcurrency('edge')).toBe(3)
-    expect(getTtsSynthConcurrency('local-vits')).toBe(1)
+  it('getTtsSynthConcurrency 从注册表取引擎声明的并发', () => {
+    const off = [
+      registerTtsEngine(minimalEngine('qwen3', 2)),
+      registerTtsEngine(minimalEngine('edge', 3)),
+      registerTtsEngine(minimalEngine('local-vits', 1)),
+    ]
+    try {
+      expect(getTtsSynthConcurrency('qwen3')).toBe(2)
+      expect(getTtsSynthConcurrency('edge')).toBe(3)
+      expect(getTtsSynthConcurrency('local-vits')).toBe(1)
+      // 未注册的引擎（插件被禁用）按串行处理
+      expect(getTtsSynthConcurrency('breeze')).toBe(1)
+    } finally {
+      for (const fn of off) fn()
+    }
+  })
+
+  it('concurrency 支持函数形态（Qwen3 池大小会变）', () => {
+    let pool = 1
+    const off = registerTtsEngine({ ...minimalEngine('dyn', 1), concurrency: () => pool })
+    try {
+      expect(getTtsSynthConcurrency('dyn')).toBe(1)
+      pool = 4
+      expect(getTtsSynthConcurrency('dyn')).toBe(4)
+    } finally {
+      off()
+    }
   })
 })

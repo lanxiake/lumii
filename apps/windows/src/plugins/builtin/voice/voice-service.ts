@@ -8,14 +8,19 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { VadEngine } from './vad-engine.js'
 import { createAsrProvider, type AsrProvider, type AsrStream } from './asr-engine.js'
-import { createTtsProvider, type TtsProvider } from './tts-engine.js'
+import { type TtsProvider } from '../../../shared/tts-engine.js'
+import {
+  getTtsEngine,
+  listTtsEngines,
+  type TtsHostContext,
+} from '../../../shared/tts-engine-registry.js'
 import { SentenceSplitter } from './sentence-splitter.js'
 import { VoiceCallStateMachine } from './voice-state-machine.js'
 import { type VoiceModelManager } from './model-manager.js'
 import { onAgentEvent } from '../../../main/kernel/agent-event-stream'
 import type { VoiceEngineConfig, VoiceRuntimePhase } from '../../../shared/voice-events.js'
 import { isQwen3CloneVariant, DEFAULT_VOICE_ENGINE_CONFIG } from '../../../shared/voice-events.js'
-import type { TtsChunk } from './tts-engine.js'
+import type { TtsChunk } from '../../../shared/tts-engine.js'
 import { VoiceProfileStore } from './voice-profile-store.js'
 import {
   buildTtsPreviewCacheKey,
@@ -27,13 +32,13 @@ import {
   TTS_SENTENCE_CACHE_MAX_CHARS,
 } from './tts-preview-cache.js'
 import { stripVirtualHumanTags } from '../../../shared/virtual-human.js'
-import { resolveQwen3TtsLanguage, sanitizeTtsPlainText } from './tts-text-utils.js'
+import { resolveQwen3TtsLanguage, sanitizeTtsPlainText } from '../../../shared/tts-text-utils.js'
 import {
   setQwen3TtsStatusCallback,
   resolveQwen3LoadDevice,
   prepareQwen3TtsRuntime,
   getQwen3SynthConcurrency,
-} from './qwen3-tts-client.js'
+} from '../../../main/voice/qwen3-tts-client.js'
 import { transcribePcm, transcribeAudioBuffer } from './voice-transcription.js'
 import { sherpaFirst, sherpaDone } from '../../../main/onnx-runtime-gate'
 import { frameRms, VoiceGate } from './voice-gate.js'
@@ -195,6 +200,18 @@ export class VoiceCallService {
       wakeWord: { ...DEFAULT_VOICE_ENGINE_CONFIG.wakeWord, ...config?.wakeWord },
     }
 
+    // 配置里选中的引擎可能已被禁用（插件关掉 / 有默认关闭的引擎）。
+    // 优先回落 Edge（内置默认，在线即可用）；Edge 也被禁用时退到任意一个可用引擎。
+    if (!getTtsEngine(this.config.tts.provider)) {
+      const fallback = getTtsEngine('edge') ? 'edge' : listTtsEngines()[0]?.id
+      if (fallback) {
+        log.warn(`[constructor] TTS 引擎「${this.config.tts.provider}」未启用，回落到 ${fallback}`)
+        this.config.tts.provider = fallback
+      } else {
+        log.warn('[constructor] 没有任何已启用的 TTS 引擎，语音合成不可用')
+      }
+    }
+
     this.stateMachine.on('state', ({ to }: { from: string; to: string }) => {
       this.pushVoiceEvent({
         type: 'voice:call:state',
@@ -264,75 +281,49 @@ export class VoiceCallService {
    * 依据传入的 TTS 配置构建并初始化一个 TtsProvider 实例。
    * 不写入 this.ttsProvider / this.config，供全局引擎初始化与「临时试听」共用。
    * 调用方负责在临时使用后 destroy()。
+   *
+   * **不认识任何具体引擎**：按 `tts.provider` 从注册表取条目，把宿主能力（模型目录、
+   * 就绪判定、克隆档案）打包成 `TtsHostContext` 交出去。具体分支在各自的引擎插件里，
+   * 禁用插件 ⇒ 注册表里没有 ⇒ 这里直接报错，功能真的消失。
    */
   private async createTtsProviderFrom(
     tts: VoiceEngineConfig['tts'],
   ): Promise<TtsProvider> {
-    const cloneOn = tts.qwen3CloneEnabled === true && Boolean(tts.qwen3ProfileId)
-    const variant = this.resolveVariantForTts(tts)
-
-    if (!this.modelManager.isTtsReady(tts.provider, variant)) {
-      throw new Error('TTS 模型未下载，请前往「设置 → 语音」下载本地模型，或切换为 Edge TTS')
+    const engine = getTtsEngine(tts.provider)
+    if (!engine) {
+      throw new Error(
+        `语音合成引擎「${tts.provider}」未启用。请在「设置 → 插件」中开启，或切换为 Edge TTS`,
+      )
     }
 
-    log.info(`[createTtsProviderFrom] 构建 TTS 引擎... provider=${tts.provider} clone=${cloneOn} variant=${variant}`)
-    const paths = await this.modelManager.getModelPaths()
-
-    let refAudio: string | undefined
-    let refText: string | undefined
-    let xVectorOnly: boolean | undefined
-    let language = tts.language ?? 'Auto'
-    let mode: 'custom' | 'clone' = 'custom'
-    const speaker = tts.qwen3Speaker ?? 'Vivian'
-    const instruct = tts.qwen3Instruct
-
-    if (tts.provider === 'qwen3' && cloneOn) {
-      mode = 'clone'
-      const profileId = tts.qwen3ProfileId!
-      const profile = this.profileStore.get(profileId)
-      if (!profile) {
-        throw new Error(`克隆音色不存在: ${profileId}`)
-      }
-      refAudio = this.profileStore.getRefAudioPath(profile)
-      refText = profile.refText
-      xVectorOnly = profile.xVectorOnly
-      language = tts.language || profile.language || 'Auto'
-    }
-
-    const qwenModelDir = (() => {
-      switch (variant) {
-        case '1.7b-custom':
-          return paths.qwen3Custom17
-        case '0.6b-base':
-          return paths.qwen3Base06
-        case '1.7b-base':
-          return paths.qwen3Base17
-        case '0.6b-custom':
-        default:
-          return paths.qwen3Custom06
-      }
-    })()
-
-    const provider = createTtsProvider({
-      provider: tts.provider,
-      modelDir: tts.provider === 'qwen3' ? qwenModelDir : paths.tts,
-      tokenizerDir: paths.qwen3Tokenizer,
-      speed: tts.speed,
-      voice: tts.voice,
-      language,
-      mode,
-      speaker,
-      instruct,
-      refAudio,
-      refText,
-      xVectorOnly,
-      device: resolveQwen3LoadDevice(tts.qwen3Device ?? 'auto'),
-    })
-    if (tts.provider === 'qwen3') {
-      await prepareQwen3TtsRuntime(tts.qwen3Device ?? 'auto')
-    }
+    log.info(`[createTtsProviderFrom] 构建 TTS 引擎... provider=${tts.provider}`)
+    const provider = await engine.create(this.ttsHostContext(), tts)
     await provider.initialize()
     return provider
+  }
+
+  /** 引擎插件能拿到的宿主能力。**只读**，不暴露 modelManager / profileStore 本身。 */
+  private ttsHostContext(): TtsHostContext {
+    return {
+      modelDir: (modelId) => this.modelManager.getModelDir(modelId),
+      isModelReady: (modelId) => this.modelManager.isModelDownloaded(modelId),
+      getVoiceProfile: (id) => {
+        const profile = this.profileStore.get(id)
+        if (!profile) return null
+        return {
+          refAudioPath: this.profileStore.getRefAudioPath(profile),
+          refText: profile.refText,
+          language: profile.language,
+          xVectorOnly: profile.xVectorOnly,
+        }
+      },
+      log: (...args) => log.info(...args),
+    }
+  }
+
+  /** 当前引擎的输出格式（决定 mp3 分支）；引擎未注册时按 PCM 处理 */
+  private currentOutputFormat(): 'pcm' | 'mp3' {
+    return getTtsEngine(this.config.tts.provider)?.outputFormat ?? 'pcm'
   }
 
   /**
@@ -1016,11 +1007,7 @@ export class VoiceCallService {
    * 当前 TTS 引擎建议并行度
    */
   private getTtsConcurrency(): number {
-    const provider = this.config.tts.provider
-    return getTtsSynthConcurrency(
-      provider,
-      provider === 'qwen3' ? getQwen3SynthConcurrency() : 1,
-    )
+    return getTtsSynthConcurrency(this.config.tts.provider)
   }
 
   /**
@@ -1503,10 +1490,7 @@ export class VoiceCallService {
         activeProvider = this.ttsProvider
       }
 
-      const concurrency = getTtsSynthConcurrency(
-        effectiveTts.provider,
-        effectiveTts.provider === 'qwen3' ? getQwen3SynthConcurrency() : 1,
-      )
+      const concurrency = getTtsSynthConcurrency(effectiveTts.provider)
       // 预览按整段判定一次语种，禁止逐句 Auto（否则短英文句会换成外语音色）
       const languageLock = resolveQwen3TtsLanguage(effectiveTts.language || 'Auto', cleaned)
       activeProvider.setLanguageOverride?.(languageLock)
@@ -1639,7 +1623,8 @@ export class VoiceCallService {
     const pcmChunks: Float32Array[] = []
     const mp3Chunks: Uint8Array[] = []
     let detectedSampleRate = 22050
-    let isEdgeTts = false
+    // 用引擎声明的输出格式判定，不再靠 `sampleRate === -1` 猜是哪个引擎
+    const isEncoded = this.currentOutputFormat() === 'mp3'
 
     log.info(
       `[generateAudioFile] 开始合成文本: "${text.slice(0, 40)}" speaker=${opts?.speaker ?? '-'} voice=${opts?.voice ?? '-'} speed=${opts?.speed ?? '-'}`,
@@ -1667,8 +1652,7 @@ export class VoiceCallService {
         text,
         (chunk) => {
           if (chunk.sampleRate === -1) {
-            // Edge TTS: mp3 bytes
-            isEdgeTts = true
+            // 编码音频（MP3）：字节流
             mp3Chunks.push(new Uint8Array(chunk.samples))
           } else {
             // VITS: PCM Float32
@@ -1693,7 +1677,7 @@ export class VoiceCallService {
     const fileId = randomUUID()
     fs.mkdirSync(destDir, { recursive: true })
 
-    if (isEdgeTts) {
+    if (isEncoded) {
       // 合并所有 mp3 chunks 写文件
       const totalLen = mp3Chunks.reduce((s, c) => s + c.length, 0)
       const merged = new Uint8Array(totalLen)
@@ -1842,6 +1826,18 @@ export class VoiceCallService {
   async transcribeAudioBuffer(base64Data: string, mimeType: string): Promise<string> {
     await this.ensureInitialized()
     return transcribeAudioBuffer(this.asrProvider!, base64Data, mimeType)
+  }
+
+  /**
+   * 直接切到某个 TTS 引擎（供「保存的引擎被禁用时回落」使用）。
+   *
+   * 不走 `setConfig` 的合并路径：那里的 `tts` 是完整对象，为改一个 provider
+   * 把整份配置再拼一遍没必要，而且要重建引擎的重置逻辑也不在这里。
+   */
+  setTtsProvider(id: string): Promise<void> {
+    return this.setConfig({
+      tts: { ...this.config.tts, provider: id },
+    })
   }
 
   async setConfig(partial: Partial<VoiceEngineConfig>): Promise<void> {

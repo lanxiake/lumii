@@ -5,6 +5,10 @@ import { helloExtension } from './builtin/hello'
 import { eventLoggerExtension } from './builtin/event-logger'
 import { updaterExtension } from './builtin/updater'
 import { voiceExtension } from './builtin/voice'
+import { ttsEdgeExtension } from './builtin/tts-edge'
+import { ttsMeloExtension } from './builtin/tts-melo'
+import { ttsQwen3Extension } from './builtin/tts-qwen3'
+import { ttsBreezeExtension } from './builtin/tts-breeze'
 import { petExtension } from './builtin/pet'
 import { relayExtension } from './builtin/relay'
 import { browserExtension } from './builtin/browser'
@@ -50,6 +54,10 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
   // perf / cloud-sync / screen-record 是官方外部扩展，源码在 external-src/
   { ...updaterExtension, hot: false },
   { ...voiceExtension, hot: true },
+  { ...ttsEdgeExtension, hot: true },
+  { ...ttsMeloExtension, hot: true },
+  { ...ttsQwen3Extension, hot: true },
+  { ...ttsBreezeExtension, hot: true },
   { ...petExtension, hot: true },
   { ...relayExtension, hot: true },
   { ...browserExtension, hot: true },

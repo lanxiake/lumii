@@ -7,12 +7,16 @@ import { Select } from '../../../../../renderer/components/ui/Select/Select'
 import { VoiceModelsPanel } from '../VoiceModelsPanel'
 import { VoiceProfilesPanel } from '../VoiceProfilesPanel'
 import { AsrLiveTestPanel } from '../AsrLiveTestPanel'
+import { BreezeSettings } from './BreezeSettings'
 import { useFeatureAvailability } from '../../../../../renderer/hooks/business/useFeatureAvailability'
 import {
   EDGE_TTS_VOICES,
   QWEN3_CUSTOM_SPEAKERS,
   QWEN3_TTS_LANGUAGES,
 } from '../../../../../shared/voice-events'
+import type { VoiceTtsEngineOption } from '../../../../../shared/voice-commands'
+import type { VoiceTtsConfig } from '../../../../../shared/voice-events'
+import { subscribePluginState } from '../../../../renderer/state'
 import styles from '../../../../../renderer/pages/SettingsPage/SettingsPage.module.css'
 
 export function VoiceSettingsSection() {
@@ -25,21 +29,8 @@ export function VoiceSettingsSection() {
   const voiceCloningBlocked = !isAvailable('voiceCloning')
   const [voiceConfig, setVoiceConfig] = useState<{
     asr: { provider: string; language?: string; apiKey?: string }
-    tts: {
-      provider: string
-      speed: number
-      volume: number
-      speakerId?: number
-      voice?: string
-      qwen3Variant?: string
-      qwen3Speaker?: string
-      qwen3Instruct?: string
-      qwen3CloneEnabled?: boolean
-      qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
-      qwen3ProfileId?: string
-      qwen3Device?: 'auto' | 'cpu' | 'cuda'
-      language?: string
-    }
+    // 用共享类型派生：provider 现在由插件注册表决定，不能在这里写死联合
+    tts: VoiceTtsConfig
     vad: { threshold: number; minSpeechMs: number; minSilenceMs: number; energyGateMultiplier: number; sensitivity?: 'sensitive' | 'standard' | 'strict' }
     interruptMode: 'mute' | 'two-stage' | 'direct'
     capture?: { echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean }
@@ -54,6 +45,8 @@ export function VoiceSettingsSection() {
     detail?: string
   } | null>(null)
   const [vitsModelReady, setVitsModelReady] = useState(false)
+  /** 当前已启用的 TTS 引擎（来自注册表，插件禁用即消失） */
+  const [ttsEngines, setTtsEngines] = useState<VoiceTtsEngineOption[]>([])
   const [qwen3CustomReady, setQwen3CustomReady] = useState(false)
   const [qwen3Custom06Ready, setQwen3Custom06Ready] = useState(false)
   const [qwen3Custom17Ready, setQwen3Custom17Ready] = useState(false)
@@ -97,12 +90,29 @@ export function VoiceSettingsSection() {
       applyModelReady(list)
     }).catch(() => undefined)
 
+    const loadEngines = () => {
+      electronAPI.voice
+        .sendCommand({ type: 'voice:tts:engines' })
+        .then((list: any) => {
+          if (Array.isArray(list)) setTtsEngines(list)
+        })
+        .catch(() => undefined)
+    }
+    loadEngines()
+
+    // 插件启停是「安装/卸载 TTS 引擎」的那一下：注册表变了，下拉必须跟着变，
+    // 否则用户禁用某个 TTS 插件后这里还留着一个点了会报错的选项。
+    const offPluginState = subscribePluginState(loadEngines)
+
     const unsub = electronAPI.voice.onEvent?.((event: any) => {
       if (event.type === 'voice:models:status' && Array.isArray(event.models)) {
         applyModelReady(event.models)
+        // 模型就绪状态变了，下拉里的 disabled 也要跟着变
+        loadEngines()
       }
     })
     return () => {
+      offPluginState()
       if (typeof unsub === 'function') unsub()
     }
   }, [])
@@ -189,21 +199,7 @@ export function VoiceSettingsSection() {
 
   const saveVoiceConfig = async (partial: {
     asr?: { provider?: string; language?: string; apiKey?: string }
-    tts?: {
-      provider?: string
-      speed?: number
-      volume?: number
-      speakerId?: number
-      voice?: string
-      qwen3Variant?: string
-      qwen3Speaker?: string
-      qwen3Instruct?: string
-      qwen3CloneEnabled?: boolean
-      qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
-      qwen3ProfileId?: string
-      qwen3Device?: 'auto' | 'cpu' | 'cuda'
-      language?: string
-    }
+    tts?: Partial<VoiceTtsConfig>
     vad?: { threshold?: number; minSpeechMs?: number; minSilenceMs?: number; energyGateMultiplier?: number; sensitivity?: 'sensitive' | 'standard' | 'strict' }
     interruptMode?: 'mute' | 'two-stage' | 'direct'
     capture?: { echoCancellation?: boolean; noiseSuppression?: boolean; autoGainControl?: boolean }
@@ -579,33 +575,16 @@ export function VoiceSettingsSection() {
                 <label className={styles['setting-label']} data-app-ui-label>合成引擎</label>
                 <Select
                   value={voiceConfig.tts.provider}
-                  options={[
-                    { label: 'Edge TTS（联网，免下载）', value: 'edge' },
-                    {
-                      label: localTtsBlocked
-                        ? '本地 MeloTTS（当前平台不支持）'
-                        : vitsDownloaded
-                          ? '本地 MeloTTS 中英混读（离线）'
-                          : '本地 MeloTTS 中英混读（需先下载）',
-                      value: 'local-vits',
-                      disabled: localTtsBlocked || !vitsDownloaded,
-                    },
-                    {
-                      // Qwen3 引擎（含克隆）走宿主级 Python 链路，与 voiceCloning 同门禁
-                      label:
-                        localTtsBlocked || voiceCloningBlocked
-                          ? 'Qwen3 本地多音色（当前平台不支持）'
-                          : qwen3CustomReady
-                            ? 'Qwen3（本地多音色 + 声音克隆）'
-                            : 'Qwen3（需先下载 Tokenizer+CustomVoice）',
-                      value: 'qwen3',
-                      disabled: localTtsBlocked || voiceCloningBlocked || !qwen3CustomReady,
-                    },
-                  ]}
+                  options={ttsEngines.map((e) => ({
+                    // 未就绪的本地引擎补一句提示，避免用户以为点了没反应
+                    label: e.ready ? e.label : `${e.label}（需先下载）`,
+                    value: e.id,
+                    disabled: !e.ready,
+                  }))}
                   onChange={(e) => {
                     const v = e.target.value
-                    if (v === 'local-vits' && !vitsDownloaded) return
-                    if (v === 'qwen3' && !qwen3CustomReady) return
+                    const opt = ttsEngines.find((x) => x.id === v)
+                    if (!opt?.ready) return
                     if (v === 'qwen3') {
                       const prefer = qwen3Custom06Ready ? '0.6b-custom' : '1.7b-custom'
                       saveVoiceConfig({
@@ -616,6 +595,11 @@ export function VoiceSettingsSection() {
                     saveVoiceConfig({ tts: { provider: v, qwen3CloneEnabled: false } })
                   }}
                 />
+                {ttsEngines.length === 0 && (
+                  <span className={styles['setting-hint']}>
+                    没有可用的合成引擎。请到「设置 › 插件」启用至少一个 TTS 插件。
+                  </span>
+                )}
               </div>
               {voiceConfig.tts.provider === 'qwen3' && (
                 <div className={styles['setting-item']}>
@@ -695,6 +679,19 @@ export function VoiceSettingsSection() {
                     onChange={(e) => saveVoiceConfig({ tts: { voice: e.target.value } })}
                   />
                 </div>
+              )}
+              {voiceConfig.tts.provider === 'breeze' && (
+                <>
+                  <p className={styles['voice-block-desc']}>
+                    Breeze TTS 2 是独立的 Python 服务，需要你先在本机部署好（仓库里执行
+                    <code> python -m pip install -r requirements.txt</code>，并准备模型权重）。
+                    这里只填路径，插件会按需拉起服务。
+                  </p>
+                  <BreezeSettings
+                    value={voiceConfig.tts}
+                    onChange={(next) => saveVoiceConfig({ tts: next })}
+                  />
+                </>
               )}
               {voiceConfig.tts.provider === 'qwen3' && (
                 <>

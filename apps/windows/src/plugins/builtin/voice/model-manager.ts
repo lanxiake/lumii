@@ -18,7 +18,7 @@ import {
 import {
   installPytorchCudaFromWheelDir,
   uninstallPytorchFromBundledPython,
-} from './qwen3-tts-client.js'
+} from '../../../main/voice/qwen3-tts-client.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -43,6 +43,7 @@ const log = {
 }
 
 import type { VoiceModelDownloadState } from '../../../shared/voice-events.js'
+import { enabledTtsModelIds } from '../../../shared/tts-engine-registry.js'
 
 /** 单项下载任务状态（与 shared 对齐） */
 export type { VoiceModelDownloadState }
@@ -430,6 +431,13 @@ export class VoiceModelManager {
     return path.join(this.tempDir, `${model.id}.tar.bz2.partial`)
   }
 
+  /** 某个模型 id 的落盘目录（不存在时返回预期路径）。引擎插件通过 hostContext 用。 */
+  getModelDir(modelId: string): string {
+    const model = (MODEL_CATALOG as Record<string, { dir: string } | undefined>)[modelId]
+    if (!model) throw new Error(`未知模型: ${modelId}`)
+    return this.resolveModelDir(model.dir)
+  }
+
   async getModelPaths(): Promise<VoiceModelPaths> {
     return {
       vad: path.join(this.resolveModelDir('vad'), 'silero_vad.onnx'),
@@ -443,8 +451,8 @@ export class VoiceModelManager {
     }
   }
 
-  isModelDownloaded(modelId: ModelId): boolean {
-    const model = MODEL_CATALOG[modelId]
+  isModelDownloaded(modelId: string): boolean {
+    const model = (MODEL_CATALOG as Record<string, (typeof MODEL_CATALOG)[ModelId] | undefined>)[modelId]
     if (!model) return false
 
     const tryDir = (root: string): boolean => {
@@ -652,11 +660,16 @@ export class VoiceModelManager {
    * 汇总各模型状态（含下载进度字段）
    */
   getModelsStatus(): VoiceModelStatus[] {
+    // TTS 模型按「当前已启用的引擎」过滤：禁用 MeloTTS 插件后，它的模型条目
+    // 也从面板消失——否则用户还能下一个永远用不上的 180MB。
+    // ASR/VAD 不归任何 TTS 引擎管，一律保留。
+    const ttsModelIds = enabledTtsModelIds()
     return Object.values(MODEL_CATALOG)
       // PyTorch CUDA 运行时是 win_amd64 专属轮（aliyun / pytorch.org 的 cu121 直链按平台命名）。
       // Linux 上隐藏该条目：CPU 版 torch 由 pip 按平台自动选轮，无需目录条目；
       // Linux 的 GPU 轮（按 venv Python 版本取 cp 标签）留待有真实 GPU 需求时再做。
       .filter((m) => process.platform === 'win32' || m.id !== PYTORCH_CUDA_RUNTIME_ID)
+      .filter((m) => m.group === 'asr-core' || ttsModelIds.has(m.id))
       .map((m) => {
       const id = m.id as ModelId
       const downloaded = this.isModelDownloaded(id)

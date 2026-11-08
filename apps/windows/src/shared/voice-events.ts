@@ -243,8 +243,15 @@ export function isQwen3CloneVariant(variant?: string): variant is '0.6b-base' | 
 }
 
 export type VoiceTtsConfig = {
-  /** TTS 提供者：local-vits（本地 MeloTTS 中英双语，sherpa-onnx）/ edge / qwen3（本地 Qwen3-TTS） */
-  provider: 'local-vits' | 'edge' | 'qwen3'
+  /**
+   * TTS 引擎 id，对应 `builtin/tts-<engine>/` 注册到注册表里的值：
+   * `edge`（内置默认）/ `local-vits`（MeloTTS）/ `qwen3` / `breeze` …
+   *
+   * **是 string 而不是联合类型**：引擎由插件提供，插件集合随用户启停变化，
+   * 联合类型会把「可安装的引擎」写死在核心代码里。合法值以
+   * `listTtsEngines()`（`shared/tts-engine-registry.ts`）为准。
+   */
+  provider: string
   /** 语速（0.8 ~ 1.5） */
   speed: number
   /** 播放音量（0.0 ~ 2.0，>1 为增益增强，适配偏安静的本地模型） */
@@ -276,6 +283,22 @@ export type VoiceTtsConfig = {
    * 合成语言（Qwen3）：`Auto` 或官方支持语言名，如 Chinese / English
    */
   language?: string
+
+  // ── Breeze TTS（外部部署，插件为 com.lumii.tts.breeze）──────────────────
+  /** Breeze 仓库根目录（含 breeze_infer/） */
+  breezeRepoPath?: string
+  /** checkpoint 目录；相对路径按 breezeRepoPath 解析 */
+  breezeModelDir?: string
+  /** 服务端口（默认 7860） */
+  breezePort?: number
+  /** 已运行的服务地址；填了就直接连，不自动拉起 */
+  breezeBaseUrl?: string
+  /** Python 解释器；缺省用 <repoPath>/.venv */
+  breezePython?: string
+  /** 指令强度（README 推荐 4 能明显增强指令跟随） */
+  breezeCfgScale?: number
+  /** 声音设计 / 风格指令 */
+  breezeInstruction?: string
 }
 
 /** Qwen3 CustomVoice 内置音色（含方言） */

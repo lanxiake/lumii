@@ -55,8 +55,8 @@ export interface VoiceCallHookState {
   speed: number
   /** 当前说话人 ID（仅 local-vits 有效） */
   speakerId: number
-  /** 当前 TTS provider */
-  ttsProvider: 'local-vits' | 'edge'
+  /** 当前 TTS provider（引擎 id，取值由插件注册表决定，故不加联合限制） */
+  ttsProvider: string
   /** Edge TTS 音色 ID */
   edgeVoice: string
   /**

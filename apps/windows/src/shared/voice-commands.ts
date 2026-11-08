@@ -57,6 +57,26 @@ type VoiceGetConfigCommand = {
   readonly type: 'voice:config:get'
 }
 
+/**
+ * 列出当前**已启用**的 TTS 引擎（设置页下拉的数据源）。
+ *
+ * 只返回启用中的插件注册的引擎 —— 禁用一个插件，它的引擎从这里消失，
+ * 这就是「插件即安装」在 UI 上的体现。
+ */
+type VoiceTtsEnginesCommand = {
+  readonly type: 'voice:tts:engines'
+}
+
+/** 单个引擎的下拉展示数据 */
+export interface VoiceTtsEngineOption {
+  id: string
+  label: string
+  /** 本地模型是否就绪；无本地模型的引擎恒 true */
+  ready: boolean
+  /** 需要下载本地模型 */
+  requiresModel: boolean
+}
+
 type VoiceSetConfigCommand = {
   readonly type: 'voice:config:set'
   config: {
@@ -222,6 +242,7 @@ export type VoiceCommand =
   | VoiceUninstallModelCommand
   | VoiceGetConfigCommand
   | VoiceSetConfigCommand
+  | VoiceTtsEnginesCommand
   | VoicePlaybackFinishedCommand
   | VoiceWakeAttachCommand
   | VoiceWakeDetachCommand

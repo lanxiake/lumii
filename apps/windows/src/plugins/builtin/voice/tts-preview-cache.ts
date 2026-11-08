@@ -5,7 +5,8 @@
  */
 import { createHash } from 'node:crypto'
 import type { VoiceTtsConfig } from '../../../shared/voice-events.js'
-import type { TtsChunk } from './tts-engine.js'
+import type { TtsChunk } from '../../../shared/tts-engine.js'
+import { getTtsEngine } from '../../../shared/tts-engine-registry.js'
 
 const log = {
   debug: (...args: unknown[]) => console.log('[TtsPreviewCache:DEBUG]', ...args),
@@ -175,12 +176,15 @@ class TtsPreviewLruCache {
 export const ttsPreviewCache = new TtsPreviewLruCache()
 
 /**
- * 按 TTS provider 给出建议合成并发度（Qwen3 受 sidecar 池大小限制）
+ * 按 TTS provider 给出建议合成并发度。
+ *
+ * 由引擎自己声明（`TtsEngineEntry.concurrency`）——Qwen3 受 sidecar 池大小限制，
+ * Edge 能开多条 WS，本地 VITS 单实例串行。引擎未注册时返回 1。
  */
-export function getTtsSynthConcurrency(provider: string, qwen3PoolSize = 2): number {
-  if (provider === 'qwen3') return Math.max(1, qwen3PoolSize)
-  if (provider === 'edge') return 3
-  return 1
+export function getTtsSynthConcurrency(provider: string): number {
+  const c = getTtsEngine(provider)?.concurrency
+  const n = typeof c === 'function' ? c() : c
+  return Math.max(1, n ?? 1)
 }
 
 /**
