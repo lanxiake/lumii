@@ -82,7 +82,7 @@ import {
 } from './bridge-agent-instance-events'
 import { agentRuntimeLog as log, filterToolsByDefinition } from './bridge-utils'
 import { SHARED_WIKI_LIBRARY_AGENT_ID } from './wiki-library'
-import { ensureProviderBaseUrl, missingApiKeyMessage, resolveApiFormat } from '../provider-config'
+import { ensureProviderBaseUrl, missingApiKeyMessage, parseModelRef, resolveApiFormat } from '../provider-config'
 import { resolveModelThinking, resolveReasoningOptions, apiForProviderType } from '../model-thinking'
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
@@ -343,8 +343,12 @@ export class BridgeInstanceFactory {
 
     /**
      * 每次调用时读取最新 chat 槽配置（避免 createInstance 闭包快照过期）。
+     * 传模型引用时按 `providerId::modelId` 解析到对应 provider，支持会话跨 Provider 切换。
      */
-    const readLiveProviderCfg = () => this.deps.config.getProviderConfig?.()
+    const readLiveProviderCfg = (modelRef?: string) =>
+      modelRef?.includes('::')
+        ? this.deps.config.loadSlotConfigForModel?.('chat', modelRef)
+        : this.deps.config.getProviderConfig?.()
     /**
      * 解析直连 baseUrl；无配置时返回 undefined。
      */
@@ -352,10 +356,11 @@ export class BridgeInstanceFactory {
       cfg ? ensureProviderBaseUrl(cfg.baseUrl, cfg.type) : undefined
     /**
      * 独立版始终走本地 direct：每轮用最新 apiKey/baseUrl 建流。
+     * `modelRef` 带 `providerId::` 前缀时解析到该 provider（会话跨 Provider 切模型）。
      */
-    const buildLiveDirectStream = (): StreamFn => {
+    const buildLiveDirectStream = (modelRef?: string): StreamFn => {
       return (model, context, options) => {
-        const cfg = readLiveProviderCfg()
+        const cfg = readLiveProviderCfg(modelRef)
         if (!cfg?.enabled) {
           throw new Error('请先在设置中启用并配置文本对话模型（chat 能力槽）')
         }
@@ -472,9 +477,14 @@ export class BridgeInstanceFactory {
         // （z.ai 系）；模型是否支持思考由 resolveModelThinking 注入（见 model-thinking.ts）。
         // 注意不要顺手把 model.reasoning 改成 false：z.ai 的「显式关闭」分支依赖它为真，
         // 置 false 会导致该分支被跳过，反而回到服务端默认开启思考。
-        const liveCfg = readLiveProviderCfg()
+        // 按本轮实际要用的模型引用取配置：会话可能切到别的 Provider（`providerId::modelId`）。
+        const liveCfg = readLiveProviderCfg(targetRef)
+        const liveDirect = buildLiveDirectStream(targetRef)
+        capturedInnerStream = liveDirect
         const apiOverride = apiForProviderType(liveCfg?.type)
-        const targetModel = this.deps.modelRouter.resolveExplicitModelId(targetRef, apiOverride)
+        // 引用里的 `providerId::` 前缀要在交给模型路由前剥掉
+        const { modelId: targetModelId } = parseModelRef(targetRef)
+        const targetModel = this.deps.modelRouter.resolveExplicitModelId(targetModelId, apiOverride)
         const level = resolveReasoningOptions(
           thinking.reasoningEffort,
           targetModel.api,

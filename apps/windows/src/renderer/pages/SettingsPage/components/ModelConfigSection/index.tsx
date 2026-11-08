@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import { Button } from '../../../../components/ui/Button/Button'
 import { Input } from '../../../../components/ui/Input/Input'
@@ -8,11 +8,15 @@ import { Checkbox } from '../../../../components/ui/Checkbox/Checkbox'
 import { Select } from '../../../../components/ui/Select/Select'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 import {
-  getProviderConfig,
-  saveProviderConfig,
+  getProviderStore,
+  saveProviderStore,
   listProviderModels,
   testProviderConnection,
   probeProviderApiFormat,
+  resolveSlotFromStore,
+  createProviderEntry,
+  createDefaultProviderStore,
+  providerDisplayName,
   PROVIDER_DEFAULT_BASE_URL,
   PROVIDER_TYPE_DEFAULTS,
   PROVIDER_TYPE_LABEL,
@@ -21,9 +25,10 @@ import {
   CAPABILITY_SLOT_LABEL,
   CAPABILITY_SLOT_DESC,
   CAPABILITY_SLOTS,
-  createDefaultSlotsConfig,
   type LocalProviderConfigView,
-  type ProviderSlotsConfigView,
+  type ProviderStoreView,
+  type ProviderEntryView,
+  type SlotSelectionView,
   type ProviderType,
   type CapabilitySlot,
   type ListedModel,
@@ -36,341 +41,227 @@ import styles from '../../SettingsPage.module.css'
 export function ModelConfigSection() {
   const toast = useToast()
 
-  const [providerSlots, setProviderSlots] = useState<ProviderSlotsConfigView | null>(null)
-  const [providerLoading, setProviderLoading] = useState(false)
-  const [providerSaving, setProviderSaving] = useState(false)
-  const [slotModels, setSlotModels] = useState<Partial<Record<CapabilitySlot, ListedModel[]>>>({})
-  const [slotModelIdsText, setSlotModelIdsText] = useState<Partial<Record<CapabilitySlot, string>>>({})
-  const [slotListing, setSlotListing] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
-  const [slotTesting, setSlotTesting] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
-  const [slotProbingFormat, setSlotProbingFormat] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
-  const [expandedSlots, setExpandedSlots] = useState<Partial<Record<CapabilitySlot, boolean>>>({
-    chat: true,
-  })
-  const [showApiKeyBySlot, setShowApiKeyBySlot] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
-  const providerDraftCacheRef = useRef<
-    Partial<
-      Record<
-        string,
-        { baseUrl: string; modelId: string; allowedModelIds: string[]; modelIdsText?: string }
-      >
-    >
-  >({})
-  const slotModelIdsTextRef = useRef<Partial<Record<CapabilitySlot, string>>>({})
-  slotModelIdsTextRef.current = slotModelIdsText
+  const [store, setStore] = useState<ProviderStoreView | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  /** 每个 provider 的远端模型列表 / 拉取与测试中的状态 */
+  const [providerModels, setProviderModels] = useState<Record<string, ListedModel[]>>({})
+  const [listingProvider, setListingProvider] = useState<Record<string, boolean>>({})
+  const [testingProvider, setTestingProvider] = useState<Record<string, boolean>>({})
+  const [probingProvider, setProbingProvider] = useState<Record<string, boolean>>({})
+  /** 手动输入模型 ID 的临时文本（按 provider 存，逗号分隔） */
+  const [modelIdsText, setModelIdsText] = useState<Record<string, string>>({})
+  const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({})
+  const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({})
+  const modelIdsTextRef = useRef(modelIdsText)
+  modelIdsTextRef.current = modelIdsText
 
   useEffect(() => {
-    setProviderLoading(true)
-    providerDraftCacheRef.current = {}
-    getProviderConfig()
-      .then((cfg) => {
-        setProviderSlots(cfg)
-        setExpandedSlots({
-          chat: true,
-          vision: cfg.vision.enabled,
-          image: cfg.image.enabled,
-        })
+    setLoading(true)
+    getProviderStore()
+      .then((s) => {
+        setStore(s)
+        const first = s.providers[0]?.id
+        if (first) setExpandedProviders({ [first]: true })
       })
       .catch((err) => {
         console.warn('[ModelConfigSection] 读取 Provider 配置失败', err)
         toast.error('读取 Provider 配置失败')
-        setProviderSlots(createDefaultSlotsConfig())
+        setStore(createDefaultProviderStore())
       })
-      .finally(() => setProviderLoading(false))
+      .finally(() => setLoading(false))
   }, [toast])
 
-  const patchSlot = useCallback((slot: CapabilitySlot, patch: Partial<LocalProviderConfigView>) => {
-    setProviderSlots((prev) => {
+  const patchProvider = useCallback((id: string, patch: Partial<ProviderEntryView>) => {
+    setStore((prev) => {
       if (!prev) return prev
-      const current = prev[slot]
-      const nextSlot = { ...current, ...patch }
-      if (patch.type && patch.type !== current.type) {
-        const cache = providerDraftCacheRef.current
-        cache[`${slot}:${current.type}`] = {
-          baseUrl: current.baseUrl,
-          modelId: current.modelId,
-          allowedModelIds: [...(current.allowedModelIds ?? [])],
-          modelIdsText: slotModelIdsTextRef.current[slot],
-        }
-        const restored = cache[`${slot}:${patch.type}`]
-        if (restored) {
-          nextSlot.baseUrl = restored.baseUrl
-          nextSlot.modelId = restored.modelId
-          nextSlot.allowedModelIds = [...restored.allowedModelIds]
-          setSlotModelIdsText((t) => ({ ...t, [slot]: restored.modelIdsText }))
-        } else {
-          nextSlot.baseUrl = PROVIDER_DEFAULT_BASE_URL[patch.type]
-          nextSlot.modelId = ''
-          nextSlot.allowedModelIds = []
-          setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
-        }
-        setSlotModels((m) => ({ ...m, [slot]: [] }))
-      }
-      if (patch.enabled === true) {
-        setExpandedSlots((e) => ({ ...e, [slot]: true }))
-      }
-      return { ...prev, [slot]: nextSlot }
-    })
-  }, [])
-
-  const commitSlotModelIdsText = useCallback((slot: CapabilitySlot) => {
-    setSlotModelIdsText((textState) => {
-      const text = textState[slot]
-      if (text === undefined) return textState
-      const ids = [...new Set(text.split(',').map((s) => s.trim()).filter(Boolean))]
-      setProviderSlots((prev) => {
-        if (!prev) return prev
-        const current = prev[slot]
-        const nextModelId = ids.includes(current.modelId) ? current.modelId : (ids[0] ?? '')
-        return { ...prev, [slot]: { ...current, allowedModelIds: ids, modelId: nextModelId } }
-      })
-      return { ...textState, [slot]: undefined }
-    })
-  }, [])
-
-  const copyFromChat = useCallback((slot: CapabilitySlot) => {
-    if (slot === 'chat') return
-    setProviderSlots((prev) => {
-      if (!prev) return prev
-      const chat = prev.chat
       return {
         ...prev,
-        [slot]: {
-          ...prev[slot],
-          type: chat.type,
-          baseUrl: chat.baseUrl,
-          apiKey: chat.apiKey,
-          modelId: chat.modelId,
-          // 端点级参数一并复制（apiFormat / 思考参数格式属于同一个 Provider）
-          apiFormat: chat.apiFormat,
-          apiFormatByModel: { ...(chat.apiFormatByModel ?? {}) },
-          thinkingFormat: chat.thinkingFormat,
-          allowedModelIds: slot === 'vision' ? [...(chat.allowedModelIds ?? (chat.modelId ? [chat.modelId] : []))] : prev[slot].allowedModelIds,
-          enabled: true,
-        },
+        providers: prev.providers.map((p) => (p.id === id ? { ...p, ...patch } : p)),
       }
     })
-    setExpandedSlots((e) => ({ ...e, [slot]: true }))
-    toast.success(`已从「文本对话」复制到「${CAPABILITY_SLOT_LABEL[slot]}」`)
-  }, [toast])
+  }, [])
 
-  const handleListModels = useCallback(async (slot: CapabilitySlot) => {
-    if (!providerSlots) return
-    setSlotListing((s) => ({ ...s, [slot]: true }))
-    try {
-      const models = await listProviderModels(slot, providerSlots[slot])
-      setSlotModels((m) => ({ ...m, [slot]: models }))
-      if (models.length > 0) {
-        const validIds = new Set(models.map((m) => m.id))
-        const currentAllowed = providerSlots[slot].allowedModelIds ?? []
-        const nextAllowed = currentAllowed.filter((id) => validIds.has(id))
-        if (nextAllowed.length !== currentAllowed.length) {
-          const nextModelId = nextAllowed.includes(providerSlots[slot].modelId)
-            ? providerSlots[slot].modelId
-            : (nextAllowed[0] ?? '')
-          patchSlot(slot, { allowedModelIds: nextAllowed, modelId: nextModelId })
+  const patchSlot = useCallback((slot: CapabilitySlot, patch: Partial<SlotSelectionView>) => {
+    setStore((prev) => {
+      if (!prev) return prev
+      return { ...prev, slots: { ...prev.slots, [slot]: { ...prev.slots[slot], ...patch } } }
+    })
+  }, [])
+
+  const addProvider = useCallback(() => {
+    setStore((prev) => {
+      if (!prev) return prev
+      const entry = createProviderEntry('openai')
+      // 本地生成临时 id；保存时主进程会保留它
+      let n = prev.providers.length + 1
+      while (prev.providers.some((p) => p.id === `p${n}`)) n += 1
+      entry.id = `p${n}`
+      return { ...prev, providers: [...prev.providers, entry] }
+    })
+  }, [])
+
+  /**
+   * 删除 provider：同时清空引用它的槽，避免槽指向不存在的条目。
+   * 这是破坏性操作（会丢一份凭据），因此要求确认。
+   */
+  const removeProvider = useCallback(
+    (id: string) => {
+      if (!store) return
+      const target = store.providers.find((p) => p.id === id)
+      const usedBy = CAPABILITY_SLOTS.filter((s) => store.slots[s].providerId === id)
+      const label = target ? providerDisplayName(target) : id
+      const question = usedBy.length
+        ? `删除「${label}」？${usedBy.map((s) => CAPABILITY_SLOT_LABEL[s]).join('、')}将失去提供商配置。`
+        : `删除「${label}」？`
+      if (!window.confirm(question)) return
+
+      setStore((prev) => {
+        if (!prev) return prev
+        const slots = { ...prev.slots }
+        for (const slot of CAPABILITY_SLOTS) {
+          if (slots[slot].providerId === id) {
+            slots[slot] = { ...slots[slot], providerId: '', enabled: false }
+          }
         }
-      }
-      if (models.length === 0) {
-        toast.warning('未获取到模型，可手动填写模型 ID')
-      } else {
-        toast.success(`已获取 ${models.length} 个模型`)
-      }
-    } catch (err) {
-      console.error('[ModelConfigSection] 获取模型列表失败', err)
-      toast.error(err instanceof Error ? err.message : '获取模型列表失败')
-    } finally {
-      setSlotListing((s) => ({ ...s, [slot]: false }))
-    }
-  }, [providerSlots, toast, patchSlot])
+        return { providers: prev.providers.filter((p) => p.id !== id), slots }
+      })
+    },
+    [store],
+  )
 
-  const handleTestSlot = useCallback(async (slot: CapabilitySlot) => {
-    if (!providerSlots) return
-    setSlotTesting((s) => ({ ...s, [slot]: true }))
-    try {
-      const result = await testProviderConnection(slot, { ...providerSlots[slot], enabled: true })
-      if (result.ok) {
-        toast.success(result.message)
-      } else {
-        toast.error(result.message)
-      }
-    } catch (err) {
-      console.error('[ModelConfigSection] 测试连接失败', err)
-      toast.error(err instanceof Error ? err.message : '测试连接失败')
-    } finally {
-      setSlotTesting((s) => ({ ...s, [slot]: false }))
-    }
-  }, [providerSlots, toast])
+  /** 手动输入框失焦/回车时，把逗号分隔文本落成 modelIds */
+  const commitModelIdsText = useCallback(
+    (id: string) => {
+      const text = modelIdsTextRef.current[id]
+      if (text === undefined) return
+      const ids = [...new Set(text.split(',').map((s) => s.trim()).filter(Boolean))]
+      patchProvider(id, { modelIds: ids })
+      setModelIdsText((t) => {
+        const next = { ...t }
+        delete next[id]
+        return next
+      })
+    },
+    [patchProvider],
+  )
 
-  /** 探测网关更适合 Completions 还是 Responses，并写回槽级默认格式 */
-  const handleProbeApiFormat = useCallback(async (slot: CapabilitySlot) => {
-    if (!providerSlots) return
-    setSlotProbingFormat((s) => ({ ...s, [slot]: true }))
-    try {
-      const res = await probeProviderApiFormat(slot, { ...providerSlots[slot], enabled: true })
-      if (!res.success || !res.data) {
-        toast.error(res.error ?? '探测 API 格式失败')
-        return
+  const handleListModels = useCallback(
+    async (provider: ProviderEntryView) => {
+      setListingProvider((s) => ({ ...s, [provider.id]: true }))
+      try {
+        const draft = slotDraftForTest(store, provider)
+        const models = await listProviderModels('chat', draft)
+        setProviderModels((m) => ({ ...m, [provider.id]: models }))
+        if (models.length === 0) {
+          toast.warning('未获取到模型，可手动填写模型 ID')
+        } else {
+          toast.success(`已获取 ${models.length} 个模型`)
+        }
+      } catch (err) {
+        console.error('[ModelConfigSection] 获取模型列表失败', err)
+        toast.error(err instanceof Error ? err.message : '获取模型列表失败')
+      } finally {
+        setListingProvider((s) => ({ ...s, [provider.id]: false }))
       }
-      patchSlot(slot, { apiFormat: res.data.recommended })
-      toast.success(res.data.message)
-    } catch (err) {
-      console.error('[ModelConfigSection] 探测 API 格式失败', err)
-      toast.error(err instanceof Error ? err.message : '探测 API 格式失败')
-    } finally {
-      setSlotProbingFormat((s) => ({ ...s, [slot]: false }))
-    }
-  }, [providerSlots, toast, patchSlot])
+    },
+    [store, toast],
+  )
 
-  const handleSaveProvider = useCallback(async () => {
-    if (!providerSlots) return
-    setProviderSaving(true)
+  const handleTestConnection = useCallback(
+    async (provider: ProviderEntryView) => {
+      setTestingProvider((s) => ({ ...s, [provider.id]: true }))
+      try {
+        const draft = slotDraftForTest(store, provider)
+        const result = await testProviderConnection('chat', draft)
+        if (result.ok) toast.success(`${providerDisplayName(provider)}：${result.message}`)
+        else toast.error(`${providerDisplayName(provider)}：${result.message}`)
+      } catch (err) {
+        console.error('[ModelConfigSection] 测试连接失败', err)
+        toast.error(err instanceof Error ? err.message : '测试连接失败')
+      } finally {
+        setTestingProvider((s) => ({ ...s, [provider.id]: false }))
+      }
+    },
+    [store, toast],
+  )
+
+  const handleProbeApiFormat = useCallback(
+    async (provider: ProviderEntryView) => {
+      setProbingProvider((s) => ({ ...s, [provider.id]: true }))
+      try {
+        const draft = slotDraftForTest(store, provider)
+        const res = await probeProviderApiFormat('chat', draft)
+        if (!res.success || !res.data) {
+          toast.error(res.error ?? '探测 API 格式失败')
+          return
+        }
+        patchProvider(provider.id, { apiFormat: res.data.recommended })
+        toast.success(res.data.message)
+      } catch (err) {
+        console.error('[ModelConfigSection] 探测 API 格式失败', err)
+        toast.error(err instanceof Error ? err.message : '探测 API 格式失败')
+      } finally {
+        setProbingProvider((s) => ({ ...s, [provider.id]: false }))
+      }
+    },
+    [store, toast, patchProvider],
+  )
+
+  const handleSave = useCallback(async () => {
+    if (!store) return
+    setSaving(true)
     try {
-      const saved = await saveProviderConfig(providerSlots)
-      setProviderSlots(saved)
+      const saved = await saveProviderStore(store)
+      setStore(saved)
       window.dispatchEvent(new CustomEvent('mtbot:provider-config-changed'))
-      if (saved.chat.enabled && saved.chat.modelId) {
+      const chat = resolveSlotFromStore(saved, 'chat')
+      if (chat.enabled && chat.modelId) {
         window.dispatchEvent(
-          new CustomEvent('mtbot:chat-model-changed', { detail: { modelId: saved.chat.modelId } }),
+          new CustomEvent('mtbot:chat-model-changed', {
+            detail: { modelId: `${chat.providerId}::${chat.modelId}` },
+          }),
         )
       }
-      toast.success('模型能力槽配置已保存（新会话生效）')
+      toast.success('模型配置已保存（新会话生效）')
     } catch (err) {
       console.error('[ModelConfigSection] 保存 Provider 配置失败', err)
       toast.error('保存 Provider 配置失败')
     } finally {
-      setProviderSaving(false)
+      setSaving(false)
     }
-  }, [providerSlots, toast])
+  }, [store, toast])
 
-  const renderSlotCard = (slot: CapabilitySlot) => {
-    if (!providerSlots) return null
-    const cfg = providerSlots[slot]
-    const isLocalProvider = cfg.type === 'ollama' || cfg.type === 'lmstudio'
-    const expanded = expandedSlots[slot] === true
-    const models = slotModels[slot] ?? []
-    const contextWindowK = cfg.contextWindowK ?? {}
-    const setContextWindowK = (modelId: string, value: string) => {
-      const n = Number(value)
-      const next = { ...contextWindowK }
-      if (value.trim() === '') delete next[modelId]
-      else if (Number.isFinite(n) && n > 0) next[modelId] = n
-      patchSlot(slot, { contextWindowK: next })
-    }
-    const apiFormatByModel = cfg.apiFormatByModel ?? {}
-    const slotDefaultApiFormat =
-      cfg.apiFormat ?? PROVIDER_TYPE_DEFAULTS[cfg.type]?.apiFormat ?? 'completions'
-    /** 按模型覆盖 API 格式；空 = 跟槽级默认 */
-    const setApiFormatByModel = (modelId: string, value: string) => {
-      const next = { ...apiFormatByModel }
-      if (value === '' || value === 'inherit') delete next[modelId]
-      else if (value === 'completions' || value === 'responses') next[modelId] = value
-      patchSlot(slot, { apiFormatByModel: next })
-    }
-    const modelReasoning = cfg.modelReasoning ?? {}
-    /** 未显式勾选时显示内置默认表推断值（勾一次即落成显式值） */
-    const reasoningFor = (modelId: string) =>
-      modelReasoning[modelId] ?? defaultSupportsReasoning(modelId)
-    const setModelReasoning = (modelId: string, value: boolean) => {
-      patchSlot(slot, { modelReasoning: { ...modelReasoning, [modelId]: value } })
-    }
-    const thinkingCheckbox = (modelId: string) => (
-      <Checkbox
-        checked={reasoningFor(modelId)}
-        aria-label={`${modelId} 支持思考`}
-        onChange={(next) => setModelReasoning(modelId, next)}
-      >
-        <span className={styles['setting-desc']} title="该模型是否支持思考（reasoning）。不勾选时不会发送任何思考参数。">
-          思考
-        </span>
-      </Checkbox>
-    )
-
-    /** 候选模型集合：显式勾过就用勾的，否则退化为「当前这一个」 */
-    const allowedIds = cfg.allowedModelIds?.length
-      ? cfg.allowedModelIds
-      : (cfg.modelId ? [cfg.modelId] : [])
-    /**
-     * image 槽下拉的候选项 = 远端拉到的列表 ∪ 已配置的候选。
-     * 右半边不能省：中转站的模型列表常常拉不到（rightapi 就没有这个端点），
-     * 那时下拉里只剩手填的那几个，否则用户会以为「模型没法改」。
-     */
-    const imageModelOptions =
-      slot === 'image' ? [...new Set([...models.map((m) => m.id), ...allowedIds])] : []
-    /**
-     * 每个模型行右侧的附加配置。**生图模型没有这两个概念**，不渲染——
-     * 给 image 槽挂上「上下文长度(K)」和「思考」只会让人以为它们有用。
-     */
-    const modelExtras = (modelId: string) =>
-      slot === 'image' ? null : (
-        <>
-          <Input
-            type="number"
-            min={1}
-            step={1}
-            value={String(contextWindowK[modelId] ?? defaultContextWindowK(modelId))}
-            onChange={(e) => setContextWindowK(modelId, e.target.value)}
-            style={{ width: 90 }}
-            aria-label={`${modelId} 上下文长度（K）`}
-          />
-          <span className={styles['setting-desc']}>K</span>
-          {supportsApiFormatChoice(cfg.type) && (
-            <div style={{ width: 160 }}>
-              <Select
-                value={apiFormatByModel[modelId] ?? 'inherit'}
-                aria-label={`${modelId} API 格式`}
-                options={[
-                  { value: 'inherit', label: `格式·默认(${slotDefaultApiFormat})` },
-                  { value: 'completions', label: 'Completions' },
-                  { value: 'responses', label: 'Responses' },
-                ]}
-                onChange={(e) => setApiFormatByModel(modelId, e.target.value)}
-              />
-            </div>
-          )}
-          {thinkingCheckbox(modelId)}
-        </>
-      )
+  const renderProviderCard = (provider: ProviderEntryView) => {
+    const expanded = expandedProviders[provider.id] === true
+    const isLocalProvider = provider.type === 'ollama' || provider.type === 'lmstudio'
+    const models = providerModels[provider.id] ?? []
+    const allowedIds = provider.modelIds
+    const usedBySlots = CAPABILITY_SLOTS.filter((s) => store?.slots[s].providerId === provider.id)
+    const nameOf = providerDisplayName(provider)
 
     return (
-      <Card key={slot}>
+      <Card key={provider.id}>
         <div className={styles['setting-item']}>
           <div className={styles['setting-label']}>
-            <span data-app-ui-heading>{CAPABILITY_SLOT_LABEL[slot]}</span>
-            <span className={styles['setting-desc']}>{CAPABILITY_SLOT_DESC[slot]}</span>
+            <span data-app-ui-heading>{nameOf}</span>
+            <span className={styles['setting-desc']}>
+              {usedBySlots.length > 0
+                ? `用于：${usedBySlots.map((s) => CAPABILITY_SLOT_LABEL[s]).join('、')}`
+                : '尚未被任何能力使用'}
+            </span>
           </div>
           <div className={styles['setting-control']} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {slot !== 'chat' && (
-              <Button variant="secondary" size="sm" onClick={() => copyFromChat(slot)}>
-                从文本对话复制
-              </Button>
-            )}
-            <div className={styles['slot-enable-group']} role="group" aria-label={`${CAPABILITY_SLOT_LABEL[slot]}启停`}>
-              <button
-                type="button"
-                className={`${styles['slot-enable-btn']} ${cfg.enabled ? styles['slot-enable-btn--on'] : ''}`}
-                onClick={() => {
-                  patchSlot(slot, { enabled: true })
-                  setExpandedSlots((s) => ({ ...s, [slot]: true }))
-                }}
-              >
-                已启用
-              </button>
-              <button
-                type="button"
-                className={`${styles['slot-enable-btn']} ${!cfg.enabled ? styles['slot-enable-btn--off'] : ''}`}
-                onClick={() => patchSlot(slot, { enabled: false })}
-              >
-                未启用
-              </button>
-            </div>
             <button
               type="button"
               className={styles['about-link']}
-              onClick={() => setExpandedSlots((s) => ({ ...s, [slot]: !expanded }))}
+              onClick={() => setExpandedProviders((e) => ({ ...e, [provider.id]: !expanded }))}
             >
               {expanded ? '收起配置' : '展开配置'}
             </button>
+            <Button variant="secondary" size="sm" onClick={() => removeProvider(provider.id)}>
+              <Trash2 size={14} /> 删除
+            </Button>
           </div>
         </div>
 
@@ -378,22 +269,37 @@ export function ModelConfigSection() {
           <>
             <div className={styles['setting-item']}>
               <div className={styles['setting-label']}>
+                <span data-app-ui-label>名称</span>
+                <span className={styles['setting-desc']}>仅用于设置页与对话页的模型分组显示</span>
+              </div>
+              <div className={styles['setting-control']}>
+                <Input
+                  type="text"
+                  value={provider.name}
+                  placeholder={PROVIDER_TYPE_LABEL[provider.type]}
+                  onChange={(e) => patchProvider(provider.id, { name: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className={styles['setting-item']}>
+              <div className={styles['setting-label']}>
                 <span data-app-ui-label>Provider 类型</span>
               </div>
               <div className={styles['setting-control']}>
                 <Select
-                  value={cfg.type}
-                  options={listProviderTypesForSlot(slot).map((t) => ({
+                  value={provider.type}
+                  options={listProviderTypesForSlot('chat').map((t) => ({
                     value: t,
                     label: PROVIDER_TYPE_LABEL[t],
                   }))}
                   onChange={(e) => {
                     const nextType = e.target.value as ProviderType
                     const isUntouched =
-                      !cfg.baseUrl?.trim() ||
-                      Object.values(PROVIDER_DEFAULT_BASE_URL).includes(cfg.baseUrl.trim())
+                      !provider.baseUrl?.trim() ||
+                      Object.values(PROVIDER_DEFAULT_BASE_URL).includes(provider.baseUrl.trim())
                     const defaults = PROVIDER_TYPE_DEFAULTS[nextType]
-                    patchSlot(slot, {
+                    patchProvider(provider.id, {
                       type: nextType,
                       ...(isUntouched ? { baseUrl: PROVIDER_DEFAULT_BASE_URL[nextType] } : {}),
                       ...(defaults.apiFormat ? { apiFormat: defaults.apiFormat } : {}),
@@ -408,9 +314,9 @@ export function ModelConfigSection() {
               <div className={styles['setting-label']}>
                 <span data-app-ui-label>接口地址（Base URL）</span>
                 <span className={styles['setting-desc']}>
-                  {cfg.type === 'deepseek'
+                  {provider.type === 'deepseek'
                     ? 'DeepSeek 使用固定端点，无需修改'
-                    : cfg.type === 'rightapi'
+                    : provider.type === 'rightapi'
                       ? '填到绘图根地址（含 /draw/v1）；任务查询地址会自动推导为站点级 /v1/tasks'
                       : '多数 OpenAI 兼容端点无需手写 /v1（会自动补全）；OpenRouter / 智谱 / 百炼 等预设已带完整路径'}
                 </span>
@@ -418,10 +324,10 @@ export function ModelConfigSection() {
               <div className={styles['setting-control']}>
                 <Input
                   type="text"
-                  value={cfg.baseUrl}
-                  placeholder={PROVIDER_DEFAULT_BASE_URL[cfg.type]}
-                  onChange={(e) => patchSlot(slot, { baseUrl: e.target.value })}
-                  disabled={cfg.type === 'deepseek'}
+                  value={provider.baseUrl}
+                  placeholder={PROVIDER_DEFAULT_BASE_URL[provider.type]}
+                  onChange={(e) => patchProvider(provider.id, { baseUrl: e.target.value })}
+                  disabled={provider.type === 'deepseek'}
                 />
               </div>
             </div>
@@ -435,21 +341,19 @@ export function ModelConfigSection() {
               </div>
               <div className={styles['setting-control']}>
                 <Input
-                  type={showApiKeyBySlot[slot] ? 'text' : 'password'}
-                  value={cfg.apiKey}
+                  type={showApiKey[provider.id] ? 'text' : 'password'}
+                  value={provider.apiKey}
                   placeholder={isLocalProvider ? '（可留空）' : 'sk-...'}
-                  onChange={(e) => patchSlot(slot, { apiKey: e.target.value })}
+                  onChange={(e) => patchProvider(provider.id, { apiKey: e.target.value })}
                   suffix={
                     <button
                       type="button"
                       className={styles['about-link']}
-                      aria-label={showApiKeyBySlot[slot] ? '隐藏 API Key' : '显示 API Key'}
-                      onClick={() =>
-                        setShowApiKeyBySlot((s) => ({ ...s, [slot]: !s[slot] }))
-                      }
+                      aria-label={showApiKey[provider.id] ? '隐藏 API Key' : '显示 API Key'}
+                      onClick={() => setShowApiKey((s) => ({ ...s, [provider.id]: !s[provider.id] }))}
                       style={{ display: 'inline-flex', alignItems: 'center', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
                     >
-                      {showApiKeyBySlot[slot] ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showApiKey[provider.id] ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   }
                 />
@@ -458,16 +362,13 @@ export function ModelConfigSection() {
                 密文读不出来时，输入框必然是空的——不解释一句，用户会以为是自己没填过，
                 于是在这里重填一遍、保存、重启，问题照旧（而且旧密文已经被这次保存覆盖掉了）。
                 文案里的「原密文会保留」对应 main 侧 preserveUnreadableKey()，不是安慰话。
-                补 `!cfg.apiKey`：用户一开始打字就撤掉提示，否则「请重新填写」会一直挂在他已经填好的框下面。
+                补 `!provider.apiKey`：用户一开始打字就撤掉提示。
               */}
-              {cfg.apiKeyDecryptFailed && !cfg.apiKey && (
+              {provider.apiKeyDecryptFailed && !provider.apiKey && (
                 <div
                   className={styles['field-msg']}
                   role="alert"
-                  style={{
-                    backgroundColor: 'var(--color-error-bg)',
-                    color: 'var(--color-error)',
-                  }}
+                  style={{ backgroundColor: 'var(--color-error-bg)', color: 'var(--color-error)' }}
                 >
                   已保存的凭据无法解密（密钥环可能已变更，或配置来自其他系统），因此这里显示为空。
                   请重新填写——原密文会保留，不会因保存被覆盖。
@@ -475,7 +376,7 @@ export function ModelConfigSection() {
               )}
             </div>
 
-            {supportsApiFormatChoice(cfg.type) && (
+            {supportsApiFormatChoice(provider.type) && (
               <div className={styles['setting-item']}>
                 <div className={styles['setting-label']}>
                   <span data-app-ui-label>API 格式</span>
@@ -485,26 +386,26 @@ export function ModelConfigSection() {
                 </div>
                 <div className={styles['setting-control']} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Select
-                    value={cfg.apiFormat ?? PROVIDER_TYPE_DEFAULTS[cfg.type]?.apiFormat ?? 'completions'}
+                    value={provider.apiFormat ?? PROVIDER_TYPE_DEFAULTS[provider.type]?.apiFormat ?? 'completions'}
                     options={[
                       { value: 'completions', label: 'Completions（中转/传统，最稳）' },
                       { value: 'responses', label: 'Responses（官方 DeepSeek 等，支持缓存）' },
                     ]}
-                    onChange={(e) => patchSlot(slot, { apiFormat: e.target.value as 'completions' | 'responses' })}
+                    onChange={(e) => patchProvider(provider.id, { apiFormat: e.target.value as 'completions' | 'responses' })}
                   />
                   <Button
                     variant="secondary"
                     size="sm"
-                    disabled={slotProbingFormat[slot]}
-                    onClick={() => void handleProbeApiFormat(slot)}
+                    disabled={probingProvider[provider.id]}
+                    onClick={() => { void handleProbeApiFormat(provider) }}
                   >
-                    {slotProbingFormat[slot] ? '探测中…' : '自动探测'}
+                    {probingProvider[provider.id] ? '探测中…' : '自动探测'}
                   </Button>
                 </div>
               </div>
             )}
 
-            {supportsApiFormatChoice(cfg.type) && (
+            {supportsApiFormatChoice(provider.type) && (
               <div className={styles['setting-item']}>
                 <div className={styles['setting-label']}>
                   <span data-app-ui-label>思考参数格式</span>
@@ -515,7 +416,7 @@ export function ModelConfigSection() {
                 </div>
                 <div className={styles['setting-control']}>
                   <Select
-                    value={cfg.thinkingFormat ?? 'auto'}
+                    value={provider.thinkingFormat ?? 'auto'}
                     aria-label="思考参数格式"
                     options={[
                       { value: 'auto', label: '自动（按端点与模型推断）' },
@@ -524,7 +425,7 @@ export function ModelConfigSection() {
                       { value: 'zai', label: '智谱 z.ai：thinking.type' },
                     ]}
                     onChange={(e) =>
-                      patchSlot(slot, { thinkingFormat: e.target.value as ThinkingFormat })
+                      patchProvider(provider.id, { thinkingFormat: e.target.value as ThinkingFormat })
                     }
                   />
                 </div>
@@ -533,99 +434,51 @@ export function ModelConfigSection() {
 
             <div className={styles['setting-item']}>
               <div className={styles['setting-label']}>
-                <span data-app-ui-label>模型 ID</span>
+                <span data-app-ui-label>可用模型</span>
                 <span className={styles['setting-desc']}>
-                  {slot === 'image'
-                    ? cfg.type === 'rightapi'
-                      ? '可勾选多个生图模型（勾选的才会被采纳）；Agent 显式指定 modelId 时用它，否则用下拉选中的那个'
-                      : '可勾选多个，也可手动填写，如 dall-e-3 / gpt-image-1'
-                    : slot === 'vision'
-                      ? '可勾选多个模型；对话/识别时再选用其一'
-                      : '可勾选多个模型；对话框中切换使用'}
+                  勾选或手动填写。对话页的模型下拉会按 Provider 分组列出这些模型
                 </span>
               </div>
               <div className={styles['setting-control']} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {models.length > 0 ? (
+                {models.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflow: 'auto' }}>
-                    {models.map((m) => {
-                      const checked = allowedIds.includes(m.id)
-                      return (
-                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Checkbox
-                            checked={checked}
-                            onChange={(next) => {
-                              const nextIds = next
-                                ? [...new Set([...allowedIds, m.id])]
-                                : allowedIds.filter((id) => id !== m.id)
-                              const nextModelId =
-                                nextIds.includes(cfg.modelId) ? cfg.modelId : (nextIds[0] ?? '')
-                              patchSlot(slot, { allowedModelIds: nextIds, modelId: nextModelId })
-                              setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
-                            }}
-                          >
-                            {m.name || m.id}
-                          </Checkbox>
-                          {modelExtras(m.id)}
-                        </div>
-                      )
-                    })}
+                    {models.map((m) => (
+                      <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Checkbox
+                          checked={allowedIds.includes(m.id)}
+                          onChange={(next) => {
+                            const nextIds = next
+                              ? [...new Set([...allowedIds, m.id])]
+                              : allowedIds.filter((id) => id !== m.id)
+                            patchProvider(provider.id, { modelIds: nextIds })
+                          }}
+                        >
+                          {m.name || m.id}
+                        </Checkbox>
+                      </div>
+                    ))}
                   </div>
-                ) : null}
-                {/*
-                  生图槽多一个「默认用哪个」的下拉：chat/vision 是在对话里切模型，
-                  而 image 槽只有一个 modelId 决定 image_generate 用谁（Agent 显式传 modelId 时才被覆盖）。
-                  选中一个不在候选集里的模型时**并入**候选集而不是顶掉它——
-                  用户点这一下的意图是「改默认」，不该顺手丢掉他配过的其它模型。
-                */}
-                {slot === 'image' && imageModelOptions.length > 0 && (
-                  <Select
-                    value={cfg.modelId}
-                    aria-label="默认生图模型"
-                    options={imageModelOptions.map((id) => ({ value: id, label: id }))}
-                    onChange={(e) =>
-                      patchSlot(slot, {
-                        modelId: e.target.value,
-                        allowedModelIds: [...new Set([...allowedIds, e.target.value])],
-                      })
-                    }
-                  />
                 )}
                 <Input
                   type="text"
-                  value={
-                    slotModelIdsText[slot] ?? (cfg.allowedModelIds ?? []).join(', ')
-                  }
+                  value={modelIdsText[provider.id] ?? allowedIds.join(', ')}
                   placeholder="模型 ID，多个用逗号分隔；可手动输入，勾选后自动填充"
-                  onChange={(e) => {
-                    setSlotModelIdsText((t) => ({ ...t, [slot]: e.target.value }))
-                  }}
-                  onBlur={() => commitSlotModelIdsText(slot)}
+                  onChange={(e) => setModelIdsText((t) => ({ ...t, [provider.id]: e.target.value }))}
+                  onBlur={() => commitModelIdsText(provider.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault()
-                      commitSlotModelIdsText(slot)
+                      commitModelIdsText(provider.id)
                     }
                   }}
                 />
-                {slot !== 'image' && models.length === 0 && allowedIds.map((id) => (
+                {models.length === 0 && allowedIds.map((id) => (
                   <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span className={styles['setting-desc']}>{id}</span>
-                    {modelExtras(id)}
                   </div>
                 ))}
-                {slot !== 'image' && slotModelIdsText[slot] && slotModelIdsText[slot]!.split(',').map((id) => id.trim()).filter(Boolean).length === 1 && (() => {
-                  const id = slotModelIdsText[slot]!.split(',')[0]!.trim()
-                  return <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className={styles['setting-desc']}>上下文长度</span>
-                    <Input type="number" min={1} step={1} value={String(contextWindowK[id] ?? defaultContextWindowK(id))} onChange={(e) => setContextWindowK(id, e.target.value)} style={{ width: 90 }} />
-                    <span className={styles['setting-desc']}>K</span>
-                    {thinkingCheckbox(id)}
-                  </div>
-                })()}
                 {allowedIds.length > 0 && (
-                  <span className={styles['setting-desc']}>
-                    已选 {allowedIds.length} 个；{slot === 'image' ? 'Agent 未指定模型时用' : '默认使用'}：{cfg.modelId || '（未设）'}
-                  </span>
+                  <span className={styles['setting-desc']}>已配置 {allowedIds.length} 个模型</span>
                 )}
               </div>
             </div>
@@ -633,15 +486,15 @@ export function ModelConfigSection() {
             <div className={styles['category-save-actions']} style={{ gap: 8 }}>
               <Button
                 variant="secondary"
-                loading={!!slotListing[slot]}
-                onClick={() => { void handleListModels(slot) }}
+                loading={!!listingProvider[provider.id]}
+                onClick={() => { void handleListModels(provider) }}
               >
                 获取模型列表
               </Button>
               <Button
                 variant="secondary"
-                loading={!!slotTesting[slot]}
-                onClick={() => { void handleTestSlot(slot) }}
+                loading={!!testingProvider[provider.id]}
+                onClick={() => { void handleTestConnection(provider) }}
               >
                 测试连接
               </Button>
@@ -652,7 +505,169 @@ export function ModelConfigSection() {
     )
   }
 
-  if (providerLoading || !providerSlots) {
+  const renderSlotCard = (slot: CapabilitySlot) => {
+    if (!store) return null
+    const sel = store.slots[slot]
+    const provider = store.providers.find((p) => p.id === sel.providerId)
+    const providerOptions = store.providers.map((p) => ({
+      value: p.id,
+      label: `${providerDisplayName(p)}${p.modelIds.length ? `（${p.modelIds.length} 个模型）` : '（未配模型）'}`,
+    }))
+    const modelOptions = provider?.modelIds ?? []
+
+    return (
+      <Card key={slot}>
+        <div className={styles['setting-item']}>
+          <div className={styles['setting-label']}>
+            <span data-app-ui-heading>{CAPABILITY_SLOT_LABEL[slot]}</span>
+            <span className={styles['setting-desc']}>{CAPABILITY_SLOT_DESC[slot]}</span>
+          </div>
+          <div className={styles['setting-control']}>
+            <div className={styles['slot-enable-group']} role="group" aria-label={`${CAPABILITY_SLOT_LABEL[slot]}启停`}>
+              <button
+                type="button"
+                className={`${styles['slot-enable-btn']} ${sel.enabled ? styles['slot-enable-btn--on'] : ''}`}
+                onClick={() => patchSlot(slot, { enabled: true })}
+              >
+                已启用
+              </button>
+              <button
+                type="button"
+                className={`${styles['slot-enable-btn']} ${!sel.enabled ? styles['slot-enable-btn--off'] : ''}`}
+                onClick={() => patchSlot(slot, { enabled: false })}
+              >
+                未启用
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles['setting-item']}>
+          <div className={styles['setting-label']}>
+            <span data-app-ui-label>使用哪个提供商</span>
+            <span className={styles['setting-desc']}>
+              未选择时该能力不可用；同一提供商可被多个能力共用
+            </span>
+          </div>
+          <div className={styles['setting-control']}>
+            <Select
+              value={sel.providerId}
+              aria-label={`${CAPABILITY_SLOT_LABEL[slot]}提供商`}
+              options={[{ value: '', label: '（未选择）' }, ...providerOptions]}
+              onChange={(e) => {
+                const providerId = e.target.value
+                const next = store.providers.find((p) => p.id === providerId)
+                patchSlot(slot, {
+                  providerId,
+                  // 换提供商时旧模型 ID 多半不存在，回退到它列出的第一个
+                  modelId: next?.modelIds.includes(sel.modelId) ? sel.modelId : (next?.modelIds[0] ?? ''),
+                })
+              }}
+            />
+          </div>
+        </div>
+
+        {provider && (
+          <div className={styles['setting-item']}>
+            <div className={styles['setting-label']}>
+              <span data-app-ui-label>
+                {slot === 'image' ? '默认生图模型' : '使用哪个模型'}
+              </span>
+              <span className={styles['setting-desc']}>
+                {slot === 'chat'
+                  ? '对话页仍可临时切到别的模型；这里是新会话的默认值'
+                  : slot === 'image'
+                    ? 'Agent 显式指定 modelId 时才会被覆盖'
+                    : '图片识别默认使用它'}
+              </span>
+            </div>
+            <div className={styles['setting-control']}>
+              {modelOptions.length > 0 ? (
+                <Select
+                  value={sel.modelId}
+                  aria-label={`${CAPABILITY_SLOT_LABEL[slot]}模型`}
+                  options={modelOptions.map((id) => ({ value: id, label: id }))}
+                  onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
+                />
+              ) : (
+                <Input
+                  type="text"
+                  value={sel.modelId}
+                  placeholder="该提供商还没配置模型，请先在上面填写"
+                  onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
+                />
+              )}
+            </div>
+            {/* 解密失败的提示只在提供商卡片上说一次，槽卡片不重复刷同一句话 */}
+          </div>
+        )}
+
+        {/*
+          每个模型的附加配置放在**槽**上而不是 provider 上：
+          同一个模型交给不同能力时，上下文预算与思考开关可以是不同的。
+          生图没有这两个概念，不渲染——挂上只会让人以为它们有用。
+        */}
+        {provider && slot !== 'image' && modelOptions.length > 0 && (
+          <div className={styles['setting-item']}>
+            <div className={styles['setting-label']}>
+              <span data-app-ui-label>模型参数</span>
+              <span className={styles['setting-desc']}>
+                上下文长度按模型覆盖（单位 K，缺省用内置表）；勾掉「思考」则不发送任何思考参数
+              </span>
+            </div>
+            <div className={styles['setting-control']} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {modelOptions.map((modelId) => {
+                const contextWindowK = sel.contextWindowK ?? {}
+                const modelReasoning = sel.modelReasoning ?? {}
+                const reasoningOn = modelReasoning[modelId] ?? defaultSupportsReasoning(modelId)
+                const setContextWindowK = (value: string) => {
+                  const next = { ...contextWindowK }
+                  const n = Number(value)
+                  if (value.trim() === '') delete next[modelId]
+                  else if (Number.isFinite(n) && n > 0) next[modelId] = n
+                  patchSlot(slot, { contextWindowK: next })
+                }
+                const setReasoning = (next: boolean) => {
+                  patchSlot(slot, {
+                    modelReasoning: { ...modelReasoning, [modelId]: next },
+                  })
+                }
+                return (
+                  <div key={modelId} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span className={styles['setting-desc']} style={{ minWidth: 160 }}>{modelId}</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={String(contextWindowK[modelId] ?? defaultContextWindowK(modelId))}
+                      onChange={(e) => setContextWindowK(e.target.value)}
+                      style={{ width: 90 }}
+                      aria-label={`${modelId} 上下文长度（K）`}
+                    />
+                    <span className={styles['setting-desc']}>K</span>
+                    <Checkbox
+                      checked={reasoningOn}
+                      aria-label={`${modelId} 支持思考`}
+                      onChange={setReasoning}
+                    >
+                      <span
+                        className={styles['setting-desc']}
+                        title="该模型是否支持思考（reasoning）。不勾选时不会发送任何思考参数。"
+                      >
+                        思考
+                      </span>
+                    </Checkbox>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </Card>
+    )
+  }
+
+  if (loading || !store) {
     return (
       <div className={styles['settings-section']}>
         <Loading text="加载中..." />
@@ -662,22 +677,61 @@ export function ModelConfigSection() {
 
   return (
     <div className={styles['settings-section']}>
-      <h3 data-app-ui-section-title>模型能力槽</h3>
+      <h3 data-app-ui-section-title>模型提供商</h3>
       <p className={styles['setting-desc']} style={{ marginBottom: 16 }}>
-        每个能力可使用不同提供商（例如对话用 DeepSeek，生图用 OpenAI）。
-        「已启用 / 未启用」控制该能力是否真正生效：未启用时即使填了 Key 也不会调用，便于临时关闭而不丢配置。
-        测试连接成功时会自动设为已启用。语音 ASR/TTS 请在下方「语音设置」中配置。
+        在这里配置多个提供商（如 DeepSeek、OpenRouter、OpenAI）。同一家的 Key 只需填一次，
+        文本对话、视觉理解、图片生成三个能力分别选用其中一个提供商与模型。
+        语音 ASR/TTS 请在下方「语音设置」中配置。
+      </p>
+
+      {store.providers.map((p) => (
+        <div key={p.id} style={{ marginBottom: 12 }}>
+          {renderProviderCard(p)}
+        </div>
+      ))}
+      <div style={{ marginBottom: 24 }}>
+        <Button variant="secondary" onClick={addProvider}>
+          <Plus size={14} /> 添加提供商
+        </Button>
+      </div>
+
+      <h3 data-app-ui-section-title>能力使用哪个提供商</h3>
+      <p className={styles['setting-desc']} style={{ marginBottom: 16 }}>
+        「已启用 / 未启用」控制该能力是否真正生效：未启用时即使配置了也不会调用，便于临时关闭而不丢配置。
+        测试连接成功时会自动设为已启用。
       </p>
       {CAPABILITY_SLOTS.map((slot) => (
         <div key={slot} style={{ marginBottom: 12 }}>
           {renderSlotCard(slot)}
         </div>
       ))}
+
       <div className={styles['category-save-actions']}>
-        <Button onClick={() => { void handleSaveProvider() }} loading={providerSaving}>
+        <Button onClick={() => { void handleSave() }} loading={saving}>
           保存全部
         </Button>
       </div>
     </div>
   )
+}
+
+/** 用某个 provider 的字段拼出「测试/拉模型」所需的草稿配置 */
+function slotDraftForTest(
+  store: ProviderStoreView | null,
+  provider: ProviderEntryView,
+): LocalProviderConfigView {
+  const fallback = (store && resolveSlotFromStore(store, 'chat')) || null
+  return {
+    enabled: true,
+    type: provider.type,
+    baseUrl: provider.baseUrl,
+    modelId: provider.modelIds[0] ?? '',
+    apiKey: provider.apiKey,
+    allowedModelIds: provider.modelIds,
+    apiFormat: provider.apiFormat,
+    apiFormatByModel: provider.apiFormatByModel,
+    thinkingFormat: provider.thinkingFormat,
+    contextWindowK: fallback?.contextWindowK ?? {},
+    modelReasoning: fallback?.modelReasoning ?? {},
+  }
 }

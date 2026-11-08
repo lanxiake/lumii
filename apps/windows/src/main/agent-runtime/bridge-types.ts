@@ -19,6 +19,18 @@ export interface AgentRuntimeBridgeConfig {
    * 返回 enabled=true 时 Agent 走 direct 直连（凭据本机注入）。
    */
   getProviderConfig?: () => import('../provider-config.js').LocalProviderConfigView
+  /**
+   * 按模型引用解析槽配置。引用可带 `providerId::` 前缀，
+   * 让一个会话切到非默认 Provider（见 provider-config.parseModelRef）。
+   */
+  loadSlotConfigForModel?: (
+    slot: import('../provider-config.js').CapabilitySlot,
+    ref?: string,
+  ) => import('../provider-config.js').LocalProviderConfigView
+  /** 全部 chat 可选模型引用（所有 Provider × 模型），用于校验会话模型偏好 */
+  listChatModelRefs?: () => string[]
+  /** chat 槽默认模型的引用（带 `providerId::` 前缀），供未 prime 的会话回退 */
+  getChatDefaultModelRef?: () => string | undefined
   getWindow: () => BrowserWindow | null
   getCwd: () => string
   /**

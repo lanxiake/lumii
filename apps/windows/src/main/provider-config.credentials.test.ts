@@ -49,6 +49,7 @@ async function loadModule() {
 function writeProviderFile(apiKeyEnc: string | undefined) {
   const dir = path.join(dataRoot, 'config')
   fs.mkdirSync(dir, { recursive: true })
+  // v1 布局：读取时应迁移到 v2 的 providers[]
   fs.writeFileSync(
     path.join(dir, 'provider.json'),
     JSON.stringify({
@@ -65,6 +66,22 @@ function writeProviderFile(apiKeyEnc: string | undefined) {
     }),
     'utf8',
   )
+}
+
+/** 读盘上的 chat 对应 provider 条目（v2 落盘布局） */
+function readSavedChatProvider(): { apiKeyEnc?: string } & Record<string, unknown> {
+  const onDisk = JSON.parse(
+    fs.readFileSync(path.join(dataRoot, 'config', 'provider.json'), 'utf8'),
+  ) as {
+    version: number
+    providers?: Array<Record<string, unknown>>
+    slots?: { chat?: { providerId?: string } }
+  }
+  expect(onDisk.version).toBe(2)
+  const providerId = onDisk.slots?.chat?.providerId
+  const hit = onDisk.providers?.find((p) => p.id === providerId)
+  expect(hit, 'chat 槽必须指向一条已落盘的 provider').toBeTruthy()
+  return hit as { apiKeyEnc?: string } & Record<string, unknown>
 }
 
 beforeEach(() => {
@@ -129,9 +146,10 @@ describe('解密失败必须与「没填」可区分', () => {
     safeStorageMock.failing.value = true
     expect(loadProviderConfig().apiKeyDecryptFailed).toBe(true)
 
+    // 这条路径只读不写：盘上仍是原样的 v1 文件，原密文必须还在（用户唯一的恢复凭据）
     const onDisk = JSON.parse(fs.readFileSync(path.join(dataRoot, 'config', 'provider.json'), 'utf8'))
+    expect(onDisk.version).toBe(1)
     expect(onDisk.slots.chat).not.toHaveProperty('apiKeyDecryptFailed')
-    // 只读不写：原密文必须还在（这是用户唯一的恢复凭据）
     expect(onDisk.slots.chat.apiKeyEnc).toBe(Buffer.from('SEALED(sk-x)').toString('base64'))
   })
 })
@@ -148,7 +166,7 @@ describe('保存不得静默抹掉解不开的凭据', () => {
     const loaded = cfg.loadProviderSlotsConfig()
     expect(loaded.chat.apiKey).toBe('')
     cfg.saveProviderSlotsConfig({ ...loaded, chat: { ...loaded.chat, apiKey: '' } })
-    return JSON.parse(fs.readFileSync(path.join(dataRoot, 'config', 'provider.json'), 'utf8')).slots.chat
+    return readSavedChatProvider()
   }
 
   it('解不开且用户没重填时，原密文必须留着（用户唯一的恢复凭据）', async () => {
@@ -164,7 +182,7 @@ describe('保存不得静默抹掉解不开的凭据', () => {
 
     cfg.saveProviderSlotsConfig({ ...loaded, chat: { ...loaded.chat, apiKey: '' } })
 
-    const saved = JSON.parse(fs.readFileSync(path.join(dataRoot, 'config', 'provider.json'), 'utf8')).slots.chat
+    const saved = readSavedChatProvider()
     expect(saved.apiKeyEnc).toBe('')
   })
 
@@ -178,9 +196,9 @@ describe('保存不得静默抹掉解不开的凭据', () => {
     safeStorageMock.failing.value = false
     cfg.saveProviderSlotsConfig({ ...loaded, chat: { ...loaded.chat, apiKey: 'sk-new' } })
 
-    const saved = JSON.parse(fs.readFileSync(path.join(dataRoot, 'config', 'provider.json'), 'utf8')).slots.chat
+    const saved = readSavedChatProvider()
     expect(saved.apiKeyEnc).not.toBe('ORIGINAL-UNREADABLE-CIPHERTEXT')
-    expect(Buffer.from(saved.apiKeyEnc, 'base64').toString('utf8')).toBe('SEALED(sk-new)')
+    expect(Buffer.from(saved.apiKeyEnc!, 'base64').toString('utf8')).toBe('SEALED(sk-new)')
   })
 })
 

@@ -32,6 +32,7 @@ import {
 import {
   loadProviderConfig,
   loadProviderSlotsConfig,
+  loadProviderStore,
   loadSlotConfig,
   saveProviderConfig,
   isCapabilitySlot,
@@ -810,11 +811,30 @@ function toPublicSlot(view: LocalProviderConfigView) {
 
 /**
  * B 层：读取 provider 配置（脱敏）。
+ *
+ * 同时给出两种视角：
+ * - `providers` / `slotSelections`：多 Provider 的真实结构（谁配了什么、各能力引用谁）；
+ * - `slots`：已解析的平铺视图，保持旧 CLI 脚本的输出契约不破。
  */
 async function handleProviderShowRoute(res: http.ServerResponse): Promise<void> {
+  const store = loadProviderStore()
   const slots = loadProviderSlotsConfig()
   sendJson(res, 200, {
     ok: true,
+    providers: store.providers.map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      baseUrl: p.baseUrl,
+      hasApiKey: p.apiKey.trim().length > 0,
+      apiKeyDecryptFailed: p.apiKeyDecryptFailed === true,
+      modelIds: p.modelIds,
+    })),
+    slotSelections: {
+      chat: store.slots.chat,
+      vision: store.slots.vision,
+      image: store.slots.image,
+    },
     slots: {
       chat: toPublicSlot(slots.chat),
       vision: toPublicSlot(slots.vision),

@@ -1,9 +1,14 @@
 /**
  * 本地 LLM Provider 配置（灵栖/Lumii 独立版）
  *
- * 按能力槽（chat / vision / image）独立配置 Provider，支持例如：
- * chat 用 DeepSeek、vision/image 用 OpenAI。凭据经 safeStorage 加密落盘。
- * 旧版单模型 provider.json 自动迁移到 chat 槽。
+ * 磁盘结构为 v2：全局 `providers[]` 列表 + 三个能力槽（chat / vision / image）
+ * 各自引用某个 provider 的某个模型。同一家的 Key 只填一次，三个槽共用。
+ *
+ * 对外仍暴露「已解析的单槽平铺视图」（LocalProviderConfigView）——
+ * 运行时（bridge / image-services / model-catalog）全部走 loadSlotConfig()，
+ * 因此多 Provider 改造不影响它们。
+ *
+ * 旧版结构（v1 能力槽内嵌凭据、或更早的单模型）读时自动迁移为 v2。
  */
 
 import fs from 'node:fs'
@@ -44,7 +49,13 @@ export type ThinkingFormat = 'auto' | 'openai' | 'qwen' | 'zai'
 /** 模型能力槽（本阶段不含 ASR/TTS） */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
 
-/** 单槽本地 provider 配置（持久化结构，apiKey 存加密串） */
+/** API 格式字面量 */
+export type ApiFormat = 'completions' | 'responses'
+
+/**
+ * 单槽的**已解析**配置（provider 字段 + 槽内选择合并后的平铺视图）。
+ * 运行时按这个形状消费，多 Provider 改造不改变它的语义。
+ */
 export interface LocalProviderConfig {
   /** 是否启用该槽 */
   enabled: boolean
@@ -62,12 +73,12 @@ export interface LocalProviderConfig {
    * API 格式（仅 openai/deepseek 等兼容类型）：completions 或 responses。
    * 缺省时跟 PROVIDER_TYPE_DEFAULTS（openai 系多为 completions；官方 DeepSeek 为 responses）。
    */
-  apiFormat?: 'completions' | 'responses'
+  apiFormat?: ApiFormat
   /**
    * 按模型覆盖 API 格式（同一中转站上不同模型可能只认一种端点）。
    * 对话页切模型时优先于槽级 apiFormat。
    */
-  apiFormatByModel?: Record<string, 'completions' | 'responses'>
+  apiFormatByModel?: Record<string, ApiFormat>
   /** 按模型覆盖上下文窗口，单位 K（持久化字段） */
   contextWindowK?: Record<string, number>
   /**
@@ -92,11 +103,49 @@ export interface LocalProviderConfigView extends LocalProviderConfig {
   apiKeyDecryptFailed?: boolean
 }
 
-/** 全部能力槽配置视图 */
+/** 全部能力槽配置视图（已解析的平铺形状） */
 export interface ProviderSlotsConfigView {
   chat: LocalProviderConfigView
   vision: LocalProviderConfigView
   image: LocalProviderConfigView
+}
+
+/** 用户配置的一个模型提供商（一份凭据 + 端点） */
+export interface ProviderEntryView {
+  id: string
+  /** 展示名；留空时界面回退到类型名 */
+  name: string
+  type: ProviderType
+  baseUrl: string
+  apiKey: string
+  apiKeyDecryptFailed?: boolean
+  /** 该提供商下可用的模型 id 列表 */
+  modelIds: string[]
+  apiFormat?: ApiFormat
+  apiFormatByModel?: Record<string, ApiFormat>
+  thinkingFormat?: ThinkingFormat
+}
+
+/** 能力槽对某个 provider 与模型的选择 */
+export interface SlotSelectionView {
+  enabled: boolean
+  /** 引用的 provider id；空串表示该槽尚未选择提供商 */
+  providerId: string
+  modelId: string
+  /** 按模型覆盖上下文窗口，单位 K */
+  contextWindowK?: Record<string, number>
+  /** 按模型声明是否支持思考 */
+  modelReasoning?: Record<string, boolean>
+}
+
+/** 渲染进程可见的完整配置（明文 Key 仅本机用户可见） */
+export interface ProviderStoreView {
+  providers: ProviderEntryView[]
+  slots: {
+    chat: SlotSelectionView
+    vision: SlotSelectionView
+    image: SlotSelectionView
+  }
 }
 
 /** 各 provider 默认端点（展示用不含强制 /v1；openai 兼容会在使用时自动补全） */
@@ -125,7 +174,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
  */
 export const PROVIDER_TYPE_DEFAULTS: Record<
   ProviderType,
-  { apiFormat?: 'completions' | 'responses'; thinkingFormat: ThinkingFormat }
+  { apiFormat?: ApiFormat; thinkingFormat: ThinkingFormat }
 > = {
   openai: { apiFormat: 'completions', thinkingFormat: 'auto' },
   anthropic: { thinkingFormat: 'auto' },
@@ -162,63 +211,73 @@ export const CAPABILITY_SLOT_DESC: Record<CapabilitySlot, string> = {
 
 const SLOT_KEYS: CapabilitySlot[] = ['chat', 'vision', 'image']
 
-const DEFAULT_CHAT: LocalProviderConfigView = {
-  enabled: false,
-  type: 'openai',
-  baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
-  modelId: '',
-  apiKey: '',
-  allowedModelIds: [],
-  apiFormat: 'completions', // 通用中转通常不支持 responses
-  apiFormatByModel: {},
-  modelReasoning: {},
-  thinkingFormat: 'auto',
-}
-
-const DEFAULT_VISION: LocalProviderConfigView = {
-  enabled: false,
-  type: 'openai',
-  baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
-  modelId: '',
-  apiKey: '',
-  allowedModelIds: [],
-  apiFormat: 'completions',
-  apiFormatByModel: {},
-  modelReasoning: {},
-  thinkingFormat: 'auto',
-}
-
-const DEFAULT_IMAGE: LocalProviderConfigView = {
-  enabled: false,
-  type: 'openai',
-  baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
-  modelId: '',
-  apiKey: '',
-  modelReasoning: {},
-  thinkingFormat: 'auto',
+function defaultSlotView(): LocalProviderConfigView {
+  return {
+    enabled: false,
+    type: 'openai',
+    baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
+    modelId: '',
+    apiKey: '',
+    allowedModelIds: [],
+    apiFormat: 'completions', // 通用中转通常不支持 responses
+    apiFormatByModel: {},
+    modelReasoning: {},
+    thinkingFormat: 'auto',
+  }
 }
 
 /** 各槽默认配置 */
 export const DEFAULT_SLOT_CONFIG: ProviderSlotsConfigView = {
-  chat: { ...DEFAULT_CHAT },
-  vision: { ...DEFAULT_VISION },
-  image: { ...DEFAULT_IMAGE },
+  chat: defaultSlotView(),
+  vision: defaultSlotView(),
+  image: defaultSlotView(),
 }
 
-interface PersistedSlot extends LocalProviderConfig {
+/** 持久化的 provider 条目（apiKey 存加密串） */
+interface PersistedProvider {
+  id: string
+  name?: string
+  type: ProviderType
+  baseUrl: string
   apiKeyEnc?: string
+  modelIds?: string[]
+  apiFormat?: ApiFormat
+  apiFormatByModel?: Record<string, ApiFormat>
+  thinkingFormat?: ThinkingFormat
 }
 
-interface PersistedSlotsFile {
-  version: 1
+interface PersistedSlotV2 {
+  enabled?: boolean
+  providerId?: string
+  modelId?: string
+  contextWindowK?: Record<string, number>
+  modelReasoning?: Record<string, boolean>
+}
+
+interface PersistedFileV2 {
+  version: 2
+  providers: PersistedProvider[]
   slots: {
-    chat?: PersistedSlot
-    vision?: PersistedSlot
-    image?: PersistedSlot
+    chat?: PersistedSlotV2
+    vision?: PersistedSlotV2
+    image?: PersistedSlotV2
   }
 }
 
-/** 旧版单模型持久化结构 */
+/** v1：能力槽内嵌完整凭据 */
+interface PersistedSlotV1 extends LocalProviderConfig {
+  apiKeyEnc?: string
+}
+interface PersistedFileV1 {
+  version: 1
+  slots: {
+    chat?: PersistedSlotV1
+    vision?: PersistedSlotV1
+    image?: PersistedSlotV1
+  }
+}
+
+/** 更早的单模型结构 */
 interface LegacyPersistedShape extends LocalProviderConfig {
   apiKeyEnc?: string
   version?: undefined
@@ -240,6 +299,10 @@ const V1_PATH_TYPES: ReadonlySet<ProviderType> = new Set<ProviderType>([
   'siliconflow',
 ])
 
+function isProviderTypeValue(value: unknown): value is ProviderType {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PROVIDER_DEFAULT_BASE_URL, value)
+}
+
 /**
  * 规范化 OpenAI 兼容 Base URL：去尾斜杠，需要时补 /v1
  * anthropic / gemini 不强制追加 /v1
@@ -253,16 +316,12 @@ export function ensureProviderBaseUrl(baseUrl: string, type: ProviderType): stri
   return u
 }
 
-/**
- * 解析 provider 配置文件路径
- */
+/** 解析 provider 配置文件路径 */
 function configFilePath(): string {
   return path.join(resolveWindowsClientDataRoot(), 'config', 'provider.json')
 }
 
-/**
- * 加密 API Key（safeStorage 不可用时用 plain: 前缀明文）
- */
+/** 加密 API Key（safeStorage 不可用时用 plain: 前缀明文） */
 function encryptApiKey(apiKey: string): string {
   if (!apiKey) return ''
   if (safeStorage.isEncryptionAvailable()) {
@@ -279,9 +338,10 @@ function encryptApiKey(apiKey: string): string {
  * 「请先在设置中填写文本对话模型的 API Key」——他重填、重存、重启，凭据依旧读不出来，
  * 而屏幕上没有任何线索指向真正的原因。
  *
+ * @param owner 仅用于日志：哪份配置的凭据解不开（多个 provider 各自的密文独立，不写出来无法定位）
  * @returns value 为解出的明文（失败或没填时为空串）；failed 为「有密文但解不开」
  */
-function decryptApiKey(enc?: string, slotLabel?: CapabilitySlot): { value: string; failed: boolean } {
+function decryptApiKey(enc?: string, owner?: string): { value: string; failed: boolean } {
   if (!enc) return { value: '', failed: false }
   if (enc.startsWith('plain:')) return { value: enc.slice(6), failed: false }
   try {
@@ -289,10 +349,8 @@ function decryptApiKey(enc?: string, slotLabel?: CapabilitySlot): { value: strin
   } catch (err) {
     // 常见成因：密钥环条目被重建/换名、provider.json 从别的机器或别的 Electron 版本搬来。
     // 不同平台写出的密文互不相认（Windows 走 DPAPI、Linux 走 libsecret，前缀可能都是 v10）。
-    // **必须带槽名**：三个槽各自的密文独立，只报「解密失败」在排查时无法定位是哪一个
-    // （本次移植中就踩到过：只看到告警、不知道该去重填哪个槽）。
     log.warn(
-      `[decryptApiKey] ${slotLabel ?? '?'} 槽的凭据解密失败，该槽的 API Key 将被视为未填写。` +
+      `[decryptApiKey] ${owner ?? '?'} 的凭据解密失败，其 API Key 将被视为未填写。` +
         `密钥环可能已变更，或 provider.json 来自其他系统。原因：${(err as Error).message}`,
     )
     return { value: '', failed: true }
@@ -311,6 +369,13 @@ export function missingApiKeyMessage(cfg?: { apiKeyDecryptFailed?: boolean }): s
     : '请先在设置中填写文本对话模型的 API Key'
 }
 
+/** 规范化模型 id 列表：去重、去空 */
+export function normalizeModelIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const ids = raw.map((id) => (typeof id === 'string' ? id.trim() : '')).filter(Boolean)
+  return [...new Set(ids)]
+}
+
 /**
  * 规范化允许模型列表：去重、去空；若为空则回退到 modelId。
  */
@@ -318,10 +383,7 @@ export function normalizeAllowedModelIds(
   allowed: string[] | undefined,
   modelId: string,
 ): string[] {
-  const ids = (allowed ?? [])
-    .map((id) => (typeof id === 'string' ? id.trim() : ''))
-    .filter(Boolean)
-  const unique = [...new Set(ids)]
+  const unique = normalizeModelIds(allowed)
   const fallback = modelId.trim()
   if (unique.length === 0) {
     return fallback ? [fallback] : []
@@ -350,54 +412,6 @@ export function reconcileModelIdWithAllowlist(
   return { modelId, allowedModelIds }
 }
 
-/**
- * 规范化单槽视图（补默认值、修剪空白、对齐 allowedModelIds 与 modelId）
- */
-function normalizeSlotView(
-  raw: Partial<LocalProviderConfigView> | PersistedSlot | undefined,
-  fallback: LocalProviderConfigView,
-  /** 仅用于日志：哪个槽的凭据解不开（三个槽各自的密文是独立的，不写出来无法定位） */
-  slotLabel?: CapabilitySlot,
-): LocalProviderConfigView {
-  const type = (raw?.type ?? fallback.type) as ProviderType
-  // 渲染进程回传的视图带明文 apiKey（用户刚编辑过）；盘上读出来的只有 apiKeyEnc。
-  const apiKeyFromView =
-    raw && 'apiKey' in raw && typeof (raw as LocalProviderConfigView).apiKey === 'string'
-      ? (raw as LocalProviderConfigView).apiKey
-      : null
-  const decrypted = apiKeyFromView === null ? decryptApiKey((raw as PersistedSlot | undefined)?.apiKeyEnc, slotLabel) : null
-  const apiKey = apiKeyFromView ?? decrypted?.value ?? ''
-  const modelId = raw?.modelId?.trim() || fallback.modelId
-  const rawAllowed =
-    raw && Array.isArray((raw as LocalProviderConfigView).allowedModelIds)
-      ? (raw as LocalProviderConfigView).allowedModelIds
-      : undefined
-  const reconciled = reconcileModelIdWithAllowlist(
-    modelId,
-    normalizeAllowedModelIds(rawAllowed, modelId),
-  )
-  const nextModelId = reconciled.modelId
-  const allowedModelIds = reconciled.allowedModelIds
-  return {
-    enabled: raw?.enabled === true,
-    type,
-    baseUrl: (raw?.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type] || fallback.baseUrl).replace(/\/+$/, ''),
-    modelId: nextModelId,
-    apiKey,
-    // 只在为真时才带上，避免视图里多一个恒为 false 的字段（该字段不进持久化）
-    apiKeyDecryptFailed: decrypted?.failed || undefined,
-    allowedModelIds,
-    apiFormat: normalizeApiFormat(raw?.apiFormat) ?? fallback.apiFormat,
-    apiFormatByModel: normalizeApiFormatByModel(
-      (raw as LocalProviderConfigView | undefined)?.apiFormatByModel ??
-        (raw as PersistedSlot | undefined)?.apiFormatByModel,
-    ),
-    contextWindowK: normalizeContextWindowK(raw?.contextWindowK),
-    modelReasoning: normalizeModelReasoning(raw?.modelReasoning),
-    thinkingFormat: normalizeThinkingFormat(raw?.thinkingFormat) ?? fallback.thinkingFormat ?? 'auto',
-  }
-}
-
 /** 规范化按模型的思考能力表：只保留布尔值与有效 key */
 export function normalizeModelReasoning(raw: unknown): Record<string, boolean> {
   if (!raw || typeof raw !== 'object') return {}
@@ -415,18 +429,13 @@ export function normalizeThinkingFormat(raw: unknown): ThinkingFormat | undefine
   return undefined
 }
 
-/** API 格式字面量 */
-export type ApiFormat = 'completions' | 'responses'
-
 /** 规范化单值 API 格式；非法返回 undefined */
 export function normalizeApiFormat(raw: unknown): ApiFormat | undefined {
   if (raw === 'completions' || raw === 'responses') return raw
   return undefined
 }
 
-/**
- * 规范化按模型的 API 格式表：只保留合法枚举与有效 key
- */
+/** 规范化按模型的 API 格式表：只保留合法枚举与有效 key */
 export function normalizeApiFormatByModel(raw: unknown): Record<string, ApiFormat> {
   if (!raw || typeof raw !== 'object') return {}
   const out: Record<string, ApiFormat> = {}
@@ -478,113 +487,336 @@ function normalizeContextWindowK(raw: unknown): Record<string, number> {
   return out
 }
 
+// ── v2 store: 规范化 ──
+
 /**
- * 将单槽视图转为持久化结构
+ * 规范化一条 provider（视图或持久化结构皆可）。
+ *
+ * 视图带明文 `apiKey`；持久化结构只有 `apiKeyEnc`。
+ * 只有视图给了明文才加密改写密文——否则原样保留，
+ * 否则「解不开的密文」会在读盘时被重新加密成空串而丢失。
  */
-function toPersistedSlot(view: LocalProviderConfigView): PersistedSlot {
-  const type = view.type
-  const modelId = view.modelId?.trim() || ''
-  const allowedModelIds = normalizeAllowedModelIds(view.allowedModelIds, modelId)
+function normalizeProvider(
+  raw: Partial<ProviderEntryView> & { apiKeyEnc?: string },
+  fallbackId: string,
+): PersistedProvider {
+  const type = isProviderTypeValue(raw.type) ? raw.type : 'openai'
+  const id = (raw.id ?? '').trim() || fallbackId
   return {
-    enabled: view.enabled === true,
+    id,
+    name: (raw.name ?? '').trim(),
     type,
     // 落盘保留用户填写的地址（可不含 /v1）；调用时再 ensureProviderBaseUrl
-    baseUrl: (view.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, ''),
-    modelId,
-    allowedModelIds,
-    apiFormat: view.apiFormat,
-    apiFormatByModel: normalizeApiFormatByModel(view.apiFormatByModel),
-    contextWindowK: normalizeContextWindowK(view.contextWindowK),
-    modelReasoning: normalizeModelReasoning(view.modelReasoning),
-    thinkingFormat: normalizeThinkingFormat(view.thinkingFormat) ?? 'auto',
-    apiKeyEnc: encryptApiKey(view.apiKey ?? ''),
+    baseUrl: (raw.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, ''),
+    modelIds: normalizeModelIds(raw.modelIds),
+    apiFormat: normalizeApiFormat(raw.apiFormat) ?? PROVIDER_TYPE_DEFAULTS[type]?.apiFormat,
+    apiFormatByModel: normalizeApiFormatByModel(raw.apiFormatByModel),
+    thinkingFormat: normalizeThinkingFormat(raw.thinkingFormat) ?? PROVIDER_TYPE_DEFAULTS[type]?.thinkingFormat ?? 'auto',
+    apiKeyEnc: typeof raw.apiKey === 'string' ? encryptApiKey(raw.apiKey) : (raw.apiKeyEnc ?? ''),
   }
 }
 
-/**
- * 判断原始 JSON 是否为旧版单模型结构
- */
+/** 视图化的 provider（解密出明文 Key） */
+function toProviderView(p: PersistedProvider): ProviderEntryView {
+  const { value, failed } = decryptApiKey(p.apiKeyEnc, p.name || p.id)
+  return {
+    id: p.id,
+    name: p.name ?? '',
+    type: p.type,
+    baseUrl: p.baseUrl,
+    modelIds: normalizeModelIds(p.modelIds),
+    apiFormat: normalizeApiFormat(p.apiFormat),
+    apiFormatByModel: normalizeApiFormatByModel(p.apiFormatByModel),
+    thinkingFormat: normalizeThinkingFormat(p.thinkingFormat) ?? 'auto',
+    apiKey: value,
+    // 只在为真时才带上，避免视图里多一个恒为 false 的字段（该字段不进持久化）
+    apiKeyDecryptFailed: failed || undefined,
+  }
+}
+
+/** 规范化槽选择：providerId 必须存在于 providers 中，否则置空 */
+function normalizeSlotSelection(
+  raw: PersistedSlotV2 | SlotSelectionView | undefined,
+  providers: PersistedProvider[],
+): SlotSelectionView {
+  const providerId = (raw?.providerId ?? '').trim()
+  const valid = providers.some((p) => p.id === providerId)
+  return {
+    enabled: raw?.enabled === true,
+    providerId: valid ? providerId : '',
+    modelId: (raw?.modelId ?? '').trim(),
+    contextWindowK: normalizeContextWindowK(raw?.contextWindowK),
+    modelReasoning: normalizeModelReasoning(raw?.modelReasoning),
+  }
+}
+
+/** 生成一个未被占用的 provider id */
+function nextProviderId(used: Set<string>): string {
+  let n = used.size + 1
+  while (used.has(`p${n}`)) n += 1
+  return `p${n}`
+}
+
+// ── 读盘：v2 / v1 / legacy ──
+
+function readRawFile(): unknown {
+  const p = configFilePath()
+  if (!fs.existsSync(p)) return null
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+/** 判断原始 JSON 是否为最早的单模型结构 */
 function isLegacyShape(raw: unknown): raw is LegacyPersistedShape {
   if (!raw || typeof raw !== 'object') return false
   const o = raw as Record<string, unknown>
   return o.slots === undefined && (typeof o.modelId === 'string' || typeof o.type === 'string')
 }
 
+function isV2Shape(raw: unknown): raw is PersistedFileV2 {
+  if (!raw || typeof raw !== 'object') return false
+  return Array.isArray((raw as Record<string, unknown>).providers)
+}
+
 /**
- * 读取全部能力槽配置（含旧配置自动迁移到 chat）
+ * 把 v1 的三槽（各自内嵌凭据）迁移成 v2。
+ *
+ * 按「类型 + 端点 + Key」去重：chat 与 vision 填的是同一家同一把 Key 时合并成一个
+ * provider，模型列表取并集——这正是多 Provider 想要的效果，而不是迁移完给用户留三份重复条目。
+ *
+ * 去重键**必须用解密后的明文**：safeStorage（DPAPI）对相同明文每次加密出的密文都不同，
+ * 拿密文比较永远不相等，同一把 Key 会被拆成多条重复条目（实测踩到）。
+ * 解不开时退化为用密文比较——那种情况下无从判断是否同一把，宁可分开也不误合并。
  */
-export function loadProviderSlotsConfig(): ProviderSlotsConfigView {
-  const p = configFilePath()
-  try {
-    if (!fs.existsSync(p)) {
-      return {
-        chat: { ...DEFAULT_CHAT },
-        vision: { ...DEFAULT_VISION },
-        image: { ...DEFAULT_IMAGE },
-      }
-    }
-    const raw = JSON.parse(fs.readFileSync(p, 'utf-8')) as PersistedSlotsFile | LegacyPersistedShape
+function migrateV1(raw: PersistedFileV1 | LegacyPersistedShape): PersistedFileV2 {
+  const slots = isLegacyShape(raw) ? { chat: raw as PersistedSlotV1 } : (raw.slots ?? {})
+  const providers: PersistedProvider[] = []
+  const byKey = new Map<string, PersistedProvider>()
+  const used = new Set<string>()
+  const outSlots: PersistedFileV2['slots'] = {}
 
-    if (isLegacyShape(raw)) {
-      const chat = normalizeSlotView(raw, DEFAULT_CHAT, 'chat')
-      return {
-        chat,
-        vision: { ...DEFAULT_VISION },
-        image: { ...DEFAULT_IMAGE },
+  for (const slot of SLOT_KEYS) {
+    const src = slots[slot]
+    if (!src) continue
+    const type = isProviderTypeValue(src.type) ? src.type : 'openai'
+    const baseUrl = (src.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, '')
+    const decrypted = decryptApiKey(src.apiKeyEnc, `v1 迁移 · ${slot}`)
+    const keyMaterial = decrypted.failed
+      ? `cipher:${src.apiKeyEnc ?? ''}`
+      : `plain:${decrypted.value}`
+    const key = `${type}|${baseUrl}|${keyMaterial}`
+    let provider = byKey.get(key)
+    if (!provider) {
+      const id = nextProviderId(used)
+      used.add(id)
+      provider = {
+        id,
+        name: CAPABILITY_SLOT_LABEL[slot],
+        type,
+        baseUrl,
+        apiKeyEnc: src.apiKeyEnc ?? '',
+        modelIds: normalizeAllowedModelIds(src.allowedModelIds, src.modelId?.trim() ?? ''),
+        apiFormat: normalizeApiFormat(src.apiFormat) ?? PROVIDER_TYPE_DEFAULTS[type]?.apiFormat,
+        apiFormatByModel: normalizeApiFormatByModel(src.apiFormatByModel),
+        thinkingFormat:
+          normalizeThinkingFormat(src.thinkingFormat) ?? PROVIDER_TYPE_DEFAULTS[type]?.thinkingFormat ?? 'auto',
       }
+      providers.push(provider)
+      byKey.set(key, provider)
+    } else {
+      // 同一份凭据被多个槽使用：模型列表取并集
+      provider.modelIds = [
+        ...new Set([
+          ...(provider.modelIds ?? []),
+          ...normalizeAllowedModelIds(src.allowedModelIds, src.modelId?.trim() ?? ''),
+        ]),
+      ]
     }
+    outSlots[slot] = {
+      enabled: src.enabled === true,
+      providerId: provider.id,
+      modelId: src.modelId?.trim() ?? '',
+      contextWindowK: normalizeContextWindowK(src.contextWindowK),
+      modelReasoning: normalizeModelReasoning(src.modelReasoning),
+    }
+  }
 
-    const file = raw as PersistedSlotsFile
+  return { version: 2, providers, slots: outSlots }
+}
+
+/**
+ * 读取并规范化为 v2 持久化结构（不做解密，保留原始密文）
+ */
+function readStore(): PersistedFileV2 {
+  const raw = readRawFile()
+  if (!raw) return { version: 2, providers: [], slots: {} }
+  if (isV2Shape(raw)) {
+    const used = new Set<string>()
+    const providers = (raw.providers ?? []).map((p, i) => {
+      const id = (p?.id ?? '').trim() || nextProviderId(used)
+      used.add(id)
+      return normalizeProvider(p ?? {}, id)
+    })
     return {
-      chat: normalizeSlotView(file.slots?.chat, DEFAULT_CHAT, 'chat'),
-      vision: normalizeSlotView(file.slots?.vision, DEFAULT_VISION, 'vision'),
-      image: normalizeSlotView(file.slots?.image, DEFAULT_IMAGE, 'image'),
+      version: 2,
+      providers,
+      slots: {
+        chat: normalizeSlotSelection(raw.slots?.chat, providers),
+        vision: normalizeSlotSelection(raw.slots?.vision, providers),
+        image: normalizeSlotSelection(raw.slots?.image, providers),
+      },
     }
-  } catch {
-    return {
-      chat: { ...DEFAULT_CHAT },
-      vision: { ...DEFAULT_VISION },
-      image: { ...DEFAULT_IMAGE },
-    }
+  }
+  // v1 或更早：迁移（只补字段，不给空密文重新加密）
+  const migrated = migrateV1(raw as PersistedFileV1 | LegacyPersistedShape)
+  return {
+    version: 2,
+    providers: migrated.providers.map((p) => normalizeProvider(p, p.id)),
+    slots: {
+      chat: normalizeSlotSelection(migrated.slots.chat, migrated.providers),
+      vision: normalizeSlotSelection(migrated.slots.vision, migrated.providers),
+      image: normalizeSlotSelection(migrated.slots.image, migrated.providers),
+    },
+  }
+}
+
+/** 把 provider + 槽选择解析为运行时可消费的平铺视图 */
+function resolveSlotView(
+  store: PersistedFileV2,
+  slot: CapabilitySlot,
+  providerIdOverride?: string,
+): LocalProviderConfigView {
+  const sel = store.slots[slot]
+  const wanted = providerIdOverride || sel?.providerId
+  const provider = wanted ? store.providers.find((p) => p.id === wanted) : undefined
+  if (!provider) return { ...defaultSlotView(), enabled: false }
+
+  const view = toProviderView(provider)
+  const allowed = normalizeAllowedModelIds(view.modelIds, sel?.modelId ?? '')
+  const reconciled = reconcileModelIdWithAllowlist(sel?.modelId ?? '', allowed)
+  return {
+    enabled: sel?.enabled === true,
+    type: view.type,
+    baseUrl: view.baseUrl,
+    modelId: reconciled.modelId,
+    apiKey: view.apiKey,
+    apiKeyDecryptFailed: view.apiKeyDecryptFailed,
+    allowedModelIds: reconciled.allowedModelIds,
+    apiFormat: view.apiFormat,
+    apiFormatByModel: view.apiFormatByModel,
+    contextWindowK: normalizeContextWindowK(sel?.contextWindowK),
+    modelReasoning: normalizeModelReasoning(sel?.modelReasoning),
+    thinkingFormat: view.thinkingFormat,
   }
 }
 
 /**
- * 读取 chat 槽配置（兼容旧调用方 / Agent Runtime）
+ * 拆分 `providerId::modelId` 形式的模型引用。
+ *
+ * 用 `::` 而不是 `/`：OpenRouter 等中转的真实模型 id 本来就含 `/`（anthropic/claude-…），
+ * 用斜杠当分隔符会把模型名切坏。
  */
+export function parseModelRef(ref: string): { providerId?: string; modelId: string } {
+  const t = ref?.trim() ?? ''
+  const i = t.indexOf('::')
+  if (i > 0) return { providerId: t.slice(0, i), modelId: t.slice(i + 2) }
+  return { modelId: t }
+}
+
+/** 拼出指向特定 provider 的模型引用 */
+export function formatModelRef(providerId: string, modelId: string): string {
+  return `${providerId}::${modelId}`
+}
+
+/**
+ * 按模型引用解析槽配置。
+ *
+ * 引用可带 `providerId::` 前缀（对话页跨 Provider 切模型时用）；
+ * 不带前缀就用该槽自己选中的 provider。
+ */
+export function loadSlotConfigForModel(slot: CapabilitySlot, ref?: string): LocalProviderConfigView {
+  const store = readStore()
+  const { providerId } = parseModelRef(ref ?? '')
+  return resolveSlotView(store, slot, providerId)
+}
+
+/**
+ * chat 槽默认模型的引用（带 `providerId::` 前缀）。
+ * 渠道/定时任务这类「没 prime 过」的会话回退到它时，才能用对 Provider。
+ */
+export function chatDefaultModelRef(): string | undefined {
+  const store = readStore()
+  const sel = store.slots.chat
+  if (!sel?.providerId || !sel.modelId?.trim()) return undefined
+  return formatModelRef(sel.providerId, sel.modelId)
+}
+
+/**
+ * chat 槽可选的全部模型引用（所有 provider × 模型）。
+ * 会话级模型偏好校验用它——一个会话可以停在非默认 provider 上。
+ */
+export function listChatModelRefs(): string[] {
+  const store = readStore()
+  const refs: string[] = []
+  for (const p of store.providers) {
+    for (const m of normalizeModelIds(p.modelIds)) refs.push(formatModelRef(p.id, m))
+  }
+  const sel = store.slots.chat
+  if (sel?.providerId && sel.modelId) refs.push(formatModelRef(sel.providerId, sel.modelId))
+  return [...new Set(refs)]
+}
+
+// ── 对外读接口 ──
+
+/** 读取完整配置（多 Provider 列表 + 槽选择），含明文 Key */
+export function loadProviderStore(): ProviderStoreView {
+  const store = readStore()
+  return {
+    providers: store.providers.map(toProviderView),
+    slots: {
+      chat: normalizeSlotSelection(store.slots.chat, store.providers),
+      vision: normalizeSlotSelection(store.slots.vision, store.providers),
+      image: normalizeSlotSelection(store.slots.image, store.providers),
+    },
+  }
+}
+
+/** 读取全部能力槽配置（已解析为平铺视图） */
+export function loadProviderSlotsConfig(): ProviderSlotsConfigView {
+  const store = readStore()
+  return {
+    chat: resolveSlotView(store, 'chat'),
+    vision: resolveSlotView(store, 'vision'),
+    image: resolveSlotView(store, 'image'),
+  }
+}
+
+/** 读取 chat 槽配置（兼容旧调用方 / Agent Runtime） */
 export function loadProviderConfig(): LocalProviderConfigView {
   return loadProviderSlotsConfig().chat
 }
 
-/**
- * 读取指定能力槽配置
- */
+/** 读取指定能力槽配置 */
 export function loadSlotConfig(slot: CapabilitySlot): LocalProviderConfigView {
   return loadProviderSlotsConfig()[slot]
 }
 
-/**
- * 读盘上原有的槽（**原始密文**，不经 normalizeSlotView——这里要的是 `apiKeyEnc` 本身）。
- * 文件不存在或结构不对时返回空表，等价于「没有可保留的东西」。
- */
-function readPersistedSlots(): PersistedSlotsFile['slots'] {
-  try {
-    const raw = JSON.parse(fs.readFileSync(configFilePath(), 'utf-8')) as
-      | PersistedSlotsFile
-      | LegacyPersistedShape
-    if (isLegacyShape(raw)) return { chat: raw }
-    return (raw as PersistedSlotsFile).slots ?? {}
-  } catch {
-    return {}
-  }
+// ── 写盘 ──
+
+function writeStore(store: PersistedFileV2): void {
+  const p = configFilePath()
+  fs.mkdirSync(path.dirname(p), { recursive: true })
+  fs.writeFileSync(p, JSON.stringify(store, null, 2), 'utf-8')
 }
 
 /**
  * 保存时保住「有密文但当前环境解不开」的那一份。
  *
- * 为什么需要：解密失败时视图里的 `apiKey` 是空串，而设置页保存是**挑字段构造新对象**
- * （`apiKeyDecryptFailed` 不会回传，见 `ModelConfigSection`）。于是
- * 「打开设置 → 顺手改个模型 → 保存」就会把用户唯一的那份凭据**静默抹掉**；
+ * 为什么需要：解密失败时视图里的 `apiKey` 是空串，而设置页保存是**挑字段构造新对象**。
+ * 于是「打开设置 → 顺手改个模型 → 保存」就会把用户唯一的那份凭据**静默抹掉**；
  * 万一密钥环能恢复、或这份配置要搬回原机器，就再没有恢复的可能。
  *
  * 判据刻意**不依赖视图上的标记**（渲染层会丢），而是回看盘上那份能不能解开：
@@ -592,40 +824,124 @@ function readPersistedSlots(): PersistedSlotsFile['slots'] {
  * - 解不开 → 它对当前环境是惰性的，留着比抹掉好。
  */
 function preserveUnreadableKey(
-  next: PersistedSlot,
-  prev: PersistedSlot | undefined,
-  slotLabel: CapabilitySlot,
-): PersistedSlot {
+  next: PersistedProvider,
+  prev: PersistedProvider | undefined,
+): PersistedProvider {
   if (next.apiKeyEnc || !prev?.apiKeyEnc) return next
-  if (!decryptApiKey(prev.apiKeyEnc, slotLabel).failed) return next
-  log.info(`[saveProviderSlotsConfig] ${slotLabel} 槽保留原有 API Key 密文（当前环境解不开，不做静默覆盖）`)
+  if (!decryptApiKey(prev.apiKeyEnc, prev.name || prev.id).failed) return next
+  log.info(`[saveProviderStore] ${prev.name || prev.id} 保留原有 API Key 密文（当前环境解不开，不做静默覆盖）`)
   return { ...next, apiKeyEnc: prev.apiKeyEnc }
 }
 
 /**
- * 保存全部能力槽配置
+ * 保存完整配置（多 Provider 列表 + 槽选择）。
+ * 渲染进程回传视图带明文 Key；这里统一加密。缺失的 providerId 会置空，避免槽指向不存在的条目。
  */
-export function saveProviderSlotsConfig(view: ProviderSlotsConfigView): void {
-  const p = configFilePath()
-  fs.mkdirSync(path.dirname(p), { recursive: true })
-  const prev = readPersistedSlots()
-  const persisted: PersistedSlotsFile = {
-    version: 1,
-    slots: {
-      chat: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.chat, DEFAULT_CHAT, 'chat')), prev.chat, 'chat'),
-      vision: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.vision, DEFAULT_VISION, 'vision')), prev.vision, 'vision'),
-      image: preserveUnreadableKey(toPersistedSlot(normalizeSlotView(view.image, DEFAULT_IMAGE, 'image')), prev.image, 'image'),
-    },
+export function saveProviderStore(view: ProviderStoreView): ProviderStoreView {
+  const prev = readStore()
+  const prevById = new Map(prev.providers.map((p) => [p.id, p]))
+  const used = new Set<string>()
+
+  const providers: PersistedProvider[] = []
+  for (const raw of view.providers ?? []) {
+    const id = (raw?.id ?? '').trim() || nextProviderId(used)
+    used.add(id)
+    const next = normalizeProvider({ ...raw, id }, id)
+    // 槽内允许的模型必须包含其选中的模型
+    providers.push(preserveUnreadableKey(next, prevById.get(id)))
   }
-  fs.writeFileSync(p, JSON.stringify(persisted, null, 2), 'utf-8')
+
+  const slots: PersistedFileV2['slots'] = {}
+  for (const slot of SLOT_KEYS) {
+    const sel = normalizeSlotSelection(view.slots?.[slot], providers)
+    if (!sel.providerId) {
+      slots[slot] = sel
+      continue
+    }
+    const provider = providers.find((p) => p.id === sel.providerId)!
+    const reconciled = reconcileModelIdWithAllowlist(sel.modelId, normalizeModelIds(provider.modelIds))
+    provider.modelIds = reconciled.allowedModelIds
+    slots[slot] = { ...sel, modelId: reconciled.modelId }
+  }
+
+  writeStore({ version: 2, providers, slots })
+  return loadProviderStore()
 }
 
 /**
- * 保存 chat 槽（兼容旧调用）；保留其他槽不变
+ * 把平铺视图写回存储：为每个槽找到/新建对应 provider，再更新槽选择。
+ *
+ * 保留这个入口是因为 CLI 与既有测试按单槽语义写配置；内部统一落到 v2。
  */
+export function saveProviderSlotsConfig(view: ProviderSlotsConfigView): void {
+  const store = loadProviderStore()
+  const used = new Set(store.providers.map((p) => p.id))
+
+  for (const slot of SLOT_KEYS) {
+    const flat = view[slot]
+    if (!flat) continue
+    // 空槽（没模型也没 Key）不该凭空造出一条 provider 条目
+    if (!flat.modelId?.trim() && !flat.apiKey?.trim()) {
+      if (store.slots[slot]?.providerId) {
+        store.slots[slot] = { ...store.slots[slot], enabled: flat.enabled === true }
+      }
+      continue
+    }
+    const current = store.slots[slot]
+    const existing = current?.providerId
+      ? store.providers.find((p) => p.id === current.providerId)
+      : undefined
+    const modelIds = normalizeAllowedModelIds(flat.allowedModelIds, flat.modelId)
+
+    // 端点没变就原地更新，保住 id 与其它槽的引用
+    if (existing && existing.type === flat.type && existing.baseUrl === flat.baseUrl) {
+      Object.assign(existing, {
+        apiKey: flat.apiKey,
+        modelIds,
+        apiFormat: flat.apiFormat,
+        apiFormatByModel: flat.apiFormatByModel,
+        thinkingFormat: flat.thinkingFormat,
+      })
+      store.slots[slot] = {
+        enabled: flat.enabled === true,
+        providerId: existing.id,
+        modelId: flat.modelId?.trim() ?? '',
+        contextWindowK: normalizeContextWindowK(flat.contextWindowK),
+        modelReasoning: normalizeModelReasoning(flat.modelReasoning),
+      }
+      continue
+    }
+
+    // 换了端点 / 还没有 provider：新建一条
+    const id = nextProviderId(used)
+    used.add(id)
+    store.providers.push({
+      id,
+      name: '',
+      type: flat.type,
+      baseUrl: flat.baseUrl,
+      apiKey: flat.apiKey,
+      modelIds,
+      apiFormat: flat.apiFormat,
+      apiFormatByModel: flat.apiFormatByModel,
+      thinkingFormat: flat.thinkingFormat,
+    })
+    store.slots[slot] = {
+      enabled: flat.enabled === true,
+      providerId: id,
+      modelId: flat.modelId?.trim() ?? '',
+      contextWindowK: normalizeContextWindowK(flat.contextWindowK),
+      modelReasoning: normalizeModelReasoning(flat.modelReasoning),
+    }
+  }
+
+  saveProviderStore({ providers: store.providers, slots: store.slots })
+}
+
+/** 保存 chat 槽（兼容旧调用）；保留其他槽不变 */
 export function saveProviderConfig(view: LocalProviderConfigView): void {
   const slots = loadProviderSlotsConfig()
-  slots.chat = normalizeSlotView(view, DEFAULT_CHAT, 'chat')
+  slots.chat = view
   saveProviderSlotsConfig(slots)
 }
 
@@ -646,9 +962,7 @@ export function applyImageSlotToDrawEnv(): void {
   process.env.MTBOT_IMAGE_UPSTREAM_API_KEY = image.apiKey
 }
 
-/**
- * 校验槽名是否合法
- */
+/** 校验槽名是否合法 */
 export function isCapabilitySlot(value: string): value is CapabilitySlot {
   return (SLOT_KEYS as string[]).includes(value)
 }

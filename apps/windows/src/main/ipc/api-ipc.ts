@@ -10,13 +10,17 @@ import {
 } from '../ipc/plugin-ipc'
 import {
   loadProviderSlotsConfig,
+  loadProviderStore,
+  listChatModelRefs,
   saveProviderConfig,
   saveProviderSlotsConfig,
+  saveProviderStore,
   loadSlotConfig,
   applyImageSlotToDrawEnv,
   isCapabilitySlot,
   type LocalProviderConfigView,
   type ProviderSlotsConfigView,
+  type ProviderStoreView,
   type CapabilitySlot,
 } from '../provider-config'
 import { listProviderModels, testProviderConnection } from '../provider-probe'
@@ -110,34 +114,37 @@ export function registerApiIpcHandlers(): void {
     return { success: true, data: result }
   })
 
-  // === 本地 LLM Provider 配置（灵栖/Lumii：按能力槽 chat/vision/image） ===
-  ipcMain.handle('provider:getConfig', async () => loadProviderSlotsConfig())
+  // === 本地 LLM Provider 配置（灵栖/Lumii：全局 provider 列表 + 能力槽引用） ===
+  ipcMain.handle('provider:getConfig', async () => loadProviderStore())
 
-  ipcMain.handle('provider:setConfig', async (_event, cfg: ProviderSlotsConfigView | LocalProviderConfigView) => {
-    if (!cfg || typeof cfg !== 'object') throw new Error('无效的 provider 配置')
-    // 兼容旧单槽：无 chat/vision/image 字段时视为 chat
-    if ('chat' in cfg || 'vision' in cfg || 'image' in cfg) {
-      const slots = cfg as ProviderSlotsConfigView
-      saveProviderSlotsConfig({
-        chat: slots.chat ?? loadSlotConfig('chat'),
-        vision: slots.vision ?? loadSlotConfig('vision'),
-        image: slots.image ?? loadSlotConfig('image'),
-      })
+  ipcMain.handle(
+    'provider:setConfig',
+    async (_event, cfg: ProviderStoreView | ProviderSlotsConfigView | LocalProviderConfigView) => {
+      if (!cfg || typeof cfg !== 'object') throw new Error('无效的 provider 配置')
+      if ('providers' in cfg && Array.isArray((cfg as ProviderStoreView).providers)) {
+        saveProviderStore(cfg as ProviderStoreView)
+      } else if ('chat' in cfg || 'vision' in cfg || 'image' in cfg) {
+        // 旧的多槽扁平结构：转成 store 落盘
+        const slots = cfg as ProviderSlotsConfigView
+        saveProviderSlotsConfig({
+          chat: slots.chat ?? loadSlotConfig('chat'),
+          vision: slots.vision ?? loadSlotConfig('vision'),
+          image: slots.image ?? loadSlotConfig('image'),
+        })
+      } else {
+        // 更早的单槽结构：视为 chat
+        saveProviderConfig(cfg as LocalProviderConfigView)
+      }
       applyImageSlotToDrawEnv()
-    } else {
-      saveProviderConfig(cfg as LocalProviderConfigView)
-    }
-    const saved = loadProviderSlotsConfig()
-    const availableChatModels = saved.chat.enabled
-      ? [saved.chat.modelId, ...(saved.chat.allowedModelIds ?? [])]
-        .map((modelId) => modelId?.trim())
-        .filter((modelId): modelId is string => Boolean(modelId))
-      : []
-    deps!.getAgentRuntimeBridge()?.clearInvalidSessionPreferredModels(availableChatModels)
-    // 配置变更后销毁旧实例，避免继续走创建时快照的 Gateway/旧凭据
-    invalidateAgentInstancesForProviderChange()
-    return saved
-  })
+      const saved = loadProviderSlotsConfig()
+      // 白名单要含所有 Provider 的模型：会话可能停在非默认 Provider 上
+      const availableChatModels = saved.chat.enabled ? listChatModelRefs() : []
+      deps!.getAgentRuntimeBridge()?.clearInvalidSessionPreferredModels(availableChatModels)
+      // 配置变更后销毁旧实例，避免继续走创建时快照的 Gateway/旧凭据
+      invalidateAgentInstancesForProviderChange()
+      return loadProviderStore()
+    },
+  )
 
   ipcMain.handle('provider:listModels', async (_event, slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => {
     if (!isCapabilitySlot(slot)) throw new Error(`无效能力槽: ${slot}`)

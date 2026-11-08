@@ -148,7 +148,39 @@ export interface LocalProviderConfigView {
 /** 模型能力�?*/
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
 
-/** 全部能力槽配�?*/
+/** 用户配置的一个模型提供商（一份凭据 + 端点） */
+export interface ProviderEntryView {
+  id: string
+  name: string
+  type: LocalProviderConfigView['type']
+  baseUrl: string
+  apiKey: string
+  apiKeyDecryptFailed?: boolean
+  modelIds: string[]
+  apiFormat?: 'completions' | 'responses'
+  apiFormatByModel?: Record<string, 'completions' | 'responses'>
+  thinkingFormat?: 'auto' | 'openai' | 'qwen' | 'zai'
+}
+
+/** 能力槽对某个 provider 与模型的选择 */
+export interface SlotSelectionView {
+  enabled: boolean
+  providerId: string
+  modelId: string
+  contextWindowK?: Record<string, number>
+  modelReasoning?: Record<string, boolean>
+}
+
+/** 完整 provider 配置（明文 Key 仅本机用户可见） */
+export interface ProviderStoreView {
+  providers: ProviderEntryView[]
+  slots: {
+    chat: SlotSelectionView
+    vision: SlotSelectionView
+    image: SlotSelectionView
+  }
+}
+
 export interface ProviderSlotsConfigView {
   chat: LocalProviderConfigView
   vision: LocalProviderConfigView
@@ -342,8 +374,10 @@ export interface ElectronAPI {
   // 应用操作
   /** 本地 LLM Provider 配置（按能力�?chat/vision/image�?*/
   provider: {
-    getConfig: () => Promise<ProviderSlotsConfigView>
-    setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) => Promise<ProviderSlotsConfigView>
+    getConfig: () => Promise<ProviderStoreView>
+    setConfig: (
+      cfg: ProviderStoreView | ProviderSlotsConfigView | LocalProviderConfigView,
+    ) => Promise<ProviderStoreView>
     listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
     testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<ProviderTestResult>
     probeApiFormat: (
@@ -1417,11 +1451,11 @@ const electronAPI: ElectronAPI = {
       ...(dedupeKey ? { dedupeKey } : {}),
     }) as Promise<void>,
 
-  // 本地 LLM Provider 配置（按能力槽）
+  // 本地 LLM Provider 配置（全局 provider 列表 + 能力槽引用）
   provider: {
-    getConfig: () => apiServerApi.getProviderConfig() as Promise<ProviderSlotsConfigView>,
-    setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) =>
-      apiServerApi.setProviderConfig(cfg) as Promise<ProviderSlotsConfigView>,
+    getConfig: () => apiServerApi.getProviderConfig() as Promise<ProviderStoreView>,
+    setConfig: (cfg: ProviderStoreView | ProviderSlotsConfigView | LocalProviderConfigView) =>
+      apiServerApi.setProviderConfig(cfg) as Promise<ProviderStoreView>,
     listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
       apiServerApi.listModels(slot, draftCfg) as Promise<{
         success: boolean

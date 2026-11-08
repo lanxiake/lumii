@@ -53,9 +53,9 @@ interface ChatInputProps {
   agentsLoading?: boolean
   /** Agent 选择回调（与 useAgents.selectAgent 签名一致） */
   onAgentChange?: (agent: Agent | null) => void
-  /** chat 候选模型列表（来自 chat 用途槽） */
-  modelChoices?: Array<{ id: string; name: string }>
-  /** 当前选中的模型 id */
+  /** chat 候选模型列表（来自已配置的全部 Provider，id 为 `providerId::modelId`） */
+  modelChoices?: Array<{ id: string; name: string; providerName?: string }>
+  /** 当前选中的模型（`providerId::modelId`） */
   selectedModelId?: string
   /** 模型加载中 */
   modelsLoading?: boolean
@@ -717,6 +717,22 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const currentModelLabel =
     modelChoices.find((m) => m.id === selectedModelId)?.name ?? selectedModelId ?? '默认模型'
+  /**
+   * 按 Provider 分组渲染模型下拉。
+   * 用户配了多家时，平铺一长串模型名根本分不清哪个来自哪家。
+   */
+  const groupedModelChoices = modelChoices.reduce<
+    Array<{ providerName: string; models: Array<{ id: string; name: string; providerName?: string }> }>
+  >((groups, m) => {
+    const key = m.providerName ?? '未分组'
+    let group = groups.find((g) => g.providerName === key)
+    if (!group) {
+      group = { providerName: key, models: [] }
+      groups.push(group)
+    }
+    group.models.push(m)
+    return groups
+  }, [])
   const effectiveContextWindow =
     (contextUsage?.contextWindow && contextUsage.contextWindow > 0
       ? contextUsage.contextWindow
@@ -1005,21 +1021,26 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   ) : modelChoices.length === 0 ? (
                     <div className={styles['command-loading']}>无可用模型</div>
                   ) : (
-                    modelChoices.map((m) => (
-                      <button
-                        type="button"
-                        key={m.id}
-                        className={`${styles['command-item']} ${selectedModelId === m.id ? styles['command-item--active'] : ''}`}
-                        onClick={() => {
-                          onModelChange?.(m.id)
-                          setModelPanelOpen(false)
-                        }}
-                      >
-                        <span className={styles['command-item-icon']} aria-hidden>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M9 9h6v6H9z" /></svg>
-                        </span>
-                        <span>{m.name}</span>
-                      </button>
+                    groupedModelChoices.map((group) => (
+                      <div key={group.providerName}>
+                        <div className={styles['command-dropdown-title']}>{group.providerName}</div>
+                        {group.models.map((m) => (
+                          <button
+                            type="button"
+                            key={m.id}
+                            className={`${styles['command-item']} ${selectedModelId === m.id ? styles['command-item--active'] : ''}`}
+                            onClick={() => {
+                              onModelChange?.(m.id)
+                              setModelPanelOpen(false)
+                            }}
+                          >
+                            <span className={styles['command-item-icon']} aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M9 9h6v6H9z" /></svg>
+                            </span>
+                            <span>{m.name}</span>
+                          </button>
+                        ))}
+                      </div>
                     ))
                   )}
                 </div>

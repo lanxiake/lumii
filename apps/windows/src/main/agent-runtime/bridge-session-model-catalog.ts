@@ -1,5 +1,12 @@
 import { loadProviderConfig } from '../provider-config.js'
 
+/** 去掉 `providerId::` 前缀，取裸模型 id */
+function stripProviderPrefix(ref: string): string {
+  const t = ref.trim()
+  const i = t.indexOf('::')
+  return i > 0 ? t.slice(i + 2).trim() : t
+}
+
 /**
  * 会话级模型偏好与上下文压缩参数（与 GET /api/config/models 目录联动）
  */
@@ -177,7 +184,10 @@ export class BridgeSessionModelCatalog {
     // 而不是硬编码窗口：定时任务 / 进化 / 子 Agent / 后台渠道这些会话从不经过
     // UI 的 prime，会一直按 200K 算预算，而用户可能已把模型窗口调到 256K ——
     // 预算偏小会让压缩触发得过早，白丢对话历史。
-    const rawId = modelRef?.trim() || slotCfg.modelId?.trim() || ''
+    //
+    // 引用可能是 `providerId::modelId`（多 Provider）：目录与配置表都按裸模型 id 存，
+    // 不剥前缀会导致查不到窗口、静默回退到 200K。
+    const rawId = stripProviderPrefix(modelRef?.trim() || '') || slotCfg.modelId?.trim() || ''
     if (!rawId) {
       return {
         contextWindow: d.contextWindow,
@@ -276,9 +286,11 @@ export class BridgeSessionModelCatalog {
   }
 
   clearInvalidSessionPreferredModels(availableModelIds: readonly string[]): void {
-    const available = new Set(availableModelIds.map((modelId) => modelId.trim()).filter(Boolean))
+    // 兼容两种写法：裸模型 id（旧会话）与 `providerId::modelId`（多 Provider）。
+    // 比较时统一剥掉前缀，否则升级后旧会话偏好会被整批误清。
+    const available = new Set(availableModelIds.map(stripProviderPrefix).filter(Boolean))
     for (const [sessionKey, modelId] of this.sessionPreferredModelRaw) {
-      if (available.has(modelId)) continue
+      if (available.has(stripProviderPrefix(modelId))) continue
       this.clearSessionPreferredModel(sessionKey)
     }
   }

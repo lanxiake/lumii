@@ -3188,7 +3188,9 @@ export class AgentRuntimeBridge {
         log.error(`[primeSessionModelCompaction] 读取会话模型偏好失败 sessionKey=${sessionKey}:`, err)
       }
     }
-    const liveChatModelId = this.config.getProviderConfig?.()?.modelId?.trim() || undefined
+    // live chat 默认模型也要带上 provider 前缀，否则渠道会话回退到它时
+    // 用的是平铺 chat 槽配置，切不到非默认 Provider（多 Provider 场景）
+    const liveChatModelId = this.config.getChatDefaultModelRef?.()
     const { effective, source } = resolvePrimeEffectiveModel({
       sessionKey,
       modelRef,
@@ -3464,15 +3466,20 @@ export class AgentRuntimeBridge {
   private reconcileStoredSessionModelPreferences(): void {
     const config = this.config.getProviderConfig?.()
     if (!config) return
+    // 白名单含所有 Provider 的模型引用：会话可能停在非默认 Provider 上
     const availableModelIds = config.enabled
-      ? [config.modelId, ...(config.allowedModelIds ?? [])]
-        .map((modelId) => modelId?.trim())
-        .filter((modelId): modelId is string => Boolean(modelId))
+      ? [...this.config.listChatModelRefs?.() ?? [], ...this.chatSlotModelIds(config)]
+          .map((modelId) => modelId?.trim())
+          .filter((modelId): modelId is string => Boolean(modelId))
       : []
     const cleared = this.clearInvalidSessionPreferredModels(availableModelIds)
     if (cleared > 0) {
       log.info(`[reconcileStoredSessionModelPreferences] 已清理 ${cleared} 个失效会话模型覆盖`)
     }
+  }
+
+  private chatSlotModelIds(config: { modelId: string; allowedModelIds?: string[] }): string[] {
+    return [config.modelId, ...(config.allowedModelIds ?? [])]
   }
 
   clearSessionPreferredModel(sessionKey: string): void {

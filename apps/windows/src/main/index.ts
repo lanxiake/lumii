@@ -80,7 +80,10 @@ import { setSkillEvolutionAccessor } from './agent-runtime/skill-evolution-acces
 import type { UpdaterService } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
 import {
+  chatDefaultModelRef,
   loadProviderConfig,
+  loadSlotConfigForModel,
+  listChatModelRefs,
 } from './provider-config'
 import {
   listAgentDefinitions,
@@ -401,6 +404,10 @@ async function initAgentRuntime(): Promise<void> {
     routerEnabled: false,
     // 灵栖/Lumii 独立版：本地 provider 配置（enabled 时 Agent 走 direct 直连）
     getProviderConfig: () => loadProviderConfig(),
+    // 会话切到非默认 Provider 时按 `providerId::modelId` 解析凭据
+    loadSlotConfigForModel: (slot, ref) => loadSlotConfigForModel(slot, ref),
+    listChatModelRefs: () => listChatModelRefs(),
+    getChatDefaultModelRef: () => chatDefaultModelRef(),
     getWindow: () => mainWindow,
     getCwd: () => {
       const appConfig = configManager?.getAppConfig()

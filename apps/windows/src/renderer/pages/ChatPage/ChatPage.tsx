@@ -763,7 +763,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const pickVisionModelId = useCallback((): string | undefined => {
     const models = availableModelsRef.current
     if (models.length === 0) return undefined
-    const current = selectedModelId ? models.find((m) => m.id === selectedModelId) : undefined
+    // selectedModelId 可能是 `providerId::modelId`；比较前剥掉前缀
+    const bareId = selectedModelId.includes('::')
+      ? selectedModelId.slice(selectedModelId.indexOf('::') + 2)
+      : selectedModelId
+    const current = bareId ? models.find((m) => m.id === bareId) : undefined
     if (current?.supportsMultiModal === true) return current.id
     const visionModel = models.find((m) => m.supportsMultiModal === true)
     return visionModel?.id
@@ -841,15 +845,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       'deepseek-v4-pro': 1_000_000,
       'deepseek-v4-flash': 1_000_000,
     }
-    const shortId = selectedModelId.includes('/')
-      ? selectedModelId.slice(selectedModelId.lastIndexOf('/') + 1)
+    // 选中值是 `providerId::modelId` 引用；取裸 id 去查目录与内置表
+    const bareId = selectedModelId.includes('::')
+      ? selectedModelId.slice(selectedModelId.indexOf('::') + 2)
       : selectedModelId
-    const fromCatalog = selectedModelId
-      ? availableModels.find((m) => m.id === selectedModelId || m.id.endsWith(`/${shortId}`))?.contextWindow
+    const shortId = bareId.includes('/') ? bareId.slice(bareId.lastIndexOf('/') + 1) : bareId
+    const fromCatalog = bareId
+      ? availableModels.find((m) => m.id === bareId || m.id.endsWith(`/${shortId}`))?.contextWindow
       : undefined
     if (fromCatalog && fromCatalog > 0) return fromCatalog
     const fromChoices = selectedModelId
-      ? chatModelChoices.find((m) => m.id === selectedModelId)?.contextWindow
+      ? (chatModelChoices.find((m) => m.id === selectedModelId)?.contextWindow ??
+        chatModelChoices.find((m) => m.name === bareId)?.contextWindow)
       : undefined
     if (fromChoices && fromChoices > 0) return fromChoices
     if (shortId && KNOWN[shortId]) return KNOWN[shortId]
@@ -858,7 +865,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
 
   /** 稳定化模型下拉选项，避免每个按键 map 出新数组破坏 ChatInput memo */
   const chatModelChoiceItems = useMemo(
-    () => chatModelChoices.map((m) => ({ id: m.id, name: m.name })),
+    () => chatModelChoices.map((m) => ({ id: m.id, name: m.name, providerName: m.providerName })),
     [chatModelChoices],
   )
 

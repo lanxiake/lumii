@@ -426,3 +426,56 @@ describe('通话按钮：不挡输入框，通话中波纹态', () => {
     expect(onVoiceCallHangup).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('多 Provider：模型下拉按提供商分组', () => {
+  /** 展开模型面板（按钮由 aria-label 定位，面板挂在它所在的 wrapper 内） */
+  function openModelPanel(modelChoices: Array<{ id: string; name: string; providerName?: string }>) {
+    return render(
+      <ChatInput
+        value=""
+        onChange={vi.fn()}
+        onSend={vi.fn()}
+        isConnected
+        modelChoices={modelChoices}
+        selectedModelId={modelChoices[0]?.id ?? ''}
+        onModelChange={vi.fn()}
+      />,
+    )
+  }
+
+  it('两家提供商的模型各自成组，标题用提供商名', () => {
+    const { container } = openModelPanel([
+      { id: 'p1::deepseek-flash', name: 'deepseek-flash', providerName: 'DeepSeek 官方' },
+      { id: 'p2::claude-sonnet-4', name: 'claude-sonnet-4', providerName: 'OpenRouter' },
+    ])
+    fireEvent.click(screen.getByRole('button', { name: '切换模型' }))
+
+    const titles = Array.from(
+      container.querySelectorAll('[class*="command-dropdown-title"]'),
+    ).map((el) => el.textContent)
+    // 首个标题是面板标题，其后每组的提供商名
+    expect(titles).toEqual(['切换模型', 'DeepSeek 官方', 'OpenRouter'])
+  })
+
+  it('点选条目回传带 provider 前缀的引用（不是裸模型名）', () => {
+    const onModelChange = vi.fn()
+    render(
+      <ChatInput
+        value=""
+        onChange={vi.fn()}
+        onSend={vi.fn()}
+        isConnected
+        modelChoices={[
+          { id: 'p1::deepseek-flash', name: 'deepseek-flash', providerName: 'DeepSeek 官方' },
+          { id: 'p2::claude-sonnet-4', name: 'claude-sonnet-4', providerName: 'OpenRouter' },
+        ]}
+        selectedModelId="p1::deepseek-flash"
+        onModelChange={onModelChange}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '切换模型' }))
+    fireEvent.click(screen.getByRole('button', { name: 'claude-sonnet-4' }))
+
+    expect(onModelChange).toHaveBeenCalledWith('p2::claude-sonnet-4')
+  })
+})

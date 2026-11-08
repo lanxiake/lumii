@@ -1,8 +1,8 @@
 /**
- * 模型配置服务 — 灵栖/Lumii 独立版（按能力槽 chat/vision/image）
+ * 模型配置服务 — 灵栖/Lumii 独立版
  *
- * 各槽可独立配置 Provider（例如 chat=DeepSeek，image=OpenAI）。
- * Agent 主对话走 chat 槽；视觉/生图走对应槽。
+ * 磁盘上是「全局 Provider 列表 + 三个能力槽各自引用」，同一家的 Key 只填一次。
+ * 主进程把槽引用解析成平铺的 LocalProviderConfigView，运行时按那个形状消费。
  */
 
 /** provider 类型 */
@@ -51,11 +51,47 @@ export interface LocalProviderConfigView {
   thinkingFormat?: ThinkingFormat
 }
 
-/** 全部能力槽 */
+/** 全部能力槽（已解析的平铺形状） */
 export interface ProviderSlotsConfigView {
   chat: LocalProviderConfigView
   vision: LocalProviderConfigView
   image: LocalProviderConfigView
+}
+
+/** 用户配置的一个模型提供商（一份凭据 + 端点） */
+export interface ProviderEntryView {
+  id: string
+  /** 展示名；留空时界面回退到类型名 */
+  name: string
+  type: ProviderType
+  baseUrl: string
+  apiKey: string
+  apiKeyDecryptFailed?: boolean
+  /** 该提供商下可用的模型 id 列表 */
+  modelIds: string[]
+  apiFormat?: 'completions' | 'responses'
+  apiFormatByModel?: Record<string, 'completions' | 'responses'>
+  thinkingFormat?: ThinkingFormat
+}
+
+/** 能力槽对某个 provider 与模型的选择 */
+export interface SlotSelectionView {
+  enabled: boolean
+  /** 引用的 provider id；空串表示尚未选择 */
+  providerId: string
+  modelId: string
+  contextWindowK?: Record<string, number>
+  modelReasoning?: Record<string, boolean>
+}
+
+/** 完整配置（多 Provider 列表 + 槽选择） */
+export interface ProviderStoreView {
+  providers: ProviderEntryView[]
+  slots: {
+    chat: SlotSelectionView
+    vision: SlotSelectionView
+    image: SlotSelectionView
+  }
 }
 
 /** 模型列表项 */
@@ -359,10 +395,81 @@ export function createDefaultSlotsConfig(): ProviderSlotsConfigView {
   }
 }
 
+/** 创建默认 provider 条目（不预填模型名） */
+export function createProviderEntry(type: ProviderType = 'openai'): ProviderEntryView {
+  const defaults = PROVIDER_TYPE_DEFAULTS[type]
+  return {
+    id: '',
+    name: '',
+    type,
+    baseUrl: PROVIDER_DEFAULT_BASE_URL[type],
+    apiKey: '',
+    modelIds: [],
+    apiFormat: defaults.apiFormat,
+    apiFormatByModel: {},
+    thinkingFormat: defaults.thinkingFormat,
+  }
+}
+
+function createDefaultSelection(): SlotSelectionView {
+  return { enabled: false, providerId: '', modelId: '', contextWindowK: {}, modelReasoning: {} }
+}
+
+/**
+ * 创建默认完整配置。
+ * 预置一个空 provider 作为「新增条目」的落脚点，避免界面首屏是一张空表。
+ */
+export function createDefaultProviderStore(): ProviderStoreView {
+  return {
+    providers: [createProviderEntry('openai')],
+    slots: {
+      chat: createDefaultSelection(),
+      vision: createDefaultSelection(),
+      image: createDefaultSelection(),
+    },
+  }
+}
+
+/** provider 在界面上的展示名 */
+export function providerDisplayName(p: ProviderEntryView): string {
+  return p.name?.trim() || PROVIDER_TYPE_LABEL[p.type] || '未命名提供商'
+}
+
+/**
+ * 把 store 解析成平铺的槽视图（与服务端 resolveSlotView 同语义）。
+ * 界面用它取得「某槽当前生效的类型/端点/Key」，避免各处重复拼装。
+ */
+export function resolveSlotFromStore(
+  store: ProviderStoreView,
+  slot: CapabilitySlot,
+): LocalProviderConfigView & { providerId: string } {
+  const sel = store.slots[slot]
+  const provider = store.providers.find((p) => p.id === sel.providerId)
+  if (!provider) return { ...createDefaultSlotConfig(slot), providerId: '' }
+
+  const allowed = normalizeAllowedModelIds(provider.modelIds, sel.modelId)
+  const modelId = sel.modelId && !allowed.includes(sel.modelId) ? sel.modelId : (sel.modelId || allowed[0] || '')
+  return {
+    enabled: sel.enabled,
+    type: provider.type,
+    baseUrl: provider.baseUrl,
+    modelId,
+    apiKey: provider.apiKey,
+    apiKeyDecryptFailed: provider.apiKeyDecryptFailed,
+    allowedModelIds: modelId && !allowed.includes(modelId) ? [...allowed, modelId] : allowed,
+    apiFormat: provider.apiFormat,
+    apiFormatByModel: provider.apiFormatByModel,
+    contextWindowK: sel.contextWindowK,
+    modelReasoning: sel.modelReasoning,
+    thinkingFormat: provider.thinkingFormat,
+    providerId: provider.id,
+  }
+}
+
 /**
  * 判断 chat 槽是否已就绪（启用且已填模型）
  */
-export function isChatProviderReady(cfg: ProviderSlotsConfigView | LocalProviderConfigView | null | undefined): boolean {
+export function isChatProviderReady(cfg: ProviderSlotsConfigView | ProviderStoreView | LocalProviderConfigView | null | undefined): boolean {
   if (!cfg) return false
   if ('chat' in cfg) {
     const chat = (cfg as ProviderSlotsConfigView).chat
@@ -372,16 +479,63 @@ export function isChatProviderReady(cfg: ProviderSlotsConfigView | LocalProvider
   return single.enabled === true && !!single.modelId?.trim()
 }
 
-/** 读取全部能力槽配置 */
-export async function getProviderConfig(): Promise<ProviderSlotsConfigView> {
-  return window.electronAPI.provider.getConfig()
+/** 读取完整配置（多 Provider 列表 + 槽选择） */
+export async function getProviderStore(): Promise<ProviderStoreView> {
+  const raw = await window.electronAPI.provider.getConfig()
+  // 主进程始终返回 v2；这里兜底旧形状，避免灰度期界面炸掉
+  if (raw && 'providers' in raw && Array.isArray(raw.providers)) {
+    return raw
+  }
+  return createDefaultProviderStore()
 }
 
-/** 保存全部能力槽配置 */
+/** 保存完整配置 */
+export async function saveProviderStore(store: ProviderStoreView): Promise<ProviderStoreView> {
+  return window.electronAPI.provider.setConfig(store)
+}
+
+/** 读取全部能力槽配置（运行时形状，由 store 在本地解析） */
+export async function getProviderConfig(): Promise<ProviderSlotsConfigView> {
+  const store = await getProviderStore()
+  return {
+    chat: resolveSlotFromStore(store, 'chat'),
+    vision: resolveSlotFromStore(store, 'vision'),
+    image: resolveSlotFromStore(store, 'image'),
+  }
+}
+
+/** 保存全部能力槽配置（旧入口；主进程会拆成 provider 列表落盘，这里转回 store 形状） */
 export async function saveProviderConfig(
   cfg: ProviderSlotsConfigView,
 ): Promise<ProviderSlotsConfigView> {
-  return window.electronAPI.provider.setConfig(cfg)
+  const store = createDefaultProviderStore()
+  for (const slot of CAPABILITY_SLOTS) {
+    const flat = cfg[slot]
+    if (!flat?.enabled) continue
+    const provider = createProviderEntry(flat.type)
+    provider.baseUrl = flat.baseUrl
+    provider.apiKey = flat.apiKey
+    provider.modelIds = normalizeAllowedModelIds(flat.allowedModelIds, flat.modelId)
+    provider.apiFormat = flat.apiFormat
+    provider.apiFormatByModel = flat.apiFormatByModel
+    provider.thinkingFormat = flat.thinkingFormat
+    provider.id = `slot-${slot}`
+    store.providers.push(provider)
+    store.slots[slot] = {
+      enabled: true,
+      providerId: provider.id,
+      modelId: flat.modelId,
+      contextWindowK: flat.contextWindowK,
+      modelReasoning: flat.modelReasoning,
+    }
+  }
+  store.providers = store.providers.filter((p) => p.id !== '')
+  const saved = await saveProviderStore(store)
+  return {
+    chat: resolveSlotFromStore(saved, 'chat'),
+    vision: resolveSlotFromStore(saved, 'vision'),
+    image: resolveSlotFromStore(saved, 'image'),
+  }
 }
 
 /** 拉取指定槽的远端模型列表（可传入未保存的草稿配置，避免必须先落盘） */
@@ -436,6 +590,9 @@ export interface ModelOption {
   maxTokens?: number
   supportsMultiModal?: boolean
   mode?: string
+  /** 所属 Provider（跨 Provider 切换时用于分组与回写） */
+  providerId?: string
+  providerName?: string
 }
 
 /** chat 候选模型 + 当前选择 */
@@ -444,54 +601,92 @@ export interface ChatModelChoices {
   selected: string
 }
 
-/**
- * 由 chat 槽 allowedModelIds 构造对话框候选（仅已勾选模型）
- */
-async function localModelOptions(): Promise<ModelOption[]> {
-  const cfg = await getProviderConfig()
-  const chat = cfg.chat
-  if (!chat.enabled) return []
-
-  const allowed = normalizeAllowedModelIds(chat.allowedModelIds, chat.modelId)
-  if (allowed.length === 0) return []
-
-  return allowed.map((id) => ({ id, name: id }))
+/** 带 provider 前缀的模型引用，跨 Provider 切换时用它 */
+export function modelRef(providerId: string, modelId: string): string {
+  return `${providerId}::${modelId}`
 }
 
-/** 获取模型 catalog */
+/**
+ * 由 store 构造对话框候选：所有 provider 的模型，加 `providerId::` 前缀。
+ *
+ * 前缀只在内部流转；显示名用裸模型 id，避免下拉框里全是 `p2::gpt-4o`。
+ */
+function chatCandidatesFromStore(store: ProviderStoreView): ModelOption[] {
+  const out: ModelOption[] = []
+  for (const p of store.providers) {
+    for (const modelId of p.modelIds) {
+      out.push({
+        id: modelRef(p.id, modelId),
+        name: modelId,
+        providerId: p.id,
+        providerName: providerDisplayName(p),
+      })
+    }
+  }
+  return out
+}
+
+/** 获取模型 catalog（对话页的模型列表） */
 export async function fetchModelCatalog(): Promise<ModelOption[]> {
-  return localModelOptions()
+  const store = await getProviderStore()
+  const candidates = chatCandidatesFromStore(store)
+  const current = store.slots.chat
+  if (current.enabled && current.providerId && current.modelId) {
+    const ref = modelRef(current.providerId, current.modelId)
+    if (!candidates.some((c) => c.id === ref)) {
+      candidates.push({
+        id: ref,
+        name: current.modelId,
+        providerId: current.providerId,
+        providerName:
+          store.providers.find((p) => p.id === current.providerId)?.name ||
+          current.providerId,
+      })
+    }
+  }
+  return candidates
 }
 
 /** 获取 chat 候选与当前选择 */
 export async function fetchChatModelChoices(): Promise<ChatModelChoices> {
-  const cfg = await getProviderConfig()
-  const candidates = await localModelOptions()
+  const store = await getProviderStore()
+  const candidates = await fetchModelCatalog()
+  const current = store.slots.chat
   const selected =
-    (cfg.chat.modelId && candidates.some((c) => c.id === cfg.chat.modelId)
-      ? cfg.chat.modelId
-      : candidates[0]?.id) ?? ''
+    current.providerId && current.modelId
+      ? modelRef(current.providerId, current.modelId)
+      : (candidates[0]?.id ?? '')
   return { candidates, selected }
 }
 
 /**
- * 保存 chat 模型选择：写入 chat 槽的 modelId（保留 allowlist）
+ * 保存 chat 模型选择。
+ *
+ * 接受 `providerId::modelId` 引用：切到别的 Provider 时，把 chat 槽改指向该 provider。
+ * 裸模型 id 视为「在当前 provider 上换模型」。
  */
-export async function saveChatModel(modelId: string): Promise<void> {
-  const id = modelId?.trim()
-  if (!id) return
-  const cfg = await getProviderConfig()
-  const allowed = normalizeAllowedModelIds(cfg.chat.allowedModelIds, cfg.chat.modelId)
-  const nextAllowed = allowed.includes(id) ? allowed : [...allowed, id]
-  if (cfg.chat.modelId === id && JSON.stringify(cfg.chat.allowedModelIds ?? []) === JSON.stringify(nextAllowed)) {
-    return
-  }
-  cfg.chat = {
-    ...cfg.chat,
-    modelId: id,
-    allowedModelIds: nextAllowed,
-    enabled: true,
-  }
-  await saveProviderConfig(cfg)
+export async function saveChatModel(modelRefOrId: string): Promise<void> {
+  const raw = modelRefOrId?.trim()
+  if (!raw) return
+  const [maybeProvider, maybeModel] = raw.includes('::')
+    ? (() => {
+        const i = raw.indexOf('::')
+        return [raw.slice(0, i), raw.slice(i + 2)] as const
+      })()
+    : [undefined, raw] as const
+  const modelId = maybeModel.trim()
+  if (!modelId) return
+
+  const store = await getProviderStore()
+  const chat = store.slots.chat
+  const providerId = maybeProvider || chat.providerId
+  const provider = store.providers.find((p) => p.id === providerId)
+  if (!provider) return
+
+  const changed = chat.providerId !== provider.id || chat.modelId !== modelId || !chat.enabled
+  if (!changed) return
+
+  store.slots.chat = { ...chat, enabled: true, providerId: provider.id, modelId }
+  await saveProviderStore(store)
   window.dispatchEvent(new CustomEvent('mtbot:provider-config-changed'))
 }
