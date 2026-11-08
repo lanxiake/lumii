@@ -28,6 +28,10 @@
 .session-item.active {
   background: color-mix(in srgb, var(--mt-fg-1) 10%, transparent);
   color: var(--mt-fg-1);
+  /* 左侧细高光：选中仪式感，不靠整条霓虹 */
+  box-shadow:
+    inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.85),
+    0 0 16px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
 .session-item.active .session-title {

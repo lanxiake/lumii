@@ -1,6 +1,7 @@
 import React from 'react'
 import clsx from 'clsx'
 import { BookOpen, FolderOpen, PanelLeft, Volume2, VolumeX } from 'lucide-react'
+import { RitualIcon } from '../../../components/ui/Icon'
 import styles from '../ChatPage.module.css'
 
 export interface ChatToolbarProps {
@@ -41,7 +42,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   return (
     <div className={styles['chat-toolbar']}>
       <button type="button" className={styles['icon-btn']} onClick={onToggleSidebar} title="Toggle sidebar" aria-label="Toggle sidebar">
-        <PanelLeft size={16} strokeWidth={1.8} />
+        <RitualIcon icon={PanelLeft} />
       </button>
       <h2 className={styles['chat-title']}>{title}</h2>
       {devContextChip}
@@ -55,7 +56,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           {autoApprove ? '自动审批' : '人工审批'}
         </button>
         <button type="button" className={clsx(styles['icon-btn'], readAloudActive && styles['icon-btn--active'], readAloudSpeaking && styles['read-aloud-speaking'])} onClick={onToggleReadAloud} title="Toggle read aloud" aria-label="Toggle read aloud" aria-pressed={readAloudActive}>
-          {readAloudActive ? <Volume2 size={16} strokeWidth={1.8} /> : <VolumeX size={16} strokeWidth={1.8} />}
+          {readAloudActive ? <RitualIcon icon={Volume2} ritual={readAloudSpeaking} /> : <RitualIcon icon={VolumeX} />}
         </button>
         <button
           type="button"
@@ -65,14 +66,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           aria-label={workbenchBadge > 0 ? `工作空间文件（${workbenchBadge} 个新产出）` : '工作空间文件'}
           aria-pressed={workbenchOpen}
         >
-          <FolderOpen size={16} strokeWidth={1.8} />
+          <RitualIcon icon={FolderOpen} ritual={workbenchBadge > 0} />
           {workbenchBadge > 0 && (
             <span className={styles['icon-badge']}>{workbenchBadge > 99 ? '99+' : workbenchBadge}</span>
           )}
         </button>
         {onOpenWiki && (
           <button type="button" className={styles['icon-btn']} onClick={onOpenWiki} title="资料库" aria-label="资料库">
-            <BookOpen size={16} strokeWidth={1.8} />
+            <RitualIcon icon={BookOpen} />
           </button>
         )}
       </div>

@@ -292,13 +292,15 @@
     transform var(--mt-dur-fast) var(--mt-ease-spring),
     background var(--mt-dur-normal) var(--mt-ease-standard),
     color var(--mt-dur-normal) var(--mt-ease-standard),
-    border-color var(--mt-dur-normal) var(--mt-ease-standard);
+    border-color var(--mt-dur-normal) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .icon-btn:hover {
-  border-color: var(--mt-border);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.45) 55%, var(--mt-border));
   background: var(--mt-surface-2);
   color: var(--mt-fg-1);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .icon-btn:active {

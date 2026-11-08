@@ -26,8 +26,11 @@
 
 .btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--mt-bg-primary),
-              0 0 0 4px var(--mt-accent-500);
+  /* 双环：内圈画布色隔开，外圈 accent + 淡青光 */
+  box-shadow:
+    0 0 0 2px var(--mt-bg-primary),
+    0 0 0 4px var(--mt-accent-500),
+    0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.35);
 }
 
 /* Sizes */
@@ -58,7 +61,8 @@
 
 .btn-primary:hover:not(:disabled) {
   background: var(--mt-accent-600);
-  box-shadow: var(--mt-shadow-sm), var(--mt-shadow-inner);
+  /* 仪式外晕：默认干净，hover 才放出青光 */
+  box-shadow: var(--mt-shadow-sm), var(--mt-shadow-inner), var(--mt-glow-cyan);
 }
 
 .btn-primary:active:not(:disabled) {

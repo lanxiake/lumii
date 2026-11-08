@@ -1,7 +1,12 @@
 /**
  * MtBot 图标统一导出
  * 从 lucide-react 按需导出，便于统一管理和 tree-shaking
+ *
+ * 新代码关键路径优先使用 `RitualIcon`（统一 stroke / 尺寸档 / 可选仪式光）。
  */
+
+export { RitualIcon, RITUAL_ICON_SIZE_PX } from './RitualIcon'
+export type { RitualIconProps, RitualIconSize } from './RitualIcon'
 
 // 导航图标
 export {

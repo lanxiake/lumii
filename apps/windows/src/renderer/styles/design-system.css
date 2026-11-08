@@ -153,6 +153,13 @@
   --mt-dur-slow:   360ms;
   --mt-dur-slower: 560ms;
 
+  /* 仪式微交互：对齐开机青琥珀语言，仅用于关键节点叠加 */
+  --mt-ritual-cyan-rgb: 79, 216, 255;
+  --mt-ritual-amber-rgb: 255, 157, 77;
+  --mt-glow-cyan:  0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.28), 0 0 18px rgba(var(--mt-ritual-cyan-rgb), 0.28);
+  --mt-glow-amber: 0 0 0 1px rgba(var(--mt-ritual-amber-rgb), 0.32), 0 0 20px rgba(var(--mt-ritual-amber-rgb), 0.35);
+  --mt-pulse-dur:  1.8s;
+
   /* 布局尺寸 */
   --mt-sidebar-w:         240px;
   --mt-sidebar-collapsed: 64px;
@@ -609,6 +616,37 @@
   animation: mt-tick var(--mt-dur-slow) var(--mt-ease-spring);
 }
 
+/* hover 时放出青光：图标钮 / 次要控件 */
+.mt-glow-hover {
+  transition:
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard),
+    transform var(--mt-dur-fast) var(--mt-ease-spring);
+}
+.mt-glow-hover:hover:not(:disabled) {
+  box-shadow: var(--mt-glow-cyan);
+}
+
+/* 运行中琥珀脉动：工具卡片 / 关键加载 */
+@keyframes mt-pulse-amber {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0.45);
+    filter: drop-shadow(0 0 2px rgba(var(--mt-ritual-amber-rgb), 0.35));
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(var(--mt-ritual-amber-rgb), 0);
+    filter: drop-shadow(0 0 8px rgba(var(--mt-ritual-amber-rgb), 0.75));
+  }
+}
+.mt-pulse-amber {
+  animation: mt-pulse-amber var(--mt-pulse-dur) ease-in-out infinite;
+}
+
+/* 图标仪式描边：略亮、统一手感 */
+.mt-icon-ritual {
+  color: inherit;
+  filter: drop-shadow(0 0 4px rgba(var(--mt-ritual-cyan-rgb), 0.18));
+}
+
 /* 无障碍逃逸口：系统开启「减少动态效果」时停掉所有动画 */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -617,5 +655,12 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  .mt-glow-hover:hover:not(:disabled),
+  .mt-pulse-amber,
+  .mt-icon-ritual {
+    box-shadow: none !important;
+    filter: none !important;
+    animation: none !important;
   }
 }

@@ -55,8 +55,16 @@
   to { transform: rotate(360deg); }
 }
 
+/* 模块内琥珀脉动：CSS Modules 不会把全局 keyframe 名哈希进来，必须本地定义 */
+@keyframes toolPulseAmber {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(var(--mt-ritual-amber-rgb), 0.35)); }
+  50% { filter: drop-shadow(0 0 8px rgba(var(--mt-ritual-amber-rgb), 0.8)); }
+}
+
 .spinIcon {
-  animation: spin 1.5s linear infinite;
+  animation:
+    spin 1.5s linear infinite,
+    toolPulseAmber var(--mt-pulse-dur, 1.8s) ease-in-out infinite;
   color: var(--color-primary-400);
 }
 
