@@ -6,6 +6,7 @@
  */
 import React, { useMemo, useState } from 'react'
 import { ComparePreviewModal } from '../../../../components/ComparePreview'
+import { formatDurationMs } from '../../../../utils/format'
 import type { TimelineCardContext } from './registry'
 import styles from './pipeline-artifact.module.css'
 
@@ -80,11 +81,6 @@ function toLocalFileUrl(absPath: string): string {
   return `file:///${p.replace(/^\/+/, '')}`
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  return `${(ms / 1000).toFixed(1)}s`
-}
-
 export const PipelineArtifactCard: React.FC<TimelineCardContext> = ({ part }) => {
   const payload = useMemo(() => parsePipelineRunResult(part.result), [part.result])
   const [compareOpen, setCompareOpen] = useState(false)
@@ -128,7 +124,7 @@ export const PipelineArtifactCard: React.FC<TimelineCardContext> = ({ part }) =>
         </span>
         <span className={styles.title}>{pipelineId || 'pipeline'}</span>
         <span className={styles.meta}>
-          {mode} · {okCount}/{steps.length} 步 · {formatDuration(totalMs)}
+          {mode} · {okCount}/{steps.length} 步 · {formatDurationMs(totalMs)}
         </span>
       </div>
 

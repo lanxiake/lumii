@@ -17,6 +17,7 @@ import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'
 import { A2UIRenderer } from '../../../../components/A2UIRenderer'
 import { ArtifactBlock } from '../../../../components/A2UIRenderer/ArtifactBlock'
 import { MarkdownExternalLink } from '../../../../utils/markdown-external-link'
+import { formatDurationMs } from '../../../../utils/format'
 import {
   parseA2UIBlocks,
   tryParseA2UISpecFromJson,
@@ -556,7 +557,10 @@ function toWorkflowItem(
     input: part.args,
     output: part.result,
     error: part.isError ? extractToolErrorText(part.result) : undefined,
-    startTime: context.timestamp,
+    // 卡片显示的是**这个工具自己**的耗时。startedAt 由主进程在 tool:start 时写入；
+    // 拿不到时（旧数据）回退消息时间戳，至少不会比原来更差。
+    startTime: new Date(part.startedAt ?? context.timestamp),
+    durationMs: part.durationMs,
     runId: context.runId ?? '',
     toolCallId: part.id,
     agentLabel: part.meta?.sourceAgent?.label,
@@ -1337,7 +1341,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             {(hasUsage) && <span className={styles['token-usage-sep']}>|</span>}
             <span className={styles['token-usage-item']} title="总耗时（首包至结束）">
               <Timer size={12} />
-              <span>{(streamMetrics!.durationMs / 1000).toFixed(1)}s</span>
+              <span>{formatDurationMs(streamMetrics!.durationMs)}</span>
             </span>
             <span className={styles['token-usage-sep']}>|</span>
             <span className={styles['token-usage-item']} title="输出 token 平均速度">

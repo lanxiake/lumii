@@ -1090,6 +1090,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               id: event.toolCallId,
               name: event.toolName,
               args: event.args,
+              startedAt: newTool.startMs,
               ...(msg.sourceAgent ? { meta: { sourceAgent: msg.sourceAgent } } : {}),
             }),
           }
@@ -1134,6 +1135,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               id: event.toolCallId,
               name: event.toolName,
               args: event.args,
+              startedAt: newTool.startMs,
             }),
           }
           return { ...prev, messages: msgs, currentTool: newTool }
@@ -1212,6 +1214,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               name: event.toolName,
               result: event.result,
               isError: event.isError,
+              durationMs: event.durationMs,
             }),
           }
         }

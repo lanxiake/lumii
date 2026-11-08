@@ -732,11 +732,14 @@ export function createAgentInstanceRuntimeEventHandler(
         // 写文件工具：在真正执行前记录目标是否已存在，供回合结束区分新增/修改/删除。
         // 被快照忽略的路径（uploads/ 等）没有 diff 可依，只能靠这份前置状态。
         recordTurnPreState(instanceId, event.toolName, args, getCwd())
+        // 单次工具耗时从这一刻算起：卡片显示的是工具自己的用时，不是整轮的用时
+        const startedAt = Date.now()
         state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
           kind: 'tool_start',
           id: event.toolCallId,
           name: event.toolName,
           args,
+          startedAt,
           ...(sourceAgentInfo ? { meta: { sourceAgent: sourceAgentInfo } } : {}),
         })
       }
@@ -770,6 +773,7 @@ export function createAgentInstanceRuntimeEventHandler(
           name: event.toolName,
           result: event.result,
           isError: event.isError,
+          ...(toolStartMs !== undefined ? { durationMs: Date.now() - toolStartMs } : {}),
         })
       }
       persistCurrentStreamingParts('tool:end', true)

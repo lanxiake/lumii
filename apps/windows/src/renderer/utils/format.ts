@@ -76,6 +76,19 @@ export function formatDateTime(value: Date | string | number): string {
 }
 
 /**
+ * 耗时：`350ms` / `45.3s` / `2m13s`。
+ *
+ * 聊天里的「执行过程」和它内部每个工具卡片必须用同一个口径——两处各自实现时，
+ * 外层显示 `133.4s`、内层显示 `2m13s`，读的人得自己换算。
+ */
+export function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  return `${Math.floor(ms / 60_000)}m${Math.floor((ms % 60_000) / 1000)}s`
+}
+
+/**
  * 相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前；未来给「N 分钟后 / 小时后 / 天后」，
  * 超过 7 天回落成绝对日期（「37 天前」对读者没有意义）。
  */

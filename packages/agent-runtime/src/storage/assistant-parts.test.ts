@@ -60,6 +60,37 @@ describe("applyAssistantPartEvent", () => {
     expect(parts[0]).toMatchObject({ type: "tool", meta });
   });
 
+  // 卡片显示的是单次工具耗时，不是整轮耗时。两个先后调用必须各留各的开始时刻与耗时，
+  // 否则渲染层只能拿消息时间戳顶替，一串工具会显示同一个越来越大的数。
+  it("每个工具各记自己的 startedAt / durationMs，互不覆盖", () => {
+    let parts = applyAssistantPartEvent([], {
+      kind: "tool_start",
+      id: "t1",
+      name: "file_read",
+      args: {},
+      startedAt: 1_000,
+    });
+    parts = applyAssistantPartEvent(parts, {
+      kind: "tool_end",
+      id: "t1",
+      name: "file_read",
+      result: "ok",
+      isError: false,
+      durationMs: 300,
+    });
+    parts = applyAssistantPartEvent(parts, {
+      kind: "tool_start",
+      id: "t2",
+      name: "bash",
+      args: {},
+      startedAt: 5_000,
+    });
+
+    expect(parts[0]).toMatchObject({ id: "t1", startedAt: 1_000, durationMs: 300 });
+    expect(parts[1]).toMatchObject({ id: "t2", startedAt: 5_000, status: "running" });
+    expect(parts[1]).not.toHaveProperty("durationMs");
+  });
+
   it("tool_progress patch 进度、不改状态；没有对应工具段时丢弃（不凭空插入）", () => {
     const started = applyAssistantPartEvent([], {
       kind: "tool_start",

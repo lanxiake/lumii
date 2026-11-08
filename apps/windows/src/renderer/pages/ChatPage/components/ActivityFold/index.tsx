@@ -10,6 +10,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Loader2, Check, Brain, AlertTriangle, Ban } from 'lucide-react'
+import { formatDurationMs } from '../../../../utils/format'
 import styles from './ActivityFold.module.css'
 
 /** 折叠态活动流的一行（由 ChatMessage 从过程单元压平而来） */
@@ -45,12 +46,6 @@ interface ActivityFoldProps {
   progress?: ActivityProgress
   /** 展开体：按时间线渲染的过程单元 */
   children: React.ReactNode
-}
-
-/** 把毫秒格式化为「1.2s」/「350ms」 */
-function formatDuration(ms: number): string {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.round(ms)}ms`
 }
 
 /** 进度文案：任务列表口径 vs 步骤口径 */
@@ -118,9 +113,9 @@ const ActivityFold: React.FC<ActivityFoldProps> = ({
 
   // 展示的耗时文本
   const displayedDuration = isStreaming
-    ? formatDuration(liveElapsedSec * 1000)
+    ? formatDurationMs(liveElapsedSec * 1000)
     : durationMs !== undefined && durationMs > 0
-      ? formatDuration(durationMs)
+      ? formatDurationMs(durationMs)
       : null
 
   const showFeed = isStreaming && !expanded && !!activityLines && activityLines.length > 0

@@ -24,6 +24,15 @@ export type AssistantPart =
        */
       progressText?: string;
       meta?: { sourceAgent?: { instanceId: string; label: string } };
+      /**
+       * 这个工具**自己**开始执行的时刻（ms）。
+       *
+       * 卡片上要显示的是单次工具调用的耗时，而不是整条 assistant 消息（回合）的耗时。
+       * 没有它，渲染层只能拿消息时间戳顶替，一串工具全都显示同一个越来越大的数。
+       */
+      startedAt?: number;
+      /** 工具自身执行耗时（ms，来自 tool_end）。优先于 startedAt + 当前时间。 */
+      durationMs?: number;
     };
 
 /** 工具类 assistant part */
@@ -87,6 +96,8 @@ export type AssistantPartEvent =
       name: string;
       args: Record<string, unknown>;
       meta?: ToolAssistantPart["meta"];
+      /** 工具开始时刻（ms）。缺省时由调用方在渲染层补，不影响归约结果。 */
+      startedAt?: number;
     }
   | {
       kind: "tool_end";
@@ -94,6 +105,8 @@ export type AssistantPartEvent =
       name: string;
       result: unknown;
       isError: boolean;
+      /** 工具自身耗时（ms）。有值时写入 part，供卡片显示单次调用耗时。 */
+      durationMs?: number;
     }
   | {
       kind: "tool_progress";
@@ -188,6 +201,7 @@ export function applyAssistantPartEvent(
           name: event.name,
           args: event.args,
           meta: event.meta ?? existing.meta,
+          ...(event.startedAt !== undefined ? { startedAt: event.startedAt } : {}),
         };
         return next;
       }
@@ -198,6 +212,7 @@ export function applyAssistantPartEvent(
         args: event.args,
         status: "running",
         meta: event.meta,
+        ...(event.startedAt !== undefined ? { startedAt: event.startedAt } : {}),
       });
       return next;
     }
@@ -213,6 +228,7 @@ export function applyAssistantPartEvent(
           result: event.result,
           isError: event.isError,
           status,
+          ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
         };
         return next;
       }
@@ -224,6 +240,7 @@ export function applyAssistantPartEvent(
         result: event.result,
         isError: event.isError,
         status,
+        ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
       });
       return next;
     }

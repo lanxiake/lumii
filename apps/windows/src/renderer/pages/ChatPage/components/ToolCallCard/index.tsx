@@ -12,6 +12,7 @@ import React, { useState, useCallback, useMemo, useEffect, createContext, useCon
 import clsx from 'clsx'
 import type { AgentWorkflowItem, ChildToolItem } from '../../../../hooks/business/useChat'
 import { ImageLightbox } from '../../../../components/ImageLightbox/ImageLightbox'
+import { formatDurationMs } from '../../../../utils/format'
 import { abortActiveRun } from '../abortActiveRun'
 import { loadLocalImageDataUrl } from '../mediaPreview'
 import { formatRunningElapsedLabel, resolveRunningSummary } from './runningSummary'
@@ -366,20 +367,13 @@ export function getStatusLabel(item: AgentWorkflowItem): string {
   return target ? `${prefix}调用 ${name}: ${target}` : `${prefix}调用 ${name}`
 }
 
-/** 格式化毫秒数为人类可读耗时 */
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`
-}
-
 /** 计算耗时字符串（优先用后端 durationMs，running 时用实时 Date.now() 而非 liveNow 避免 1 秒跳变） */
 function formatDuration(startTime: Date, endTime?: Date, durationMs?: number): string {
   // 优先使用后端计算的 durationMs（精确且不受前端时间重置影响）
-  if (durationMs !== undefined && durationMs >= 0) return formatMs(durationMs)
+  if (durationMs !== undefined && durationMs >= 0) return formatDurationMs(durationMs)
   const end = endTime ?? new Date()
   const ms = Math.max(0, end.getTime() - startTime.getTime())
-  return formatMs(ms)
+  return formatDurationMs(ms)
 }
 
 /** 从 childSessionKey 中提取简短标识符（最后一段 UUID 前8位） */
@@ -1133,6 +1127,14 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
     item.status !== 'running' ? item.durationMs : undefined,
   )
 
+  /**
+   * 终态只认工具自己的 durationMs。
+   *
+   * 旧数据（本轮之前落库）没有这个字段，此时 startTime 退回成了整条消息的时间戳，
+   * 再算「现在 - 它」只会得到一个随查看时间变化的假数字。宁可不显示。
+   */
+  const showDuration = isRunning || item.durationMs !== undefined
+
   return (
     <div className={clsx(styles.row, isRunning && styles.running, isFailed && styles.failed, isExpanded && styles.expanded)}>
       {/* 单行头部 */}
@@ -1177,7 +1179,7 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
             <span className={styles.fileChipRange}>{chip.label}</span>
           </span>
         ))}
-        {(item.status === 'completed' || item.status === 'failed' || item.status === 'running' || item.status === 'interrupted') && (
+        {showDuration && (
           <span className={styles.duration}>
             {isRunning ? formatRunningElapsedLabel(durationText) : durationText}
           </span>
