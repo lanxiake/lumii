@@ -2,7 +2,21 @@ import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
 import { registerTtsEngine } from '../../../shared/tts-engine-registry'
-import { BreezeTtsProvider } from './breeze-client.js'
+import type { VoiceTtsConfig } from '../../../shared/voice-events'
+import { BreezeTtsProvider, isBreezeConfigured } from './breeze-client.js'
+
+/** 从配置里抽出 Breeze 的部署参数（provider 与就绪判定共用） */
+function breezeConfigOf(cfg: VoiceTtsConfig) {
+  return {
+    repoPath: cfg.breezeRepoPath,
+    modelDir: cfg.breezeModelDir,
+    port: cfg.breezePort,
+    baseUrl: cfg.breezeBaseUrl,
+    python: cfg.breezePython,
+    cfgScale: cfg.breezeCfgScale,
+    instruction: cfg.breezeInstruction,
+  }
+}
 
 /**
  * Breeze TTS 2 —— 接本地已有部署，不代为安装。
@@ -35,16 +49,9 @@ export const ttsBreezeExtension = {
           // 服务端是单并发（内建 _request_lock，并发请求返回 409）
           concurrency: 1,
           outputFormat: 'pcm',
-          create: async (_host, cfg) =>
-            new BreezeTtsProvider({
-              repoPath: cfg.breezeRepoPath,
-              modelDir: cfg.breezeModelDir,
-              port: cfg.breezePort,
-              baseUrl: cfg.breezeBaseUrl,
-              python: cfg.breezePython,
-              cfgScale: cfg.breezeCfgScale,
-              instruction: cfg.breezeInstruction,
-            }),
+          // 没有本地模型可下，可用性完全取决于用户填的部署参数
+          isReady: (cfg) => isBreezeConfigured(breezeConfigOf(cfg)),
+          create: async (_host, cfg) => new BreezeTtsProvider(breezeConfigOf(cfg)),
         }),
       )
       ctx.log.info('Breeze TTS 引擎已注册')

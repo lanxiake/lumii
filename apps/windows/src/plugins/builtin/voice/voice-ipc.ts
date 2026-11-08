@@ -242,14 +242,20 @@ export function registerVoiceIpc(
         // 已启用的 TTS 引擎（设置页下拉数据源）。引擎都来自注册表，
         // 插件被禁用 ⇒ 不在这里 ⇒ 下拉里消失。
         case 'voice:tts:engines': {
-          const engines = listTtsEngines().map(
-            (e): VoiceTtsEngineOption => ({
+          const tts = voiceService.getConfig().tts
+          const engines = listTtsEngines().map((e): VoiceTtsEngineOption => {
+            // 有本地模型的按模型判定；没有模型的（Breeze）问引擎自己
+            const modelsReady =
+              e.modelIds.length === 0
+                ? (e.isReady?.(tts) ?? true)
+                : e.modelIds.some((id) => modelManager.isModelDownloaded(id))
+            return {
               id: e.id,
               label: e.label,
-              ready: e.modelIds.length === 0 || e.modelIds.some((id) => modelManager.isModelDownloaded(id)),
+              ready: modelsReady,
               requiresModel: e.modelIds.length > 0,
-            }),
-          )
+            }
+          })
           // 当前选中的引擎被禁用时，这里顺手把配置修好：
           // 否则设置页会显示一个下拉里不存在的值，用户只能靠重启才恢复正常。
           const current = voiceService.getConfig().tts.provider

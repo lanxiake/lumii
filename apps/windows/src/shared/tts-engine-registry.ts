@@ -40,6 +40,14 @@ export interface TtsEngineEntry {
   concurrency: number | (() => number)
   /** 输出格式：`mp3` 时 voice-service 会把 chunk 的 sampleRate 标成 -1 */
   outputFormat: TtsOutputFormat
+  /**
+   * 除「模型下载完」之外的可用性条件。
+   *
+   * 有本地模型的引擎靠 `modelIds` 判定就够；不下载模型、但需要用户先配好外部
+   * 服务的引擎（Breeze）得自己回答「现在能不能用」。返回 false 时下拉里会置灰，
+   * 而不是等用户选中后才在合成时抛错。
+   */
+  isReady?: (cfg: VoiceTtsConfig) => boolean
   create(host: TtsHostContext, cfg: VoiceTtsConfig): Promise<TtsProvider>
 }
 

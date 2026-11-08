@@ -60,6 +60,20 @@ export function resolveVenvPython(repoPath: string): string | null {
   return candidates.find((p) => fs.existsSync(p)) ?? null
 }
 
+/**
+ * 配置是否完整到「可以尝试拉起服务」。
+ *
+ * 两种情况算就绪：要么用户填了已运行的服务地址（我们只连不管），
+ * 要么仓库路径指向真实的 Breeze 仓库且能找到 python。其余一律不可用——
+ * 让下拉置灰，比让用户选中后合成时才收到「找不到 Python」更早暴露问题。
+ */
+export function isBreezeConfigured(cfg: BreezeConfig): boolean {
+  if (cfg.baseUrl?.trim()) return true
+  const repo = cfg.repoPath?.trim()
+  if (!repo || !looksLikeBreezeRepo(repo)) return false
+  return Boolean(cfg.python?.trim() || resolveVenvPython(repo))
+}
+
 export class BreezeTtsProvider implements TtsProvider {
   readonly name = 'breeze-tts'
   readonly isLocal = true
