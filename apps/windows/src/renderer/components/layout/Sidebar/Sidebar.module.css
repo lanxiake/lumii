@@ -10,7 +10,8 @@
   /* 毛玻璃，透出 MainLayout 的 mesh + 网格（对齐原型 .sb） */
   background: var(--mt-glass-bg);
   backdrop-filter: blur(22px) saturate(1.4);
-  border-right: 1px solid var(--color-border);
+  border-right: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 40%, var(--color-border));
+  box-shadow: inset -1px 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.05);
   transition: width var(--mt-dur-slow) var(--mt-ease-standard);
   overflow: hidden;
 }
@@ -38,6 +39,7 @@
 .sidebar-logo svg {
   flex-shrink: 0;
   color: var(--color-primary-500);
+  filter: drop-shadow(0 0 6px rgba(var(--mt-ritual-cyan-rgb), 0.35));
 }
 
 .sidebar-collapse-btn {
@@ -59,6 +61,7 @@
 .sidebar-collapse-btn:hover {
   background-color: var(--color-bg-tertiary);
   color: var(--color-text-primary);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .sidebar-collapsed .sidebar-collapse-btn {
@@ -111,28 +114,32 @@
   text-align: left;
   cursor: pointer;
   /* 只过渡实际会变的属性，并使用设计系统曲线(原为 transition: all 0.2s ease) */
-  transition: color var(--mt-dur-fast) var(--mt-ease-standard),
-              background-color var(--mt-dur-fast) var(--mt-ease-standard);
+  transition:
+    color var(--mt-dur-fast) var(--mt-ease-standard),
+    background-color var(--mt-dur-fast) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
   white-space: nowrap;
 }
 
 .nav-item:focus-visible {
-  outline: 2px solid var(--mt-accent-500);
-  outline-offset: -2px;
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .nav-item:hover:not(:disabled) {
   color: var(--color-text-primary);
   background-color: var(--color-bg-tertiary);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.1);
 }
 
 .nav-item.active {
   position: relative;
   color: var(--mt-accent-500);
   background-color: var(--mt-bg-tertiary);
+  box-shadow: 0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
-/* active 指示条：圆头短条，不占布局(原为 border-left 硬线 + padding 补偿) */
+/* active 指示条：圆头短条 + 青光 */
 .nav-item.active::before {
   content: '';
   position: absolute;
@@ -142,7 +149,12 @@
   width: 3px;
   height: 16px;
   border-radius: var(--mt-radius-full);
-  background: var(--mt-accent-500);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-cyan-rgb), 0.55);
+}
+
+.nav-item.active .nav-icon {
+  filter: drop-shadow(0 0 5px rgba(var(--mt-ritual-cyan-rgb), 0.4));
 }
 
 .nav-item:disabled {
@@ -192,14 +204,28 @@
 
 .settings-button:hover {
   color: var(--color-text-primary);
+  box-shadow: var(--mt-glow-cyan);
   background-color: var(--color-bg-tertiary);
 }
 
 .settings-button.active {
+  position: relative;
   color: var(--mt-accent-500);
   background-color: var(--mt-bg-tertiary);
-  border-left: 2px solid var(--mt-accent-500);
-  padding-left: calc(var(--spacing-3) - 2px);
+  box-shadow: 0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.12);
+}
+
+.settings-button.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 3px;
+  height: 16px;
+  border-radius: var(--mt-radius-full);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-cyan-rgb), 0.55);
 }
 
 /* 版本号 */
