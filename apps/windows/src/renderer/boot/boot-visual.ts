@@ -18,12 +18,19 @@
 
 import logoSrc from '@app-assets/logo.png'
 import {
+  cognitionPullStrength,
+  coreGlowMultiplier,
+} from './boot-climax'
+import {
   formatStallPhaseText,
   shouldApplyFallbackCurve,
   shouldEnterStall,
   STALL_MS,
 } from './boot-stall'
 import { BOOT_STYLE } from './boot-style'
+
+/** 高潮节点回调种类：供音效层对齐节拍 */
+export type BootClimaxKind = 'cognition-enter' | 'gate-seam' | 'logo-land'
 
 export const BOOT_ID = 'lumii-boot'
 /** 退场溶解时长：画面带羽化蒙版化开，露出下面的界面 */
@@ -95,6 +102,8 @@ export interface BootVisualOptions {
   onPhase?: (label: string, index: number) => void
   /** 卡住态进入 / 退出时回调，供音效层切心跳 */
   onStall?: (stalled: boolean) => void
+  /** 高潮节点：进入 cognition / 门户竖缝 / Logo 落点 */
+  onClimax?: (kind: BootClimaxKind) => void
   /** 可注入时钟（单测用假时间）；默认 performance.now */
   now?: () => number
   /** 卡住阈值覆盖（毫秒）；默认 STALL_MS */
@@ -328,10 +337,19 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
 
   function setAct(next: Act): void {
     if (act === next) return
+    const prev = act
     act = next
     root.dataset.act = next
     actNameEl.textContent = ACT_LABELS[next]
     // 装甲 / 框线 / 罗盘透明度交给 CSS 的 data-act 控制，避免 inline 盖掉「前弱后强」
+    if (next === 'cognition' && prev !== 'cognition') {
+      const glitch = q<HTMLElement>('.glitch')
+      glitch?.classList.remove('fire')
+      // 强制重触发短 glitch，作为进入高潮的切幕节拍
+      void glitch?.offsetWidth
+      glitch?.classList.add('fire')
+      options.onClimax?.('cognition-enter')
+    }
   }
 
   /** 卡住态展示用的阶段名：无真实进度时走规格文案「等待启动信号」 */
@@ -631,20 +649,41 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   function drawDust(dt: number): void {
     if (!dust.length) return
     const surge = Math.pow(1 - beatPhase(), 5) * 5
+    const pull = cognitionPullStrength({
+      act,
+      stalled,
+      beatPhase: beatPhase(),
+    })
     for (const p of dust) {
-      p.y += p.vy * dt * 60
-      p.x += p.vx * dt * 60
-      if (p.y < -8) {
-        p.y = H + 8
-        p.x = Math.random() * W
+      if (pull > 0.05) {
+        // cognition：粒子被核心吸入，制造「意识聚合」
+        const vx = CX - p.x
+        const vy = CY - p.y
+        const d = Math.hypot(vx, vy) || 1
+        p.x += (vx / d) * pull * dt * 48
+        p.y += (vy / d) * pull * dt * 48
+        if (d < 28) {
+          // 吸入后从外缘重生，保持通量
+          const ang = Math.random() * 6.2832
+          const rr = Math.max(W, H) * (0.42 + Math.random() * 0.28)
+          p.x = CX + Math.cos(ang) * rr
+          p.y = CY + Math.sin(ang) * rr * 0.62
+        }
+      } else {
+        p.y += p.vy * dt * 60
+        p.x += p.vx * dt * 60
+        if (p.y < -8) {
+          p.y = H + 8
+          p.x = Math.random() * W
+        }
+        if (p.x < -8) p.x = W + 8
+        if (p.x > W + 8) p.x = -8
       }
-      if (p.x < -8) p.x = W + 8
-      if (p.x > W + 8) p.x = -8
 
       const tw = 0.5 + 0.5 * Math.pow(0.5 + 0.5 * Math.sin(beatClock * 2.2 + p.ph), 2)
       let dx = 0
       let dy = 0
-      if (surge > 0.05) {
+      if (pull <= 0.05 && surge > 0.05) {
         const vx = p.x - CX
         const vy = p.y - CY
         const d = Math.hypot(vx, vy) || 1
@@ -653,9 +692,10 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
       }
       const px = p.x + dx
       const py = p.y + dy
+      const aBoost = pull > 0 ? 1.35 : 1
 
       const g = ctx.createRadialGradient(px, py, 0, px, py, p.r * 6)
-      g.addColorStop(0, `rgba(180,235,255,${(p.a * tw * 0.6).toFixed(3)})`)
+      g.addColorStop(0, `rgba(180,235,255,${(p.a * tw * 0.6 * aBoost).toFixed(3)})`)
       g.addColorStop(1, 'rgba(180,235,255,0)')
       ctx.fillStyle = g
       ctx.beginPath()
@@ -672,11 +712,11 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     const breathe = stalled
       ? 0.78 + 0.28 * Math.sin(slowPhase(8) * Math.PI * 2)
       : 0.84 + 0.16 * Math.sin(slowPhase(4) * Math.PI * 2) + thump * 0.22
-    const glowMul = stalled ? 1.15 : act === 'cognition' ? 1.2 : 1
+    const glowMul = coreGlowMultiplier(act, stalled)
 
     // 横向变形镜头光晕：电影感最直接的来源
-    const streakW = (stalled ? 620 : act === 'cognition' ? 580 : 520) * breathe
-    const streakH = 2.2 + thump * 1.6 + (stalled ? 1.1 : 0)
+    const streakW = (stalled ? 620 : act === 'cognition' ? 640 : 520) * breathe
+    const streakH = 2.2 + thump * (act === 'cognition' ? 2.4 : 1.6) + (stalled ? 1.1 : 0)
     const sg = ctx.createLinearGradient(CX - streakW, CY, CX + streakW, CY)
     sg.addColorStop(0, 'rgba(90,180,255,0)')
     sg.addColorStop(0.28, `rgba(120,205,255,${(0.16 * coreGlow * glowMul).toFixed(3)})`)
@@ -898,11 +938,14 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
       }
     }
 
+    // cognition 保持向心数据流；neural 注入，其余衰减
     streamInflow = isNeural
       ? Math.min(1, streamInflow + dt * 0.7)
-      : isEnergize || isCognition || isGate
-        ? Math.max(0, streamInflow - dt * 0.35)
-        : 0
+      : isCognition
+        ? Math.min(1, Math.max(0.55, streamInflow + dt * 0.25))
+        : isEnergize || isGate
+          ? Math.max(0, streamInflow - dt * 0.35)
+          : 0
 
     circuitGrow = isNeural
       ? Math.min(1, circuitGrow + dt * 0.55)
@@ -988,18 +1031,25 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
       renderChecks(TOTAL_PHASES, true)
       setAct('gate')
 
-      // 门户：竖缝先裂开，再向两侧张开
+      // 门户：竖缝先裂开（带 shock），再向两侧张开
+      q<HTMLElement>('.shock')?.classList.add('fire')
       q<HTMLElement>('.gate-seam')?.classList.add('open')
+      options.onClimax?.('gate-seam')
       await sleep(320)
       q<HTMLElement>('.gate')?.classList.add('open')
       await sleep(680)
 
       // logo 从门户中心飞向左上角（主界面侧栏原位）
       flySignature()
-      await sleep(760)
+      // 落点音效跟完整编排走 setTimeout 节拍（900ms），不绑 RAF
+      await sleep(900)
+      options.onClimax?.('logo-land')
 
-      // 白场收尾，然后溶解
-      q<HTMLElement>('.flash')?.classList.add('fire')
+      // 青→白场收尾，然后溶解
+      const flash = q<HTMLElement>('.flash')
+      flash?.classList.add('pre')
+      await sleep(90)
+      flash?.classList.add('fire')
       await sleep(560)
 
       q<HTMLElement>('.barTop')?.classList.remove('on')
@@ -1037,15 +1087,27 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     const startY = CY - 90
     const dur = 900
     const t0 = performance.now()
+    let landed = false
 
+    img.classList.add('flying')
+    img.classList.remove('landed')
     img.style.width = '180px'
     img.style.height = '180px'
     img.style.left = '0'
     img.style.top = '0'
     img.style.opacity = '1'
 
+    /** 落点样式：优先 setTimeout，避免假时钟下 RAF 不推进 */
+    const markLanded = () => {
+      if (destroyed || landed) return
+      landed = true
+      img.classList.remove('flying')
+      img.classList.add('landed')
+    }
+    window.setTimeout(markLanded, dur)
+
     const step = (now: number) => {
-      if (destroyed) return
+      if (destroyed || landed) return
       const k = Math.min(1, (now - t0) / dur)
       const e = 1 - Math.pow(1 - k, 3)
       const size = 180 + (targetSize - 180) * e
@@ -1056,6 +1118,7 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
       img.style.transform = `translate(${x}px, ${y}px)`
       img.style.opacity = String(k < 0.12 ? k / 0.12 : 1)
       if (k < 1) requestAnimationFrame(step)
+      else markLanded()
     }
     requestAnimationFrame(step)
   }

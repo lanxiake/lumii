@@ -270,6 +270,14 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     color: #ffe0b8;
     text-shadow: 0 0 12px rgba(255,157,77,.6);
   }
+  #lumii-boot[data-act="cognition"] .checks div.on{
+    animation: checkRitual .55s ease-out;
+  }
+  @keyframes checkRitual {
+    0%   { color: #bfefff; text-shadow: 0 0 0 rgba(79,216,255,0); }
+    40%  { color: #e8ffff; text-shadow: 0 0 16px rgba(79,216,255,.95); }
+    100% { color: #ffe0b8; text-shadow: 0 0 12px rgba(255,157,77,.6); }
+  }
   #lumii-boot .checks div.enter{ animation: checkIn .42s cubic-bezier(.2,.9,.25,1) both; }
   @keyframes checkIn {
     from { opacity: 0; transform: translateX(10px); }
@@ -307,9 +315,14 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     text-shadow: 0 0 12px rgba(255,157,77,.55);
   }
   #lumii-boot[data-act="cognition"] .bar-fill{
-    box-shadow: 0 0 22px rgba(110,225,255,1), 0 0 40px rgba(255,208,138,.35);
+    box-shadow:
+      0 0 26px rgba(110,225,255,1),
+      0 0 48px rgba(255,208,138,.55),
+      0 0 72px rgba(255,157,77,.22);
+    background: linear-gradient(90deg, rgba(79,216,255,.55), var(--cy) 48%, var(--amber-hot) 88%, #fff6e8);
   }
   #lumii-boot[data-act="cognition"] .scanlines{ opacity: .48; }
+  #lumii-boot[data-act="gate"] .scanlines{ opacity: .32; }
   #lumii-boot[data-act="dark"] .scanlines,
   #lumii-boot[data-act="dormant"] .scanlines{ opacity: .12; }
   #lumii-boot[data-act="neural"] .scanlines{ opacity: .22; }
@@ -356,6 +369,7 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
         #ffffff 0%, #dff7ff 12%, #8fe4ff 30%, rgba(60,170,255,.55) 52%, rgba(20,80,160,.15) 70%, transparent 82%);
     opacity: 0; pointer-events: none;
     filter: blur(1px);
+    box-shadow: 0 0 80px 20px rgba(120,230,255,.18);
   }
   #lumii-boot .gate.open{ animation: gateOpen 1.9s cubic-bezier(.16,.86,.3,1) forwards; }
   @keyframes gateOpen {
@@ -369,15 +383,17 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
   #lumii-boot .gate-seam{
     position: absolute; left: 50%; top: 46%; width: 3px; height: 0;
     transform: translate(-50%,-50%);
-    background: linear-gradient(to bottom, transparent, #ffffff 22%, #ffffff 78%, transparent);
-    box-shadow: 0 0 30px 8px rgba(150,235,255,.9);
+    background: linear-gradient(to bottom, transparent, #9aefff 14%, #ffffff 40%, #ffffff 60%, #9aefff 86%, transparent);
+    box-shadow:
+      0 0 36px 12px rgba(150,235,255,.95),
+      0 0 72px 18px rgba(79,216,255,.45);
     opacity: 0;
   }
   #lumii-boot .gate-seam.open{ animation: seamOpen 1.1s cubic-bezier(.2,.9,.3,1) forwards; }
   @keyframes seamOpen {
-    0%   { height: 0; opacity: 0; }
-    28%  { height: 62vh; opacity: 1; }
-    100% { height: 62vh; opacity: 0; }
+    0%   { height: 0; opacity: 0; width: 2px; }
+    28%  { height: 68vh; opacity: 1; width: 4px; }
+    100% { height: 68vh; opacity: 0; width: 3px; }
   }
 
   
@@ -388,7 +404,19 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     filter: brightness(1.45) saturate(.75)
       drop-shadow(0 0 14px rgba(190,240,255,.95));
     pointer-events: none;
-    will-change: transform, opacity;
+    will-change: transform, opacity, filter;
+  }
+  #lumii-boot .signature.flying{
+    filter: brightness(1.55) saturate(.85)
+      drop-shadow(0 0 18px rgba(190,240,255,1))
+      drop-shadow(12px 8px 22px rgba(79,216,255,.55));
+  }
+  #lumii-boot .signature.landed{
+    animation: logoLandGlow .9s ease-out forwards;
+  }
+  @keyframes logoLandGlow {
+    0%   { filter: brightness(1.7) saturate(.9) drop-shadow(0 0 28px rgba(79,216,255,1)); }
+    100% { filter: brightness(1.2) saturate(.8) drop-shadow(0 0 10px rgba(190,240,255,.7)); }
   }
 
   
@@ -414,8 +442,18 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
     position: absolute; inset: 0; pointer-events: none; opacity: 0;
     background: radial-gradient(circle at 50% 46%, rgba(235,255,255,.98) 0%, rgba(150,230,255,.5) 30%, transparent 62%);
   }
+  #lumii-boot .flash.pre{
+    opacity: .55;
+    background: radial-gradient(circle at 50% 46%,
+      rgba(120,235,255,.85) 0%, rgba(79,216,255,.4) 28%, transparent 58%);
+    transition: opacity 90ms linear;
+  }
   #lumii-boot .flash.fire{ animation: flashOut .9s ease-out forwards; }
-  @keyframes flashOut { 0% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes flashOut {
+    0%   { opacity: 1; background: radial-gradient(circle at 50% 46%, rgba(180,245,255,.98) 0%, rgba(150,230,255,.55) 28%, transparent 62%); }
+    35%  { opacity: 1; background: radial-gradient(circle at 50% 46%, rgba(255,255,255,1) 0%, rgba(220,248,255,.6) 32%, transparent 64%); }
+    100% { opacity: 0; }
+  }
 
   #lumii-boot .glitch{
     position: absolute; inset: 0; pointer-events: none; opacity: 0;
@@ -438,8 +476,8 @@ export const BOOT_STYLE = `#lumii-boot, #lumii-boot * { box-sizing: border-box; 
   }
   #lumii-boot .shock.fire{ animation: shockwave .95s cubic-bezier(.15,.7,.3,1) forwards; }
   @keyframes shockwave {
-    0% { opacity: 1; transform: scale(.4); border-width: 5px; }
-    100% { opacity: 0; transform: scale(7); border-width: 1px; }
+    0% { opacity: 1; transform: scale(.35); border-width: 6px; box-shadow: 0 0 24px rgba(150,240,255,.8); }
+    100% { opacity: 0; transform: scale(8.5); border-width: 1px; box-shadow: 0 0 0 rgba(150,240,255,0); }
   }
 
   

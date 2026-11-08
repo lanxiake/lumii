@@ -18,6 +18,12 @@ const MASTER_GAIN = 0.06
 export interface BootAudioHandle {
   /** 进度推进时调用；同一阶段重复调用由调用方去重 */
   pulse: () => void
+  /** cognition 段加重脉冲：略低、略长，对齐仪式节拍 */
+  climaxPulse: () => void
+  /** 门户竖缝裂开：短噪 + 下行扫频 */
+  gateOpen: () => void
+  /** Logo 落点：短青光感点音 */
+  logoLand: () => void
   /** 卡住态：切到低频心跳；退出后恢复母增益 */
   setStalled: (stalled: boolean) => void
   /** 主壳就绪：上行和音 + 淡出 */
@@ -39,6 +45,9 @@ export function createBootAudio(): BootAudioHandle {
 
   const noop: BootAudioHandle = {
     pulse: () => undefined,
+    climaxPulse: () => undefined,
+    gateOpen: () => undefined,
+    logoLand: () => undefined,
     setStalled: () => undefined,
     finish: async () => undefined,
     stop: () => undefined,
@@ -152,6 +161,66 @@ export function createBootAudio(): BootAudioHandle {
       osc.connect(g).connect(master)
       osc.start(now)
       osc.stop(now + 0.14)
+    },
+
+    climaxPulse() {
+      if (ctx.state === 'closed' || stalled) return
+      const now = ctx.currentTime
+      // 双音：基音 + 五度，比普通 pulse 更「落地」
+      for (const [freq, peak, dur] of [
+        [520, 0.28, 0.22],
+        [780, 0.18, 0.18],
+      ] as const) {
+        const osc = ctx.createOscillator()
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(freq, now)
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.35, now + dur * 0.45)
+        const g = ctx.createGain()
+        g.gain.setValueAtTime(0, now)
+        g.gain.linearRampToValueAtTime(peak, now + 0.01)
+        g.gain.exponentialRampToValueAtTime(0.0001, now + dur)
+        osc.connect(g).connect(master)
+        osc.start(now)
+        osc.stop(now + dur + 0.02)
+      }
+    },
+
+    gateOpen() {
+      if (ctx.state === 'closed') return
+      const now = ctx.currentTime
+      // 下行扫频：门户裂开的「嘶——」
+      const osc = ctx.createOscillator()
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(880, now)
+      osc.frequency.exponentialRampToValueAtTime(140, now + 0.28)
+      const filter = ctx.createBiquadFilter()
+      filter.type = 'bandpass'
+      filter.frequency.setValueAtTime(1200, now)
+      filter.frequency.exponentialRampToValueAtTime(280, now + 0.28)
+      filter.Q.value = 2.2
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0, now)
+      g.gain.linearRampToValueAtTime(0.22, now + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.36)
+      osc.connect(filter).connect(g).connect(master)
+      osc.start(now)
+      osc.stop(now + 0.4)
+    },
+
+    logoLand() {
+      if (ctx.state === 'closed') return
+      const now = ctx.currentTime
+      const osc = ctx.createOscillator()
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(1320, now)
+      osc.frequency.exponentialRampToValueAtTime(990, now + 0.12)
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0, now)
+      g.gain.linearRampToValueAtTime(0.24, now + 0.008)
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.2)
+      osc.connect(g).connect(master)
+      osc.start(now)
+      osc.stop(now + 0.22)
     },
 
     setStalled(next: boolean) {

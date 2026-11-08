@@ -7,6 +7,7 @@
  *
  * 注意：本文件不可依赖 React / App，仅用同步可读的 localStorage / preload。
  */
+import { audioCueForProgress } from './boot/boot-climax'
 import { BOOT_ID, mountBootVisual, type BootVisualHandle, type BootProgress } from './boot/boot-visual'
 import { createBootAudio, type BootAudioHandle } from './boot/boot-audio'
 
@@ -110,6 +111,11 @@ function mountEarlySplash(): void {
       },
       // audio 可能稍后才创建；调用时再读，挂载失败也不会先开底噪
       onStall: (stalled) => audio?.setStalled(stalled),
+      onClimax: (kind) => {
+        if (kind === 'gate-seam') audio?.gateOpen()
+        if (kind === 'logo-land') audio?.logoLand()
+        // cognition-enter 由阶段 pulse/climaxPulse 覆盖，这里不叠第二声
+      },
     })
     console.info('[early-splash] 已挂载，节点数=', document.querySelectorAll(`#${EARLY_ID}`).length)
   } catch (err) {
@@ -125,7 +131,9 @@ function mountEarlySplash(): void {
       listeners.add((p) => {
         if (p.phase === lastPhase) return
         lastPhase = p.phase
-        audio?.pulse()
+        const cue = audioCueForProgress(p.index, p.total)
+        if (cue === 'climax') audio?.climaxPulse()
+        else if (cue === 'pulse') audio?.pulse()
       })
     } catch (err) {
       // 音频不是必需品：自动播放策略可能直接拒绝创建 AudioContext

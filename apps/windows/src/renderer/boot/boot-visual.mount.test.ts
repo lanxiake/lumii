@@ -147,4 +147,41 @@ describe('mountBootVisual 挂载与收尾', () => {
 
     handle.destroy()
   })
+
+  it('后段阶段进入 cognition 幕', () => {
+    let fire: ((p: { phase: string; index: number; total: number }) => void) | null = null
+    const handle = mountBootVisual({
+      subscribe: (cb) => {
+        fire = cb
+        return () => {
+          fire = null
+        }
+      },
+    })
+
+    fire!({ phase: 'S7.4-agent-runtime', index: 9, total: 11 })
+    expect(document.getElementById(BOOT_ID)?.dataset.act).toBe('cognition')
+    expect(document.querySelector('#bk-act-name')?.textContent).toBe('COGNITION')
+
+    handle.destroy()
+  })
+
+  it('complete 触发门户裂开与高潮回调', async () => {
+    vi.useFakeTimers()
+    const climaxes: string[] = []
+    const handle = mountBootVisual({
+      onClimax: (kind) => climaxes.push(kind),
+    })
+
+    const done = handle.complete()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(document.querySelector('#lumii-boot .gate-seam')?.classList.contains('open')).toBe(true)
+    expect(document.querySelector('#lumii-boot .shock')?.classList.contains('fire')).toBe(true)
+    expect(climaxes).toContain('gate-seam')
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    await done
+    expect(climaxes).toEqual(expect.arrayContaining(['gate-seam', 'logo-land']))
+    expect(document.getElementById(BOOT_ID)).toBeNull()
+  })
 })
