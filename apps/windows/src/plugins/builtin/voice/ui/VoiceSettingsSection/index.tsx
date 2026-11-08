@@ -576,8 +576,12 @@ export function VoiceSettingsSection() {
                 <Select
                   value={voiceConfig.tts.provider}
                   options={ttsEngines.map((e) => ({
-                    // 未就绪的本地引擎补一句提示，避免用户以为点了没反应
-                    label: e.ready ? e.label : `${e.label}（需先下载）`,
+                    // 未就绪时补一句原因，避免用户以为点了没反应。
+                    // 「需先下载」只对有本地模型的引擎成立；Breeze 那种是没配好，
+                    // 说成"下载"会把用户引向错误的方向。
+                    label: e.ready
+                      ? e.label
+                      : `${e.label}（${e.requiresModel ? '需先下载' : '需先配置'}）`,
                     value: e.id,
                     disabled: !e.ready,
                   }))}
