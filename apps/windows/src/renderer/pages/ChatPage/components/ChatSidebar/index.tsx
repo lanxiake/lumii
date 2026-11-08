@@ -1001,7 +1001,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                       <>
                         {g.pinned.length > 0 && (
                           <div className={styles['channel-subgroup']}>
-                            <div className={styles['channel-subgroup-label']}>置顶</div>
+                            <div className={`${styles['channel-subgroup-label']} ${styles['channel-subgroup-label--pinned']}`}>置顶</div>
                             {renderSessionItems(g.pinned)}
                           </div>
                         )}
@@ -1088,7 +1088,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     <>
                       {group.pinned.length > 0 && (
                         <div className={styles['channel-subgroup']}>
-                          <div className={styles['channel-subgroup-label']}>置顶</div>
+                          <div className={`${styles['channel-subgroup-label']} ${styles['channel-subgroup-label--pinned']}`}>置顶</div>
                           {renderSessionItems(group.pinned)}
                         </div>
                       )}

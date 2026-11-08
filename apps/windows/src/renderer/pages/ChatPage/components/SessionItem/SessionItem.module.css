@@ -38,6 +38,23 @@
   font-weight: var(--mt-fw-medium);
 }
 
+/* 置顶：琥珀轻底 + 左侧细针，避免再塞一颗孤立 Pin */
+.session-item.pinned:not(.active) {
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.08) 70%, transparent);
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0.72);
+}
+
+.session-item.pinned:not(.active):hover {
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.12) 70%, var(--mt-surface-2));
+}
+
+.session-item.pinned.active {
+  box-shadow:
+    inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.85),
+    0 0 16px rgba(var(--mt-ritual-cyan-rgb), 0.12),
+    inset 0 0 0 1px rgba(var(--mt-ritual-amber-rgb), 0.18);
+}
+
 .session-item.streaming:not(.active) {
   color: var(--mt-fg-1);
 }
@@ -68,9 +85,14 @@
   color: var(--mt-accent-500);
 }
 
-.session-pin-icon {
-  flex-shrink: 0;
-  color: var(--mt-accent-500);
+.status-icon--pinned {
+  color: rgba(var(--mt-ritual-amber-rgb), 0.92);
+  filter: drop-shadow(0 0 4px rgba(var(--mt-ritual-amber-rgb), 0.35));
+}
+
+.status-icon--pinned-active {
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  filter: drop-shadow(0 0 5px rgba(var(--mt-ritual-cyan-rgb), 0.4));
 }
 
 .session-title {

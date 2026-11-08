@@ -1,28 +1,83 @@
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 12px 8px;
+  gap: 10px;
+  padding: 0 12px 10px;
 }
 
 .section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 45%, var(--mt-border));
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.06) 55%, transparent),
+      transparent 48%
+    ),
+    var(--mt-surface-1, var(--mt-bg-secondary, transparent));
+  box-shadow: inset 0 1px 0 rgba(var(--mt-ritual-cyan-rgb), 0.06);
 }
 
 .header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: var(--mt-fw-medium, 500);
   color: var(--mt-fg-2);
+  letter-spacing: 0.02em;
+}
+
+.headerDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.9);
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-cyan-rgb), 0.45);
+  flex-shrink: 0;
+}
+
+.headerDotAmber {
+  background: rgba(var(--mt-ritual-amber-rgb), 0.92);
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-amber-rgb), 0.4);
 }
 
 .imageButton {
   padding: 0;
-  border: none;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 40%, var(--mt-border));
+  border-radius: 8px;
   background: transparent;
-  cursor: pointer;
+  cursor: zoom-in;
   text-align: left;
+  overflow: hidden;
+  transition:
+    border-color var(--mt-dur-fast, 120ms) ease,
+    box-shadow var(--mt-dur-normal, 200ms) ease;
+}
+
+.imageButton:hover,
+.imageButton:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.55) 50%, var(--mt-border));
+  box-shadow: var(--mt-glow-cyan);
+}
+
+.imageFrame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background:
+    linear-gradient(45deg, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
 }
 
 .image {
@@ -30,16 +85,54 @@
   max-width: 100%;
   max-height: 240px;
   border-radius: 4px;
-  background: var(--mt-bg-overlay);
+  object-fit: contain;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+}
+
+.videoShell {
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 40%, var(--mt-border));
+  background: #0a0c10;
+  box-shadow: inset 0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.06);
 }
 
 .video {
   display: block;
+  width: 100%;
   background: #000;
-  border-radius: 4px;
   /* 竖屏成片按宽度铺满会撑出很高一屏，限高后按原比例留黑边 */
   max-height: 320px;
   object-fit: contain;
+}
+
+.audioShell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.28) 45%, var(--mt-border));
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.08) 60%, var(--mt-bg-overlay, transparent));
+}
+
+.audioGlyph {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.16) 70%, transparent);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-amber-rgb), 0.22);
+}
+
+.audio {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 36px;
 }
 
 .code {
@@ -47,7 +140,7 @@
   padding: 8px;
   overflow: auto;
   max-height: 240px;
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--mt-bg-overlay);
   color: var(--mt-fg-2);
   font-family: var(--mt-font-mono, ui-monospace, monospace);
@@ -61,19 +154,32 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .actions button,
 .actions a,
 .summary {
-  padding: 4px 10px;
-  border: 1px solid var(--mt-border);
-  border-radius: 4px;
+  padding: 5px 11px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--mt-border));
+  border-radius: 999px;
   background: transparent;
   color: var(--mt-fg-2);
   font-size: 12px;
   cursor: pointer;
   text-decoration: none;
+  transition:
+    border-color var(--mt-dur-fast, 120ms) ease,
+    color var(--mt-dur-fast, 120ms) ease,
+    box-shadow var(--mt-dur-normal, 200ms) ease;
+}
+
+.actions button:hover,
+.actions a:hover,
+.summary:hover {
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.5) 50%, var(--mt-border));
+  color: var(--mt-fg-1);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .summary {
@@ -90,17 +196,21 @@
 
 .thumbButton {
   padding: 0;
-  border: 1px solid var(--mt-border);
-  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--mt-border));
+  border-radius: 8px;
   background: transparent;
-  cursor: pointer;
+  cursor: zoom-in;
   overflow: hidden;
   line-height: 0;
+  transition:
+    border-color var(--mt-dur-fast, 120ms) ease,
+    box-shadow var(--mt-dur-normal, 200ms) ease;
 }
 
 .thumbButton:hover,
 .thumbButton:focus-visible {
-  border-color: var(--mt-accent-500);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.55) 50%, var(--mt-border));
+  box-shadow: var(--mt-glow-cyan);
   outline: none;
 }
 
@@ -114,10 +224,11 @@
 
 .thumbVideoWrap {
   max-width: 220px;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid var(--mt-border);
-  background: #000;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--mt-border));
+  background: #0a0c10;
+  box-shadow: 0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.08);
 }
 
 .thumbVideo {
@@ -127,5 +238,9 @@
 }
 
 .thumbAudio {
-  max-width: 220px;
+  max-width: 240px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.28) 45%, var(--mt-border));
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.08) 60%, transparent);
 }

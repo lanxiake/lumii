@@ -493,6 +493,11 @@
   color: var(--mt-fg-4);
 }
 
+.channel-subgroup-label--pinned {
+  color: rgba(var(--mt-ritual-amber-rgb), 0.88);
+  text-shadow: 0 0 10px rgba(var(--mt-ritual-amber-rgb), 0.2);
+}
+
 .channel-empty {
   margin: 0 10px 8px;
   padding: 8px 12px;

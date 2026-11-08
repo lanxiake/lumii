@@ -179,9 +179,24 @@ const SessionItem: React.FC<SessionItemProps> = ({
   }
 
   /**
-   * 渲染左侧状态圆点：选中实心 / 默认空心（运行态改由标题光波表达）。
+   * 渲染左侧状态标：置顶用实心针脚，选中实心圆，默认空心圆（运行态由标题光波表达）。
    */
   const renderStatusIcon = () => {
+    if (session.isPinned) {
+      return (
+        <Pin
+          className={clsx(
+            styles['status-icon'],
+            styles['status-icon--pinned'],
+            isActive && styles['status-icon--pinned-active'],
+          )}
+          size={12}
+          strokeWidth={1.6}
+          fill="currentColor"
+          aria-hidden
+        />
+      )
+    }
     if (isActive) {
       return (
         <Circle
@@ -227,10 +242,6 @@ const SessionItem: React.FC<SessionItemProps> = ({
         }}
       >
         <span className={styles['status-slot']}>{renderStatusIcon()}</span>
-
-        {session.isPinned && (
-          <Pin className={styles['session-pin-icon']} size={11} strokeWidth={2} aria-hidden />
-        )}
 
         <span
           className={clsx(

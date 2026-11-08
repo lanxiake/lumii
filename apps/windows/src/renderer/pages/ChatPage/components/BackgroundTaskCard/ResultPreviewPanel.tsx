@@ -63,6 +63,16 @@ export function mediaSrc(output: BackgroundTaskOutput): string | undefined {
   return output.previewUrl ?? output.url
 }
 
+/** 分区标题：色点 + 文案 */
+function PreviewHeader({ label, amber = false }: { label: string; amber?: boolean }) {
+  return (
+    <div className={styles.header}>
+      <span className={amber ? `${styles.headerDot} ${styles.headerDotAmber}` : styles.headerDot} aria-hidden />
+      {label}
+    </div>
+  )
+}
+
 /** 图片预览：点击或「放大」打开灯箱 */
 const ImagePreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) => {
   const [open, setOpen] = useState(false)
@@ -70,9 +80,11 @@ const ImagePreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) =>
   if (!src) return null
   return (
     <section className={styles.section}>
-      <div className={styles.header}>图片预览</div>
+      <PreviewHeader label="图片预览" />
       <button type="button" className={styles.imageButton} onClick={() => setOpen(true)}>
-        <img src={src} alt={output.name} className={styles.image} />
+        <span className={styles.imageFrame}>
+          <img src={src} alt={output.name} className={styles.image} />
+        </span>
       </button>
       <div className={styles.actions}>
         <button type="button" onClick={() => downloadUrl(output.url ?? src, output.name)}>下载</button>
@@ -89,10 +101,12 @@ const VideoPreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) =>
   if (!src) return null
   return (
     <section className={styles.section}>
-      <div className={styles.header}>视频预览</div>
-      <video className={styles.video} controls width="100%" src={src}>
-        浏览器不支持视频播放
-      </video>
+      <PreviewHeader label="视频预览" />
+      <div className={styles.videoShell}>
+        <video className={styles.video} controls width="100%" src={src}>
+          浏览器不支持视频播放
+        </video>
+      </div>
       <div className={styles.actions}>
         <button type="button" onClick={() => downloadUrl(output.url ?? src, output.name)}>下载</button>
         <a href={output.url ?? src} target="_blank" rel="noreferrer">在新窗口打开</a>
@@ -107,8 +121,17 @@ const AudioPreview: React.FC<{ output: BackgroundTaskOutput }> = ({ output }) =>
   if (!src) return null
   return (
     <section className={styles.section}>
-      <div className={styles.header}>音频预览</div>
-      <audio controls src={src} />
+      <PreviewHeader label="音频预览" amber />
+      <div className={styles.audioShell}>
+        <span className={styles.audioGlyph} aria-hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+        </span>
+        <audio className={styles.audio} controls src={src} />
+      </div>
     </section>
   )
 }

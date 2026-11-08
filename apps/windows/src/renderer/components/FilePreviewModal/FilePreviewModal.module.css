@@ -376,14 +376,15 @@
   min-height: 0;
   overflow: auto;
   display: flex;
-  padding: 16px;
+  padding: 20px;
   background:
+    radial-gradient(ellipse at 50% 20%, rgba(var(--mt-ritual-cyan-rgb), 0.07), transparent 55%),
     linear-gradient(45deg, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 25%, transparent 25%),
     linear-gradient(-45deg, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 75%),
     linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: auto, 16px 16px, 16px 16px, 16px 16px, 16px 16px;
+  background-position: center, 0 0, 0 8px, 8px -8px, -8px 0;
 }
 
 /* 放大超出画布后：抓手光标提示可拖动平移 */
@@ -406,7 +407,10 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.16),
+    0 12px 36px rgba(0, 0, 0, 0.28);
 }
 
 .mediaWrap {
@@ -416,12 +420,23 @@
   min-height: 0;
   min-width: 0;
   display: flex;
-  padding: 24px;
+  padding: 28px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(var(--mt-ritual-cyan-rgb), 0.08), transparent 55%),
+    var(--mt-surface-1, transparent);
 }
 
 .audioPlayer {
+  width: min(100%, 520px);
   max-width: 100%;
   margin: auto;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.32) 50%, var(--mt-border-hairline, var(--mt-border)));
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.08) 55%, var(--mt-surface-2, transparent));
+  box-shadow:
+    inset 0 1px 0 rgba(var(--mt-ritual-amber-rgb), 0.12),
+    0 0 24px rgba(var(--mt-ritual-amber-rgb), 0.1);
 }
 
 /* 播放器固定占满内容区，画面按视频自身长宽比 contain 居中（黑边留白），
@@ -430,8 +445,12 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
-  border-radius: 6px;
+  background: #05070a;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 45%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.08),
+    0 16px 40px rgba(0, 0, 0, 0.35);
 }
 
 .markdownWrap {
