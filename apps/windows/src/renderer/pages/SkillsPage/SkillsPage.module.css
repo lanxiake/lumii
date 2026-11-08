@@ -15,7 +15,7 @@
   display: flex;
   gap: var(--spacing-2);
   margin-bottom: var(--spacing-5);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--color-border));
   padding-bottom: var(--spacing-3);
 }
 
@@ -37,11 +37,18 @@
 .skills-tab:hover {
   background-color: var(--color-gray-600);
   color: var(--color-text-primary);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.1);
+}
+
+.skills-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .skills-tab.active {
-  background-color: var(--color-primary-light);
-  color: var(--color-primary-500);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.12);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  box-shadow: 0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.14);
 }
 
 .tab-icon {
@@ -57,8 +64,9 @@
 }
 
 .skills-tab.active .tab-badge {
-  background-color: var(--color-primary-500);
-  color: var(--color-text-primary);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  color: var(--mt-fg-on-accent, #fff);
+  box-shadow: 0 0 8px rgba(var(--mt-ritual-cyan-rgb), 0.4);
 }
 
 /* 工具栏样式 */
@@ -119,9 +127,11 @@
   padding: var(--spacing-2) var(--spacing-4);
   margin-bottom: var(--spacing-3);
   border-radius: var(--radius-md);
-  background-color: var(--color-warning-bg, var(--color-bg-secondary));
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.35) 55%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.1) 60%, var(--color-warning-bg, var(--color-bg-secondary)));
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-amber-rgb), 0.1);
 }
 
 /* 提示条样式 */

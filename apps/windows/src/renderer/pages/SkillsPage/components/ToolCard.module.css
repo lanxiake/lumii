@@ -5,12 +5,13 @@
   padding: var(--spacing-2-5) var(--spacing-3);
   border-radius: var(--radius-lg);
   background-color: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  transition: border-color 0.2s;
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.14) 35%, var(--color-border));
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .tool-card:hover {
-  border-color: var(--color-primary-500);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.5) 50%, var(--color-primary-500));
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .tool-card.disabled {
@@ -82,8 +83,8 @@
 .tool-readonly {
   font-size: 10px;
   padding: 2px var(--spacing-1-5);
-  background-color: rgba(99, 102, 241, 0.12);
-  color: var(--color-primary-500);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.14) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   border-radius: var(--radius);
   flex-shrink: 0;
 }
@@ -107,12 +108,13 @@
 }
 
 .toggle-btn.on {
-  background-color: rgba(var(--mt-warning-rgb), 0.15);
-  color: var(--color-warning);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.16) 70%, transparent);
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
 }
 
 .toggle-btn.on:hover:not(:disabled) {
-  background-color: rgba(var(--mt-warning-rgb), 0.25);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.26) 70%, transparent);
+  box-shadow: var(--mt-glow-amber);
 }
 
 .toggle-btn.off {

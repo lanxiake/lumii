@@ -3,7 +3,7 @@
 .panel {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid var(--mt-border-hairline);
+  border-top: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 40%, var(--mt-border-hairline));
 }
 
 .head {
@@ -37,6 +37,7 @@
   padding: 6px 7px;
   border-radius: 6px;
   background: var(--mt-surface-2);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.12) 40%, transparent);
 }
 
 .rowHead {
@@ -50,8 +51,8 @@
 .anchor {
   padding: 0 4px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
-  color: var(--mt-accent-500);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.14) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
 }
 
 .time {

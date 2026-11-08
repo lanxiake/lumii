@@ -12,8 +12,9 @@
   gap: 8px;
   flex-shrink: 0;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--mt-border-hairline);
+  border-bottom: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--mt-border-hairline));
   font-size: 12px;
+  box-shadow: inset 0 -1px 0 rgba(var(--mt-ritual-cyan-rgb), 0.05);
 }
 
 .title {
@@ -63,6 +64,7 @@
 
 .close:hover {
   background: var(--mt-surface-3);
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .text {
