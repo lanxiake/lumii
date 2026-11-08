@@ -105,8 +105,26 @@ export class BreezeTtsProvider implements TtsProvider {
     await this.spawnAndWait()
   }
 
-  private async healthOk(): Promise<boolean> {
+  /** 托管 Python 里 torch 能否用 CUDA（决定是否走 fast 路径） */
+  private async hasCuda(): Promise<boolean> {
     try {
+      const python = await resolvePythonExe()
+      return await new Promise<boolean>((resolve) => {
+        const p = spawn(python, ['-c', 'import torch;print(torch.cuda.is_available())'], {
+          windowsHide: true,
+          env: buildIsolatedPythonEnv(),
+        })
+        let out = ''
+        p.stdout?.on('data', (b: Buffer) => (out += b.toString()))
+        p.on('error', () => resolve(false))
+        p.on('exit', () => resolve(out.trim() === 'True'))
+      })
+    } catch {
+      return false
+    }
+  }
+
+  private async healthOk(): Promise<boolean> {    try {
       const res = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(3_000) })
       if (!res.ok) return false
       const body = (await res.json()) as { status?: string }
@@ -127,15 +145,32 @@ export class BreezeTtsProvider implements TtsProvider {
     }
 
     const port = this.cfg.port ?? 7860
-    log.info(`[spawn] root=${root} model=${this.cfg.modelDir} port=${port}`)
+    // fast 路径要 CUDA（内部会 `requires a CUDA device`），CPU 上必须退回 eager。
+    // 这是首次合成 3 分钟 vs 几十秒的差别，值得探测一次。
+    const useFast = await this.hasCuda()
+    log.info(`[spawn] root=${root} model=${this.cfg.modelDir} port=${port} fast=${useFast}`)
 
     // 不能用 `-m breeze_infer.api` + PYTHONPATH：内置 embed Python 会忽略 PYTHONPATH
     // （实测 ModuleNotFoundError），而 `-m` 要求模块在 sys.path 里。
     // 用 `-c` 显式把代码根目录插进去最稳，也顺便固定了 argv。
+    //
+    // `--fast-all` 还需要 flash-attn；我们没装（Windows 上要编译 CUDA 扩展），
+    // 所以只开不依赖它的三项：text-encoder / depth-decoder / codec。
+    const fastArgs = useFast
+      ? ['--fast-text-encoder', '--fast-depth-decoder', '--fast-codec']
+      : []
     const bootScript = [
       'import sys',
       `sys.path.insert(0, ${JSON.stringify(root)})`,
-      `sys.argv = ['breeze_infer.api', ${JSON.stringify(this.cfg.modelDir)}, '--host', '127.0.0.1', '--port', '${port}']`,
+      `sys.argv = ${JSON.stringify([
+        'breeze_infer.api',
+        this.cfg.modelDir,
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(port),
+        ...fastArgs,
+      ])}`,
       'from breeze_infer.api import main',
       'main()',
     ].join('\n')

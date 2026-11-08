@@ -95,6 +95,19 @@ export function registerVoiceIpc(
   /**
    * 推送模型进度事件
    */
+  /** 推一次完整模型状态（暂停/取消/卸载等「非进度」变化后调用，让面板重建按钮） */
+  const sendModelsStatus = () => {
+    if (win.isDestroyed()) return
+    try {
+      win.webContents.send('voice:event', {
+        type: 'voice:models:status',
+        models: modelManager.getModelsStatus(),
+      })
+    } catch (e) {
+      log.error(`[voice:models] 状态推送失败: ${(e as Error).message}`)
+    }
+  }
+
   const sendModelProgress = (
     modelId: string,
     progress: {
@@ -210,11 +223,20 @@ export function registerVoiceIpc(
           )
           return { ok: true }
 
-        case 'voice:models:pause':
-          return { ok: modelManager.pauseDownload(command.modelId) }
+        case 'voice:models:pause': {
+          const ok = modelManager.pauseDownload(command.modelId)
+          // 必须推一次状态：面板按事件里的 downloaded/state 决定显示「暂停」还是「继续」。
+          // 不推的话点了暂停界面纹丝不动，用户会以为按钮坏了。
+          sendModelsStatus()
+          return { ok }
+        }
 
-        case 'voice:models:cancel':
-          return { ok: modelManager.cancelDownload(command.modelId) }
+        case 'voice:models:cancel': {
+          const ok = modelManager.cancelDownload(command.modelId)
+          // 同上：取消后要把条目推回「未下载」，否则进度条和按钮都停在旧状态
+          sendModelsStatus()
+          return { ok }
+        }
 
         case 'voice:models:uninstall': {
           // 卸载前停 ASR 测试与 TTS 预览，避免占用模型文件

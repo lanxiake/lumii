@@ -17,6 +17,11 @@ import { useSettingsHub } from '../SettingsHub/SettingsHubContext'
 import { Modal } from '../ui/Modal/Modal'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import styles from './ExtensionsPanel.module.css'
+import {
+  categoryOfPlugin,
+  PLUGIN_CATEGORIES,
+  type PluginCategoryId,
+} from './plugin-categories'
 
 /** 分组折叠状态的 localStorage 键 */
 const COLLAPSE_KEY = 'lumii.plugins.collapsed'
@@ -298,9 +303,6 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
     return [...items, ...clients.map(clientRow), ...standalone]
   }, [items, clients, assetStatuses])
 
-  const externalRows = rows.filter((row) => row.kind !== 'builtin')
-  const builtinRows = rows.filter((row) => row.kind === 'builtin')
-
   /** 主进程扩展：偏好已改、进程里还是启动时那份配置 */
   const pendingRestartCount = rows.filter((row) => row.pendingRestart).length
 
@@ -319,11 +321,28 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
     [query, sortBy],
   )
 
-  const visibleExternal = filter(externalRows)
-  const visibleBuiltin = filter(builtinRows)
-  // 搜索时强制展开：折叠着却搜到结果，用户只会以为没搜到
-  const collapsedExternal = collapsed.external === true && query.trim() === ''
-  const collapsedBuiltin = collapsed.builtin === true && query.trim() === ''
+  /**
+   * 按功能分类分组（语音 / 消息渠道 / 助手能力 …）。
+   *
+   * 原先按「内置 / 外部」分——那是来源不是用途，用户想找语音相关的插件仍要翻二十多张卡。
+   * 来源信息没有丢：卡片上的「内置 / 官方 / 外部」徽标还在。
+   * 空分类不渲染，避免页面上挂一堆「0/0」。
+   */
+  const categoryGroups = useMemo(() => {
+    const buckets = new Map<PluginCategoryId, ExtensionInfo[]>()
+    for (const row of rows) {
+      const id = categoryOfPlugin(row.id)
+      const list = buckets.get(id)
+      if (list) list.push(row)
+      else buckets.set(id, [row])
+    }
+    return PLUGIN_CATEGORIES.filter((c) => buckets.has(c.id))
+      .sort((a, b) => a.order - b.order)
+      .map((c) => {
+        const all = buckets.get(c.id)!
+        return { id: c.id, label: c.label, total: all.length, visible: filter(all) }
+      })
+  }, [rows, filter])
 
   const refresh = useCallback(async () => {
     try {
@@ -805,63 +824,37 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
         <p className={styles.empty}>插件宿主尚未就绪</p>
       ) : (
         <>
-          <section className={styles.section}>
-            <header
-              className={`${styles.sectionHeader} ${styles.sectionHeaderClickable}`}
-              onClick={() => toggleSection('external')}
-              role="button"
-              tabIndex={0}
-              aria-expanded={!collapsedExternal}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  toggleSection('external')
-                }
-              }}
-            >
-              <span className={styles.chevron}>{collapsedExternal ? '▸' : '▾'}</span>
-              <h3 className={styles.sectionTitle}>外部插件</h3>
-              <span className={styles.hint}>即时生效；组件按需下载</span>
-              <span className={styles.count}>
-                {visibleExternal.length}/{externalRows.length}
-              </span>
-            </header>
-            {collapsedExternal ? null : externalRows.length === 0 ? (
-              <p className={styles.empty}>还没有外部插件</p>
-            ) : visibleExternal.length === 0 ? (
-              <p className={styles.empty}>没有匹配的插件</p>
-            ) : (
-              <div className={styles.grid}>{visibleExternal.map(renderRow)}</div>
-            )}
-          </section>
-
-          <section className={styles.section}>
-            <header
-              className={`${styles.sectionHeader} ${styles.sectionHeaderClickable}`}
-              onClick={() => toggleSection('builtin')}
-              role="button"
-              tabIndex={0}
-              aria-expanded={!collapsedBuiltin}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  toggleSection('builtin')
-                }
-              }}
-            >
-              <span className={styles.chevron}>{collapsedBuiltin ? '▸' : '▾'}</span>
-              <h3 className={styles.sectionTitle}>内置插件</h3>
-              <span className={styles.hint}>随应用发版，只能禁用</span>
-              <span className={styles.count}>
-                {visibleBuiltin.length}/{builtinRows.length}
-              </span>
-            </header>
-            {collapsedBuiltin ? null : visibleBuiltin.length === 0 ? (
-              <p className={styles.empty}>没有匹配的插件</p>
-            ) : (
-              <div className={styles.grid}>{visibleBuiltin.map(renderRow)}</div>
-            )}
-          </section>
+          {categoryGroups.map(({ id, label, total, visible }) => {
+            const isCollapsed = collapsed[id] === true && query.trim() === ''
+            return (
+              <section key={id} className={styles.section}>
+                <header
+                  className={`${styles.sectionHeader} ${styles.sectionHeaderClickable}`}
+                  onClick={() => toggleSection(id)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={!isCollapsed}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      toggleSection(id)
+                    }
+                  }}
+                >
+                  <span className={styles.chevron}>{isCollapsed ? '▸' : '▾'}</span>
+                  <h3 className={styles.sectionTitle}>{label}</h3>
+                  <span className={styles.count}>
+                    {visible.length}/{total}
+                  </span>
+                </header>
+                {isCollapsed ? null : visible.length === 0 ? (
+                  <p className={styles.empty}>没有匹配的插件</p>
+                ) : (
+                  <div className={styles.grid}>{visible.map(renderRow)}</div>
+                )}
+              </section>
+            )
+          })}
         </>
       )}
 

@@ -93,28 +93,55 @@ beforeEach(() => {
 })
 
 describe('ExtensionsPanel — 分组列表', () => {
-  it('外部插件在上、内置插件在下；独立运行时组件归入外部组', async () => {
+  it('按功能分组；未匹配到功能前缀的插件归「其他」，来源信息留在卡片徽标上', async () => {
     render(<ExtensionsPanel />)
 
     expect(await screen.findByText('Alpha')).toBeTruthy()
     expect(screen.getByText('Ext')).toBeTruthy()
     expect(screen.getByText('Client Plug')).toBeTruthy()
-    // 独立组件（反检测浏览器）按外部插件展示；
+    // 独立组件（反检测浏览器）照常展示；
     // 「微信本机助手」是 MCP，不归插件中心管（2026-10-25 MCP 与插件解耦），插件页不该出现它
     expect(screen.getByText('反检测浏览器')).toBeTruthy()
     expect(screen.queryByText('微信本机助手')).toBeNull()
 
-    // 两组标题与计数：外部 = Ext + Client + 1 个组件；内置 = Alpha
-    expect(screen.getByText('外部插件')).toBeTruthy()
-    expect(screen.getByText('内置插件')).toBeTruthy()
-    expect(screen.getByText('3/3')).toBeTruthy()
-    expect(screen.getByText('1/1')).toBeTruthy()
+    // fixture 的 id 都是 com.test.*，没有功能前缀 → 全部落到「其他」
+    const otherSection = screen.getByText('其他').closest('section')!
+    expect(within(otherSection).getByText('Alpha')).toBeTruthy()
+    expect(within(otherSection).getByText('Client Plug')).toBeTruthy()
+    // 内置 / 外部的区分不再靠分组，改由卡片上的来源徽标承担
+    expect(within(otherSection).getAllByText('内置').length).toBeGreaterThan(0)
+  })
 
-    const externalSection = screen.getByText('外部插件').closest('section')!
-    const builtinSection = screen.getByText('内置插件').closest('section')!
-    expect(within(externalSection).getByText('Client Plug')).toBeTruthy()
-    expect(within(builtinSection).getByText('Alpha')).toBeTruthy()
-    expect(within(builtinSection).queryByText('Client Plug')).toBeNull()
+  it('有功能前缀的插件落到对应分类，空分类不渲染', async () => {
+    mocks.list.mockResolvedValue([
+      {
+        id: 'com.lumii.tts.edge',
+        name: 'Edge TTS',
+        version: '0.1.0',
+        kind: 'builtin',
+        origin: 'builtin',
+        enabled: true,
+        state: 'active',
+        pendingRestart: false,
+      },
+      {
+        id: 'com.lumii.channel-feishu',
+        name: '飞书渠道',
+        version: '0.1.0',
+        kind: 'builtin',
+        origin: 'builtin',
+        enabled: true,
+        state: 'active',
+        pendingRestart: false,
+      },
+    ])
+    render(<ExtensionsPanel />)
+
+    const voiceSection = (await screen.findByText('语音')).closest('section')!
+    const channelSection = screen.getByText('消息渠道').closest('section')!
+    expect(within(voiceSection).getByText('Edge TTS')).toBeTruthy()
+    expect(within(channelSection).getByText('飞书渠道')).toBeTruthy()
+    expect(screen.queryByText('开发工具')).toBeNull()
   })
 
   it('「新建插件」在主工具栏，不占页脚', async () => {
