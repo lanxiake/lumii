@@ -42,7 +42,7 @@
   width: 264px;
   margin-left: auto;
   padding: 4px;
-  border: 1px solid var(--mt-border);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--mt-border));
   border-radius: 9px;
   background: var(--mt-surface-2);
   box-shadow: var(--mt-shadow-inner);
@@ -62,13 +62,21 @@
 
 .seg-btn:hover {
   color: var(--mt-fg-1);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.1);
+}
+
+.seg-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .seg-btn--on {
   background: var(--mt-bg-elevated);
   color: var(--mt-fg-1);
   font-weight: var(--mt-fw-semibold);
-  box-shadow: var(--mt-shadow-sm);
+  box-shadow:
+    var(--mt-shadow-sm),
+    0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.14);
 }
 
 .list {
@@ -90,7 +98,8 @@
 }
 
 .item:hover {
-  background: var(--mt-surface-2);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.08) 55%, var(--mt-surface-2));
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.7);
 }
 
 .item--clickable {
@@ -123,7 +132,8 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--mt-accent-500);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  box-shadow: 0 0 6px rgba(var(--mt-ritual-cyan-rgb), 0.4);
 }
 
 .content {
@@ -168,11 +178,12 @@
   padding: 0;
   border: none;
   background: none;
-  color: var(--mt-accent-500);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   font-size: var(--font-size-xs);
   cursor: pointer;
 }
 
 .link:hover {
   text-decoration: underline;
+  text-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.35);
 }

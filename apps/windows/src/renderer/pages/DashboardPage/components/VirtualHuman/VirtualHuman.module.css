@@ -34,9 +34,10 @@
 }
 
 .tag--on {
-  border-color: color-mix(in srgb, var(--mt-success) 40%, transparent);
-  background: color-mix(in srgb, var(--mt-success) 12%, transparent);
-  color: var(--mt-success);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.4) 50%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.12) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.18);
 }
 
 /* 形象区：占满剩余高度，头像按容器缩放，窗口变矮时不撑破面板 */
@@ -57,7 +58,8 @@
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    color-mix(in srgb, var(--mt-accent-500) 26%, transparent),
+    rgba(var(--mt-ritual-cyan-rgb), 0.28),
+    rgba(var(--mt-ritual-amber-rgb), 0.1) 45%,
     transparent 68%
   );
   animation: mt-vh-breathe 4.5s var(--mt-ease-standard) infinite;
@@ -79,14 +81,16 @@
 .ring {
   position: absolute;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 34%, transparent);
+  border: 1px solid rgba(var(--mt-ritual-cyan-rgb), 0.4);
   animation: mt-vh-spin 14s linear infinite;
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.15);
 }
 
 .ring--outer {
   border-style: dashed;
-  border-color: color-mix(in srgb, var(--mt-violet) 30%, transparent);
+  border-color: rgba(var(--mt-ritual-amber-rgb), 0.35);
   animation: mt-vh-spin 22s linear reverse infinite;
+  box-shadow: 0 0 14px rgba(var(--mt-ritual-amber-rgb), 0.12);
 }
 
 @keyframes mt-vh-spin {
@@ -102,7 +106,9 @@
   height: 78px;
   border-radius: 50%;
   object-fit: cover;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mt-accent-500) 30%, transparent),
+  box-shadow:
+    0 0 0 1px rgba(var(--mt-ritual-cyan-rgb), 0.35),
+    0 0 18px rgba(var(--mt-ritual-cyan-rgb), 0.2),
     var(--mt-shadow-md);
   animation: mt-vh-float 5s var(--mt-ease-standard) infinite;
 }
@@ -145,17 +151,25 @@
 .action {
   margin-top: 10px;
   padding: 7px 0;
-  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 32%, var(--mt-border));
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.4) 50%, var(--mt-border));
   border-radius: 9px;
-  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
-  color: var(--mt-accent-500);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.12) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: background var(--mt-dur-fast) var(--mt-ease-standard);
+  transition:
+    background var(--mt-dur-fast) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .action:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 70%, transparent);
+  box-shadow: var(--mt-glow-cyan);
+}
+
+.action:focus-visible {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .action:disabled {

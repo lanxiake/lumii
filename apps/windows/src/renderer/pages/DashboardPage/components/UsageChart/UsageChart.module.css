@@ -18,10 +18,12 @@
 .tip {
   min-width: 168px;
   padding: 10px 12px;
-  border: 1px solid var(--mt-border);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.28) 45%, var(--mt-border));
   border-radius: 10px;
   background: var(--mt-bg-elevated);
-  box-shadow: var(--mt-shadow-sm);
+  box-shadow:
+    var(--mt-shadow-sm),
+    0 0 16px rgba(var(--mt-ritual-cyan-rgb), 0.1);
   color: var(--mt-fg-2);
   font-size: var(--font-size-xs);
 }

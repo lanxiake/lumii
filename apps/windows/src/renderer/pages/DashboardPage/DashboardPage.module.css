@@ -40,8 +40,8 @@
   background: linear-gradient(
     105deg,
     var(--mt-fg-1) 0%,
-    color-mix(in srgb, var(--mt-accent-500) 55%, var(--mt-fg-1)) 55%,
-    color-mix(in srgb, var(--mt-accent-400) 70%, var(--mt-fg-1)) 100%
+    rgba(var(--mt-ritual-cyan-rgb), 0.92) 48%,
+    rgba(var(--mt-ritual-amber-rgb), 0.88) 100%
   );
   background-clip: text;
   -webkit-background-clip: text;
@@ -51,6 +51,7 @@
   font-size: 22px;
   font-weight: var(--mt-fw-bold);
   letter-spacing: -0.025em;
+  filter: drop-shadow(0 0 14px rgba(var(--mt-ritual-cyan-rgb), 0.18));
 }
 
 /* ── 底部三栏：近期关注（文字最多，给最宽）+ 场景推荐 + 宠物 ── */
@@ -124,9 +125,10 @@
   gap: 10px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px dashed color-mix(in srgb, var(--mt-fg-3) 35%, transparent);
+  border-top: 1px dashed color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.35) 50%, transparent);
   flex: 0 0 auto;
   max-height: 168px;
   overflow-y: auto;
   animation: mt-dash-bottom-in 0.55s var(--mt-ease-standard) 0.2s both;
+  box-shadow: inset 0 1px 0 rgba(var(--mt-ritual-cyan-rgb), 0.05);
 }

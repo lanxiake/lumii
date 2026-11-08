@@ -29,7 +29,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--mt-accent-500);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   font: inherit;
   font-size: var(--font-size-xs);
   cursor: pointer;
@@ -37,6 +37,7 @@
 
 .more:hover {
   text-decoration: underline;
+  text-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.35);
 }
 
 .list {
@@ -69,8 +70,14 @@
 }
 
 .item:hover {
-  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.1) 70%, transparent);
   color: var(--mt-fg-1);
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.7);
+}
+
+.item:focus-visible {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .icon {
@@ -80,12 +87,13 @@
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
-  color: var(--mt-accent-500);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.14) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
 }
 
 .item:hover .icon {
-  background: color-mix(in srgb, var(--mt-accent-500) 20%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 70%, transparent);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.25);
 }
 
 .label {
