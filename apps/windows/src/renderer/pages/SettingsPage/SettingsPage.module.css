@@ -118,9 +118,10 @@
 .voice-block {
   margin: 20px 0 28px;
   padding: 16px 16px 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 40%, var(--color-border));
   border-radius: var(--radius-lg, 12px);
-  background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.04) 45%, color-mix(in srgb, var(--color-bg-secondary) 70%, transparent));
+  box-shadow: inset 0 1px 0 rgba(var(--mt-ritual-cyan-rgb), 0.05);
 }
 
 .voice-block-title {
@@ -168,7 +169,8 @@
 }
 
 .voice-speaker-item:hover {
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.1) 70%, transparent);
+  box-shadow: inset 2px 0 0 0 rgba(var(--mt-ritual-cyan-rgb), 0.7);
 }
 
 /* 语音运行时状态条（安装依赖 / 加载模型 / 预览失败等） */
@@ -183,8 +185,21 @@
 }
 
 .voice-runtime-status-busy {
-  border-color: color-mix(in srgb, var(--mt-sky-500) 45%, var(--color-border));
-  background: color-mix(in srgb, var(--mt-sky-500) 12%, transparent);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.45) 50%, var(--color-border));
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.12) 70%, transparent);
+  box-shadow: 0 0 12px rgba(var(--mt-ritual-amber-rgb), 0.14);
+  animation: voice-runtime-breathe var(--mt-pulse-dur, 1.8s) ease-in-out infinite;
+}
+
+@keyframes voice-runtime-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0.3); }
+  50% { box-shadow: 0 0 0 5px rgba(var(--mt-ritual-amber-rgb), 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-runtime-status-busy {
+    animation: none;
+  }
 }
 
 .voice-runtime-status-error {
@@ -430,7 +445,7 @@
 }
 
 .about-link {
-  color: var(--color-primary-500);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   text-decoration: none;
   font-size: var(--font-size-sm);
   background: none;
@@ -438,12 +453,15 @@
   cursor: pointer;
   padding: var(--spacing-1) var(--spacing-2);
   border-radius: var(--radius);
-  transition: background-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .about-link:hover {
-  background-color: var(--color-primary-100);
+  background-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.12) 70%, transparent);
   text-decoration: underline;
+  box-shadow: var(--mt-glow-cyan);
 }
 
 .about-description {
@@ -701,7 +719,7 @@
 .category-save-actions {
   margin-top: var(--spacing-6);
   padding-top: var(--spacing-5);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.2) 40%, var(--color-border));
   display: flex;
   justify-content: flex-end;
   gap: var(--spacing-3);
@@ -714,7 +732,7 @@
 /* 能力槽启停文字按钮组 */
 .slot-enable-group {
   display: inline-flex;
-  border: 1px solid var(--color-border);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--color-border));
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -730,13 +748,14 @@
 }
 
 .slot-enable-btn + .slot-enable-btn {
-  border-left: 1px solid var(--color-border);
+  border-left: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.18) 40%, var(--color-border));
 }
 
 .slot-enable-btn--on {
-  background: color-mix(in srgb, var(--mt-success) 22%, transparent);
-  color: var(--mt-success-dark);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.18) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
   font-weight: 600;
+  box-shadow: inset 0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.12);
 }
 
 .slot-enable-btn--off {

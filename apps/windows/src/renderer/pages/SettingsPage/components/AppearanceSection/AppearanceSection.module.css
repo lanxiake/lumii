@@ -5,7 +5,7 @@
 .theme-switch {
   display: inline-flex;
   padding: 2px;
-  border: 1px solid var(--mt-border);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.22) 40%, var(--mt-border));
   border-radius: var(--mt-radius-lg);
   background: var(--mt-surface-2);
   gap: 2px;
@@ -24,18 +24,27 @@
   cursor: pointer;
   transition:
     background var(--mt-dur-normal) var(--mt-ease-standard),
-    color var(--mt-dur-normal) var(--mt-ease-standard);
+    color var(--mt-dur-normal) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .theme-switch button:hover {
   color: var(--mt-fg-1);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.1);
+}
+
+.theme-switch button:focus-visible {
+  outline: none;
+  box-shadow: var(--mt-focus-ring);
 }
 
 .theme-switch button.theme-switch-active {
   background: var(--mt-bg-elevated);
   color: var(--mt-fg-1);
   font-weight: var(--mt-fw-semibold);
-  box-shadow: var(--mt-shadow-xs);
+  box-shadow:
+    var(--mt-shadow-xs),
+    0 0 12px rgba(var(--mt-ritual-cyan-rgb), 0.14);
 }
 
 /* 三格预览：画布 / 卡片 / 强调色 */

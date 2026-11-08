@@ -22,13 +22,15 @@
 }
 
 .connected {
-  background: color-mix(in srgb, var(--mt-success) 16%, transparent);
-  color: var(--mt-success);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.16) 70%, transparent);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.95);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-cyan-rgb), 0.14);
 }
 
 .pending {
-  background: color-mix(in srgb, var(--mt-warning) 16%, transparent);
-  color: var(--mt-warning);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-amber-rgb), 0.16) 70%, transparent);
+  color: rgba(var(--mt-ritual-amber-rgb), 0.95);
+  box-shadow: 0 0 10px rgba(var(--mt-ritual-amber-rgb), 0.14);
 }
 
 .idle {
@@ -41,11 +43,7 @@
   color: var(--mt-error);
 }
 
-/* 浅色主题下 500 级语义色对比度不足，换用 dark 档 */
-[data-theme='light'] .connected {
-  color: var(--mt-success-dark);
-}
-
+/* 浅色主题：琥珀/错误仍换暗档；已连接保持青（RGB 在浅底可读） */
 [data-theme='light'] .pending {
   color: var(--mt-warning-dark);
 }
@@ -56,16 +54,22 @@
 
 /* 等待态圆点呼吸，提示流程进行中 */
 .pending .dot {
-  animation: pulse 1.4s var(--mt-ease-standard) infinite;
+  animation: pulse var(--mt-pulse-dur, 1.8s) var(--mt-ease-standard) infinite;
+}
+
+.connected .dot {
+  box-shadow: 0 0 6px currentColor;
 }
 
 @keyframes pulse {
   0%,
   100% {
     opacity: 1;
+    box-shadow: 0 0 0 0 rgba(var(--mt-ritual-amber-rgb), 0.4);
   }
   50% {
     opacity: 0.35;
+    box-shadow: 0 0 0 4px rgba(var(--mt-ritual-amber-rgb), 0);
   }
 }
 

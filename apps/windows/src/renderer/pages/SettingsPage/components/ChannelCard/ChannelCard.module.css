@@ -4,15 +4,18 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border: 1px solid var(--mt-border-hairline);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.14) 35%, var(--mt-border-hairline));
   border-radius: var(--mt-radius-xl);
   background: var(--mt-bg-elevated);
   overflow: hidden;
-  transition: border-color var(--mt-dur-normal, 200ms) var(--mt-ease-standard);
+  transition:
+    border-color var(--mt-dur-normal, 200ms) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal, 200ms) var(--mt-ease-standard);
 }
 
 .card:hover {
-  border-color: var(--mt-border);
+  border-color: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.4) 45%, var(--mt-border));
+  box-shadow: 0 0 18px rgba(var(--mt-ritual-cyan-rgb), 0.1);
 }
 
 /* ---- 标题行 ---- */
@@ -64,10 +67,10 @@
   flex-shrink: 0;
   padding: 3px 8px;
   border-radius: var(--mt-radius-full);
-  background: var(--mt-bg-overlay);
+  background: color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.1) 60%, var(--mt-bg-overlay));
   font-size: 11px;
   line-height: 14px;
-  color: var(--mt-fg-4);
+  color: rgba(var(--mt-ritual-cyan-rgb), 0.88);
   white-space: nowrap;
 }
 
@@ -168,6 +171,7 @@
   max-width: 100%;
   padding: 5px 10px 5px 8px;
   border-radius: var(--mt-radius-full);
+  border: 1px solid color-mix(in srgb, rgba(var(--mt-ritual-cyan-rgb), 0.16) 40%, transparent);
   background: var(--mt-surface-3);
   font-size: 12px;
   line-height: 16px;
@@ -178,7 +182,8 @@
   width: 6px;
   height: 6px;
   border-radius: var(--mt-radius-full);
-  background: var(--mt-success);
+  background: rgba(var(--mt-ritual-cyan-rgb), 0.9);
+  box-shadow: 0 0 6px rgba(var(--mt-ritual-cyan-rgb), 0.4);
   flex-shrink: 0;
 }
 
