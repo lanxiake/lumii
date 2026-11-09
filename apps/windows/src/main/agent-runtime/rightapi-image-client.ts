@@ -7,7 +7,7 @@
  *   3. 从结果里取图片 URL 或 base64，下载落盘
  *
  * 任务查询是站点级接口，不带 /draw 前缀：
- *   绘图地址 https://www.rightapi.ai/draw/v1/images/generations
+ *   绘图地址 https://api.site/draw/v1/images/generations
  *   查询地址 https://www.rightapi.ai/v1/tasks/{task_id}
  *
  * 支持参考图：image 字段传 data URL 数组（data:image/png;base64,...）。
@@ -20,7 +20,7 @@ import { fetch as undiciFetch } from 'undici'
 import { resolveLocalProxyDispatcher } from './tool-providers/local-proxy'
 
 /** RightAPI 默认绘图基础地址（含 /draw/v1） */
-export const DEFAULT_RIGHTAPI_BASE_URL = 'https://www.rightapi.ai/draw/v1'
+export const DEFAULT_RIGHTAPI_BASE_URL = 'https://api.site/draw/v1'
 
 /** 轮询起始间隔（ms） */
 const POLL_INTERVAL_START_MS = 1500

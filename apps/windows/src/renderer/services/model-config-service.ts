@@ -250,7 +250,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   gemini: 'https://generativelanguage.googleapis.com',
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234',
-  rightapi: 'https://www.rightapi.ai/draw/v1',
+  rightapi: 'https://api.site/draw/v1',
   deepseek: 'https://api.deepseek.com',
   openrouter: 'https://openrouter.ai/api/v1',
   groq: 'https://api.groq.com/openai/v1',

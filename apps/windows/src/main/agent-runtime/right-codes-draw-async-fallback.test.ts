@@ -27,7 +27,7 @@ describe('generateImageViaRightCodesDraw 异步兜底', () => {
   beforeEach(() => {
     fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    process.env.MTBOT_IMAGE_UPSTREAM_BASE_URL = 'https://www.rightapi.ai/draw/v1'
+    process.env.MTBOT_IMAGE_UPSTREAM_BASE_URL = 'https://api.site/draw/v1'
     process.env.MTBOT_IMAGE_UPSTREAM_API_KEY = 'sk-test'
     delete process.env.MTBOT_DRAW_API_KEY
   })

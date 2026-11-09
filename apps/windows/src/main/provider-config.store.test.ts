@@ -137,7 +137,7 @@ describe('v1 → v2 迁移', () => {
         image: {
           enabled: true,
           type: 'rightapi',
-          baseUrl: 'https://www.rightapi.ai/draw/v1',
+          baseUrl: 'https://api.site/draw/v1',
           modelId: 'img-1',
           apiKeyEnc: seal('sk-b'),
         },

@@ -18,32 +18,32 @@ const PNG_BASE64 = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')
 
 describe('buildRightApiGenerationsUrl', () => {
   it('在 /draw/v1 后追加 images/generations', () => {
-    expect(buildRightApiGenerationsUrl('https://www.rightapi.ai/draw/v1')).toBe(
-      'https://www.rightapi.ai/draw/v1/images/generations',
+    expect(buildRightApiGenerationsUrl('https://api.site/draw/v1')).toBe(
+      'https://api.site/draw/v1/images/generations',
     )
   })
 
   it('用户只填到 /draw 时自动补 /v1', () => {
     expect(buildRightApiGenerationsUrl('https://www.rightapi.ai/draw')).toBe(
-      'https://www.rightapi.ai/draw/v1/images/generations',
+      'https://api.site/draw/v1/images/generations',
     )
   })
 
   it('已含完整路径时不重复拼接', () => {
-    const full = 'https://www.rightapi.ai/draw/v1/images/generations'
+    const full = 'https://api.site/draw/v1/images/generations'
     expect(buildRightApiGenerationsUrl(full)).toBe(full)
   })
 
   it('忽略尾部斜杠', () => {
-    expect(buildRightApiGenerationsUrl('https://www.rightapi.ai/draw/v1/')).toBe(
-      'https://www.rightapi.ai/draw/v1/images/generations',
+    expect(buildRightApiGenerationsUrl('https://api.site/draw/v1/')).toBe(
+      'https://api.site/draw/v1/images/generations',
     )
   })
 })
 
 describe('buildRightApiTaskUrl', () => {
   it('剥掉 /draw 前缀，回到站点级 /v1/tasks', () => {
-    expect(buildRightApiTaskUrl('https://www.rightapi.ai/draw/v1', 'task_abc')).toBe(
+    expect(buildRightApiTaskUrl('https://api.site/draw/v1', 'task_abc')).toBe(
       'https://www.rightapi.ai/v1/tasks/task_abc',
     )
   })
@@ -56,7 +56,7 @@ describe('buildRightApiTaskUrl', () => {
 
   it('从完整绘图端点也能推导', () => {
     expect(
-      buildRightApiTaskUrl('https://www.rightapi.ai/draw/v1/images/generations', 'task_1'),
+      buildRightApiTaskUrl('https://api.site/draw/v1/images/generations', 'task_1'),
     ).toBe('https://www.rightapi.ai/v1/tasks/task_1')
   })
 })
@@ -136,7 +136,7 @@ function imageResponse(): Response {
 const BASE_REQ = {
   prompt: '一只戴太空头盔的橘猫',
   modelId: 'nano-banana-fast',
-  baseUrl: 'https://www.rightapi.ai/draw/v1',
+  baseUrl: 'https://api.site/draw/v1',
   apiKey: 'sk-test',
 }
 
