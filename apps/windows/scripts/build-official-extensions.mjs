@@ -71,8 +71,23 @@ async function main() {
       format: 'esm',
       platform: 'node',
       target: 'node20',
-      // electron 由主进程提供；node 内置模块 esbuild 在 platform=node 下自动外置
-      external: ['electron'],
+      // electron 由主进程提供；node 内置模块 esbuild 在 platform=node 下自动外置。
+      // 原生 .node / 重型可选依赖必须外置：cloud-sync 等会经 agent-runtime-ipc →
+      // files-commands → pdf-page-renderer 碰到 @napi-rs/canvas，esbuild 没有 .node loader
+      // （2026-11-09：pnpm dev 在 official-ext 阶段炸「No loader is configured for .node」）。
+      external: [
+        'electron',
+        '@napi-rs/canvas',
+        '@napi-rs/canvas-win32-x64-msvc',
+        '@napi-rs/canvas-linux-x64-gnu',
+        '@napi-rs/canvas-linux-x64-musl',
+        'pdfjs-dist',
+        'esearch-ocr',
+        'onnxruntime-node',
+        'onnxruntime-common',
+        'sharp',
+        'better-sqlite3',
+      ],
       // esbuild 的 ESM 输出没有 `require`，而 CJS 依赖（isomorphic-git → sha.js →
       // safe-buffer → require('buffer')）会在打包后的 `__require` 里炸
       // 「Dynamic require of "buffer" is not supported」。banner 里的 createRequire

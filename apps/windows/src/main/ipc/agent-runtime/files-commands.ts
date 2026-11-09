@@ -17,7 +17,6 @@ import { describeMissingPreviewFile } from './missing-preview-message'
 import { isVaultRefPath } from '@mtbot/agent-runtime'
 import { getDefaultOcrService } from '../../ocr/create-default-ocr-service.js'
 import { ocrScannedDocument } from '../../ocr/ocr-scanned-document.js'
-import { tryCreatePdfPageRenderer } from '../../ocr/pdf-page-renderer.js'
 import { isOcrableImagePath } from '../../ocr/document-ocr-heuristics.js'
 
 const log = {
@@ -476,6 +475,8 @@ export async function handleFilesImport(
       // 扫描件 / 稀疏文字层：本地 OCR 补抽（Windows；失败不阻断导入）
       if (fileExt === '.pdf' || effectiveMime === 'application/pdf') {
         try {
+          // 动态加载渲页器，避免官方扩展 esbuild 静态追到 @napi-rs/canvas 的 .node
+          const { tryCreatePdfPageRenderer } = await import('../../ocr/pdf-page-renderer.js')
           const ocrResult = await ocrScannedDocument({
             filePath: destAbs,
             existingText: bodyText,
