@@ -1006,7 +1006,13 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   const speechGenerateTool: MtBotToolConfig = {
     ...speechGenerateToolConfig,
     execute: async (_id, rawParams) => {
-      const p = rawParams as { text?: string; speaker?: string; speed?: number; instruction?: string }
+      const p = rawParams as {
+        text?: string
+        speaker?: string
+        speed?: number
+        instruction?: string
+        voiceName?: string
+      }
       const text = String(p.text ?? '').trim()
       if (!text) {
         return jsonToolResult({ status: 'error', message: 'text 参数不能为空' })
@@ -1014,22 +1020,45 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
       if (!deps.config.generateVoiceFile) {
         return jsonToolResult({ status: 'error', message: 'TTS 功能未初始化，请确保语音模型已就绪' })
       }
+      const speaker = p.speaker?.trim() || undefined
+      const instruction = p.instruction?.trim() || undefined
+      const voiceName = p.voiceName?.trim() || undefined
+      const speed = typeof p.speed === 'number' ? Math.max(0.8, Math.min(1.3, p.speed)) : undefined
       try {
-        const speed =
-          typeof p.speed === 'number' ? Math.max(0.8, Math.min(1.3, p.speed)) : undefined
-        const filePath = await deps.config.generateVoiceFile(text, {
-          speaker: p.speaker?.trim() || undefined,
-          speed,
-          instruction: p.instruction?.trim() || undefined,
-        })
+        const filePath = await deps.config.generateVoiceFile(text, { speaker, speed, instruction, voiceName })
+        // 合成后再取：引擎是首次调用时才初始化的
+        const engine = deps.config.describeTtsEngine?.() ?? null
+        // 告诉 Agent 哪些参数被引擎忽略了：不说的话它会以为生效了，下次照样传
+        const ignored: string[] = []
+        if (engine) {
+          if (speaker && engine.voiceParam !== 'speaker') ignored.push('speaker')
+          if (instruction && engine.voiceParam !== 'instruction') ignored.push('instruction')
+          if (speed !== undefined && !engine.supportsSpeed) ignored.push('speed')
+          if (voiceName && !engine.supportsVoiceName) ignored.push('voiceName')
+        }
         // 与 image_generate 同风格：防止路径编造
         const result = {
           status: 'ok' as const,
           filePath,
+          ...(engine
+            ? {
+                engine: engine.engine,
+                voiceParam: engine.voiceParam,
+                ...(voiceName && engine.supportsVoiceName ? { voiceName } : {}),
+                ...(engine.supportsVoiceName ? { savedVoices: engine.savedVoices } : {}),
+              }
+            : {}),
+          ...(ignored.length ? { ignoredParams: ignored } : {}),
           note:
             `语音文件已生成。文件的唯一有效路径是 "${filePath}"。` +
             `引用、预览、发送或写入文档时，必须原样使用这个路径——` +
-            `严禁根据语义自行编造文件名。`,
+            `严禁根据语义自行编造文件名。` +
+            (ignored.length
+              ? `当前引擎（${engine?.engine}）不支持参数 ${ignored.join('、')}，它们已被忽略；后续调用不要再传。`
+              : '') +
+            (voiceName && engine?.supportsVoiceName
+              ? `这次的声音已存为「${voiceName}」，之后同一角色/系列继续传 voiceName="${voiceName}" 就是同一个声音。`
+              : ''),
         }
         return {
           content: [{ type: 'text', text: JSON.stringify(result) }],

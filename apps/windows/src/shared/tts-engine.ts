@@ -31,6 +31,32 @@ export interface TtsProvider {
     signal?: AbortSignal,
     onAudioFile?: (audioPath: string, isFinal: boolean) => void,
   ): Promise<void>
+  /**
+   * 一次合成多段（可选能力）。
+   *
+   * 自回归模型逐段独立采样时音色会漂，且每段都要重新走一遍 denoise 流程。
+   * 能批量推理的引擎实现这个方法后，调用方可以在拿到整篇文本时一次算完：
+   * 同样的参考音 + 同一次 forward，音色一致且显著更快。
+   *
+   * 返回每段的 PCM 采样，顺序与入参一致；返回 null 表示当前状态下批量不划算，
+   * 调用方应走逐句合成。
+   */
+  synthesizeBatch?(
+    texts: string[],
+    signal?: AbortSignal,
+  ): Promise<Array<{ samples: number[]; sampleRate: number }> | null>
+  /**
+   * 单次合成请求能可靠处理的最长文本（字符）。声明了它的引擎，长文由调用方按句切段后
+   * 逐段合成；未声明则整段直接交给引擎（引擎自己能处理长文）。
+   */
+  readonly maxCharsPerRequest?: number
+  /**
+   * 音色锚点（可选能力，Breeze）：一段参考音 + 对应文本。合成时用它克隆，
+   * 跨段、跨次调用都是同一个声音。没有固定音色 ID 的引擎靠它保证一致性。
+   * get 返回当前锚点（首段合成后自动生成）；set 注入外部保存的锚点，传 null 清除。
+   */
+  getVoiceAnchor?(): TtsVoiceAnchor | null
+  setVoiceAnchor?(anchor: TtsVoiceAnchor | null): void
   /** 热更新语速（不重建引擎） */
   setSpeed?(speed: number): void
   /** 热更新说话人 ID（不重建引擎） */
@@ -52,6 +78,17 @@ export interface TtsProvider {
    */
   setLanguageOverride?(language: string | null): void
   destroy(): void
+}
+
+/**
+ * 音色锚点：参考音 + 它的逐字文本（必须一致，否则克隆会跑偏）。
+ * `instruction` 记录生成它时用的音色描述：之后同样描述（或不给描述）就纯克隆；
+ * 给了不同描述则在这个声音上按描述调整（如「更激动一些」）。
+ */
+export interface TtsVoiceAnchor {
+  audioPath: string
+  text: string
+  instruction?: string
 }
 
 /** 引擎输出格式：决定 voice-service 怎么打包 chunk、怎么落文件 */

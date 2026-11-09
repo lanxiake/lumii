@@ -476,6 +476,12 @@ async function installQwenDeps(pythonExe: string): Promise<void> {
   )
 }
 
+/** 往托管 Python 里补装个别包（供 Breeze 启动失败时自修复缺失依赖） */
+export async function pipInstallIntoManagedPython(specs: string[], label: string): Promise<void> {
+  const pythonExe = await resolvePythonExe()
+  await pipInstall(pythonExe, specs, label)
+}
+
 /**
  * 确保已安装 faster-qwen3-tts（已有 CUDA 运行时时补装）
  */

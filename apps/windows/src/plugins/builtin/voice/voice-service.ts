@@ -3,7 +3,7 @@
  * 协调 VAD / ASR / TTS / 状态机，与 AgentRuntime 对接
  */
 import { type BrowserWindow } from 'electron'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { VadEngine } from './vad-engine.js'
@@ -42,6 +42,20 @@ import {
 import { transcribePcm, transcribeAudioBuffer } from './voice-transcription.js'
 import { sherpaFirst, sherpaDone } from '../../../main/onnx-runtime-gate'
 import { frameRms, VoiceGate } from './voice-gate.js'
+import { isValidVoiceName, VoiceAnchorStore } from './voice-anchor-store.js'
+import { packTtsSegments } from './tts-long-text.js'
+import { concatWithGaps, normalizeLoudness } from '../../../shared/tts-audio-utils.js'
+import { resolveWindowsClientDataRoot } from '../../../main/client-data-root.js'
+
+function concatBytes(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let offset = 0
+  for (const p of parts) {
+    out.set(p, offset)
+    offset += p.length
+  }
+  return out
+}
 
 
 const log = {
@@ -1409,6 +1423,49 @@ export class VoiceCallService {
   }
 
   /**
+   * 尝试用引擎的批量推理一次合成整篇预览。
+   *
+   * 返回 true 表示已完成（调用方直接收尾）；false 表示该引擎没这个能力或失败，
+   * 调用方继续走逐句流水线。批量失败不报错——退回逐句仍能出声，只是慢些。
+   */
+  private async tryBatchPreview(
+    provider: TtsProvider,
+    sentences: string[],
+    send: (chunk: TtsChunk, isFinal: boolean) => void,
+    signal: AbortSignal,
+    endPreview: (ok: boolean, message?: string) => void,
+  ): Promise<boolean> {
+    try {
+      const segs = await provider.synthesizeBatch!(sentences, signal)
+      if (!segs) return false
+      if (segs.length !== sentences.length) {
+        log.warn(`[tryBatchPreview] 段数不符（${segs.length}/${sentences.length}），退回逐句`)
+        return false
+      }
+      for (const seg of segs) {
+        if (signal.aborted) {
+          endPreview(false, '预览已取消')
+          return true
+        }
+        if (seg.samples.length > 0) {
+          this.emitRuntimeStatus('playing', '正在播放预览…')
+        }
+        send({ samples: seg.samples, sampleRate: seg.sampleRate, isFinal: false }, false)
+      }
+      send({ samples: [], sampleRate: segs[0]?.sampleRate ?? 24000, isFinal: true }, true)
+      endPreview(true)
+      return true
+    } catch (e) {
+      if (signal.aborted) {
+        endPreview(false, '预览已取消')
+        return true
+      }
+      log.warn(`[tryBatchPreview] 批量合成失败，退回逐句: ${(e as Error).message}`)
+      return false
+    }
+  }
+
+  /**
    * 合成一段试听音频并推送 voice:tts:preview:chunk 事件到渲染进程。
    * 按句 LRU 缓存 + 有限并发并行合成，相同句子跨预览可复用。
    */
@@ -1528,6 +1585,19 @@ export class VoiceCallService {
         }
       }
 
+      // 能批量推理的引擎（Breeze）整篇一次算完：段间音色一致，且不用逐句重走流程。
+      // 其他引擎没这个方法，照常走下面的逐句流水线。
+      if (typeof activeProvider.synthesizeBatch === 'function' && sentences.length > 0) {
+        const done = await this.tryBatchPreview(
+          activeProvider,
+          sentences,
+          sendPreviewChunk,
+          signal,
+          endPreview,
+        )
+        if (done) return
+      }
+
       const ensureStarted = (i: number): Promise<TtsChunk[]> => {
         if (tasks[i]) return tasks[i]!
         const sentence = sentences[i]!
@@ -1608,102 +1678,231 @@ export class VoiceCallService {
 
   // ── 生成语音文件（Agent 消息 → 音频附件） ───────────────────────────────────
 
+  private _anchorStore: VoiceAnchorStore | null = null
+  private get anchorStore(): VoiceAnchorStore {
+    this._anchorStore ??= new VoiceAnchorStore(
+      path.join(resolveWindowsClientDataRoot(), 'voice', 'anchors'),
+    )
+    return this._anchorStore
+  }
+
+  /** 生成音频文件串行化：多个工具调用同时合成会抢同一个本地服务（Breeze 单并发直接 409） */
+  private fileGenQueue: Promise<unknown> = Promise.resolve()
+
+  /** 当前 TTS 引擎的能力摘要（给 speech_generate 回传，让 Agent 知道该用哪些参数） */
+  describeTtsEngine(): {
+    engine: string
+    voiceParam: 'instruction' | 'speaker' | 'voice' | 'none'
+    supportsSpeed: boolean
+    supportsVoiceName: boolean
+    savedVoices: string[]
+  } {
+    const engine = this.config.tts.provider
+    const p = this.ttsProvider
+    const anchors = typeof p?.setVoiceAnchor === 'function'
+    return {
+      engine,
+      voiceParam: p?.setInstruction ? 'instruction' : p?.setSpeakerName ? 'speaker' : p?.setVoice ? 'voice' : 'none',
+      supportsSpeed: typeof p?.setSpeed === 'function',
+      supportsVoiceName: anchors,
+      savedVoices: anchors ? this.anchorStore.list(engine).map((v) => v.name) : [],
+    }
+  }
+
   /**
    * 将文本合成为音频文件并保存到 destDir，返回文件绝对路径。
-   * VITS（PCM）→ WAV；Edge TTS（mp3 bytes）→ MP3
+   * PCM 引擎 → WAV；Edge TTS（mp3 bytes）→ MP3。
+   *
+   * 声音一致性（Breeze 这类没有固定音色 ID 的引擎）：
+   * - 长文按引擎单次上限切段，首段当锚点，后续段克隆它：整篇同一个声音
+   * - `voiceName`：把这次的声音存成命名音色；之后同名调用复用它（系列内容用）
+   * - 没给 voiceName：按「音色描述」自动建一个隐式音色，同一描述多次调用也是同一个声音
+   *   （分镜配音、逐句旁白这类一句一调用的场景，靠这个保证不换人）
    */
   async generateAudioFile(
     text: string,
     destDir: string,
-    opts?: { speaker?: string; speed?: number; voice?: string; instruction?: string },
+    opts?: { speaker?: string; speed?: number; voice?: string; instruction?: string; voiceName?: string },
+  ): Promise<string> {
+    const run = this.fileGenQueue.then(() => this.generateAudioFileNow(text, destDir, opts))
+    this.fileGenQueue = run.catch(() => undefined)
+    return run
+  }
+
+  private async generateAudioFileNow(
+    text: string,
+    destDir: string,
+    opts?: { speaker?: string; speed?: number; voice?: string; instruction?: string; voiceName?: string },
   ): Promise<string> {
     await this.ensureTtsInitialized()
-
-    const abort = new AbortController()
-    const pcmChunks: Float32Array[] = []
-    const mp3Chunks: Uint8Array[] = []
-    let detectedSampleRate = 22050
-    // 用引擎声明的输出格式判定，不再靠 `sampleRate === -1` 猜是哪个引擎
-    const isEncoded = this.currentOutputFormat() === 'mp3'
+    const cleaned = this._cleanTtsText(text)
+    if (!cleaned) throw new Error('文本清洗后为空（可能只有表情、标签或标点），没有可朗读的内容')
 
     log.info(
-      `[generateAudioFile] 开始合成文本: "${text.slice(0, 40)}" speaker=${opts?.speaker ?? '-'} voice=${opts?.voice ?? '-'} speed=${opts?.speed ?? '-'} instruction=${opts?.instruction ? '有' : '-'}`,
+      `[generateAudioFile] 开始合成: ${cleaned.length} 字 "${cleaned.slice(0, 40)}" speaker=${opts?.speaker ?? '-'} voice=${opts?.voice ?? '-'} speed=${opts?.speed ?? '-'} instruction=${opts?.instruction ? '有' : '-'} voiceName=${opts?.voiceName ?? '-'}`,
     )
 
-    // 整段锁定语种，避免长文工具（speech_generate）中途漂语种。
-    // 工具是一次性完整文本，直接按全文解析，不复用通话级 sticky（可能残留上次的语种）。
-    const languageLock = resolveQwen3TtsLanguage(this.config.tts.language || 'Auto', text)
-    this.ttsProvider!.setLanguageOverride?.(languageLock)
-
-    // 临时覆盖音色/语速（仅当前引擎支持时生效），合成后按全局 config 恢复。
-    if (opts?.speaker) this.ttsProvider!.setSpeakerName?.(opts.speaker)
-    if (typeof opts?.speed === 'number') this.ttsProvider!.setSpeed?.(opts.speed)
-    // Breeze 的「音色」不是固定 ID 而是自然语言描述，走 instruction 通道。
-    // 记下原值，合成后恢复，避免污染设置页里配的默认音色。
-    const prevInstruction = this.config.tts.breezeInstruction
-    if (opts?.instruction) this.ttsProvider!.setInstruction?.(opts.instruction)
-
-    // **edge 的音色是另一条路**：它没有 setSpeakerName（那是 Qwen3 的说话人 ID），
-    // 换音色要调 setVoice（异步，内部会重设 msedge-tts 的 metadata）。
-    // 记下原音色，合成后恢复，避免污染后续通话。
-    const prevVoice = this.config.tts.voice
-    if (opts?.voice && typeof (this.ttsProvider as { setVoice?: unknown }).setVoice === 'function') {
-      await (this.ttsProvider as { setVoice: (v: string) => Promise<void> }).setVoice(opts.voice)
+    const isEncoded = this.currentOutputFormat() === 'mp3'
+    const supportsAnchor = typeof this.ttsProvider?.setVoiceAnchor === 'function'
+    if (opts?.voiceName && !supportsAnchor) {
+      log.warn(`[generateAudioFile] 当前引擎 ${this.config.tts.provider} 不支持命名音色，忽略 voiceName`)
     }
 
-    try {
-      await this.ttsProvider!.synthesize(
-        text,
-        (chunk) => {
-          if (chunk.sampleRate === -1) {
-            // 编码音频（MP3）：字节流
-            mp3Chunks.push(new Uint8Array(chunk.samples))
-          } else {
-            // VITS: PCM Float32
-            if (chunk.sampleRate > 0) detectedSampleRate = chunk.sampleRate
-            pcmChunks.push(new Float32Array(chunk.samples))
-          }
-        },
-        abort.signal,
-      )
-    } finally {
-      this.ttsProvider?.setLanguageOverride?.(null)
-      // 恢复全局配置的音色/语速，避免污染后续通话/预览
-      if (opts?.speaker) this.ttsProvider?.setSpeakerName?.(this.config.tts.qwen3Speaker ?? 'Vivian')
-      if (typeof opts?.speed === 'number') this.ttsProvider?.setSpeed?.(this.config.tts.speed)
-      if (opts?.instruction) this.ttsProvider?.setInstruction?.(prevInstruction ?? null)
-      if (opts?.voice && prevVoice) {
-        await (this.ttsProvider as { setVoice?: (v: string) => Promise<void> })
-          .setVoice?.(prevVoice)
-          .catch(() => undefined)
-      }
-    }
-
-    const fileId = randomUUID()
     fs.mkdirSync(destDir, { recursive: true })
+    const filePath = path.join(destDir, `${randomUUID()}.${isEncoded ? 'mp3' : 'wav'}`)
 
     if (isEncoded) {
-      // 合并所有 mp3 chunks 写文件
-      const totalLen = mp3Chunks.reduce((s, c) => s + c.length, 0)
-      const merged = new Uint8Array(totalLen)
-      let offset = 0
-      for (const c of mp3Chunks) { merged.set(c, offset); offset += c.length }
-      const filePath = path.join(destDir, `${fileId}.mp3`)
-      fs.writeFileSync(filePath, Buffer.from(merged))
-      log.info(`[generateAudioFile] MP3 文件已生成: ${filePath} (${merged.length} bytes)`)
-      return filePath
-    } else {
-      // 合并 PCM，写 WAV
-      const totalSamples = pcmChunks.reduce((s, c) => s + c.length, 0)
-      const pcmData = new Float32Array(totalSamples)
-      let offset = 0
-      for (const c of pcmChunks) { pcmData.set(c, offset); offset += c.length }
-
-      const filePath = path.join(destDir, `${fileId}.wav`)
-      this._writeWavFile(filePath, pcmData, detectedSampleRate)
-      log.info(`[generateAudioFile] WAV 文件已生成: ${filePath} (${totalSamples} samples)`)
+      const bytes = await this.synthesizeWithOverrides(this.ttsProvider!, cleaned, opts)
+      fs.writeFileSync(filePath, Buffer.from(concatBytes(bytes.mp3)))
+      log.info(`[generateAudioFile] MP3 文件已生成: ${filePath}`)
       return filePath
     }
+
+    // 支持锚点的引擎用独立 provider：锚点/音色描述是实例状态，借用全局 provider
+    // 会把它们带进正在进行的通话或预览。服务进程是共享的，建一个实例几乎零成本。
+    const provider = supportsAnchor ? await this.createTtsProviderFrom(this.config.tts) : this.ttsProvider!
+    try {
+      const segments = this.planSegments(provider, cleaned)
+      const anchorKey = supportsAnchor ? this.resolveAnchorKey(opts) : null
+      if (anchorKey) this.applyStoredAnchor(provider, anchorKey, opts?.instruction)
+
+      const pcmSegments: number[][] = []
+      let sampleRate = 24000
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i]!
+        const out = await this.synthesizeWithOverrides(provider, seg, opts).catch((e: Error) => {
+          throw new Error(
+            segments.length > 1 ? `第 ${i + 1}/${segments.length} 段合成失败：${e.message}` : e.message,
+          )
+        })
+        if (out.sampleRate > 0) sampleRate = out.sampleRate
+        pcmSegments.push(out.pcm)
+        // 首段合成完，引擎自动立了锚点：按需存进库，后续调用同名复用
+        if (i === 0 && anchorKey) this.persistAnchor(provider, anchorKey, opts?.instruction)
+      }
+      if (pcmSegments.every((s) => s.length === 0)) {
+        throw new Error('语音合成没有产生任何音频，请检查语音引擎状态后重试')
+      }
+
+      // 分段时统一响度、段间留 0.2s 停顿；单段直接写
+      const merged =
+        pcmSegments.length > 1
+          ? concatWithGaps(normalizeLoudness(pcmSegments), sampleRate)
+          : Float32Array.from(pcmSegments[0]!)
+      this._writeWavFile(filePath, merged, sampleRate)
+      log.info(
+        `[generateAudioFile] WAV 文件已生成: ${filePath}（${segments.length} 段，${(merged.length / sampleRate).toFixed(1)}s）`,
+      )
+      return filePath
+    } finally {
+      if (provider !== this.ttsProvider) provider.destroy()
+    }
+  }
+
+  /** 引擎声明了单次上限就按句切段打包；否则整段交给引擎 */
+  private planSegments(provider: TtsProvider, text: string): string[] {
+    const max = provider.maxCharsPerRequest
+    if (!max || text.length <= max) return [text]
+    const segs = packTtsSegments(splitTextForTtsCache(text, max), max)
+    log.info(`[generateAudioFile] 长文 ${text.length} 字切成 ${segs.length} 段（单段上限 ${max}）`)
+    return segs
+  }
+
+  /**
+   * 锚点库的键：显式 voiceName 优先；否则按「引擎 + 音色描述」生成隐式名，
+   * 同一描述的多次调用自动用同一个声音。
+   * 用户在设置里选了克隆档案时不需要锚点（档案本身就是固定参考音）。
+   */
+  private resolveAnchorKey(opts?: { instruction?: string; voiceName?: string }): string | null {
+    const tts = this.config.tts
+    if (tts.provider === 'breeze' && tts.breezeCloneEnabled && tts.breezeProfileId) return null
+    if (opts?.voiceName) {
+      if (!isValidVoiceName(opts.voiceName)) {
+        throw new Error(`voiceName「${opts.voiceName}」不合法：只能用中英文、数字、下划线、短横线，最长 48 字`)
+      }
+      return opts.voiceName
+    }
+    const desc = (opts?.instruction ?? (tts.provider === 'breeze' ? tts.breezeInstruction : '') ?? '').trim()
+    const hash = createHash('sha1').update(`${tts.provider}\n${desc}`).digest('hex').slice(0, 12)
+    return `auto-${hash}`
+  }
+
+  private applyStoredAnchor(provider: TtsProvider, key: string, instruction?: string): void {
+    const stored = this.anchorStore.get(key, this.config.tts.provider)
+    if (!stored) {
+      log.info(`[generateAudioFile] 音色「${key}」尚无锚点，本次首段将作为锚点`)
+      return
+    }
+    provider.setVoiceAnchor!(stored)
+    if (key.startsWith('auto-') || !instruction || instruction === stored.instruction) {
+      log.info(`[generateAudioFile] 复用音色「${key}」`)
+    } else {
+      log.info(`[generateAudioFile] 复用音色「${key}」并按新描述调整：${instruction.slice(0, 30)}`)
+    }
+  }
+
+  private persistAnchor(provider: TtsProvider, key: string, instruction?: string): void {
+    if (this.anchorStore.get(key, this.config.tts.provider)) return
+    const anchor = provider.getVoiceAnchor?.()
+    if (!anchor) {
+      log.warn(`[generateAudioFile] 首段太短或太长，未能立锚点；音色「${key}」下次调用再建`)
+      return
+    }
+    try {
+      const saved = this.anchorStore.save(
+        key,
+        this.config.tts.provider,
+        anchor,
+        instruction ?? this.config.tts.breezeInstruction,
+      )
+      log.info(`[generateAudioFile] 已保存音色「${key}」: ${saved.audioPath}`)
+    } catch (e) {
+      log.warn(`[generateAudioFile] 保存音色「${key}」失败（不影响本次）: ${(e as Error).message}`)
+    }
+  }
+
+  /**
+   * 用临时覆盖的音色参数合成一段，合成后恢复。全局 provider 的覆盖必须恢复，
+   * 否则会把 Agent 这次的音色带进之后的通话/预览。
+   */
+  private async synthesizeWithOverrides(
+    provider: TtsProvider,
+    text: string,
+    opts?: { speaker?: string; speed?: number; voice?: string; instruction?: string },
+  ): Promise<{ pcm: number[]; mp3: Uint8Array[]; sampleRate: number }> {
+    // 整段锁定语种，避免长文中途漂语种（不复用通话级 sticky，可能残留上次的语种）
+    provider.setLanguageOverride?.(resolveQwen3TtsLanguage(this.config.tts.language || 'Auto', text))
+    if (opts?.speaker) provider.setSpeakerName?.(opts.speaker)
+    if (typeof opts?.speed === 'number') provider.setSpeed?.(opts.speed)
+    // Breeze 的「音色」是自然语言描述，走 instruction 通道
+    const prevInstruction = this.config.tts.breezeInstruction
+    if (opts?.instruction) provider.setInstruction?.(opts.instruction)
+    // Edge 换音色要调 setVoice（异步，重设 msedge-tts metadata）
+    const prevVoice = this.config.tts.voice
+    if (opts?.voice && provider.setVoice) await provider.setVoice(opts.voice)
+
+    const pcm: number[] = []
+    const mp3: Uint8Array[] = []
+    let sampleRate = 0
+    try {
+      await provider.synthesize(text, (chunk) => {
+        if (chunk.sampleRate === -1) {
+          mp3.push(new Uint8Array(chunk.samples))
+        } else {
+          if (chunk.sampleRate > 0) sampleRate = chunk.sampleRate
+          for (const v of chunk.samples) pcm.push(v)
+        }
+      })
+    } finally {
+      provider.setLanguageOverride?.(null)
+      if (provider === this.ttsProvider) {
+        if (opts?.speaker) provider.setSpeakerName?.(this.config.tts.qwen3Speaker ?? 'Vivian')
+        if (typeof opts?.speed === 'number') provider.setSpeed?.(this.config.tts.speed)
+        if (opts?.instruction) provider.setInstruction?.(prevInstruction ?? null)
+        if (opts?.voice && prevVoice) await provider.setVoice?.(prevVoice).catch(() => undefined)
+      }
+    }
+    return { pcm, mp3, sampleRate }
   }
 
   /** 将 PCM Float32Array 写入 WAV 文件（单声道，16-bit PCM） */

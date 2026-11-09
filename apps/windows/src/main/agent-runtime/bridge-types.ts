@@ -107,8 +107,16 @@ export interface AgentRuntimeBridgeConfig {
    */
   generateVoiceFile?: (
     text: string,
-    opts?: { speaker?: string; speed?: number; instruction?: string },
+    opts?: { speaker?: string; speed?: number; instruction?: string; voiceName?: string },
   ) => Promise<string>
+  /** 当前 TTS 引擎能力（speech_generate 回传给 Agent，避免它用错音色参数） */
+  describeTtsEngine?: () => {
+    engine: string
+    voiceParam: 'instruction' | 'speaker' | 'voice' | 'none'
+    supportsSpeed: boolean
+    supportsVoiceName: boolean
+    savedVoices: string[]
+  } | null
   /**
    * 设置 ACP 后端（由 index.ts 注入，调用 AcpBackendManager.setBackend）
    */

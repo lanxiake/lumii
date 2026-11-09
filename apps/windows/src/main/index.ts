@@ -697,7 +697,7 @@ async function initAgentRuntime(): Promise<void> {
     getChannelRouter: () => channelHub?.router ?? null,
     generateVoiceFile: async (
       text: string,
-      opts?: { speaker?: string; speed?: number; instruction?: string },
+      opts?: { speaker?: string; speed?: number; instruction?: string; voiceName?: string },
     ) => {
       const voice = currentVoiceService()
       if (!voice) throw new Error('语音通话服务未初始化')
@@ -706,6 +706,7 @@ async function initAgentRuntime(): Promise<void> {
       const destDir = join(workspaceDir, 'uploads', dateStr)
       return voice.generateAudioFile(text, destDir, opts)
     },
+    describeTtsEngine: () => currentVoiceService()?.describeTtsEngine() ?? null,
     /** 执行本地 executable 技能（由 execute_skill 工具调用） */
     executeSkill: async (skillId: string, params: Record<string, unknown>) => {
       if (!skillRuntime) {

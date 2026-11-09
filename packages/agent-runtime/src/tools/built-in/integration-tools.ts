@@ -271,13 +271,27 @@ const SpeechGenerateParams = Type.Object({
         "自然语言音色描述（如「一位温柔自信的年轻女声，语速偏快，像体育播报」）。" +
         "**仅在 Breeze TTS 引擎下生效**，其他引擎忽略。" +
         "Breeze 没有固定音色列表——想听什么声音就用一句话描述它：" +
-        "音色性别年龄、语气情绪、语速节奏、口音、场景感都可以写进去。" +
-        "留空则用设置页里配的默认音色。",
+        "音色性别年龄、语气情绪、口音、场景感都可以写进去（Breeze 的语速也写在这里，如「语速偏慢」）。" +
+        "留空则用设置页里配的默认音色。" +
+        "同一描述的多次调用会自动复用同一个声音；配合 voiceName 时，描述只在首次建音色时决定声音，" +
+        "之后再传不同描述表示「在这个声音上调整语气」（如「更激动一些」）。",
+    }),
+  ),
+  voiceName: Type.Optional(
+    Type.String({
+      description:
+        "给声音起名，跨多次调用保持同一个声音（**仅 Breeze 引擎**，其他引擎忽略）。" +
+        "首次用某个名字时，这次合成的声音会被保存；之后传同一个名字就是同一个人在说话。" +
+        "用于：有声书多章节、系列播客、多段配音、多角色对话（每个角色一个名字，如「旁白」「小明」）。" +
+        "只能用中英文、数字、下划线、短横线，最长 48 字。已保存的名字见返回值 savedVoices。" +
+        "单篇文本不需要它：一次调用内的长文本已自动保持同一声音。",
     }),
   ),
   speed: Type.Optional(
     Type.Number({
-      description: "语速倍率，范围 0.8~1.3，默认 1.0。朗读/有声书建议 0.9~1.0，播报可 1.1。",
+      description:
+        "语速倍率，范围 0.8~1.3，默认 1.0。朗读/有声书建议 0.9~1.0，播报可 1.1。" +
+        "Edge / MeloTTS / Qwen3 生效；**Breeze 不支持**（请在 instruction 里描述语速）。",
       minimum: 0.8,
       maximum: 1.3,
     }),
@@ -290,11 +304,15 @@ export const speechGenerateToolConfig: MtBotToolConfig<typeof SpeechGeneratePara
   label: "生成语音",
   description:
     "将文本合成为语音音频文件（本地 TTS，适合配音、朗读文章、生成有声书）。" +
+    "长文本一次传完即可，会自动分段合成并保持同一个声音、统一音量。" +
     "合成完成后返回文件路径（filePath），可通过 message 工具的 mediaUrl 参数发送给用户。\n" +
-    "音色有两种指定方式，按当前引擎二选一：\n" +
+    "返回值里的 engine / voiceParam 说明当前引擎和该用的音色参数；ignoredParams 列出本次被忽略的参数。" +
+    "不确定引擎时先只传 text，看返回值再决定。\n" +
+    "音色参数按引擎选一个：\n" +
     "· instruction —— 自然语言描述（Breeze 引擎）。没有固定音色表，描述即所得。\n" +
-    "· speaker —— 固定音色 ID（Qwen3 CustomVoice 引擎）。其他引擎忽略。\n" +
-    "speed 对所有引擎都生效。用错通道的参数会被静默忽略，所以先确认当前引擎类型。",
+    "· speaker —— 固定音色 ID（Qwen3 CustomVoice 引擎）。\n" +
+    "跨多次调用保持同一声音（Breeze）：传 voiceName。系列内容、多角色对话都要用它，" +
+    "否则每次调用的声音可能不同。",
   parameters: SpeechGenerateParams,
   category: "channel",
   isReadOnly: false,
