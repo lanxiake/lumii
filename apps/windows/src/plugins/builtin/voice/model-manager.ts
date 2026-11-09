@@ -667,11 +667,7 @@ export class VoiceModelManager {
     if (!this.isModelDownloaded('vad') || !this.isModelDownloaded('asr-paraformer-zh')) {
       return false
     }
-    if (ttsProvider === 'edge') return true
-    if (ttsProvider === 'qwen3') {
-      return this.isQwen3Ready(qwen3Variant ?? '0.6b-custom')
-    }
-    return this.isModelDownloaded('tts-melo-zh-en')
+    return this.isTtsReady(ttsProvider ?? 'edge', qwen3Variant)
   }
 
   /**
@@ -682,6 +678,7 @@ export class VoiceModelManager {
     if (provider === 'qwen3') {
       return this.isQwen3Ready(qwen3Variant ?? '0.6b-custom')
     }
+    if (provider === 'breeze') return this.isModelDownloaded('tts-breeze-2')
     return this.isModelDownloaded('tts-melo-zh-en')
   }
 
@@ -1154,6 +1151,11 @@ export class VoiceModelManager {
           log.info(`[_downloadModel] 正在从本地 wheel 安装 PyTorch CUDA…`)
           await installPytorchCudaFromWheelDir(targetDir, signal)
           if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+          this.markDownloadComplete(targetDir)
+        } else if (model.type === 'dir') {
+          // hf-mirror 多文件快照（Breeze）。文件齐了也必须写完成标记：
+          // isModelDownloaded 对 dir 型要求 marker，漏写会「7GB 下完了却报缺少必需文件，
+          // 重试又从头下」，且预装依赖永远不触发。
           this.markDownloadComplete(targetDir)
         }
 

@@ -81,6 +81,21 @@ export function filterVoiceModelsByGroups(
 }
 
 /**
+ * 卡片状态：主进程的模型快照是权威，本地进度镜像只在快照还没跟上时补位。
+ *
+ * 反过来（镜像优先）会让下完/失败的条目永远停在 `downloading`——界面显示
+ * 「下载中 99%」外加两分钟不动的暂停/取消按钮，看着就是进度卡死。
+ */
+export function resolveCardState(
+  m: VoiceModelStatus,
+  mirrored?: VoiceModelDownloadState,
+): VoiceModelDownloadState {
+  if (m.downloaded) return 'ready'
+  if (m.downloadState && m.downloadState !== 'idle') return m.downloadState
+  return mirrored ?? 'idle'
+}
+
+/**
  * 语音模型本地下载管理 UI
  */
 export function VoiceModelsPanel({
@@ -117,6 +132,18 @@ export function VoiceModelsPanel({
     const unsub = api.voice.onEvent((event: any) => {
       if (event.type === 'voice:models:status' && Array.isArray(event.models)) {
         setModels(event.models)
+        // 状态事件是权威的：已经不在下载/安装中的条目，本地这份进度镜像立刻作废。
+        // 不作废的话 `p.state` 会永远停在最后一次 'downloading'，模型下完了、
+        // 甚至已经失败，卡片还显示「下载中 99%」和暂停/取消按钮，看起来就是进度卡死。
+        setProgress((prev) => {
+          const next = { ...prev }
+          for (const m of event.models as VoiceModelStatus[]) {
+            if (m.downloadState !== 'downloading' && m.downloadState !== 'extracting') {
+              delete next[m.id]
+            }
+          }
+          return next
+        })
       }
       if (event.type === 'voice:models:progress') {
         setProgress((prev) => ({
@@ -188,7 +215,8 @@ export function VoiceModelsPanel({
    */
   const renderCard = (m: VoiceModelStatus) => {
     const p = progress[m.id]
-    const state = (p?.state ?? m.downloadState ?? (m.downloaded ? 'ready' : 'idle')) as VoiceModelDownloadState
+    // 主进程快照优先，本地进度镜像只补「刚开始、状态还没推上来」那一小段
+    const state = resolveCardState(m, p?.state)
     const rawProgress = m.downloaded
       ? 1
       : (p?.progress ?? (m.sizeBytes > 0 ? (m.downloadedBytes ?? 0) / m.sizeBytes : 0))

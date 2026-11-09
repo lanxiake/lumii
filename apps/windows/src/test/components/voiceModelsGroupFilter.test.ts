@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   filterVoiceModelsByGroups,
+  resolveCardState,
   resolveVoiceModelGroup,
 } from '../../plugins/builtin/voice/ui/VoiceModelsPanel/index'
 import type { VoiceModelStatus } from '../../shared/voice-events'
@@ -47,5 +48,28 @@ describe('filterVoiceModelsByGroups', () => {
     expect(resolveVoiceModelGroup(model('asr-paraformer-zh'))).toBe('asr-core')
     expect(resolveVoiceModelGroup(model('tts-qwen3-0.6b-base'))).toBe('tts-clone')
     expect(resolveVoiceModelGroup(model('tts-qwen3-tokenizer-12hz'))).toBe('tts-synth')
+  })
+})
+
+describe('resolveCardState', () => {
+  const downloading = (): VoiceModelStatus =>
+    ({ id: 'tts-breeze-2', name: 'x', downloadState: 'downloading' }) as VoiceModelStatus
+
+  it('本地进度镜像停在 downloading 时，主进程说失败/暂停就听主进程的', () => {
+    const failed = { ...downloading(), downloadState: 'error' } as VoiceModelStatus
+    expect(resolveCardState(failed, 'downloading')).toBe('error')
+  })
+
+  it('已就绪优先于任何旧镜像（下完之后不许再显示进度条）', () => {
+    const done = { ...downloading(), downloaded: true, downloadState: 'ready' } as VoiceModelStatus
+    expect(resolveCardState(done, 'downloading')).toBe('ready')
+  })
+
+  it('主进程还是 idle 时用镜像补位（刚点下载、状态事件还没到）', () => {
+    expect(resolveCardState(model('x'), 'downloading')).toBe('downloading')
+  })
+
+  it('两边都没有就是 idle', () => {
+    expect(resolveCardState(model('x'), undefined)).toBe('idle')
   })
 })
