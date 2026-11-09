@@ -338,7 +338,13 @@ async function installTorchStack(
     }
   }
 
-  emitStatus('installing_deps', '正在安装 PyTorch CPU…')
+  const cpuReason =
+    !wantCuda
+      ? '已选择 CPU'
+      : !wheelDir || !fs.existsSync(wheelDir)
+        ? 'CUDA 运行时未下载'
+        : 'CUDA 不可用'
+  emitStatus('installing_deps', `正在安装 PyTorch CPU 版（${cpuReason}）…`)
   await pipUninstallTorch(pythonExe)
   await pipInstall(
     pythonExe,
@@ -350,7 +356,7 @@ async function installTorchStack(
       '--index-url',
       'https://download.pytorch.org/whl/cpu',
     ],
-    '正在安装 PyTorch CPU…',
+    `正在安装 PyTorch CPU 版（${cpuReason}）…`,
     'https://download.pytorch.org/whl/cpu',
   )
   return 'cpu'
@@ -532,7 +538,10 @@ async function ensureQwenTtsPackage(
   log.info(`[ensureQwenTtsPackage] pref=${devicePref} wantCuda=${wantCuda} nvidia=${hasNvidiaGpu()} wheelDir=${wheelDir}`)
 
   const health = await probeTorchHealth(pythonExe)
-  const cudaReady = health.ok && health.cuda && !health.detail.includes('+cpu')
+  // 只认 `torch.cuda.is_available()`。别再用 detail 里有没有 `+cpu` 来判断：
+  // detail 是「torch|torchaudio|cuda=..|dev=..」拼起来的，torchaudio 装的是 CPU 轮时
+  // 也会含 `+cpu`，于是 torch 明明是 cu128 且 GPU 可用，却被判成 CPU 版。
+  const cudaReady = health.ok && health.cuda
   const cpuReady = health.ok && !health.cuda
 
   if (wantCuda && cudaReady) {
@@ -554,6 +563,15 @@ async function ensureQwenTtsPackage(
   }
 
   if (wantCuda && cpuReady) {
+    // CUDA 轮还没下载：**不要**卸了 CPU 版重装一遍 CPU 版（等于白下 2GB）。
+    // 现状已经能用（CPU），缺的是那个 CUDA 运行时包，如实说清楚就够了。
+    if (!wheelDir || !fs.existsSync(wheelDir)) {
+      emitStatus(
+        'ready',
+        '当前使用 CPU 版 PyTorch。要启用 GPU，请先在「设置 → 语音 → 下载」里下载「PyTorch CUDA 运行时」',
+      )
+      return
+    }
     emitStatus('installing_deps', '检测到 CPU 版 PyTorch，正在强制更换为 CUDA 版…')
     const kind = await installTorchStack(pythonExe, true, allowCpuFallback, wheelDir)
     await resetSharedQwen3TtsClient()
@@ -571,7 +589,13 @@ async function ensureQwenTtsPackage(
     return
   }
 
-  // 全新安装
+  // 全新安装。机器有 GPU、用户又要 GPU 时，缺 CUDA 运行时不能悄悄装成 CPU 版——
+  // 那会下 2GB 却得不到加速，用户还以为是应用没认出显卡。直接说清楚缺什么。
+  if (wantCuda && (!wheelDir || !fs.existsSync(wheelDir))) {
+    throw new Error(
+      '检测到 NVIDIA 显卡，但「PyTorch CUDA 运行时」还没下载。请到「设置 → 语音 → 下载」里下载它（约 2.3GB），再切回 GPU 即可',
+    )
+  }
   emitStatus(
     'installing_deps',
     wantCuda
