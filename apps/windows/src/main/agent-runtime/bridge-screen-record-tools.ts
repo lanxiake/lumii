@@ -95,7 +95,8 @@ export function registerScreenRecordTools(
           '开始录制指定源。非 Lumii 自身源默认需用户确认（返回 needs_confirmation，可用 status 轮询）。' +
           'includeMic 默认 true；maxDurationSec 默认 1800，最大 7200。' +
           '同时仅一路录制；重复 start 返回 already_recording。' +
-          '教程场景建议 includeMic=false（事后 TTS 配音），除非要录真实人声。',
+          '教程场景建议 includeMic=false（事后 TTS 配音），除非要录真实人声。' +
+          '窗口录制失败时自动 fallback 到高速截帧模式（10fps），绕过系统级捕获限制。',
         parameters: Type.Object({
           sourceId: Type.String({ description: 'list_sources 返回的 sourceId' }),
           includeMic: Type.Optional(Type.Boolean({ description: '是否混入麦克风，默认 true' })),
@@ -152,7 +153,8 @@ export function registerScreenRecordTools(
         label: 'Screen Record Stop',
         category: 'channel' as const,
         description:
-          '结束当前录屏会话，返回 { ok, path, durationMs, bytes, timeline, mp4Path? }。' +
+          '结束当前录屏会话，返回 { ok, path, durationMs, bytes, timeline, mp4Path?, mode? }。' +
+          'mode 为 media-recorder 或 frame-capture（截帧 fallback）。' +
           'timeline 为本会话 mark 打点（活跃时钟 atMs），供 narrate cues 使用。' +
           'exportMp4=true 时尝试转码 MP4（失败保留 WebM，warning=mp4_failed）。' +
           'idle 时返回 no_active_session（幂等，不视为异常）。',

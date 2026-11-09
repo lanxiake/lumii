@@ -82,7 +82,13 @@ export interface ScreenRecordStartParams {
 
 /** start 返回（needs_confirmation 时不阻塞 Agent） */
 export type ScreenRecordStartResult =
-  | { ok: true; status: 'recording'; sessionId: string; startedAt: number }
+  | {
+      ok: true
+      status: 'recording'
+      sessionId: string
+      startedAt: number
+      mode?: 'media-recorder' | 'frame-capture'
+    }
   | {
       ok: true
       status: 'needs_confirmation'
@@ -206,6 +212,8 @@ export type ScreenRecordStopResult =
       mp4Path?: string
       /** 麦/系统声降级或 MP4 失败时带 warning */
       warning?: 'mic_muted' | 'system_audio_muted' | 'audio_degraded' | 'mp4_failed'
+      /** 录制模式：media-recorder（标准）或 frame-capture（截帧 fallback） */
+      mode?: 'media-recorder' | 'frame-capture'
     }
   | { ok: false; error: ScreenRecordErrorCode; message?: string; partialPath?: string }
 

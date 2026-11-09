@@ -36,6 +36,7 @@ import {
   SCREEN_SCREENSHOT_MAX_DIMENSION,
 } from '../../../../shared/screen-record'
 import path from 'node:path'
+import { createFrameCaptureFallback } from './frame-capture-fallback'
 
 /** 写流抽象（测试可注入 mock） */
 export interface ScreenRecordWriteStream {
@@ -131,6 +132,18 @@ export interface ScreenRecordServiceDeps {
    * 删除文件（MP4 转码成功后清理源 WebM）；失败仅记日志，不阻断 stop。
    */
   removeFile?: (filePath: string) => Promise<void>
+  /**
+   * 尝试启动 MediaRecorder（返回 false 时 fallback 到截帧模式）。
+   */
+  tryStartMediaRecorder?: (sessionId: string, sourceId: string) => Promise<boolean>
+  /**
+   * 写入单帧 JPEG（截帧模式专用）。
+   */
+  writeFrameFile?: (filePath: string, jpeg: Buffer) => Promise<void>
+  /**
+   * 截帧临时目录根路径。
+   */
+  resolveFramesTempDir?: () => string
 }
 
 /** 运行时内部状态 */
@@ -169,6 +182,8 @@ interface InternalState {
   startLock: boolean
   /** 本会话活跃时钟打点与标注（教程 timeline） */
   timeline: ScreenRecordTimelineEntry[]
+  /** 录制模式：media-recorder 或 frame-capture（截帧 fallback） */
+  recordMode: 'media-recorder' | 'frame-capture' | null
 }
 
 /** 对外服务接口：契约由核心持有（见 main/kernel/screen-record-contract.ts） */
@@ -204,6 +219,7 @@ function createIdleState(): InternalState {
     lastFinalizeError: null,
     startLock: false,
     timeline: [],
+    recordMode: null,
   }
 }
 
@@ -221,6 +237,19 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
    * 这里记住原因并随 status 回传，面板显示一行红字；下一次成功开录时清空。
    */
   let lastFailure: { code: ScreenRecordErrorCode; message?: string } | null = null
+
+  /** 截帧 fallback 录制器（可选，仅在 deps 提供时注入） */
+  const frameCapture =
+    deps.captureSourceFrame &&
+    deps.writeFrameFile &&
+    deps.resolveFramesTempDir
+      ? createFrameCaptureFallback({
+          captureFrame: deps.captureSourceFrame,
+          writeFrame: deps.writeFrameFile,
+          nowMs: deps.nowMs,
+          framesDir: deps.resolveFramesTempDir(),
+        })
+      : null
 
   /** 截图确认槽（与录屏 pending_confirm 解耦） */
   let screenshotPending: {
@@ -405,9 +434,11 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     includeMic: boolean
     includeSystemAudio: boolean
     maxDurationSec: number
+    mode?: 'media-recorder' | 'frame-capture'
   }): Promise<ScreenRecordStartResult> {
     const writer = await deps.createWriteStream()
     const startedAt = deps.nowMs()
+    const recordMode = opts.mode ?? 'media-recorder'
     state = {
       ...state,
       status: 'recording',
@@ -433,6 +464,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       systemAudioMuted: false,
       startLock: false,
       timeline: [],
+      recordMode,
     }
     deps.notifyRendererStartCapture(
       opts.sessionId,
@@ -445,7 +477,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     lastFailure = null
     scheduleMaxDurationTimer()
     emitStatus()
-    return { ok: true, status: 'recording', sessionId: opts.sessionId, startedAt }
+    return { ok: true, status: 'recording', sessionId: opts.sessionId, startedAt, mode: recordMode }
   }
 
   /** 内部 stop（含 stream_ended / crash / maxDuration） */
@@ -576,7 +608,16 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       mp4Path,
     })
 
-    return { ok: true, path: resultPath, durationMs, bytes, warning, mp4Path, timeline }
+    return {
+      ok: true,
+      path: resultPath,
+      durationMs,
+      bytes,
+      warning,
+      mp4Path,
+      timeline,
+      mode: state.recordMode ?? 'media-recorder',
+    }
   }
 
   /**
@@ -837,12 +878,40 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
         }
       }
 
+      // 尝试 MediaRecorder
+      const canUseMediaRecorder = deps.tryStartMediaRecorder
+        ? await deps.tryStartMediaRecorder(sessionId, source.sourceId)
+        : true
+
+      if (canUseMediaRecorder) {
+        return await enterRecording({
+          sessionId,
+          source,
+          includeMic,
+          includeSystemAudio,
+          maxDurationSec,
+          mode: 'media-recorder',
+        })
+      }
+
+      // Fallback 到截帧模式
+      if (!frameCapture) {
+        state.startLock = false
+        return {
+          ok: false,
+          error: 'capture_failed',
+          message: 'MediaRecorder 不可用且截帧模式未启用',
+        }
+      }
+
+      await frameCapture.start(source.sourceId, 10)
       return await enterRecording({
         sessionId,
         source,
-        includeMic,
-        includeSystemAudio,
+        includeMic: false, // 截帧模式无音频
+        includeSystemAudio: false,
         maxDurationSec,
+        mode: 'frame-capture',
       })
     } catch (e) {
       state.startLock = false

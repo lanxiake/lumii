@@ -2,7 +2,7 @@
  * 生产环境 ScreenRecordServiceDeps 工厂（desktopCapturer / 写盘 / 设置）
  */
 import { createWriteStream as fsCreateWriteStream } from 'node:fs'
-import { unlink, writeFile } from 'node:fs/promises'
+import { unlink, writeFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { desktopCapturer } from 'electron'
@@ -257,6 +257,22 @@ export function createRealScreenRecordServiceDeps(
 
     removeFile: async (filePath) => {
       await unlink(filePath)
+    },
+
+    tryStartMediaRecorder: async (sessionId, sourceId) => {
+      // MediaRecorder 启动由渲染层实际执行，这里只返回是否应尝试
+      // 默认返回 true，让渲染层去尝试；失败时渲染层会发 capture-error
+      return true
+    },
+
+    writeFrameFile: async (filePath, jpeg) => {
+      const dir = path.dirname(filePath)
+      await mkdir(dir, { recursive: true })
+      await writeFile(filePath, jpeg)
+    },
+
+    resolveFramesTempDir: () => {
+      return path.join(resolveRecordingsDir(), '.frames-temp')
     },
   }
 }
