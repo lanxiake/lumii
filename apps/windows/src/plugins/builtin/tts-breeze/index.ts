@@ -1,6 +1,7 @@
 import { definePlugin } from '@mtbot/plugin-core'
 
 import type { MainEvents } from '../../../main/kernel/events'
+import { prepareQwen3TtsRuntime } from '../../../main/voice/qwen3-tts-client.js'
 import { registerTtsEngine } from '../../../shared/tts-engine-registry'
 import type { VoiceTtsConfig } from '../../../shared/voice-events'
 import { BreezeTtsProvider } from './breeze-client.js'
@@ -44,10 +45,31 @@ export const ttsBreezeExtension = {
                 'Breeze 模型未下载，请前往「设置 → 语音」下载后重试',
               )
             }
+            // 与 Qwen3 同一个托管 Python：torch / fastapi / uvicorn / qwen-tts 都在这里装。
+            // 模型下完后 IPC 已后台预装过，这里再调一次基本是空转（内部有 Promise 复用）。
+            await prepareQwen3TtsRuntime(cfg.qwen3Device ?? 'auto')
+
+            // 克隆：档案与 Qwen3 共用同一份存储，开启且选了档案才带参考音频。
+            // Breeze 服务端要求 ref_audio 与 ref_text 成对出现，缺一个会直接 400。
+            let refAudioPath: string | undefined
+            let refText: string | undefined
+            if (cfg.breezeCloneEnabled && cfg.breezeProfileId) {
+              const profile = host.getVoiceProfile(cfg.breezeProfileId)
+              if (profile) {
+                refAudioPath = profile.refAudioPath
+                refText = profile.refText
+              } else {
+                host.log(`[breeze] 克隆档案不存在，退回默认音色: ${cfg.breezeProfileId}`)
+              }
+            }
+
             return new BreezeTtsProvider({
               modelDir: host.modelDir(MODEL_ID),
               cfgScale: cfg.breezeCfgScale,
               instruction: cfg.breezeInstruction,
+              refAudioPath,
+              refText,
+              port: cfg.breezePort,
             })
           },
         }),

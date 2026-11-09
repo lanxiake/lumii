@@ -13,6 +13,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { app } from 'electron'
 import type { TtsChunk, TtsProvider } from '../../../shared/tts-engine'
@@ -35,10 +36,11 @@ export interface BreezeConfig {
   modelDir: string
   port?: number
   cfgScale?: number
-  /** 声音设计 / 风格指令 */
+  /** 声音设计 / 风格指令（自然语言） */
   instruction?: string
   /** 参考音频（克隆）本地路径 */
   refAudioPath?: string
+  /** 参考音频对应的转写，必须与 refAudioPath 成对出现 */
   refText?: string
 }
 
@@ -105,6 +107,16 @@ export class BreezeTtsProvider implements TtsProvider {
     await this.spawnAndWait()
   }
 
+  /**
+   * 热更新「自然语言音色描述」。
+   *
+   * Breeze 没有固定音色表：想要什么声音就描述什么（如「一位温柔自信的年轻女声，
+   * 语速偏快，像体育播报」）。传 null 清除，回到模型默认音色。不用重建引擎。
+   */
+  setInstruction(instruction: string | null): void {
+    this.cfg.instruction = instruction?.trim() || undefined
+  }
+
   /** 托管 Python 里 torch 能否用 CUDA（决定是否走 fast 路径） */
   private async hasCuda(): Promise<boolean> {
     try {
@@ -124,7 +136,39 @@ export class BreezeTtsProvider implements TtsProvider {
     }
   }
 
-  private async healthOk(): Promise<boolean> {    try {
+  /**
+   * CPU 推理的线程数。
+   *
+   * 实测 i5-14400（10 核 16 线程）：8 线程 RTF 13.6，16 线程 RTF 20.0——
+   * 超线程在这个模型上是负收益（GEMM 已经吃满物理核，多出来的线程只抢 L3）。
+   * 没有可靠跨平台 API 拿物理核数，这里用逻辑核数的一半做近似，至少 1。
+   */
+  private get cpuThreads(): number {
+    return Math.max(1, Math.floor(os.cpus().length / 2))
+  }
+
+  /**
+   * CPU 推理慢，先在启动日志里说清楚，避免用户对着长时间无响应猜原因。
+   *
+   * 阈值来自实测（i5-14400 / 32GB）：8 线程 RTF 13.6、首帧 ~4s、7.7GB 权重加载约 40s。
+   * 核数更少或内存不足时只会更慢，这两种机器直接提示「别指望实时」。
+   */
+  private warnIfTooSlow(useFast: boolean): void {
+    if (useFast) return
+    const cores = os.cpus().length
+    const memGb = os.totalmem() / 1024 ** 3
+    if (cores < 8 || memGb < 12) {
+      log.warn(
+        `[spawn] CPU 推理且本机只有 ${cores} 线程 / ${Math.round(memGb)}GB 内存：` +
+          'Breeze 会明显慢于实时（可能数十倍），语音通话场景基本不可用',
+      )
+      return
+    }
+    log.info(`[spawn] 无 CUDA，走 CPU eager 推理：约 5s 首帧、15～20 倍实时`)
+  }
+
+  private async healthOk(): Promise<boolean> {
+    try {
       const res = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(3_000) })
       if (!res.ok) return false
       const body = (await res.json()) as { status?: string }
@@ -145,10 +189,14 @@ export class BreezeTtsProvider implements TtsProvider {
     }
 
     const port = this.cfg.port ?? 7860
-    // fast 路径要 CUDA（内部会 `requires a CUDA device`），CPU 上必须退回 eager。
-    // 这是首次合成 3 分钟 vs 几十秒的差别，值得探测一次。
+    // fast 路径（CUDA Graph / torch.compile）只在有 GPU 时开。CPU 上内置代码会
+    // 自动退回全 eager（见 fast_streaming.py 的 _is_cuda 分支），但那只是能跑，
+    // 仍是秒级 RTF —— 实测 5 秒级首帧 / 15～20 倍实时，只适合非实时场景。
     const useFast = await this.hasCuda()
-    log.info(`[spawn] root=${root} model=${this.cfg.modelDir} port=${port} fast=${useFast}`)
+    this.warnIfTooSlow(useFast)
+    log.info(
+      `[spawn] root=${root} model=${this.cfg.modelDir} port=${port} fast=${useFast} threads=${this.cpuThreads}`,
+    )
 
     // 不能用 `-m breeze_infer.api` + PYTHONPATH：内置 embed Python 会忽略 PYTHONPATH
     // （实测 ModuleNotFoundError），而 `-m` 要求模块在 sys.path 里。
@@ -162,6 +210,9 @@ export class BreezeTtsProvider implements TtsProvider {
     const bootScript = [
       'import sys',
       `sys.path.insert(0, ${JSON.stringify(root)})`,
+      // 线程数必须在模型加载前设，否则会按默认逻辑核数（本机 16）跑，实测反而更慢。
+      // `set_num_threads(0)` 非法，所以只在 CPU 分支注入这一行。
+      ...(useFast ? [] : ['import torch', `torch.set_num_threads(${this.cpuThreads})`]),
       `sys.argv = ${JSON.stringify([
         'breeze_infer.api',
         this.cfg.modelDir,
@@ -227,9 +278,16 @@ export class BreezeTtsProvider implements TtsProvider {
           path.basename(this.cfg.refAudioPath),
         )
         form.set('ref_text', this.cfg.refText)
+        // 克隆是否真的生效只能从这里看出来：服务端把 ref 当额外段编码，
+        // 不带它时返回的波形和默认音色一样，不会报错。
+        log.info(
+          `[synthesize] 克隆模式 ref=${buf.length}B text="${this.cfg.refText.slice(0, 20)}"`,
+        )
       } catch (e) {
         log.warn(`[synthesize] 读取参考音频失败，改用无参考模式: ${(e as Error).message}`)
       }
+    } else if (this.cfg.instruction?.trim()) {
+      log.info(`[synthesize] 指令模式 "${this.cfg.instruction.trim().slice(0, 30)}"`)
     }
 
     const res = await fetch(`${this.baseUrl}/v1/audio/speech`, {

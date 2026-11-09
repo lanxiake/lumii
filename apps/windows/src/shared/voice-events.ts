@@ -292,6 +292,13 @@ export type VoiceTtsConfig = {
   breezeInstruction?: string
   /** 服务端口；仅自动拉起时生效，一般不用改 */
   breezePort?: number
+  /**
+   * 是否启用声音克隆出声（默认 false，与 Qwen3 的克隆开关独立）。
+   * 为 true 且选了 breezeProfileId 时，把档案的参考音频 + 转写一起送进 Breeze。
+   */
+  breezeCloneEnabled?: boolean
+  /** 克隆音色档案 ID（与 Qwen3 共用同一份档案存储） */
+  breezeProfileId?: string
 }
 
 /** Qwen3 CustomVoice 内置音色（含方言） */
@@ -449,6 +456,7 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
     qwen3CloneVariant: '0.6b-base',
     qwen3Device: 'auto',
     language: 'Auto',
+    breezeCloneEnabled: false,
   },
   vad: {
     threshold: 0.5,

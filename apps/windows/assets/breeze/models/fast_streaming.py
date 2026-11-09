@@ -199,14 +199,29 @@ class FastBreezeStreamingRuntime:
             range(self._codec_codebook_size, int(self.model.config.vocab_size))
         )
 
-        if self.device.type != "cuda":
-            raise RuntimeError("fast streaming requires a CUDA device")
+        # Lumii 本地改动：上游只支持 CUDA（fast 路径全部是 CUDA Graph / torch.compile）。
+        # CPU 上退回全 eager：把 fast 阶段全部关掉，其余代码路径本就有 no_graph 分支。
+        # 这条分支只在没有 NVIDIA 显卡的机器上走到，CUDA 行为完全不变。
+        self._is_cuda = self.device.type == "cuda"
+        if not self._is_cuda:
+            self._fast_text_encoder = False
+            self._fast_backbone_prefill = False
+            self._fast_backbone_decode = False
+            self._fast_depth_decoder = False
+            self._fast_codec = False
+            self._codec_chunk_frames = 2
+            self.model._fast_text_encoder_cudagraph = False
         if self.config.repetition_penalty <= 0:
             raise ValueError("repetition_penalty must be > 0")
 
     @property
     def sample_rate(self) -> int:
         return int(self.model.config.codec_config.sampling_rate)
+
+    def _sync(self) -> None:
+        """CUDA 同步；CPU 版的 torch 上 `torch.cuda.synchronize` 会抛 AssertionError。"""
+        if self._is_cuda:
+            torch.cuda.synchronize(self.device)
 
     def _sampling_params(self, generation_config: Any) -> dict[str, Any]:
         def _value(name: str, override: Any, default: Any) -> Any:
@@ -539,7 +554,7 @@ class FastBreezeStreamingRuntime:
                 depth_bucket_sizes=list(profile.depth_decoder_batch_sizes),
             )
         assert self._depth_decoder_graph is not None
-        torch.cuda.synchronize(self.device)
+        self._sync()
         graph_elapsed_ms = (time.perf_counter() - graph_started) * 1000.0
         stages["backbone_decode"] = {
             "fast": self._fast_backbone_decode,
@@ -572,7 +587,7 @@ class FastBreezeStreamingRuntime:
                 suppress_tokens=self._reserved_codec_token_ids,
                 **backbone_params,
             )
-        torch.cuda.synchronize(self.device)
+        self._sync()
         stages["backbone_decode"]["sampling_warmup_ms"] = (
             time.perf_counter() - sampling_started
         ) * 1000.0
@@ -597,7 +612,7 @@ class FastBreezeStreamingRuntime:
             text_graph_keys = text_cache.graph_keys
             if profile.freeze_after_warmup:
                 text_cache.freeze()
-        torch.cuda.synchronize(self.device)
+        self._sync()
         stages["text_encoder"] = {
             "fast": self._fast_text_encoder,
             "graphs": [
@@ -629,7 +644,7 @@ class FastBreezeStreamingRuntime:
                 self._backbone_prefill_graph = self._backbone_prefill_graphs.get(
                     self._backbone_graph.batch_size
                 )
-        torch.cuda.synchronize(self.device)
+        self._sync()
         stages["backbone_prefill"] = {
             "fast": self._fast_backbone_prefill,
             "graphs": [
@@ -657,7 +672,7 @@ class FastBreezeStreamingRuntime:
         )
         _extract_audio_np(codec_audio)
         codec.close_request(codec_request_id)
-        torch.cuda.synchronize(self.device)
+        self._sync()
         stages["codec"] = {
             "fast": self._fast_codec,
             "graphs": [
@@ -716,7 +731,7 @@ class FastBreezeStreamingRuntime:
                     ) from exc
             finally:
                 synthetic_iterator.close()
-            torch.cuda.synchronize(self.device)
+            self._sync()
             synthetic_results.append(
                 {
                     "template": request_spec.template,
@@ -790,7 +805,7 @@ class FastBreezeStreamingRuntime:
         t_chunk = t_start
         prefill_start_event = None
         prefill_end_event = None
-        if self.config.collect_timing:
+        if self.config.collect_timing and self._is_cuda:
             prefill_start_event = torch.cuda.Event(enable_timing=True)
             prefill_end_event = torch.cuda.Event(enable_timing=True)
             prefill_start_event.record()

@@ -303,6 +303,14 @@ export function VoiceSettingsSection() {
     }
   }
 
+  const selectBreezeCloneProfile = (id: string | undefined) => {
+    void saveVoiceConfig({
+      tts: id
+        ? { breezeCloneEnabled: true, breezeProfileId: id }
+        : { breezeCloneEnabled: false, breezeProfileId: undefined },
+    })
+  }
+
   const selectBuiltinSpeaker = (speaker: string) => {
     void saveVoiceConfig({ tts: { qwen3Speaker: speaker, qwen3CloneEnabled: false } })
   }
@@ -310,6 +318,7 @@ export function VoiceSettingsSection() {
   const vitsDownloaded = vitsModelReady
   const qwenVariant = voiceConfig?.tts.qwen3Variant ?? '0.6b-custom'
   const cloneEnabled = voiceConfig?.tts.qwen3CloneEnabled === true
+  const breezeCloneEnabled = voiceConfig?.tts.breezeCloneEnabled === true
   const cloneVariant = voiceConfig?.tts.qwen3CloneVariant ?? '0.6b-base'
   const previewDisabled =
     !voiceConfig ||
@@ -705,14 +714,16 @@ export function VoiceSettingsSection() {
               )}
               {voiceConfig.tts.provider === 'breeze' && (
                 <>
-                  <p className={styles['voice-block-desc']}>
-                    Breeze TTS 2 是独立的 Python 服务，需要你先在本机部署好（仓库里执行
-                    <code> python -m pip install -r requirements.txt</code>，并准备模型权重）。
-                    这里只填路径，插件会按需拉起服务。
-                  </p>
                   <BreezeSettings
                     value={voiceConfig.tts}
                     onChange={(next) => saveVoiceConfig({ tts: next })}
+                  />
+                  {/* 克隆：Breeze 与 Qwen3 共用同一份音色档案存储（录制/上传/试听都一样），
+                      区别只在选中后写的是 breezeCloneEnabled 而不是 qwen3CloneEnabled。 */}
+                  <VoiceProfilesPanel
+                    selectedProfileId={breezeCloneEnabled ? voiceConfig.tts.breezeProfileId : undefined}
+                    onSelectProfile={selectBreezeCloneProfile}
+                    previewing={voicePreviewing || runtimeBusy}
                   />
                 </>
               )}
