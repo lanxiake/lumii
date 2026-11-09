@@ -12,6 +12,7 @@
  * - 单并发：已有请求在跑时返回 409
  */
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createServer } from 'node:net'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -117,19 +118,35 @@ export class BreezeTtsProvider implements TtsProvider {
     this.cfg.instruction = instruction?.trim() || undefined
   }
 
-  /** 托管 Python 里 torch 能否用 CUDA（决定是否走 fast 路径） */
-  private async hasCuda(): Promise<boolean> {
+  /**
+   * 能否走 fast（CUDA Graph）路径。
+   *
+   * 光有 CUDA 不够：fast 路径内部用 `torch.compile`，而它在 Windows 上需要 triton，
+   * 官方又只发布 Linux 版 triton 包 —— 直接开 fast 会 `TritonMissing` 退出。
+   * 所以两个条件都要满足：CUDA 可用 **且** triton 装得上。
+   */
+  private async canUseFast(): Promise<boolean> {
     try {
       const python = await resolvePythonExe()
+      const code = [
+        'import torch',
+        'ok = torch.cuda.is_available()',
+        'if ok:',
+        '    try:',
+        '        import triton',
+        '    except Exception:',
+        '        ok = False',
+        'print(ok)',
+      ].join('\n')
       return await new Promise<boolean>((resolve) => {
-        const p = spawn(python, ['-c', 'import torch;print(torch.cuda.is_available())'], {
+        const p = spawn(python, ['-c', code], {
           windowsHide: true,
           env: buildIsolatedPythonEnv(),
         })
         let out = ''
         p.stdout?.on('data', (b: Buffer) => (out += b.toString()))
         p.on('error', () => resolve(false))
-        p.on('exit', () => resolve(out.trim() === 'True'))
+        p.on('exit', () => resolve(out.trim().split(/\r?\n/).pop() === 'True'))
       })
     } catch {
       return false
@@ -164,7 +181,25 @@ export class BreezeTtsProvider implements TtsProvider {
       )
       return
     }
-    log.info(`[spawn] 无 CUDA，走 CPU eager 推理：约 5s 首帧、15～20 倍实时`)
+    log.info(
+      `[spawn] 未启用 fast 路径（需要 CUDA + triton；Windows 无 triton 包），` +
+        '走 eager 推理：约 5s 首帧、15～20 倍实时',
+    )
+  }
+
+  /** 端口是否已被别的进程占用 */
+  private isPortInUse(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const srv = createServer()
+      srv.once('error', (e: NodeJS.ErrnoException) => {
+        resolve(e.code === 'EADDRINUSE')
+      })
+      srv.once('listening', () => {
+        srv.close(() => resolve(false))
+      })
+      // 只探本机回环，和 Breeze 实际监听的地址保持一致
+      srv.listen(port, '127.0.0.1')
+    })
   }
 
   private async healthOk(): Promise<boolean> {
@@ -189,10 +224,18 @@ export class BreezeTtsProvider implements TtsProvider {
     }
 
     const port = this.cfg.port ?? 7860
+    // 端口被占时 uvicorn 会直接退出（code=3），但 stderr 已经被前面的模型加载日志
+    // 冲掉，用户只看到「进程已退出」却查不出原因。这里先探一次，把话说清楚。
+    if (await this.isPortInUse(port)) {
+      throw new Error(
+        `端口 ${port} 已被占用。可能是上次的 Breeze 进程没退干净，或别的程序占了这个端口。` +
+          `关掉占用进程后重试，或在设置里换一个端口。`,
+      )
+    }
     // fast 路径（CUDA Graph / torch.compile）只在有 GPU 时开。CPU 上内置代码会
     // 自动退回全 eager（见 fast_streaming.py 的 _is_cuda 分支），但那只是能跑，
     // 仍是秒级 RTF —— 实测 5 秒级首帧 / 15～20 倍实时，只适合非实时场景。
-    const useFast = await this.hasCuda()
+    const useFast = await this.canUseFast()
     this.warnIfTooSlow(useFast)
     log.info(
       `[spawn] root=${root} model=${this.cfg.modelDir} port=${port} fast=${useFast} threads=${this.cpuThreads}`,
@@ -233,12 +276,24 @@ export class BreezeTtsProvider implements TtsProvider {
       env: buildIsolatedPythonEnv(),
     })
 
-    // 子进程日志转进主日志，模型加载失败时能直接看到原因
+    // 子进程日志转进主日志。保留最后一段 stderr：进程异常退出时，
+    // 真正的原因（缺依赖 / 端口冲突 / OOM）往往就在最后几行，
+    // 而主日志被其他输出淹没了，事后翻不到。
+    let tailErr = ''
     this.child.stdout?.on('data', (b: Buffer) => log.debug(String(b).trimEnd()))
-    this.child.stderr?.on('data', (b: Buffer) => log.warn(String(b).trimEnd()))
+    this.child.stderr?.on('data', (b: Buffer) => {
+      const t = String(b)
+      tailErr = (tailErr + t).slice(-4000)
+      log.warn(t.trimEnd())
+    })
     this.child.on('exit', (code) => {
-      log.info(`[spawn] 进程退出 code=${code}`)
       this.child = null
+      // code=0 是正常结束；非 0 结束要把 stderr 尾部一起打出来，否则只剩一个数字
+      if (code === 0) {
+        log.info('[spawn] 进程正常退出')
+        return
+      }
+      log.error(`[spawn] 进程退出 code=${code}，最后的 stderr：\n${tailErr.slice(-1500)}`)
     })
 
     const deadline = Date.now() + READY_TIMEOUT_MS
@@ -346,14 +401,11 @@ export class BreezeTtsProvider implements TtsProvider {
   }
 
   destroy(): void {
-    if (this.child) {
-      try {
-        this.child.kill()
-        log.info('[destroy] 已停止 Breeze 进程')
-      } catch (e) {
-        log.warn(`[destroy] 停止进程失败: ${(e as Error).message}`)
-      }
-    }
+    // **不杀进程**。7.7GB 权重加载要几分钟，而试听结束后 voice-service 会立刻
+    // destroy 临时 provider —— 杀进程意味着每一句试听都要重载一次模型。
+    // 服务留着复用：下次 initialize() 的 healthOk() 会直接命中。
+    // 应用退出时由操作系统回收（子进程随父进程结束）。
+    log.info('[destroy] 保留 Breeze 服务进程以便复用')
     this.child = null
   }
 }
