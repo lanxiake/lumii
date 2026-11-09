@@ -20,12 +20,23 @@ import { generateImageViaRightApi, DEFAULT_RIGHTAPI_BASE_URL } from './rightapi-
 import { agentRuntimeLog as log } from './bridge-utils'
 import { loadSlotConfig, applyImageSlotToDrawEnv, ensureProviderBaseUrl } from '../provider-config'
 import { resolveModelThinking, apiForProviderType } from '../model-thinking'
+import { getDefaultOcrService } from '../ocr/create-default-ocr-service.js'
+import {
+  mergeOcrTracks,
+  runLocalOcrForRecognize,
+  shouldAskCloudForOcr,
+  type LocalOcrForRecognizeResult,
+} from '../ocr/local-ocr-for-recognize.js'
+import type { OcrService } from '../ocr/ocr-service.js'
+import type { OcrSource } from '../ocr/types.js'
 
 export interface BridgeImageServicesDeps {
   /** 模型路由器，用于按 tier / 显式 ID 解析模型 */
   getModelRouter: () => ModelRouter
   /** 当前工作目录（图片路径相对解析） */
   getCwd: () => string
+  /** 可选：注入本地 OCR（测试 / 自定义）；默认 getDefaultOcrService */
+  getOcrService?: () => Pick<OcrService, 'recognize' | 'getStatus'>
 }
 
 /**
@@ -66,7 +77,13 @@ export class BridgeImageServices {
     modelId?: string
     prompt?: string
     includeOcr?: boolean
-  }): Promise<{ description: string; ocrText: string; modelId: string; provider: string }> {
+  }): Promise<{
+    description: string
+    ocrText: string
+    modelId: string
+    provider: string
+    ocrSource: OcrSource
+  }> {
     const visionSlot = loadSlotConfig('vision')
     const useDirectVision = visionSlot.enabled && !!visionSlot.modelId
     const router = this.deps.getModelRouter()
@@ -109,13 +126,24 @@ export class BridgeImageServices {
     if (!fs.existsSync(absPath)) {
       throw Object.assign(new Error(`图片不存在: ${absPath}`), { code: 'IMAGE_NOT_FOUND' as const })
     }
+
+    const includeOcr = options.includeOcr !== false
+    let local: LocalOcrForRecognizeResult | null = null
+    if (includeOcr) {
+      const ocrService = this.deps.getOcrService?.() ?? getDefaultOcrService()
+      local = await runLocalOcrForRecognize({ imagePath: absPath, ocrService })
+      log.info(
+        `[recognizeImage] 本地 OCR ok=${local.ok} conf=${local.confidence.toFixed(2)} len=${local.ocrText.length}`,
+      )
+    }
+
+    const askCloudOcr = shouldAskCloudForOcr(includeOcr, local)
     const raw = await fs.promises.readFile(absPath)
     const { buffer: processedBuf, mimeType } = await resizeImageIfNeeded(raw, path.extname(absPath))
     const base64 = processedBuf.toString('base64')
 
-    const includeOcr = options.includeOcr !== false
     const promptText = options.prompt
-      ?? `请用中文简要描述这张图片的主要内容、结构和关键元素${includeOcr ? '，并把图片中可见的所有文字逐条列出（OCR 原文）' : ''}。` +
+      ?? `请用中文简要描述这张图片的主要内容、结构和关键元素${askCloudOcr ? '，并把图片中可见的所有文字逐条列出（OCR 原文）' : ''}。` +
          `\n\n请严格按以下 JSON 返回，不要包含额外说明：\n` +
          `{"description":"<图片描述>","ocrText":"<图中文字，无则空串>"}`
 
@@ -142,13 +170,13 @@ export class BridgeImageServices {
 
     // 解析 JSON 结果：容忍模型在 JSON 前后添加 markdown 代码块 ```json...```
     let description = ''
-    let ocrText = ''
+    let cloudOcrText = ''
     const jsonMatch = text.match(/\{[\s\S]*"description"[\s\S]*\}/)
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[0]) as { description?: unknown; ocrText?: unknown }
         description = typeof parsed.description === 'string' ? parsed.description : ''
-        ocrText = typeof parsed.ocrText === 'string' ? parsed.ocrText : ''
+        cloudOcrText = typeof parsed.ocrText === 'string' ? parsed.ocrText : ''
       } catch {
         description = text.trim()
       }
@@ -156,8 +184,15 @@ export class BridgeImageServices {
       description = text.trim()
     }
 
+    const merged = mergeOcrTracks({ includeOcr, local, cloudOcrText })
     const provider = visionSlot.type
-    return { description, ocrText, modelId: model.id, provider }
+    return {
+      description,
+      ocrText: merged.ocrText,
+      modelId: model.id,
+      provider,
+      ocrSource: merged.ocrSource,
+    }
   }
 
   /**

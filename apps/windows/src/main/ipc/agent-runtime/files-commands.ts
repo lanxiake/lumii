@@ -15,6 +15,10 @@ import { extractDocumentText } from '../../vendor/document-parser.js'
 import { resolveWikiRefPreviewTarget } from './resolve-wiki-ref-preview'
 import { describeMissingPreviewFile } from './missing-preview-message'
 import { isVaultRefPath } from '@mtbot/agent-runtime'
+import { getDefaultOcrService } from '../../ocr/create-default-ocr-service.js'
+import { ocrScannedDocument } from '../../ocr/ocr-scanned-document.js'
+import { tryCreatePdfPageRenderer } from '../../ocr/pdf-page-renderer.js'
+import { isOcrableImagePath } from '../../ocr/document-ocr-heuristics.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -466,7 +470,35 @@ export async function handleFilesImport(
   if (parsableMimes.has(effectiveMime) || parsableExts.has(fileExt)) {
     try {
       const parseResult = await extractDocumentText(fileBase64, destFileName, effectiveMime)
-      if (parseResult.ok && parseResult.text) {
+      let bodyText = parseResult.ok && parseResult.text ? parseResult.text : ''
+      let via = 'text-layer'
+
+      // 扫描件 / 稀疏文字层：本地 OCR 补抽（Windows；失败不阻断导入）
+      if (fileExt === '.pdf' || effectiveMime === 'application/pdf') {
+        try {
+          const ocrResult = await ocrScannedDocument({
+            filePath: destAbs,
+            existingText: bodyText,
+            existingPages: parseResult.pages,
+            parseOk: parseResult.ok,
+            ocrService: getDefaultOcrService(),
+            renderPdfPages: tryCreatePdfPageRenderer() ?? undefined,
+          })
+          if (ocrResult.via === 'pdf-ocr' && ocrResult.text.trim()) {
+            bodyText = ocrResult.text
+            via = 'local-ocr'
+            log.info(
+              `[files:import] PDF OCR 补抽: ${destFileName} pages=${ocrResult.pagesOcr} chars=${ocrResult.text.length}`,
+            )
+          } else if (ocrResult.errors.length > 0) {
+            log.warn(`[files:import] PDF OCR 跳过/失败: ${destFileName} ${ocrResult.errors.join('; ')}`)
+          }
+        } catch (ocrErr) {
+          log.warn(`[files:import] PDF OCR 异常（已忽略）: ${destFileName}`, ocrErr)
+        }
+      }
+
+      if (bodyText) {
         const txtFileName = `${base}_${ts}.extracted.txt`
         const txtAbs = path.join(uploadsDir, txtFileName)
         const header = [
@@ -474,21 +506,49 @@ export async function handleFilesImport(
           `# 原始文件: ${destFileName}`,
           `# 格式: ${effectiveMime}`,
           parseResult.pages ? `# 页数: ${parseResult.pages}` : null,
+          `# 文本来源: ${via}`,
           `# 解析时间: ${new Date().toISOString()}`,
           ``,
         ]
           .filter(Boolean)
           .join('\n')
-        await fs.promises.writeFile(txtAbs, header + parseResult.text, 'utf-8')
+        await fs.promises.writeFile(txtAbs, header + bodyText, 'utf-8')
         parsedTextPath = path.relative(cwd, txtAbs).replace(/\\/g, '/')
         log.info(
-          `[files:import] 文档解析成功: ${destFileName} → ${txtFileName} (${parseResult.text.length} chars)`,
+          `[files:import] 文档解析成功: ${destFileName} → ${txtFileName} (${bodyText.length} chars, via=${via})`,
         )
       } else {
         log.warn(`[files:import] 文档解析失败或无内容: ${destFileName}`)
       }
     } catch (parseErr) {
       log.warn(`[files:import] 文档解析异常（已忽略）: ${destFileName}`, parseErr)
+    }
+  } else if (isOcrableImagePath(destFileName)) {
+    // 扫描图片导入：尝试本地 OCR 生成伴生文本
+    try {
+      const ocrResult = await ocrScannedDocument({
+        filePath: destAbs,
+        ocrService: getDefaultOcrService(),
+      })
+      if (ocrResult.text.trim()) {
+        const txtFileName = `${base}_${ts}.extracted.txt`
+        const txtAbs = path.join(uploadsDir, txtFileName)
+        const header = [
+          `# 图片 OCR 结果`,
+          `# 原始文件: ${destFileName}`,
+          `# 格式: ${effectiveMime}`,
+          `# 文本来源: local-ocr`,
+          `# 解析时间: ${new Date().toISOString()}`,
+          ``,
+        ].join('\n')
+        await fs.promises.writeFile(txtAbs, header + ocrResult.text, 'utf-8')
+        parsedTextPath = path.relative(cwd, txtAbs).replace(/\\/g, '/')
+        log.info(`[files:import] 图片 OCR 成功: ${destFileName} (${ocrResult.text.length} chars)`)
+      } else if (ocrResult.errors.length > 0) {
+        log.warn(`[files:import] 图片 OCR 无结果: ${destFileName} ${ocrResult.errors.join('; ')}`)
+      }
+    } catch (ocrErr) {
+      log.warn(`[files:import] 图片 OCR 异常（已忽略）: ${destFileName}`, ocrErr)
     }
   } else if (
     (audioMimes.has(effectiveMime) || audioExts.has(fileExt)) &&

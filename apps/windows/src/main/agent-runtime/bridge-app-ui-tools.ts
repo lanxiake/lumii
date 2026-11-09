@@ -16,6 +16,8 @@ import {
 import { isAppUiControlEnabled } from '../app-ui-control/enabled'
 import type { BrowserWindow } from 'electron'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
+import { attachLocalOcr } from '../ocr/attach-local-ocr.js'
+import { getDefaultOcrService } from '../ocr/create-default-ocr-service.js'
 
 /**
  * 单轮各工具调用配额。
@@ -199,6 +201,11 @@ export function registerAppUiTools(
           annotate: Type.Optional(
             Type.Boolean({ description: '是否在截图上标注元素编号（SoM）' }),
           ),
+          ocr: Type.Optional(
+            Type.Boolean({
+              description: '是否对截图跑本地 OCR（默认 true；失败不影响截图成功）',
+            }),
+          ),
           target: Type.Optional(
             Type.String({
               description: '截图目标：main（默认）| pet | preview（preview 暂未支持）',
@@ -257,6 +264,12 @@ export function registerAppUiTools(
 
             // 不把 JPEG base64 内联进上下文（避免大量无法阅读的数据污染 LLM）；
             // 只回文件路径 + refs，与 image_generate / browser_screenshot 同约定。
+            const ocrWanted = params.ocr !== false
+            const ocrFields = await attachLocalOcr({
+              imagePath: result.previewPath,
+              ocr: ocrWanted,
+              ocrService: getDefaultOcrService(),
+            })
             const payload = {
               ok: true as const,
               snapshotId: result.snapshotId,
@@ -267,6 +280,7 @@ export function registerAppUiTools(
               refs: result.refs,
               truncated: result.truncated,
               imagePath: result.previewPath,
+              ...ocrFields,
               note:
                 `截图已保存，文件的唯一有效路径是 "${result.previewPath}"。` +
                 `界面可交互元素见 refs：value 是输入框当前内容（空串表示未填，password 已脱敏），` +

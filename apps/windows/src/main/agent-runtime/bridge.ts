@@ -3553,7 +3553,7 @@ export class AgentRuntimeBridge {
   }
 
   // ── 图片服务 ──
-  recognizeImage(options: { imagePath: string; modelId?: string; prompt?: string; includeOcr?: boolean }): Promise<{ description: string; ocrText: string; modelId: string; provider: string }> {
+  recognizeImage(options: { imagePath: string; modelId?: string; prompt?: string; includeOcr?: boolean }): Promise<{ description: string; ocrText: string; modelId: string; provider: string; ocrSource: import('../ocr/types').OcrSource }> {
     return this.imageServices.recognizeImage(options)
   }
 

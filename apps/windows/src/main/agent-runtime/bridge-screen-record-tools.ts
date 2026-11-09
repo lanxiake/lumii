@@ -12,6 +12,8 @@ import {
   type MtBotTool,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
+import { attachLocalOcr } from '../ocr/attach-local-ocr.js'
+import { getDefaultOcrService } from '../ocr/create-default-ocr-service.js'
 import type {
   NarrateService,
   RecordingInspector,
@@ -538,21 +540,32 @@ export function registerScreenRecordTools(
           '不返回 a11y refs，不能代替 app_act 点选。',
         parameters: Type.Object({
           sourceId: Type.String({ description: 'list_sources 返回的 sourceId（整屏或窗口）' }),
+          ocr: Type.Optional(
+            Type.Boolean({
+              description: '是否对截图跑本地 OCR（默认 true；失败不影响截图成功）',
+            }),
+          ),
         }),
         isReadOnly: true,
         needsPermission: true,
         execute: async (_id, rawParams) => {
           const svc = get()
           if (!svc) return jsonToolResult({ ok: false, error: 'disabled' })
-          const p = (rawParams ?? {}) as { sourceId?: string }
+          const p = (rawParams ?? {}) as { sourceId?: string; ocr?: boolean }
           if (!p.sourceId) {
             return jsonToolResult({ ok: false, error: 'usage', message: 'sourceId required' })
           }
           try {
             const result = await svc.screenshot({ sourceId: p.sourceId })
             if (!result.ok) return jsonToolResult(result)
+            const ocrFields = await attachLocalOcr({
+              imagePath: result.imagePath,
+              ocr: p.ocr !== false,
+              ocrService: getDefaultOcrService(),
+            })
             const payload = {
               ...result,
+              ...ocrFields,
               note:
                 `截图已保存，文件路径是 "${result.imagePath}"。` +
                 `可把该图展示给用户查看其他应用/桌面状态；观察细节请读取该路径，勿编造文件名。`,

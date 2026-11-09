@@ -2479,6 +2479,8 @@ type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       modelId: string
       /** 模型提供方（openai / qwen / zhipu / doubao / ...） */
       provider: string
+      /** OCR 来源：本地 / 云端 / 混合 / 无 */
+      ocrSource: 'local' | 'cloud' | 'mixed' | 'none'
     }
   : T extends 'image:process' ? {
       /** 处理后生成的文件路径（workspace 相对路径） */
