@@ -228,7 +228,9 @@ export default defineConfig({
       },
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/main/index.ts')
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // 本地 OCR utility worker（fork 子进程入口；禁止打进主进程 ort）
+          'ocr-worker-main': resolve(__dirname, 'src/main/ocr/ocr-worker-main.ts'),
         },
         output: {
           banner: FILE_POLYFILL_BANNER,
@@ -253,6 +255,12 @@ export default defineConfig({
         // （pi-ai/package.json 已声明这些 SDK 为 dependencies，pnpm 已在 store 中建好依赖树）。
         external: [
           'bufferutil', 'utf-8-validate', 'iconv-lite', 'better-sqlite3', 'node:sqlite', 'isolated-vm',
+          // 本地 OCR：推理/渲染原生依赖必须运行时从 node_modules 加载，勿打进主 bundle
+          'esearch-ocr',
+          'onnxruntime-node',
+          '@napi-rs/canvas',
+          'pdfjs-dist',
+          /^pdfjs-dist\/.*/,
           /^@anthropic-ai\/.*$/,
           /^@google\/.*$/,
           /^@aws-sdk\/.*$/,

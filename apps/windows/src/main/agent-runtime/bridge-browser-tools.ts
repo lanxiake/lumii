@@ -8,6 +8,8 @@
 import { Type } from '@sinclair/typebox'
 import { ToolRegistry, createMtBotTool, type ToolExecutionContext, type MtBotTool } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
+import { attachLocalOcr } from '../ocr/attach-local-ocr.js'
+import { getDefaultOcrService } from '../ocr/create-default-ocr-service.js'
 
 type GetBrowserContext = () => import('../../plugins/builtin/browser/service.js').BrowserRouteContext | null
 
@@ -250,14 +252,43 @@ export function registerBrowserTools(
     description:
       'Take a screenshot of the current browser page and return the image path. ' +
       'Pass fullPage=true to capture the whole document including below-the-fold content. ' +
-      'For element refs (needed by browser_click / browser_type) use browser_snapshot instead.',
+      'For element refs (needed by browser_click / browser_type) use browser_snapshot instead. ' +
+      '默认附带本地 OCR（ocr=false 可关；失败不影响截图）。',
     parameters: Type.Object({
       fullPage: Type.Optional(Type.Boolean({
         description: '截整页（含折叠区）；复刻取证必须开',
       })),
+      ocr: Type.Optional(Type.Boolean({
+        description: '是否对截图跑本地 OCR（默认 true）',
+      })),
     }),
     isReadOnly: true, needsPermission: false,
-    execute: wrapExecute('/screenshot', (p) => ({ fullPage: p.fullPage === true })),
+    execute: async (_id: string, rawParams: unknown) => {
+      try {
+        const p = (rawParams ?? {}) as { fullPage?: unknown; ocr?: unknown }
+        const body = (await dispatchBrowserProxy('/screenshot', {
+          fullPage: p.fullPage === true,
+        })) as { path?: unknown; targetId?: unknown; url?: unknown }
+        const imagePath = typeof body?.path === 'string' ? body.path : ''
+        const ocrFields = imagePath
+          ? await attachLocalOcr({
+              imagePath,
+              ocr: p.ocr !== false,
+              ocrService: getDefaultOcrService(),
+            })
+          : {}
+        return jsonToolResult({
+          ok: true,
+          result: {
+            ...body,
+            imagePath: imagePath || undefined,
+            ...ocrFields,
+          },
+        })
+      } catch (err) {
+        return jsonToolResult({ ok: false, error: browserErrorText(err) })
+      }
+    },
   }, ctx))
 
   reg(createMtBotTool({
