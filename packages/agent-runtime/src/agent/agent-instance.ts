@@ -395,7 +395,9 @@ export class AgentInstance {
       // 宿主据此把 assistant 消息封口另起一条。晚一步（入队时发）会把启动于插话前、
       // 返回于插话后的工具拆成两半；早一步则拿不到这个时机。
       prepareRequest: (context, signal) => {
-        if (this.pendingSteerCount > 0) {
+        // 已 abort 时不算「插话生效」：队列本应在 abort() 清掉；若竞态漏网也不发
+        // steer:delivered，避免宿主另起 is_streaming 占位把会话卡死。
+        if (this.pendingSteerCount > 0 && !this._aborted) {
           this.emit({ type: "steer:delivered", instanceId: this.id });
         }
         this.pendingSteerCount = 0;
@@ -799,6 +801,12 @@ export class AgentInstance {
     this._idleWaitResolve = null;
     // 取消挂起的自愈 continue，避免 abort 后僵尸回合与新 prompt 竞态
     this.selfHeal.dispose();
+    // 先丢掉未注入的插话/followUp：pi 的 abort 只发信号，当前工具 settle 后
+    // loop 仍会 drain steering 再走 prepareRequest——会误发 steer:delivered，
+    // 宿主据此另起 is_streaming 占位，与 abort 收尾竞态后会话卡死（重启才恢复）。
+    // 未回答的插话由 UI handleAbort 转成新一轮 user:send，不需要队列里再留一份。
+    this.pendingSteerCount = 0;
+    this.agent.clearAllQueues();
     this.agent.abort();
     this.setState("aborted");
     // 立刻结束 prompt() 等待，避免 SessionManager 会话锁卡住后续 user:send

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Type } from "@sinclair/typebox";
 import type { AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolCall } from "@earendil-works/pi-ai/compat";
@@ -81,7 +81,25 @@ function assistantText(text: string): AssistantMessage {
  */
 function scriptedStreamFn(script: AssistantMessage[], onRequest?: (index: number) => void): StreamFn {
   let i = 0;
-  return (() => {
+  return ((...args: unknown[]) => {
+    const opts = args[2] as { signal?: AbortSignal } | undefined;
+    // abort 后 loop 可能因 hasMoreToolCalls 再要一次回复；已中止则直接回 aborted，
+    // 不消耗脚本条目（与真实 LLM 尊重 signal 的行为对齐）。
+    if (opts?.signal?.aborted) {
+      const aborted = {
+        ...assistantText(""),
+        stopReason: "aborted" as const,
+        errorMessage: "aborted",
+      };
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "done" } as never;
+        },
+        async result() {
+          return aborted;
+        },
+      };
+    }
     const index = i;
     const message = script[Math.min(i, script.length - 1)]!;
     i += 1;
@@ -219,5 +237,52 @@ describe("插话打断工具批（pi 0.87.1 语义回归）", () => {
 
     expect(steeredDuringStreaming).toBe(true);
     expect(calls).toEqual([]);
+  });
+
+  it("插话尚未注入就 abort → 不得再发 steer:delivered，下一轮工具可正常执行", async () => {
+    // 复现：工具执行中插话 → 立刻中断（插话还在 steering 队列里）。
+    // 旧行为：abort 不清队列；工具 settle 后 loop 继续 drain steering → prepareRequest
+    // 误发 steer:delivered（宿主据此另起 is_streaming 占位），与 abort 收尾竞态后
+    // 会话卡在流式态，重新生成/再发消息都起不来，重启才恢复。
+    const calls: string[] = [];
+    let releaseTool!: () => void;
+    const toolGate = new Promise<void>((resolve) => {
+      releaseTool = resolve;
+    });
+    const delivered: string[] = [];
+
+    const instance = makeInstance(
+      [
+        makeTool("toolA", calls, async () => {
+          instance.steer("还没注入就中断");
+          instance.abort();
+          await toolGate;
+        }),
+        makeTool("toolB", calls),
+        makeTool("toolC", calls),
+      ],
+      [
+        assistantWithToolCalls("toolA", "toolB"),
+        // 第二轮：证明 pendingSteerCount / 队列残留不会迁怒新回合
+        assistantWithToolCalls("toolC"),
+        assistantText("好"),
+      ],
+    );
+    instance.subscribe((e) => {
+      if (e.type === "steer:delivered") delivered.push(e.instanceId);
+    });
+
+    const first = instance.prompt("第一轮");
+    // 等工具内 abort 发生后再放行，确保「插话入队 → abort」次序成立
+    await vi.waitFor(() => {
+      expect(instance.wasAborted).toBe(true);
+    });
+    releaseTool();
+    await first;
+
+    expect(delivered).toEqual([]);
+
+    await instance.prompt("第二轮");
+    expect(calls).toEqual(["toolA", "toolC"]);
   });
 });
