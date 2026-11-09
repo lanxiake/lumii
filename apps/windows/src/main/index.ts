@@ -697,7 +697,7 @@ async function initAgentRuntime(): Promise<void> {
     getChannelRouter: () => channelHub?.router ?? null,
     generateVoiceFile: async (
       text: string,
-      opts?: { speaker?: string; speed?: number },
+      opts?: { speaker?: string; speed?: number; instruction?: string },
     ) => {
       const voice = currentVoiceService()
       if (!voice) throw new Error('语音通话服务未初始化')

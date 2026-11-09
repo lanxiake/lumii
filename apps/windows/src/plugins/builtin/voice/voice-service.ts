@@ -1615,7 +1615,7 @@ export class VoiceCallService {
   async generateAudioFile(
     text: string,
     destDir: string,
-    opts?: { speaker?: string; speed?: number; voice?: string },
+    opts?: { speaker?: string; speed?: number; voice?: string; instruction?: string },
   ): Promise<string> {
     await this.ensureTtsInitialized()
 
@@ -1627,7 +1627,7 @@ export class VoiceCallService {
     const isEncoded = this.currentOutputFormat() === 'mp3'
 
     log.info(
-      `[generateAudioFile] 开始合成文本: "${text.slice(0, 40)}" speaker=${opts?.speaker ?? '-'} voice=${opts?.voice ?? '-'} speed=${opts?.speed ?? '-'}`,
+      `[generateAudioFile] 开始合成文本: "${text.slice(0, 40)}" speaker=${opts?.speaker ?? '-'} voice=${opts?.voice ?? '-'} speed=${opts?.speed ?? '-'} instruction=${opts?.instruction ? '有' : '-'}`,
     )
 
     // 整段锁定语种，避免长文工具（speech_generate）中途漂语种。
@@ -1638,6 +1638,10 @@ export class VoiceCallService {
     // 临时覆盖音色/语速（仅当前引擎支持时生效），合成后按全局 config 恢复。
     if (opts?.speaker) this.ttsProvider!.setSpeakerName?.(opts.speaker)
     if (typeof opts?.speed === 'number') this.ttsProvider!.setSpeed?.(opts.speed)
+    // Breeze 的「音色」不是固定 ID 而是自然语言描述，走 instruction 通道。
+    // 记下原值，合成后恢复，避免污染设置页里配的默认音色。
+    const prevInstruction = this.config.tts.breezeInstruction
+    if (opts?.instruction) this.ttsProvider!.setInstruction?.(opts.instruction)
 
     // **edge 的音色是另一条路**：它没有 setSpeakerName（那是 Qwen3 的说话人 ID），
     // 换音色要调 setVoice（异步，内部会重设 msedge-tts 的 metadata）。
@@ -1667,6 +1671,7 @@ export class VoiceCallService {
       // 恢复全局配置的音色/语速，避免污染后续通话/预览
       if (opts?.speaker) this.ttsProvider?.setSpeakerName?.(this.config.tts.qwen3Speaker ?? 'Vivian')
       if (typeof opts?.speed === 'number') this.ttsProvider?.setSpeed?.(this.config.tts.speed)
+      if (opts?.instruction) this.ttsProvider?.setInstruction?.(prevInstruction ?? null)
       if (opts?.voice && prevVoice) {
         await (this.ttsProvider as { setVoice?: (v: string) => Promise<void> })
           .setVoice?.(prevVoice)

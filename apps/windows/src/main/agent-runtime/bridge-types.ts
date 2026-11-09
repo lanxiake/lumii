@@ -101,10 +101,13 @@ export interface AgentRuntimeBridgeConfig {
   getChannelRouter?: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null | undefined
   /**
    * 将文本合成为语音文件并返回文件绝对路径（由 index.ts 注入，调用 voiceCallService）。
+   *
+   * `speaker` 与 `instruction` 是两套互斥的音色通道：前者是 Qwen3 的固定音色 ID，
+   * 后者是 Breeze 的自然语言音色描述。引擎不认的那个会被静默忽略（不报错）。
    */
   generateVoiceFile?: (
     text: string,
-    opts?: { speaker?: string; speed?: number },
+    opts?: { speaker?: string; speed?: number; instruction?: string },
   ) => Promise<string>
   /**
    * 设置 ACP 后端（由 index.ts 注入，调用 AcpBackendManager.setBackend）

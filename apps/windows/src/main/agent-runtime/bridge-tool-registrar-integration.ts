@@ -1006,7 +1006,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   const speechGenerateTool: MtBotToolConfig = {
     ...speechGenerateToolConfig,
     execute: async (_id, rawParams) => {
-      const p = rawParams as { text?: string; speaker?: string; speed?: number }
+      const p = rawParams as { text?: string; speaker?: string; speed?: number; instruction?: string }
       const text = String(p.text ?? '').trim()
       if (!text) {
         return jsonToolResult({ status: 'error', message: 'text 参数不能为空' })
@@ -1020,6 +1020,7 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
         const filePath = await deps.config.generateVoiceFile(text, {
           speaker: p.speaker?.trim() || undefined,
           speed,
+          instruction: p.instruction?.trim() || undefined,
         })
         // 与 image_generate 同风格：防止路径编造
         const result = {

@@ -37,6 +37,13 @@ export interface TtsProvider {
   setSpeakerId?(id: number): void
   /** 热更新 CustomVoice 说话人名（Qwen3 专用） */
   setSpeakerName?(speaker: string): void
+  /**
+   * 热更新「自然语言音色描述」（Breeze 专用）。
+   *
+   * Breeze 没有固定音色列表：想要什么声音就用一句话描述（如「一位温柔自信的
+   * 年轻女声，语速偏快，像体育播报」）。传 null 清除，回到模型默认音色。
+   */
+  setInstruction?(instruction: string | null): void
   /** 热更新音色（Edge TTS 专用，需重建 WebSocket） */
   setVoice?(voice: string): Promise<void>
   /**
