@@ -70,4 +70,66 @@ describe("PluginScope", () => {
 
     expect(() => scope.effect(() => {})).toThrow(/作用域已销毁/);
   });
+
+  it("generator 产出的每个 disposer 都被登记，并按 LIFO 清理", async () => {
+    const scope = new PluginScope("p");
+    const order: string[] = [];
+
+    scope.effect(function* () {
+      yield () => void order.push("a");
+      yield () => void order.push("b");
+      yield () => void order.push("c");
+    });
+
+    await scope.dispose();
+
+    expect(order).toEqual(["c", "b", "a"]);
+  });
+
+  it("子作用域随父作用域清理，且清理顺序是嵌套整体逆序", async () => {
+    const scope = new PluginScope("p");
+    const order: string[] = [];
+
+    scope.effect(() => void order.push("parent-1"));
+    const child = scope.fork();
+    child.effect(() => void order.push("child-1"));
+    child.effect(() => void order.push("child-2"));
+    scope.effect(() => void order.push("parent-2"));
+
+    await scope.dispose();
+
+    // parent-2 后注册 → 先清理；再轮到「fork 时登记的那个清理器」把整棵子树拆掉；最后 parent-1
+    expect(order).toEqual(["parent-2", "child-2", "child-1", "parent-1"]);
+    expect(child.isDisposed).toBe(true);
+  });
+
+  it("子作用域可以单独提前 dispose，父作用域不受影响", async () => {
+    const scope = new PluginScope("p");
+    let parentCleaned = false;
+    let childCleaned = false;
+
+    scope.effect(() => {
+      parentCleaned = true;
+    });
+    const child = scope.fork();
+    child.effect(() => {
+      childCleaned = true;
+    });
+
+    await child.dispose();
+
+    expect(childCleaned).toBe(true);
+    expect(parentCleaned).toBe(false);
+    expect(scope.isDisposed).toBe(false);
+
+    await scope.dispose();
+    expect(parentCleaned).toBe(true);
+  });
+
+  it("父作用域销毁后再开子作用域抛错", async () => {
+    const scope = new PluginScope("p");
+    await scope.dispose();
+
+    expect(() => scope.fork()).toThrow(/作用域已销毁/);
+  });
 });

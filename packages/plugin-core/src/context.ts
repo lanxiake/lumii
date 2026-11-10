@@ -1,16 +1,39 @@
 import type { EventBus, EventMap, Listener, WaterfallListener } from "./events.js";
 import { DuplicateServiceError, MissingServiceError } from "./errors.js";
-import type { PluginScope } from "./scope.js";
+import type { EffectValue, PluginScope } from "./scope.js";
 import type { PluginLogger, ServiceKey } from "./types.js";
 
 /**
  * 服务容器：跨插件共享，插件卸载时移除自己 provide 的项。
  *
  * 工厂形态（`provide(key, () => value)`）只在首次 `get/require` 时求值一次。
+ *
+ * `onChange` 是依赖驱动的唯一信号源：宿主要知道「哪个 key 变成了可用/不可用」，
+ * 才能在服务出现时激活 PENDING 插件、在服务消失时级联停用依赖方。
+ * 只用「容器最终状态」判断是不够的——需要知道变化的方向。
  */
 export class ServiceContainer {
   private readonly values = new Map<string, unknown>();
   private readonly factories = new Map<string, () => unknown>();
+  private readonly listeners = new Set<(change: ServiceChange) => void>();
+
+  /** 订阅容器变更；返回退订函数。监听器异常不影响提供方。 */
+  onChange(listener: (change: ServiceChange) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(change: ServiceChange): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(change);
+      } catch {
+        // 通知方不该因为某个订阅者抛错而中断提供/移除
+      }
+    }
+  }
 
   provide<T>(key: ServiceKey<T>, value: T | (() => T), owner = "unknown"): void {
     const name = key as string;
@@ -21,6 +44,7 @@ export class ServiceContainer {
     }
     if (typeof value === "function") this.factories.set(name, value as () => T);
     else this.values.set(name, value);
+    this.notify({ type: "provide", key: name, owner });
   }
 
   get<T>(key: ServiceKey<T>): T | undefined {
@@ -53,9 +77,19 @@ export class ServiceContainer {
 
   remove(key: ServiceKey<unknown>): void {
     const name = key as string;
+    const existed = this.values.has(name) || this.factories.has(name);
     this.values.delete(name);
     this.factories.delete(name);
+    if (existed) this.notify({ type: "remove", key: name });
   }
+}
+
+/** 容器变更：`provide` = 新服务可用；`remove` = 服务消失（依赖方应级联停用）。 */
+export interface ServiceChange {
+  type: "provide" | "remove";
+  key: string;
+  /** provide 时是提供方插件 id */
+  owner?: string;
 }
 
 export interface PluginContext<E extends EventMap = EventMap> {
@@ -68,7 +102,17 @@ export interface PluginContext<E extends EventMap = EventMap> {
   require<T>(key: ServiceKey<T>): T;
 
   /** 注册可逆副作用；dispose 按 LIFO 执行。 */
-  effect(dispose: () => void | Promise<void>): void;
+  effect(dispose: EffectValue): void;
+
+  /**
+   * 开一个**子作用域**：随本插件作用域销毁；也可以在调用方提前 dispose。
+   *
+   * 用于按实体登记资源（每个会话的工具、每个窗口的监听器）：
+   * 实体消失时只拆那一棵子树，插件本体继续服务其余实体。
+   *
+   * 子上下文共享同一服务容器与事件总线，只有作用域是新的。
+   */
+  fork(name?: string): PluginContext<E>;
 
   /**
    * 注册 IPC 处理器（仅主进程可用）。
@@ -114,66 +158,74 @@ export function createPluginContext<E extends EventMap>(
 ): PluginContext<E> {
   const { pluginId, container, eventBus, scope, logger, ipcRegistry } = deps;
 
-  const ctx: PluginContext<E> = {
-    pluginId,
-    log: logger,
+  const build = (current: PluginScope, label?: string): PluginContext<E> => {
+    const ctx: PluginContext<E> = {
+      pluginId,
+      log: label ? { ...logger, info: (m, d) => logger.info(`[${label}] ${m}`, d) } : logger,
 
-    provide<T>(key: ServiceKey<T>, value: T | (() => T)): void {
-      container.provide(key, value, pluginId);
-      // internal：这行清理是容器簿记，不是扩展登记的 teardown
-      scope.effect(() => container.remove(key), "internal");
-    },
+      provide<T>(key: ServiceKey<T>, value: T | (() => T)): void {
+        container.provide(key, value, pluginId);
+        // internal：这行清理是容器簿记，不是扩展登记的 teardown
+        current.effect(() => container.remove(key), "internal");
+      },
 
-    get<T>(key: ServiceKey<T>): T | undefined {
-      return container.get(key);
-    },
+      get<T>(key: ServiceKey<T>): T | undefined {
+        return container.get(key);
+      },
 
-    require<T>(key: ServiceKey<T>): T {
-      return container.require(key, pluginId);
-    },
+      require<T>(key: ServiceKey<T>): T {
+        return container.require(key, pluginId);
+      },
 
-    effect(dispose: () => void | Promise<void>): void {
-      scope.effect(dispose);
-    },
+      effect(dispose: EffectValue): void {
+        current.effect(dispose);
+      },
 
-    on(name, listener) {
-      const off = eventBus.on(name, listener);
-      scope.effect(off);
-    },
+      fork(name?: string): PluginContext<E> {
+        return build(current.fork(), name ?? "sub");
+      },
 
-    onWaterfall(name, listener) {
-      const off = eventBus.onWaterfall(name, listener);
-      scope.effect(off);
-    },
+      on(name, listener) {
+        const off = eventBus.on(name, listener);
+        current.effect(off);
+      },
 
-    emit(name, payload) {
-      eventBus.emit(name, payload);
-    },
+      onWaterfall(name, listener) {
+        const off = eventBus.onWaterfall(name, listener);
+        current.effect(off);
+      },
 
-    waterfall(name, payload) {
-      return eventBus.waterfall(name, payload);
-    },
+      emit(name, payload) {
+        eventBus.emit(name, payload);
+      },
 
-    serial(name, payload) {
-      return eventBus.serial(name, payload);
-    },
+      waterfall(name, payload) {
+        return eventBus.waterfall(name, payload);
+      },
 
-    parallel(name, payload) {
-      return eventBus.parallel(name, payload);
-    },
+      serial(name, payload) {
+        return eventBus.serial(name, payload);
+      },
+
+      parallel(name, payload) {
+        return eventBus.parallel(name, payload);
+      },
+    };
+
+    // 主进程才有 IPC 注册能力
+    if (ipcRegistry) {
+      ctx.registerIpc = (channel, handler) => {
+        ipcRegistry.register(channel, handler);
+        current.effect(() => ipcRegistry.unregister(channel));
+      };
+      ctx.registerIpcListener = (channel, listener) => {
+        ipcRegistry.registerListener?.(channel, listener);
+        current.effect(() => ipcRegistry.unregisterListener?.(channel, listener));
+      };
+    }
+
+    return ctx;
   };
 
-  // 主进程才有 IPC 注册能力
-  if (ipcRegistry) {
-    ctx.registerIpc = (channel, handler) => {
-      ipcRegistry.register(channel, handler);
-      scope.effect(() => ipcRegistry.unregister(channel));
-    };
-    ctx.registerIpcListener = (channel, listener) => {
-      ipcRegistry.registerListener?.(channel, listener);
-      scope.effect(() => ipcRegistry.unregisterListener?.(channel, listener));
-    };
-  }
-
-  return ctx;
+  return build(scope);
 }
