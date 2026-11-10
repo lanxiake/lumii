@@ -4,9 +4,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildQuoteMarkdown,
+  hasFileRefSink,
   hasQuoteSink,
+  insertFileReference,
   insertQuote,
+  registerFileRefSink,
   registerQuoteSink,
+  type FileRefSink,
   type QuoteSink,
 } from './quote-bridge'
 
@@ -14,6 +18,12 @@ const cleanups: Array<() => void> = []
 
 function register(sink: QuoteSink): () => void {
   const off = registerQuoteSink(sink)
+  cleanups.push(off)
+  return off
+}
+
+function registerFile(sink: FileRefSink): () => void {
+  const off = registerFileRefSink(sink)
   cleanups.push(off)
   return off
 }
@@ -89,5 +99,41 @@ describe('引用投递桥', () => {
     expect(hasQuoteSink()).toBe(true)
     expect(insertQuote({ text: 'x' })).toBe(true)
     expect(second).toHaveBeenCalled()
+  })
+})
+
+describe('文件引用投递桥', () => {
+  it('无 sink 时不可用，insertFileReference 返回 false', () => {
+    expect(hasFileRefSink()).toBe(false)
+    expect(insertFileReference({ relativePath: 'a.md', name: 'a.md', isDirectory: false })).toBe(false)
+  })
+
+  it('注册后透传文件引用', () => {
+    const sink = vi.fn(() => true)
+    registerFile(sink)
+
+    expect(hasFileRefSink()).toBe(true)
+    const ref = { relativePath: 'outputs/a.md', name: 'a.md', isDirectory: false }
+    expect(insertFileReference(ref)).toBe(true)
+    expect(sink).toHaveBeenCalledWith(ref)
+  })
+
+  it('注销后恢复为不可用', () => {
+    const off = registerFile(() => true)
+    off()
+    expect(hasFileRefSink()).toBe(false)
+  })
+
+  it('文本引用与文件引用互不影响：只注销一个，另一个仍可用', () => {
+    const offQuote = register(() => true)
+    const fileSink = vi.fn(() => true)
+    registerFile(fileSink)
+
+    offQuote()
+
+    expect(hasQuoteSink()).toBe(false)
+    expect(hasFileRefSink()).toBe(true)
+    expect(insertFileReference({ relativePath: 'x', name: 'x', isDirectory: false })).toBe(true)
+    expect(fileSink).toHaveBeenCalled()
   })
 })

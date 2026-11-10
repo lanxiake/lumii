@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
+import { FileQuoteButton } from '../../../../components/FileQuoteButton'
 import type { Artifact } from './ledger'
 import { extOf, mediaUrl } from './ledger'
 import { requestArtifactThumb } from '../../../../services/artifact-service'
@@ -129,6 +130,19 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
     <button
       type="button"
       className={clsx(styles.card, selected && styles.cardSelected, missing && styles.cardMissing)}
+      draggable={!missing}
+      onDragStart={(event) => {
+        // 与文件树同一份载荷：输入框只认 x-mtbot-file，拖进来即插 @引用 chip
+        const payload = JSON.stringify({
+          relativePath: artifact.path,
+          name,
+          absolutePath,
+          isDirectory: false,
+        })
+        event.dataTransfer.setData('application/x-mtbot-file', payload)
+        event.dataTransfer.setData('text/plain', `@${artifact.path}`)
+        event.dataTransfer.effectAllowed = 'copy'
+      }}
       onClick={(event) => {
         // 修饰键只在这里翻译成意图；多选的合并规则在 rail（selection.ts）
         if (event.shiftKey) onSelect(artifact.path, 'range')
@@ -165,6 +179,16 @@ export const ArtifactCard: React.FC<ArtifactCardProps> = ({
         >
           {STATUS_SHORT[artifact.status]}
         </span>
+        {/* 引用到输入框：卡片主体是 button，这里用 role=button 的 span 并拦冒泡 */}
+        {!missing && artifact.status !== 'deleted' && (
+          <FileQuoteButton
+            relativePath={artifact.path}
+            name={name}
+            absolutePath={absolutePath}
+            className={styles.cardQuote}
+            stopPropagation
+          />
+        )}
       </span>
       <span className={styles.cardName}>{name}</span>
       <span className={styles.cardMeta}>

@@ -1,0 +1,30 @@
+/* 「引用到输入框」按钮：卡片/行内的小图标按钮，悬停才明显 */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mt-fg-3, #8b93a1);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.button:hover {
+  opacity: 1;
+  color: var(--mt-fg-1, #e6e8ee);
+  background: var(--mt-surface-2, rgba(255, 255, 255, 0.08));
+}
+
+.button[aria-disabled='true'] {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
+}

@@ -25,6 +25,7 @@ import {
   registerQuoteSink,
   type QuoteInput,
 } from '../../../../services/quote-bridge'
+import { registerFileRefSink } from '../../../../services/quote-bridge'
 import { RichComposer, type RichComposerHandle } from './RichComposer'
 import { collectClipboardFiles } from './clipboard-files'
 import { FilePreviewModal } from '../../../../components/FilePreviewModal'
@@ -349,6 +350,26 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   // 挂载期间把投递目标登记给全局的划词层；卸载即注销（不在对话页时引用动作置灰）
   useEffect(() => registerQuoteSink(insertQuoteBlock), [insertQuoteBlock])
+
+  /**
+   * 文件引用投递目标（产出卡 / 文件变更行 / 工作区文件树的「引用」按钮走这里）。
+   *
+   * 直接复用拖放的插入路径：chip 插在光标处，同时登记进会话的引用清单，
+   * 与「从文件树拖进来」得到的结果逐字一致 —— 否则两条路径会各自长出一套行为。
+   */
+  useEffect(() => registerFileRefSink((incoming) => {
+    if (!composerRef.current) return false
+    // absolutePath 缺失时按工作区根补全：引用清单要按绝对路径去重与定位
+    const ref: FileReference = {
+      relativePath: incoming.relativePath,
+      name: incoming.name,
+      absolutePath: incoming.absolutePath ?? incoming.relativePath,
+      isDirectory: incoming.isDirectory,
+    }
+    composerRef.current.insertFileReference(ref)
+    onFileReferenceAdd?.(ref)
+    return true
+  }), [onFileReferenceAdd])
 
   /** 点了内联 chip 的 ×：连同会话状态里的文件引用一起摘掉 */
   const handleFileChipRemove = useCallback((ref: FileReference) => {

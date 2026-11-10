@@ -3,11 +3,18 @@
  * 验证：仅展示新增/修改/删除、无行数、无上传、空数组不渲染、查看回调透传首文件路径
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { TurnFileChangesCard } from '../../renderer/pages/ChatPage/components/TurnFileChangesCard'
+import { registerFileRefSink } from '../../renderer/services/quote-bridge'
+
+const cleanups: Array<() => void> = []
+afterEach(() => {
+  // 模块级单例，用例之间必须清干净
+  while (cleanups.length > 0) cleanups.pop()!()
+})
 
 const CHANGES: FileChangeEntry[] = [
   { path: 'src/a.ts', status: 'added' },
@@ -107,5 +114,38 @@ describe('TurnFileChangesCard', () => {
     ]
     const { container } = render(<TurnFileChangesCard changes={only} />)
     expect(container.firstChild).toBeNull()
+  })
+
+  it('引用按钮把对应文件投递到输入框', () => {
+    // 显式声明入参：vi.fn(() => true) 会被推断成「零参」，读 calls[0][0] 会报类型错
+    const sink = vi.fn((_ref: { relativePath: string; name: string }) => true)
+    cleanups.push(registerFileRefSink(sink))
+    render(<TurnFileChangesCard changes={CHANGES} />)
+
+    // 每个可引用行一个按钮；第 2 行对应 src/b.ts
+    const rows = screen.getAllByRole('button', { name: '引用到输入框' })
+    fireEvent.click(rows[1])
+
+    expect(sink).toHaveBeenCalledTimes(1)
+    expect(sink.mock.calls[0]?.[0]).toMatchObject({ relativePath: 'src/b.ts', name: 'b.ts' })
+  })
+
+  it('删除的文件不给引用按钮（文件已不在磁盘）', () => {
+    const sink = vi.fn(() => true)
+    cleanups.push(registerFileRefSink(sink))
+    render(<TurnFileChangesCard changes={CHANGES} />)
+
+    // 3 个变更里 deleted 的那个不出按钮
+    expect(screen.getAllByRole('button', { name: '引用到输入框' })).toHaveLength(2)
+  })
+
+  it('点引用不会连带触发「查看」', () => {
+    cleanups.push(registerFileRefSink(() => true))
+    const onReview = vi.fn()
+    render(<TurnFileChangesCard changes={CHANGES} onReview={onReview} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: '引用到输入框' })[0])
+
+    expect(onReview).not.toHaveBeenCalled()
   })
 })

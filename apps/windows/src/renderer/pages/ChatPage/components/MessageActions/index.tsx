@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { toPng } from 'html-to-image'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { useTtsPreview } from '../../../../hooks/business/useTtsPreview'
+import { hasQuoteSink, insertQuote } from '../../../../services/quote-bridge'
 import styles from './MessageActions.module.css'
 
 interface MessageActionsProps {
@@ -54,6 +55,19 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   const { isSpeaking, speak, stop: stopSpeaking } = useTtsPreview()
 
   const handleCopy = () => onCopy(content)
+
+  /**
+   * 引用这条消息到输入框。
+   *
+   * 走与划词引用同一条桥：输入框把引用块插在光标处，序列化出来是 markdown 引用块，
+   * 所以「引用气泡」和「划词引用」发出去的东西形状一致，Agent 侧无需区分。
+   * 空正文（纯工具消息）不投递 —— 引用一段空气没有意义。
+   */
+  const canQuote = hasQuoteSink() && content.trim().length > 0
+  const handleQuote = () => {
+    if (!canQuote) return
+    insertQuote({ text: content.trim(), role: role === 'assistant' ? 'assistant' : 'user' })
+  }
 
   const handleCopyAsImage = async () => {
     if (!bubbleRef?.current || copyingImage) return
@@ -124,6 +138,21 @@ const MessageActions: React.FC<MessageActionsProps> = ({
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
       </button>
+
+      {/* 引用到输入框（user / assistant） */}
+      {(role === 'user' || role === 'assistant') && (
+        <button
+          className={styles['action-btn']}
+          onClick={handleQuote}
+          disabled={!canQuote}
+          title={canQuote ? '引用到输入框' : '打开对话页后可引用'}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 21c3 0 7-1 7-8V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3" />
+            <path d="M14 21c3 0 7-1 7-8V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3" />
+          </svg>
+        </button>
+      )}
 
       {/* 复制为图片 */}
       <button

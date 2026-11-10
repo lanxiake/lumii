@@ -15,6 +15,7 @@ import { ArtifactCard } from './ArtifactCard'
 import { ArtifactFoldRow } from './ArtifactFoldRow'
 import { PromptInputModal } from '../../../../components/ui/Modal/PromptInputModal'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+import { FileQuoteButton } from '../../../../components/FileQuoteButton'
 import { renamePath } from './local-edits'
 import { moveFile } from '../../../../services/file-service'
 import { showItemInFolder } from '../../../../services/app-service'
@@ -575,6 +576,19 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
       key={row.artifact.path}
       type="button"
       className={clsx(styles.listRow, row.active && styles.listRowActive)}
+      draggable
+      onDragStart={(event) => {
+        // 列表行与网格卡拖拽载荷一致，才能都落进输入框当 @引用
+        const absolutePath = row.absolutePath ?? toAbsolutePath(row.artifact.path)
+        event.dataTransfer.setData('application/x-mtbot-file', JSON.stringify({
+          relativePath: row.artifact.path,
+          name: row.name,
+          absolutePath,
+          isDirectory: false,
+        }))
+        event.dataTransfer.setData('text/plain', `@${row.artifact.path}`)
+        event.dataTransfer.effectAllowed = 'copy'
+      }}
       onClick={(event) => {
         // 修饰键在这里翻成意图，合并规则与网格一致（selection.ts）
         if (event.shiftKey) handleCardSelect(row.artifact, 'range')
@@ -594,6 +608,12 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
     >
       <span className={styles.listName}>{row.name}</span>
       <span className={styles.listMeta}>{row.meta}</span>
+      <FileQuoteButton
+        relativePath={row.artifact.path}
+        name={row.name}
+        absolutePath={row.absolutePath ?? toAbsolutePath(row.artifact.path)}
+        stopPropagation
+      />
     </button>
   )
 

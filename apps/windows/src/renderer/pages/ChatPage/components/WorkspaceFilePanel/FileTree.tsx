@@ -14,6 +14,7 @@ import { useCodingDevProjects } from '../../../../hooks/business/useCodingDevPro
 import { useWorkspaceVcs } from '../../../../hooks/business/useWorkspaceVcs'
 import { listDirectory, moveFile } from '../../../../services/file-service'
 import { getProjectGitStatus } from '../../../../services/app-service'
+import { FileQuoteButton } from '../../../../components/FileQuoteButton'
 import type { ProjectGitStatus } from '@main/project-git/types'
 import styles from './FileTree.module.css'
 
@@ -338,6 +339,12 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
 
         {/* 悬停操作按钮 */}
         <div className={styles.actions} onClick={(e) => e.stopPropagation()}>
+          <FileQuoteButton
+            relativePath={relPath}
+            name={item.name}
+            absolutePath={item.path}
+            isDirectory={item.isDirectory}
+          />
           <button
             className={styles.actionBtn}
             title="更多操作"

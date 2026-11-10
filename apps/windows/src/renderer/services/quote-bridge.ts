@@ -18,7 +18,24 @@ export interface QuoteInput {
 
 export type QuoteSink = (input: QuoteInput) => boolean
 
+/**
+ * 文件引用投递形状。
+ *
+ * 与 ChatInput 的 `FileReference` 结构一致，但**不 import 它**：
+ * services 不该反向依赖页面组件。调用方传对象字面量即可。
+ */
+export interface QuoteFileRef {
+  relativePath: string
+  name: string
+  /** 缺失时由输入框按工作区根补全（调用方常常只有相对路径） */
+  absolutePath?: string
+  isDirectory: boolean
+}
+
+export type FileRefSink = (ref: QuoteFileRef) => boolean
+
 let activeSink: QuoteSink | null = null
+let activeFileSink: FileRefSink | null = null
 
 /** 注册投递目标；返回注销函数（ChatInput 卸载时调） */
 export function registerQuoteSink(sink: QuoteSink): () => void {
@@ -37,6 +54,24 @@ export function hasQuoteSink(): boolean {
 /** 投递一条引用；无 sink 时返回 false */
 export function insertQuote(input: QuoteInput): boolean {
   return activeSink ? activeSink(input) : false
+}
+
+/** 注册文件引用投递目标；返回注销函数（ChatInput 卸载时调） */
+export function registerFileRefSink(sink: FileRefSink): () => void {
+  activeFileSink = sink
+  return () => {
+    if (activeFileSink === sink) activeFileSink = null
+  }
+}
+
+/** 当前是否可投递文件引用（引用按钮的可用性判断） */
+export function hasFileRefSink(): boolean {
+  return activeFileSink !== null
+}
+
+/** 投递一条文件引用到输入框；无 sink 时返回 false */
+export function insertFileReference(ref: QuoteFileRef): boolean {
+  return activeFileSink ? activeFileSink(ref) : false
 }
 
 /**

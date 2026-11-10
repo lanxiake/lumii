@@ -9,6 +9,7 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
 import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
+import { FileQuoteButton } from '../../../../components/FileQuoteButton'
 import styles from './TurnFileChangesCard.module.css'
 
 /** 状态 → 中文标签 */
@@ -86,6 +87,10 @@ const ChangeList: React.FC<ChangeListProps> = ({ changes, onReview }) => {
               <span className={clsx(styles.statusLabel, styles[`statusLabel--${entry.status}`])}>
                 {STATUS_LABEL[entry.status]}
               </span>
+              {/* 删除的文件已不在磁盘，引用过去 Agent 也读不到，不给按钮 */}
+              {entry.status !== 'deleted' && (
+                <FileQuoteButton relativePath={entry.path} stopPropagation />
+              )}
             </button>
           )
         })}

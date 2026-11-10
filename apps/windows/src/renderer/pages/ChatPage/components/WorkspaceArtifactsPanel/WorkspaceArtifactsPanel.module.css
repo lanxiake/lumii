@@ -511,6 +511,15 @@
   object-fit: cover;
 }
 
+/* 引用按钮压到缩略图右下角：静态时半透明，悬停卡片才清晰 */
+.cardQuote {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  background: color-mix(in srgb, var(--mt-bg-primary) 70%, transparent);
+  backdrop-filter: blur(4px);
+}
+
 .thumbExt {
   color: var(--mt-fg-3);
   font-family: var(--mt-font-mono, ui-monospace, monospace);
