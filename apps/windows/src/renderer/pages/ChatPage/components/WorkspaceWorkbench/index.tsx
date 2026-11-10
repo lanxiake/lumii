@@ -1,44 +1,59 @@
 /**
  * WorkspaceWorkbench — Chat 右侧工作台壳
  *
- * 真 flex 分栏（不再是 fixed + padding）：拖宽时只有左边缘移动，对话区不重排。
- * 两个视图（工作区 / 版本）+ 「只看产出」开关；宽度三档（半 480 / 宽 860 / 满）。
+ * 真 flex 分栏：拖宽时只有左边缘移动，对话区不重排。
+ * 入口是**可关可增的 tab 列表**（不只是视图）：关掉最后一个 = 整列收起；
+ * 一个都没有时显示「开始」页，点胶囊或「+」把它叫回来。
+ * 宽度三档（半 480 / 宽 860 / 满），与 tab 无关——切 tab 不跳宽。
  * 非单栏时可收起 rail / inspector；专注预览（顶栏或 Ctrl+B）一次收两侧只留 main。
  *
  * 结构：shell（宽度动画）→ inner（固定宽度，避免动画时内容重排）
- *       → header + [rail | main | inspector]
+ *       → header（tab 条）+ body（[rail | main | inspector] 或「开始」页）
  */
 
 import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   X,
+  Plus,
   RefreshCw,
   AppWindow,
   Info,
   PanelLeftClose,
   PanelLeftOpen,
   ScanEye,
+  Images,
+  FolderTree,
+  FolderGit2,
+  SquareTerminal,
+  GitBranch,
+  Compass,
 } from 'lucide-react'
 import {
   CHAT_MIN_REMAIN,
   INSPECTOR_WIDTH,
   PRESET_LABEL,
+  TAB_ORDER,
+  WORKBENCH_ENTRIES,
   WORKBENCH_WIDTH_MIN,
   isCompactWidth,
   isInspectorInline,
+  isSplitTab,
   railWidthFor,
   resolveWidth,
+  tabTitle,
+  type WorkbenchEntry,
   type WorkbenchPreset,
-  type WorkbenchView,
+  type WorkbenchTabKind,
 } from './layout'
 import styles from './WorkspaceWorkbench.module.css'
 import { markInteractionStart, markInteractionEndOnNextPaint } from '../../../../utils/perf-marks'
 
 export type {
+  WorkbenchEntry,
   WorkbenchLayoutMode,
   WorkbenchPreset,
-  WorkbenchView,
+  WorkbenchTabKind,
 } from './layout'
 
 /** 传给 main 渲染函数的宽度信息（对比视图据此决定并排上限） */
@@ -48,37 +63,48 @@ export interface WorkbenchMetrics {
   compact: boolean
 }
 
+/** 一个 tab 的内容：双栏 tab 给 rail + main，单栏 tab 只给 main */
+export interface WorkbenchPane {
+  rail?: ReactNode
+  main: ReactNode
+}
+
+const ENTRY_ICONS: Record<WorkbenchTabKind, ReactNode> = {
+  artifacts: <Images size={22} strokeWidth={1.6} />,
+  files: <FolderTree size={22} strokeWidth={1.6} />,
+  project: <FolderGit2 size={22} strokeWidth={1.6} />,
+  terminal: <SquareTerminal size={22} strokeWidth={1.6} />,
+  vcs: <GitBranch size={22} strokeWidth={1.6} />,
+}
+
 export interface WorkspaceWorkbenchProps {
   open: boolean
-  view: WorkbenchView
-  /** 只看产出：工作区视图内的呈现密度开关 */
-  onlyArtifacts: boolean
+  /** 打开着的 tab，按 TAB_ORDER 排好 */
+  tabs: readonly WorkbenchTabKind[]
+  activeTab: WorkbenchTabKind | null
   preset: WorkbenchPreset
   customWidth?: number
   /** main 当前打开的产物（工作区相对路径） */
   selectedPath?: string
-  onViewChange: (view: WorkbenchView) => void
-  onOnlyArtifactsChange: (onlyArtifacts: boolean) => void
+  onOpenTab: (kind: WorkbenchTabKind) => void
+  onCloseTab: (kind: WorkbenchTabKind) => void
   onPresetChange: (preset: WorkbenchPreset, customWidth?: number) => void
   onClose: () => void
   /** 返回列表（单栏断点下取消选中） */
   onBack?: () => void
-  /** 在独立窗打开当前选中产物（双击在单栏下做不到，这里给显式入口） */
+  /** 在独立窗打开当前选中产物 */
   onOpenSelectedWindow?: () => void
   uncommittedCount: number
   onRefresh?: () => void
-  vcsEnabled?: boolean
-  /** rail：产物台账 / 工作区文件（由调用方按 onlyArtifacts 决定） */
-  rail: ReactNode
-  /** main：内嵌预览或空态；传函数时可拿到当前工作台宽度（对比视图按宽度限项数） */
-  main: ReactNode | ((metrics: WorkbenchMetrics) => ReactNode)
+  /** 开始页的入口胶囊（插件停用时可被调用方过滤掉） */
+  entries?: readonly WorkbenchEntry[]
+  /** 每个已打开的 tab 的内容；未打开的 kind 不需要给 */
+  renderPane: (kind: WorkbenchTabKind, metrics: WorkbenchMetrics) => WorkbenchPane
   /** inspector：选中产物的规格 + 版本历史；宽度 ≥900 时并排，否则浮在 main 右侧 */
   inspector?: ReactNode
   /** inspector 是否展开（并排与浮层共用；「信息」按钮开关） */
   inspectorOpen?: boolean
   onInspectorOpenChange?: (open: boolean) => void
-  /** 版本视图（vcs 插件） */
-  childrenVcs?: ReactNode
 }
 
 /** 专注预览进入前的两侧快照（会话内，组件挂载期有效） */
@@ -98,26 +124,24 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   open,
-  view,
-  onlyArtifacts,
+  tabs,
+  activeTab,
   preset,
   customWidth,
   selectedPath,
-  onViewChange,
-  onOnlyArtifactsChange,
+  onOpenTab,
+  onCloseTab,
   onPresetChange,
   onClose,
   onBack,
   onOpenSelectedWindow,
   uncommittedCount,
   onRefresh,
-  vcsEnabled = true,
-  rail,
-  main,
+  entries = WORKBENCH_ENTRIES,
+  renderPane,
   inspector,
   inspectorOpen = false,
   onInspectorOpenChange,
-  childrenVcs,
 }) => {
   const shellRef = useRef<HTMLElement | null>(null)
   /** 父容器真实可用宽度：满档直接吃满，其余档才给对话区留 CHAT_MIN_REMAIN */
@@ -138,6 +162,8 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   const focusSnapshotRef = useRef<FocusSnapshot | null>(null)
   /** 上一帧是否并排 inspector，用于跨入 ≥900 时自动展开一次 */
   const wasInlineInspectorRef = useRef(false)
+  /** 「+」打开的临时开始页：选完入口就关，不持久化 */
+  const [guideOpen, setGuideOpen] = useState(false)
 
   // 可用宽度跟着父容器走（chat-page 去掉侧栏后的真实宽度）
   useEffect(() => {
@@ -160,12 +186,24 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   const displayWidth = dragWidth ?? resolved
   const compact = isCompactWidth(displayWidth)
   const inlineInspector = isInspectorInline(displayWidth)
-  const resolvedMain =
-    typeof main === 'function' ? main({ width: displayWidth, compact }) : main
+  const metrics: WorkbenchMetrics = { width: displayWidth, compact }
 
   useEffect(() => {
     if (displayWidth > 0) setLastWidth(displayWidth)
   }, [displayWidth])
+
+  // 没有 tab 时「开始」页就是唯一内容；关掉最后一个 tab 由调用方收起整列
+  const guideVisible = tabs.length === 0 || guideOpen
+  const viewKind = guideVisible ? null : activeTab
+  const split = isSplitTab(viewKind)
+  const pane = viewKind ? renderPane(viewKind, metrics) : null
+
+  // 工作台展开/收起（含首帧挂载）的耗时要能被人看到：卡的往往是面板里那棵树
+  useEffect(() => {
+    if (!open) return
+    markInteractionStart('open-workspace-panel')
+    markInteractionEndOnNextPaint('open-workspace-panel')
+  }, [open])
 
   /** 按指针位移算出夹紧后的工作台宽度 */
   const widthFromPointer = useCallback(
@@ -238,25 +276,11 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
     [finishDrag],
   )
 
-  // VCS 插件关掉后，持久化里的 view=vcs 会让内容区空白——强制回工作区。
-  // 只在「已经打开」时纠正，否则会把用户没打开的工作台强行弹出来。
-  useEffect(() => {
-    if (open && !vcsEnabled && view === 'vcs') onViewChange('workspace')
-  }, [open, vcsEnabled, view, onViewChange])
-
-  // 工作台展开/收起（含首帧挂载）的耗时要能被人看到：卡的往往是面板里那棵树
-  useEffect(() => {
-    if (!open) return
-    markInteractionStart('open-workspace-panel')
-    markInteractionEndOnNextPaint('open-workspace-panel')
-  }, [open])
-
-  const effectiveView: WorkbenchView = !vcsEnabled && view === 'vcs' ? 'workspace' : view
   const railWidth = railWidthFor(displayWidth)
   /** 非单栏才提供两侧收起（单栏本身是 rail/main 互斥） */
-  const canCollapseSides = !compact && effectiveView === 'workspace'
+  const canCollapseSides = !compact && split
   /** 并排与浮层统一：inspectorOpen 控制是否显示 */
-  const showInspector = Boolean(inspector && selectedPath && inspectorOpen)
+  const showInspector = Boolean(pane?.rail && inspector && selectedPath && inspectorOpen)
 
   /** 设置 rail 收起态；手动展开时退出专注标记 */
   const setRailCollapsedSafe = useCallback(
@@ -295,17 +319,11 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
     setRailCollapsed(true)
     onInspectorOpenChange?.(false)
     setFocusActive(true)
-  }, [
-    canCollapseSides,
-    focusActive,
-    railCollapsed,
-    inspectorOpen,
-    onInspectorOpenChange,
-  ])
+  }, [canCollapseSides, focusActive, railCollapsed, inspectorOpen, onInspectorOpenChange])
 
   // 宽度跨入并排断点时默认展开 inspector（设计：≥900 有位置）
   useEffect(() => {
-    if (!open || !inspector || !selectedPath) {
+    if (!open || !inspector || !selectedPath || !split) {
       wasInlineInspectorRef.current = inlineInspector
       return
     }
@@ -313,7 +331,16 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
       onInspectorOpenChange?.(true)
     }
     wasInlineInspectorRef.current = inlineInspector
-  }, [open, inlineInspector, inspector, selectedPath, focusActive, onInspectorOpenChange])
+  }, [open, inlineInspector, inspector, selectedPath, focusActive, onInspectorOpenChange, split])
+
+  /** 点开始页某个入口：打开它，收起临时开始页 */
+  const pickEntry = useCallback(
+    (kind: WorkbenchTabKind) => {
+      setGuideOpen(false)
+      onOpenTab(kind)
+    },
+    [onOpenTab],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -332,32 +359,22 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
         if (selectedPath) return
         if (document.querySelector('[data-file-preview-open]')) return
         event.preventDefault()
-        onClose()
+        if (guideOpen) setGuideOpen(false)
+        else onClose()
         return
       }
-      if (event.key === '1') {
+      // 1..N：直接打开/切到对应 tab
+      if (/^[1-9]$/.test(event.key)) {
+        const kind = TAB_ORDER[Number(event.key) - 1]
+        if (!kind) return
         event.preventDefault()
-        if (effectiveView !== 'workspace') onViewChange('workspace')
-        else onOnlyArtifactsChange(!onlyArtifacts)
-      } else if (event.key === '2' && vcsEnabled) {
-        event.preventDefault()
-        onViewChange('vcs')
+        pickEntry(kind)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [
-    open,
-    selectedPath,
-    effectiveView,
-    onlyArtifacts,
-    vcsEnabled,
-    canCollapseSides,
-    toggleFocusPreview,
-    onViewChange,
-    onOnlyArtifactsChange,
-    onClose,
-  ])
+  }, [open, selectedPath, canCollapseSides, toggleFocusPreview, onClose, pickEntry, guideOpen])
+
   return (
     <aside
       ref={shellRef}
@@ -381,41 +398,48 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
         />
 
         <header className={styles.header}>
-          <nav className={styles.views} aria-label="工作空间分区">
-            <button
-              type="button"
-              className={clsx(styles.tab, effectiveView === 'workspace' && styles.tabActive)}
-              onClick={() => onViewChange('workspace')}
-              aria-pressed={effectiveView === 'workspace'}
-            >
-              工作区
-            </button>
-            {vcsEnabled && (
-              <button
-                type="button"
-                className={clsx(styles.tab, effectiveView === 'vcs' && styles.tabActive)}
-                onClick={() => onViewChange('vcs')}
-                aria-pressed={effectiveView === 'vcs'}
+          <nav className={styles.views} aria-label="工作台页面">
+            {tabs.map((kind) => (
+              <div
+                key={kind}
+                className={clsx(styles.chip, !guideVisible && activeTab === kind && styles.chipActive)}
               >
-                版本
-                {uncommittedCount > 0 && (
-                  <span className={styles.badge}>{uncommittedCount}</span>
-                )}
-              </button>
-            )}
-          </nav>
-
-          {effectiveView === 'workspace' && (
+                <button
+                  type="button"
+                  className={styles.chipLabel}
+                  onClick={() => {
+                    setGuideOpen(false)
+                    onOpenTab(kind)
+                  }}
+                  aria-pressed={!guideVisible && activeTab === kind}
+                >
+                  {tabTitle(kind)}
+                  {kind === 'vcs' && uncommittedCount > 0 && (
+                    <span className={styles.badge}>{uncommittedCount}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={styles.chipClose}
+                  onClick={() => onCloseTab(kind)}
+                  title={`关闭「${tabTitle(kind)}」`}
+                  aria-label={`关闭「${tabTitle(kind)}」`}
+                >
+                  <X size={11} strokeWidth={2.2} />
+                </button>
+              </div>
+            ))}
             <button
               type="button"
-              className={clsx(styles.density, onlyArtifacts && styles.densityOn)}
-              onClick={() => onOnlyArtifactsChange(!onlyArtifacts)}
-              aria-pressed={onlyArtifacts}
-              title="只看产出：隐藏未被识别为产物的文件"
+              className={clsx(styles.addTab, guideVisible && styles.addTabActive)}
+              onClick={() => setGuideOpen(true)}
+              title="打开新页面"
+              aria-label="打开新页面"
+              aria-pressed={guideVisible}
             >
-              只看产出
+              <Plus size={13} strokeWidth={2} />
             </button>
-          )}
+          </nav>
 
           <div className={styles.presets} role="group" aria-label="工作台宽度">
             {(['half', 'wide', 'full'] as const).map((key) => (
@@ -450,7 +474,7 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
               </button>
             )}
             {/* 并排与浮层共用「信息」开关 */}
-            {inspector && selectedPath && !compact && (
+            {showInspector && !compact && (
               <button
                 type="button"
                 className={clsx(styles.iconBtn, inspectorOpen && styles.iconBtnActive, 'mt-press')}
@@ -484,98 +508,110 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
         </header>
 
         <div className={styles.body}>
-          <div
-            className={clsx(
-              styles.workspacePane,
-              effectiveView === 'workspace' && styles.paneVisible,
-            )}
-            hidden={effectiveView !== 'workspace'}
-          >
-            {canCollapseSides && railCollapsed ? (
-              <div className={styles.railStrip}>
-                <button
-                  type="button"
-                  className={styles.railToggle}
-                  onClick={() => setRailCollapsedSafe(false)}
-                  title="展开产物列表"
-                  aria-label="展开产物列表"
-                >
-                  <PanelLeftOpen size={14} strokeWidth={1.8} />
-                </button>
+          {guideVisible ? (
+            <div className={styles.guide}>
+              <Compass size={56} strokeWidth={1} className={styles.guideGlyph} />
+              <div className={styles.guideEntries}>
+                {entries.map((entry) => (
+                  <button
+                    key={entry.kind}
+                    type="button"
+                    className={styles.guideEntry}
+                    onClick={() => pickEntry(entry.kind)}
+                  >
+                    <span className={styles.guideEntryIcon}>{ENTRY_ICONS[entry.kind]}</span>
+                    <span className={styles.guideEntryText}>
+                      <span className={styles.guideEntryTitle}>{entry.title}</span>
+                      <span className={styles.guideEntryDesc}>{entry.description}</span>
+                    </span>
+                    <kbd className={styles.guideEntryKey}>{entry.shortcut}</kbd>
+                  </button>
+                ))}
               </div>
-            ) : (
-              <div
-                className={styles.rail}
-                style={
-                  compact
-                    ? { width: '100%', flexBasis: '100%' }
-                    : { width: railWidth, flexBasis: railWidth }
-                }
-                hidden={compact && Boolean(selectedPath)}
-              >
-                {canCollapseSides && (
+            </div>
+          ) : split && pane ? (
+            <div className={styles.workspacePane}>
+              {canCollapseSides && railCollapsed ? (
+                <div className={styles.railStrip}>
                   <button
                     type="button"
-                    className={styles.railCollapseBtn}
-                    onClick={() => setRailCollapsedSafe(true)}
-                    title="收起产物列表"
-                    aria-label="收起产物列表"
+                    className={styles.railToggle}
+                    onClick={() => setRailCollapsedSafe(false)}
+                    title="展开列表"
+                    aria-label="展开列表"
                   >
-                    <PanelLeftClose size={13} strokeWidth={1.8} />
+                    <PanelLeftOpen size={14} strokeWidth={1.8} />
                   </button>
-                )}
-                <div className={styles.railBody}>{rail}</div>
-              </div>
-            )}
-            <div className={styles.main} hidden={compact && !selectedPath}>
-              {selectedPath && (
-                <div className={styles.mainHeader}>
-                  {compact && (
+                </div>
+              ) : (
+                <div
+                  className={styles.rail}
+                  style={
+                    compact
+                      ? { width: '100%', flexBasis: '100%' }
+                      : { width: railWidth, flexBasis: railWidth }
+                  }
+                  hidden={compact && Boolean(selectedPath)}
+                >
+                  {canCollapseSides && (
                     <button
                       type="button"
-                      className={styles.backBtn}
-                      onClick={() => onBack?.()}
-                      title="返回列表"
+                      className={styles.railCollapseBtn}
+                      onClick={() => setRailCollapsedSafe(true)}
+                      title="收起列表"
+                      aria-label="收起列表"
                     >
-                      ‹ 列表
+                      <PanelLeftClose size={13} strokeWidth={1.8} />
                     </button>
                   )}
-                  <span className={styles.crumb} title={selectedPath}>
-                    {selectedPath}
-                  </span>
-                  {onOpenSelectedWindow && (
-                    <button
-                      type="button"
-                      className={styles.openWindowBtn}
-                      onClick={onOpenSelectedWindow}
-                      title="在独立窗口打开"
-                      aria-label="在独立窗口打开"
-                    >
-                      <AppWindow size={13} strokeWidth={1.8} />
-                    </button>
-                  )}
+                  <div className={styles.railBody}>{pane.rail}</div>
                 </div>
               )}
-              {resolvedMain}
-              {/* 窄档放不下第三栏：「信息」按钮把它叫成浮层，盖在预览上 */}
-              {showInspector && !inlineInspector && (
-                <div className={styles.inspectorFloat}>{inspector}</div>
+              <div className={styles.main} hidden={compact && !selectedPath}>
+                {selectedPath && (
+                  <div className={styles.mainHeader}>
+                    {compact && (
+                      <button
+                        type="button"
+                        className={styles.backBtn}
+                        onClick={() => onBack?.()}
+                        title="返回列表"
+                      >
+                        ‹ 列表
+                      </button>
+                    )}
+                    <span className={styles.crumb} title={selectedPath}>
+                      {selectedPath}
+                    </span>
+                    {onOpenSelectedWindow && (
+                      <button
+                        type="button"
+                        className={styles.openWindowBtn}
+                        onClick={onOpenSelectedWindow}
+                        title="在独立窗口打开"
+                        aria-label="在独立窗口打开"
+                      >
+                        <AppWindow size={13} strokeWidth={1.8} />
+                      </button>
+                    )}
+                  </div>
+                )}
+                {pane.main}
+                {/* 窄档放不下第三栏：「信息」按钮把它叫成浮层，盖在预览上 */}
+                {showInspector && !inlineInspector && (
+                  <div className={styles.inspectorFloat}>{inspector}</div>
+                )}
+              </div>
+              {/* inspector 只在够宽且展开时并排（<900 走上面的浮层） */}
+              {showInspector && inlineInspector && (
+                <div className={styles.inspectorSlot} style={{ width: INSPECTOR_WIDTH }}>
+                  {inspector}
+                </div>
               )}
             </div>
-            {/* inspector 只在够宽且展开时并排（<900 走上面的浮层） */}
-            {showInspector && inlineInspector && (
-              <div className={styles.inspectorSlot} style={{ width: INSPECTOR_WIDTH }}>
-                {inspector}
-              </div>
-            )}
-          </div>
-
-          <div
-            className={clsx(styles.vcsPane, effectiveView === 'vcs' && styles.paneVisible)}
-            hidden={effectiveView !== 'vcs'}
-          >
-            {childrenVcs}
-          </div>
+          ) : (
+            <div className={styles.workspacePane}>{pane?.main}</div>
+          )}
         </div>
       </div>
     </aside>

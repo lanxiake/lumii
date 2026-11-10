@@ -120,12 +120,46 @@
 
 /* 树形区域（可滚动） */
 .treeArea {
+  /* 网格自己要管滚动（它内部是 grid + 工具栏），树才是整块滚 */
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
   /* 自定义滚动条 */
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
+}
+
+/* 搜索栏 + 树/网格切换同一行 */
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
+.searchGrow {
+  flex: 1;
+  min-width: 0;
+}
+
+.layoutToggle {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.layoutToggle:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
 }
 
 .treeArea::-webkit-scrollbar {

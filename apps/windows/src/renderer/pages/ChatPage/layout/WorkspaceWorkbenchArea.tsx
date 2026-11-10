@@ -2,10 +2,15 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useSt
 import {
   WorkspaceWorkbench,
   type WorkbenchLayoutMode,
+  type WorkbenchMetrics,
+  type WorkbenchPane,
   type WorkbenchPreset,
-  type WorkbenchView,
+  type WorkbenchTabKind,
 } from '../components/WorkspaceWorkbench'
 import { WorkspaceFilePanel } from '../components/WorkspaceFilePanel'
+import { ProjectsPanel } from '../components/ProjectsPanel'
+import { TerminalPanel } from '../components/TerminalPanel'
+import { WORKBENCH_ENTRIES } from '../components/WorkspaceWorkbench/layout'
 import { SlotHost } from '../../../components/slots/SlotHost'
 import { usePluginEnabled } from '../../../../plugins/renderer/state'
 import { WorkspaceArtifactsPanel } from '../components/WorkspaceArtifactsPanel'
@@ -74,8 +79,8 @@ export interface WorkspaceWorkbenchAreaProps {
   /** 当前会话消息：产物台账直接从这里派生（历史与实时同一条路径） */
   messages: readonly RuntimeMessage[]
   toAbsolutePath: (relativePath: string) => string
-  onViewChange: (view: WorkbenchView) => void
-  onOnlyArtifactsChange: (onlyArtifacts: boolean) => void
+  onOpenTab: (kind: WorkbenchTabKind) => void
+  onCloseTab: (kind: WorkbenchTabKind) => void
   onPresetChange: NonNullable<WorkbenchProps['onPresetChange']>
   onSelect: (relativePath: string | undefined) => void
   onClose: () => void
@@ -154,8 +159,8 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   locateFileTarget,
   messages,
   toAbsolutePath,
-  onViewChange,
-  onOnlyArtifactsChange,
+  onOpenTab,
+  onCloseTab,
   onPresetChange,
   onSelect,
   onClose,
@@ -177,6 +182,18 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   onPrefillComments,
 }) => {
   const vcsEnabled = usePluginEnabled('com.lumii.vcs')
+  /** 插件停用时，「版本」既不出现在 tab 条，也不出现在开始页（没有注定失败的门） */
+  const entries = useMemo(
+    () => WORKBENCH_ENTRIES.filter((entry) => entry.kind !== 'vcs' || vcsEnabled),
+    [vcsEnabled],
+  )
+  const openTabGuarded = useCallback(
+    (kind: WorkbenchTabKind) => {
+      if (kind === 'vcs' && !vcsEnabled) return
+      onOpenTab(kind)
+    },
+    [onOpenTab, vcsEnabled],
+  )
   const toast = useOptionalToast()
   const fileRefreshRef = useRef<(() => void) | null>(null)
   const vcsRefreshRef = useRef<(() => Promise<void>) | null>(null)
@@ -306,16 +323,18 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   )
 
   const handleRefresh = useCallback(async () => {
-    if (workbench.view === 'vcs') {
-      await vcsRefreshRef.current?.()
-    } else if (!workbench.onlyArtifacts) {
-      fileRefreshRef.current?.()
-    }
-  }, [workbench.view, workbench.onlyArtifacts])
+    const kind = workbench.activeTab
+    if (kind === 'vcs') await vcsRefreshRef.current?.()
+    else if (kind === 'files' || kind === 'project') fileRefreshRef.current?.()
+  }, [workbench.activeTab])
 
   // 产物台账完全由消息派生，没有可手动刷新的外部状态
   const onRefresh =
-    workbench.view === 'vcs' || !workbench.onlyArtifacts ? handleRefresh : undefined
+    workbench.activeTab === 'vcs' ||
+    workbench.activeTab === 'files' ||
+    workbench.activeTab === 'project'
+      ? handleRefresh
+      : undefined
 
   /** 预览已移到独立窗口：满屏档把工作台收回半档，让对话区重新可用 */
   const restoreChatAfterPopup = useCallback(() => {
@@ -368,6 +387,19 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
       : toAbsolutePath(selected)
     : undefined
   const selectedName = absoluteSelected?.split(/[\\/]/).pop() ?? absoluteSelected
+
+  /** 绝对路径 → 选中值：工作区内用相对路径（面包屑/翻页都按这个约定），区外保留绝对 */
+  const pathForSelection = useCallback(
+    (absolutePath: string): string => {
+      const root = (workspaceDir ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+      const normalized = absolutePath.replace(/\\/g, '/')
+      if (root && normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`)) {
+        return normalized.slice(root.length + 1)
+      }
+      return normalized
+    },
+    [workspaceDir],
+  )
 
   /**
    * ←/→ 在当前范围内切相邻的**图片/视频**（桌面看图的肌肉记忆）。
@@ -1311,7 +1343,7 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
         <button
           type="button"
           className={styles.emptyAction}
-          onClick={() => onOnlyArtifactsChange(false)}
+          onClick={() => onOpenTab('files')}
         >
           浏览工作区文件
         </button>
@@ -1436,30 +1468,32 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
     </div>
   )
 
-  return (
-    <>
-      <WorkspaceWorkbench
-        open={workbench.open}
-        view={workbench.view}
-        onlyArtifacts={workbench.onlyArtifacts}
-        preset={workbench.preset}
-        {...(workbench.customWidth !== undefined
-          ? { customWidth: workbench.customWidth }
-          : {})}
-        {...(selected ? { selectedPath: selected } : {})}
-        onViewChange={onViewChange}
-        onOnlyArtifactsChange={onOnlyArtifactsChange}
-        onPresetChange={onPresetChange}
-        onClose={onClose}
-        onBack={() => onSelect(undefined)}
-        {...(absoluteSelected && selectedName
-          ? { onOpenSelectedWindow: () => openWindow(absoluteSelected, selectedName) }
-          : {})}
-        uncommittedCount={uncommittedCount}
-        onRefresh={onRefresh}
-        vcsEnabled={vcsEnabled}
-        rail={
-          workbench.onlyArtifacts ? (
+  /**
+   * 每个 tab 的内容：双栏 tab 给 rail + main，单栏 tab 只给 main。
+   * 壳只在 activeTab 上调用一次，未打开的 kind 不会被渲染。
+   */
+  const renderPane = useCallback(
+    (kind: WorkbenchTabKind, metrics: WorkbenchMetrics): WorkbenchPane => {
+      if (kind === 'files') {
+        return {
+          rail: (
+            <WorkspaceFilePanel
+              open={workbench.open}
+              onClose={onClose}
+              locateTarget={locateFileTarget}
+              embedded
+              refreshRef={fileRefreshRef}
+              onOpenInDoc={onOpenDoc}
+              // 与「只看产出」同一套：树只负责选，预览落在右侧 main，不弹窗
+              onSelectFile={(absolutePath) => onSelect(pathForSelection(absolutePath))}
+            />
+          ),
+          main: main(metrics),
+        }
+      }
+      if (kind === 'artifacts') {
+        return {
+          rail: (
             <WorkspaceArtifactsPanel
               ledger={mergedLedger}
               toAbsolutePath={toAbsolutePath}
@@ -1497,22 +1531,18 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
               onCleanup={() => setCleanupOpen(true)}
               {...(intermediateBytes !== undefined ? { intermediateBytes } : {})}
             />
-          ) : (
-            <WorkspaceFilePanel
-              open={workbench.open}
-              onClose={onClose}
-              locateTarget={locateFileTarget}
-              embedded
-              refreshRef={fileRefreshRef}
-              onOpenInDoc={onOpenDoc}
-            />
-          )
+          ),
+          main: main(metrics),
         }
-        main={main}
-        {...(inspectorNode ? { inspector: inspectorNode } : {})}
-        inspectorOpen={inspectorOpen}
-        onInspectorOpenChange={setInspectorOpen}
-        childrenVcs={
+      }
+      if (kind === 'project') {
+        return { main: <ProjectsPanel onBrowseFiles={() => onOpenTab('files')} /> }
+      }
+      if (kind === 'terminal') {
+        return { main: <TerminalPanel cwd={workspaceDir} /> }
+      }
+      return {
+        main: (
           <SlotHost
             name="workspace.version"
             context={
@@ -1527,8 +1557,45 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
               } as unknown as Record<string, unknown>
             }
           />
-        }
+        ),
+      }
+    },
+    // 内容组件依赖的 props 都在下面；壳每次只调一次，重建代价可接受
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      workbench.open, locateFileTarget, mergedLedger, selected, scope, allItems, allLoading,
+      lastSeenAt, follow, trashedPaths, progress, cards, pendingPermission, intermediateBytes,
+      onOpenTab, workspaceDir, layoutMode, main,
+    ],
+  )
+
+  return (
+    <>
+      <WorkspaceWorkbench
+        open={workbench.open}
+        tabs={workbench.tabs}
+        activeTab={workbench.activeTab}
+        preset={workbench.preset}
+        {...(workbench.customWidth !== undefined
+          ? { customWidth: workbench.customWidth }
+          : {})}
+        {...(selected ? { selectedPath: selected } : {})}
+        onOpenTab={onOpenTab}
+        onCloseTab={onCloseTab}
+        onPresetChange={onPresetChange}
+        onClose={onClose}
+        onBack={() => onSelect(undefined)}
+        {...(absoluteSelected && selectedName
+          ? { onOpenSelectedWindow: () => openWindow(absoluteSelected, selectedName) }
+          : {})}
+        uncommittedCount={uncommittedCount}
+        onRefresh={onRefresh}
+        renderPane={renderPane}
+        {...(inspectorNode ? { inspector: inspectorNode } : {})}
+        inspectorOpen={inspectorOpen}
+        onInspectorOpenChange={setInspectorOpen}
       />
+
 
       {/* 变更来源：聊天里的「查看本轮变更」仍走文件定位 */}
       <WorkspaceCleanupDialog

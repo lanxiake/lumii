@@ -115,7 +115,7 @@ extension:set-enabled → host.activate/stop（IPC/定时器随作用域拆）
 | `settings.channel.<渠道>` | 渠道设置里的单张卡片（context: `{ snapshot, snapshotLoading }`） |
 | `settings.section.<名字>` | 混合页面里的单块（如 `settings.section.perf` = 隐私页的诊断卡、`settings.section.updater`） |
 | `dashboard.main` / `dashboard.grid` / `dashboard.plugins` | 概览页的三块区域 |
-| `workspace.version` | 工作区「文件 / 变更 / 版本」区（context: 快照与 loading） |
+| `workspace.version` | 工作台「版本」页（单栏 tab 的完整内容，context: 快照与 loading）。内容自己排整页布局，壳不再给它套 rail/main |
 
 ### UI 归属（什么该搬进插件目录）
 

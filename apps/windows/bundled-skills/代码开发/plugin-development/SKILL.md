@@ -91,7 +91,7 @@ __LUMII_REGISTER_PLUGIN__('my-plugin', (api) => {
 | `settings.category.<分类id>` | 整块设置分区（需同时登记归属，见开发规范） |
 | `settings.channel.<渠道>` | 渠道设置卡片（context：`{ snapshot, snapshotLoading }`） |
 | `settings.section.<名字>` | 混合页面里的单块 |
-| `workspace.version` | 工作区版本区 |
+| `workspace.version` | 工作台「版本」页（单栏 tab 整页内容） |
 
 **槽位 id 带插件前缀**（`my-plugin.card`），撞 id 会让后来者整个激活失败。
 

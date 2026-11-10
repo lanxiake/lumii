@@ -12,9 +12,23 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import clsx from 'clsx'
+import { Folder as IconFolder } from 'lucide-react'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
 import { searchFiles } from '../../../../services/file-service'
+import { isImagePath, mediaUrl } from '../WorkspaceArtifactsPanel/ledger'
 import styles from './FileSearchBar.module.css'
+
+/** 扩展名大写（网格卡片上的方块字）；无扩展名给一个破折号 */
+function extOf(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1).toUpperCase().slice(0, 4) : '—'
+}
+
+/** 网格卡片只给父目录名，避免长路径把卡片撑破 */
+function parentDirOf(filePath: string): string {
+  const parts = filePath.split(/[\\/]/)
+  return parts[parts.length - 2] ?? ''
+}
 
 /** 按类型分组的扩展名集合（与 file-attachment-strategy 保持一致） */
 const TYPE_EXT_GROUPS: Record<string, readonly string[]> = {
@@ -128,10 +142,12 @@ export interface FileSearchBarProps {
   onSearchStateChange?: (isSearching: boolean) => void
   /** 右键搜索结果：复用与树节点一致的上下文菜单 */
   onContextMenu?: (e: React.MouseEvent, item: FileItem) => void
+  /** 结果呈现：跟随文件页当前的树/网格选择 */
+  layout?: 'tree' | 'grid'
 }
 
 export const FileSearchBar: React.FC<FileSearchBarProps> = ({
-  rootPath, onSelectResult, onSearchStateChange, onContextMenu,
+  rootPath, onSelectResult, onSearchStateChange, onContextMenu, layout = 'tree',
 }) => {
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<FileTypeFilter>('all')
@@ -208,7 +224,7 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
   }, [])
 
   const resultList = useMemo(() => (
-    <div className={styles.results}>
+    <div className={layout === 'grid' ? styles.resultsGrid : styles.results}>
       {loading && (
         <div className={styles.statusRow}>搜索中…</div>
       )}
@@ -227,7 +243,7 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
         <button
           key={item.path}
           type="button"
-          className={styles.resultItem}
+          className={layout === 'grid' ? styles.resultCell : styles.resultItem}
           onClick={() => onSelectResult(item)}
           onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, item) } : undefined}
           draggable={!item.isDirectory}
@@ -245,15 +261,28 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
           }}
           title={item.path}
         >
+          {layout === 'grid' && (
+            <span className={styles.resultThumb}>
+              {item.isDirectory ? (
+                <IconFolder size={26} />
+              ) : isImagePath(item.path) ? (
+                <img src={mediaUrl(item.path)} alt="" loading="lazy" decoding="async" />
+              ) : (
+                <span className={styles.resultExt}>{extOf(item.name)}</span>
+              )}
+            </span>
+          )}
           <span className={styles.resultName}>
             {item.name}
             {item.isDirectory && <span className={styles.resultDirBadge}>/</span>}
           </span>
-          <span className={styles.resultPath}>{item.path}</span>
+          <span className={layout === 'grid' ? styles.resultDir : styles.resultPath}>
+            {layout === 'grid' ? parentDirOf(item.path) : item.path}
+          </span>
         </button>
       ))}
     </div>
-  ), [loading, error, results, isSearching, truncated, onSelectResult, onContextMenu, rootPath])
+  ), [loading, error, results, isSearching, truncated, onSelectResult, onContextMenu, rootPath, layout])
 
   return (
     <div className={clsx(styles.container, isSearching && styles['container--searching'])}>

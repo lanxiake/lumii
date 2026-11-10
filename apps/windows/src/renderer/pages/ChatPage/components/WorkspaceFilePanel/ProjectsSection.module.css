@@ -9,6 +9,23 @@
   min-height: 0;
 }
 
+/* 整页（工作台的「项目」页）：这一页只有它，不封顶高、不画分隔线 */
+.rootFull {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.listFull {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0 4px 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .header {
   display: flex;
   align-items: center;

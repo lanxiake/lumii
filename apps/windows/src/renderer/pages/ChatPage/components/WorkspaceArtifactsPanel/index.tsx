@@ -8,7 +8,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Search, Eye, Edit3, FolderOpen, Copy, Trash2 } from 'lucide-react'
+import { Search, Eye, Edit3, FolderOpen, Copy, ClipboardCopy, Trash2 } from 'lucide-react'
 import { stageOfTool, type ArtifactKind } from '../../../../../shared/artifact-rules'
 import { actionsForCard, type ArtifactCardState } from '../../../../../shared/card-state'
 import { ArtifactCard } from './ArtifactCard'
@@ -32,7 +32,7 @@ import {
 } from './ledger'
 import styles from './WorkspaceArtifactsPanel.module.css'
 
-type KindFilter = 'all' | 'image' | 'video' | 'doc' | 'code' | 'other'
+type KindFilter = 'all' | 'image' | 'video' | 'audio' | 'doc' | 'code' | 'other'
 export type ArtifactScope = 'session' | 'all'
 export type ViewMode = 'grid' | 'list'
 
@@ -53,6 +53,7 @@ const FILTERS: readonly { key: KindFilter; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'image', label: '图片' },
   { key: 'video', label: '视频' },
+  { key: 'audio', label: '音频' },
   { key: 'doc', label: '文档' },
   { key: 'code', label: '代码' },
   { key: 'other', label: '其它' },
@@ -61,9 +62,10 @@ const FILTERS: readonly { key: KindFilter; label: string }[] = [
 const FILTER_KINDS: Record<Exclude<KindFilter, 'all'>, readonly ArtifactKind[]> = {
   image: ['image', 'image-set'],
   video: ['video'],
+  audio: ['audio'],
   doc: ['doc', 'slides', 'sheet'],
   code: ['code', 'site'],
-  other: ['audio', 'archive', 'other'],
+  other: ['archive', 'other'],
 }
 
 function matchesKind(kind: ArtifactKind, filter: KindFilter): boolean {
@@ -315,11 +317,17 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
   useEffect(() => {
     if (!menu) return
     const close = (): void => setMenu(null)
-    // 捕获阶段：卡片自己的 click 会先触发选中，菜单应当在这一下之后就消失
-    document.addEventListener('click', close, true)
+    // 用冒泡阶段：菜单项自己的 onClick 先跑（它负责 setMenu(null) 并执行动作），
+    // 捕获阶段会抢在 React 之前把菜单卸载掉，导致每一项点了都没反应。
+    // 点在菜单外时冒泡到 document，这里再收。
+    const onPointerDown = (event: MouseEvent): void => {
+      if ((event.target as HTMLElement | null)?.closest('[data-artifact-menu]')) return
+      close()
+    }
+    document.addEventListener('mousedown', onPointerDown)
     document.addEventListener('keydown', close)
     return () => {
-      document.removeEventListener('click', close, true)
+      document.removeEventListener('mousedown', onPointerDown)
       document.removeEventListener('keydown', close)
     }
   }, [menu])
@@ -1054,6 +1062,7 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
         createPortal(
           <div
             className={styles.cardMenu}
+            data-artifact-menu
             style={{
               left: Math.min(menu.x, window.innerWidth - 200),
               top: Math.min(menu.y, window.innerHeight - 260),
@@ -1096,6 +1105,19 @@ export const WorkspaceArtifactsPanel: React.FC<WorkspaceArtifactsPanelProps> = (
               在资源管理器中显示
             </button>
             <div className={styles.cardMenuDivider} />
+            <button
+              type="button"
+              className={styles.cardMenuItem}
+              onClick={() => {
+                void writeClipboardFiles([menu.absolutePath])
+                  .then(() => toast.success('已复制文件，可直接粘贴'))
+                  .catch(() => toast.error('复制文件失败'))
+                setMenu(null)
+              }}
+            >
+              <ClipboardCopy size={13} />
+              复制文件
+            </button>
             <button
               type="button"
               className={styles.cardMenuItem}

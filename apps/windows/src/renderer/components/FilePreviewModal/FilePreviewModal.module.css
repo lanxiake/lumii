@@ -377,14 +377,9 @@
   overflow: auto;
   display: flex;
   padding: 20px;
-  background:
-    radial-gradient(ellipse at 50% 20%, rgba(var(--mt-ritual-cyan-rgb), 0.07), transparent 55%),
-    linear-gradient(45deg, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 25%, transparent 25%),
-    linear-gradient(-45deg, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 75%),
-    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--mt-fg-4) 8%, transparent) 75%);
-  background-size: auto, 16px 16px, 16px 16px, 16px 16px, 16px 16px;
-  background-position: center, 0 0, 0 8px, 8px -8px, -8px 0;
+  /* 纯色底：棋盘格在浅色主题下会把透明区域的边界也画出来，
+     看图时干扰判断（尤其是带透明通道的 PNG / 切图）。 */
+  background: var(--mt-surface-2);
 }
 
 /* 放大超出画布后：抓手光标提示可拖动平移 */

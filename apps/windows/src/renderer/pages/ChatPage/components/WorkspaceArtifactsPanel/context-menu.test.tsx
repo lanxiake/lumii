@@ -81,6 +81,44 @@ describe('WorkspaceArtifactsPanel · 产物右键菜单', () => {
     expect(onSelect).toHaveBeenCalledWith('outputs/demo/cover.png')
   })
 
+  /**
+   * 2026-11-10 用户报「右键菜单点了没反应」。
+   *
+   * 根因：关闭监听挂在 document 的**捕获阶段**（click, true），早于 React 的
+   * onClick 派发，于是点任何一项都先 setMenu(null) 把菜单卸载了。
+   * 旧测试只用 fireEvent.click 直接派发，压根不经过 document，所以没抓到。
+   * 这里按真实序列来：先 mousedown（新逻辑靠它判内/外），再 click。
+   */
+  it('真实鼠标序列下菜单项仍能点到（回归：捕获阶段吞掉点击）', async () => {
+    const { onSelect } = renderPanel()
+    const card = await screen.findByRole('button', { name: /cover\.png/ })
+    fireEvent.contextMenu(card)
+
+    const item = screen.getByRole('button', { name: '预览' })
+    fireEvent.mouseDown(item)
+    // 菜单不该在 mousedown 时就消失
+    expect(screen.getByRole('button', { name: '预览' })).toBeInTheDocument()
+    fireEvent.click(item)
+    expect(onSelect).toHaveBeenCalledWith('outputs/demo/cover.png')
+  })
+
+  it('点在菜单外面才收起', async () => {
+    renderPanel()
+    const card = await screen.findByRole('button', { name: /cover\.png/ })
+    fireEvent.contextMenu(card)
+    expect(screen.getByRole('button', { name: '预览' })).toBeInTheDocument()
+
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('button', { name: '预览' })).not.toBeInTheDocument()
+  })
+
+  it('菜单里有「复制文件」（真文件进剪贴板，可在资源管理器粘贴）', async () => {
+    renderPanel()
+    const card = await screen.findByRole('button', { name: /cover\.png/ })
+    fireEvent.contextMenu(card)
+    expect(screen.getByRole('button', { name: '复制文件' })).toBeInTheDocument()
+  })
+
   it('重命名：弹窗回填原名，确认后调 moveFile 并上报新旧相对路径', async () => {
     const { onRenamed } = renderPanel()
     const card = await screen.findByRole('button', { name: /cover\.png/ })

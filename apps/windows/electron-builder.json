@@ -28,6 +28,8 @@
     "node_modules/playwright-core/**/*",
     "node_modules/msedge-tts/**/*",
     "node_modules/silk-wasm/**/*",
+    "node_modules/@lydell/node-pty/**/*",
+    "node_modules/@lydell/node-pty-win32-x64/**/*",
     "node_modules/@xenova/transformers/**/*",
     "node_modules/onnxruntime-node/**/*",
     "node_modules/onnxruntime-common/**/*",

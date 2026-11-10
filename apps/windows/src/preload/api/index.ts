@@ -2,6 +2,7 @@
  * API 模块聚合导出
  */
 export { fileApi } from './file-api'
+export { terminalApi } from './terminal-api'
 export { systemApi } from './system-api'
 export { workspaceApi } from './workspace-api'
 export { artifactApi } from './artifact-api'

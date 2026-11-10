@@ -3,27 +3,31 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { WorkspaceWorkbench } from './index'
+import { WORKBENCH_ENTRIES, type WorkbenchTabKind } from './layout'
 
 function renderShell(props: Partial<React.ComponentProps<typeof WorkspaceWorkbench>> = {}) {
+  const tabRender: Partial<Record<WorkbenchTabKind, React.ReactNode>> = {}
   return render(
     <WorkspaceWorkbench
       open
-      view="workspace"
-      onlyArtifacts
+      tabs={['artifacts']}
+      activeTab="artifacts"
       preset="half"
-      onViewChange={vi.fn()}
-      onOnlyArtifactsChange={vi.fn()}
+      onOpenTab={vi.fn()}
+      onCloseTab={vi.fn()}
       onPresetChange={vi.fn()}
       onClose={vi.fn()}
       uncommittedCount={0}
-      rail={<div>台账内容</div>}
-      main={<div>预览内容</div>}
+      renderPane={(kind) => ({
+        rail: <div>台账内容</div>,
+        main: tabRender[kind] ?? <div>预览内容</div>,
+      })}
       {...props}
     />,
   )
 }
 
-describe('WorkspaceWorkbench · 布局与视图', () => {
+describe('WorkspaceWorkbench · 布局', () => {
   it('关闭时宽度为 0 且 aria-hidden', () => {
     const { container } = renderShell({ open: false })
     const aside = container.querySelector('aside')!
@@ -31,108 +35,24 @@ describe('WorkspaceWorkbench · 布局与视图', () => {
     expect(aside.style.width).toBe('0px')
   })
 
-  it('两个视图：工作区 / 版本（版本停用则整条消失）', () => {
-    const onViewChange = vi.fn()
-    const { rerender } = renderShell({ onViewChange })
-    expect(screen.getByRole('button', { name: '工作区' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /版本/ }))
-    expect(onViewChange).toHaveBeenCalledWith('vcs')
-
-    rerender(
-      <WorkspaceWorkbench
-        open
-        view="workspace"
-        onlyArtifacts
-        preset="half"
-        onViewChange={vi.fn()}
-        onOnlyArtifactsChange={vi.fn()}
-        onPresetChange={vi.fn()}
-        onClose={vi.fn()}
-        uncommittedCount={0}
-        vcsEnabled={false}
-        rail={<div>台账内容</div>}
-        main={<div>预览内容</div>}
-      />,
+  it('不渲染 portal：aside 就在调用位置', () => {
+    const { container } = render(
+      <div data-testid="parent">
+        <WorkspaceWorkbench
+          open
+          tabs={['artifacts']}
+          activeTab="artifacts"
+          preset="half"
+          onOpenTab={vi.fn()}
+          onCloseTab={vi.fn()}
+          onPresetChange={vi.fn()}
+          onClose={vi.fn()}
+          uncommittedCount={0}
+          renderPane={() => ({ rail: <div>台账内容</div>, main: <div>预览内容</div> })}
+        />
+      </div>,
     )
-    expect(screen.queryByRole('button', { name: /版本/ })).toBeNull()
-  })
-
-  it('VCS 停用但 view=vcs 时回退工作区，避免空白内容区', () => {
-    const onViewChange = vi.fn()
-    renderShell({
-      view: 'vcs',
-      vcsEnabled: false,
-      onViewChange,
-      rail: <div>台账内容</div>,
-      main: <div>预览内容</div>,
-      childrenVcs: <div>版本内容</div>,
-    })
-    expect(onViewChange).toHaveBeenCalledWith('workspace')
-    expect(screen.getByText('台账内容')).toBeInTheDocument()
-    expect(screen.getByText('预览内容')).toBeInTheDocument()
-    expect(screen.queryByText('版本内容')).not.toBeVisible()
-  })
-
-  it('VCS 停用 + view=vcs：工作台关着时不强行打开', () => {
-    const onViewChange = vi.fn()
-    renderShell({ open: false, view: 'vcs', vcsEnabled: false, onViewChange })
-    expect(onViewChange).not.toHaveBeenCalled()
-  })
-
-  it('单击拖拽条（无位移）不写 custom；pointercancel 也不写', () => {
-    const onPresetChange = vi.fn()
-    const { container } = renderShell({ onPresetChange })
-    const handle = container.querySelector('[role="separator"]') as HTMLElement
-    fireEvent.pointerDown(handle, { clientX: 800, pointerId: 1 })
-    fireEvent.pointerUp(handle, { clientX: 800, pointerId: 1 })
-    expect(onPresetChange).not.toHaveBeenCalled()
-
-    fireEvent.pointerDown(handle, { clientX: 800, pointerId: 2 })
-    fireEvent.pointerMove(handle, { clientX: 700, pointerId: 2 })
-    fireEvent.pointerCancel(handle, { pointerId: 2 })
-    expect(onPresetChange).not.toHaveBeenCalled()
-  })
-
-  it('拖拽松手按 pointerup 坐标写回 custom 宽度，不依赖过期 state', () => {
-    const onPresetChange = vi.fn()
-    const { container } = renderShell({ onPresetChange, preset: 'half' })
-    const handle = container.querySelector('[role="separator"]') as HTMLElement
-    // jsdom 无 Pointer Capture API
-    handle.setPointerCapture = vi.fn()
-    handle.releasePointerCapture = vi.fn()
-    fireEvent.pointerDown(handle, { clientX: 800, pointerId: 1 })
-    fireEvent.pointerMove(handle, { clientX: 700, pointerId: 1 })
-    fireEvent.pointerUp(handle, { clientX: 600, pointerId: 1 })
-    expect(onPresetChange).toHaveBeenCalledWith('custom', expect.any(Number))
-    const saved = onPresetChange.mock.calls[0]?.[1] as number
-    // half 起点约 480，向左拖 200px → 约 680；至少要比只拖到 700 时更宽
-    expect(saved).toBeGreaterThanOrEqual(680)
-  })
-
-  it('「只看产出」开关只在工作区视图出现，点击回调', () => {
-    const onOnlyArtifactsChange = vi.fn()
-    const { rerender } = renderShell({ onOnlyArtifactsChange })
-    fireEvent.click(screen.getByRole('button', { name: '只看产出' }))
-    expect(onOnlyArtifactsChange).toHaveBeenCalledWith(false)
-
-    rerender(
-      <WorkspaceWorkbench
-        open
-        view="vcs"
-        onlyArtifacts
-        preset="half"
-        onViewChange={vi.fn()}
-        onOnlyArtifactsChange={vi.fn()}
-        onPresetChange={vi.fn()}
-        onClose={vi.fn()}
-        uncommittedCount={0}
-        rail={<div>台账内容</div>}
-        main={<div>预览内容</div>}
-        childrenVcs={<div>版本内容</div>}
-      />,
-    )
-    expect(screen.queryByRole('button', { name: '只看产出' })).toBeNull()
-    expect(screen.getByText('版本内容')).toBeInTheDocument()
+    expect(container.querySelector('[data-testid="parent"] aside')).not.toBeNull()
   })
 
   it('三档宽度按钮回调 preset', () => {
@@ -143,63 +63,116 @@ describe('WorkspaceWorkbench · 布局与视图', () => {
     expect(onPresetChange).toHaveBeenNthCalledWith(1, 'wide')
     expect(onPresetChange).toHaveBeenNthCalledWith(2, 'full')
   })
+})
 
-  it('选中产物时显示面包屑与 main；未选中只显示空 main 内容', () => {
-    const { rerender } = renderShell({ selectedPath: 'outputs/a.png' })
-    expect(screen.getByText('outputs/a.png')).toBeInTheDocument()
-    expect(screen.getByText('预览内容')).toBeInTheDocument()
+describe('WorkspaceWorkbench · tab 可关可增', () => {
+  it('tab 条只画开着的页，每个都带关闭按钮', () => {
+    const onCloseTab = vi.fn()
+    renderShell({
+      tabs: ['artifacts', 'files'],
+      onCloseTab,
+      renderPane: () => ({ rail: <div>台账内容</div>, main: <div>预览内容</div> }),
+    })
+    expect(screen.getByRole('button', { name: '只看产出' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭「工作区文件」' }))
+    expect(onCloseTab).toHaveBeenCalledWith('files')
+  })
+
+  it('点「+」出开始页；选一个入口就打开它', () => {
+    const onOpenTab = vi.fn()
+    renderShell({ onOpenTab })
+    // 有 tab 时开始页不出现
+    expect(screen.queryByRole('button', { name: /新建终端/ })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '打开新页面' }))
+    expect(screen.getByRole('button', { name: /新建终端/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /新建终端/ }))
+    expect(onOpenTab).toHaveBeenCalledWith('terminal')
+    // 选完收起开始页，回到当前 tab
+    expect(screen.queryByRole('button', { name: /段在项目目录里跑命令/ })).toBeNull()
+  })
+
+  it('一个 tab 都没有时直接显示开始页（关掉最后一个后收起整列的场景）', () => {
+    renderShell({ tabs: [], activeTab: null })
+    for (const entry of WORKBENCH_ENTRIES) {
+      expect(screen.getByRole('button', { name: new RegExp(entry.description) })).toBeInTheDocument()
+    }
+    expect(screen.queryByText('台账内容')).toBeNull()
+  })
+
+  it('开始页的入口可以按调用方过滤（插件停用时不放注定失败的门）', () => {
+    const entries = WORKBENCH_ENTRIES.filter((entry) => entry.kind !== 'vcs')
+    renderShell({ tabs: [], activeTab: null, entries })
+    expect(screen.queryByRole('button', { name: /变更与提交历史/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /本会话的成品与过程文件/ })).toBeInTheDocument()
+  })
+
+  it('数字键直接打开对应页；Esc 先收开始页，再关工作台', () => {
+    const onOpenTab = vi.fn()
+    const onClose = vi.fn()
+    renderShell({ onOpenTab, onClose })
+
+    fireEvent.keyDown(window, { key: '4' })
+    expect(onOpenTab).toHaveBeenCalledWith('terminal')
+
+    onClose.mockClear()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
+
+    // 开始页开着时，Esc 只收开始页
+    fireEvent.click(screen.getByRole('button', { name: '打开新页面' }))
+    onClose.mockClear()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /新建终端/ })).toBeNull()
+  })
+
+  it('版本角标只在版本页开着时显示', () => {
+    const { rerender } = renderShell({ tabs: ['vcs'], activeTab: 'vcs', uncommittedCount: 3 })
+    expect(screen.getByText('3')).toBeInTheDocument()
 
     rerender(
       <WorkspaceWorkbench
         open
-        view="workspace"
-        onlyArtifacts
+        tabs={['artifacts', 'vcs']}
+        activeTab="artifacts"
         preset="half"
-        onViewChange={vi.fn()}
-        onOnlyArtifactsChange={vi.fn()}
+        onOpenTab={vi.fn()}
+        onCloseTab={vi.fn()}
         onPresetChange={vi.fn()}
         onClose={vi.fn()}
-        uncommittedCount={0}
-        rail={<div>台账内容</div>}
-        main={<div>空态</div>}
+        uncommittedCount={3}
+        renderPane={() => ({ rail: <div>台账内容</div>, main: <div>预览内容</div> })}
       />,
     )
-    expect(screen.getByText('空态')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+  })
+})
+
+describe('WorkspaceWorkbench · 双栏与 inspector', () => {
+  it('选中产物时显示面包屑与 main', () => {
+    renderShell({ selectedPath: 'outputs/a.png' })
+    expect(screen.getByText('outputs/a.png')).toBeInTheDocument()
+    expect(screen.getByText('预览内容')).toBeInTheDocument()
   })
 
-  it('不渲染 portal：aside 就在调用位置', () => {
-    const { container } = render(
-      <div data-testid="parent">
-        <WorkspaceWorkbench
-          open
-          view="workspace"
-          onlyArtifacts
-          preset="half"
-          onViewChange={vi.fn()}
-          onOnlyArtifactsChange={vi.fn()}
-          onPresetChange={vi.fn()}
-          onClose={vi.fn()}
-          uncommittedCount={0}
-          rail={<div>台账内容</div>}
-          main={<div>预览内容</div>}
-        />
-      </div>,
-    )
-    expect(container.querySelector('[data-testid="parent"] aside')).not.toBeNull()
-  })
-
-  it('非单栏时可收起/展开左侧产物路径 rail', () => {
-    // wide=860 ≥560，双栏
+  it('单栏 tab 不画 rail（project/terminal/vcs 自带布局）', () => {
     renderShell({
-      preset: 'wide',
-      selectedPath: 'outputs/a.png',
-      rail: <div>台账内容</div>,
-      main: <div>预览内容</div>,
+      tabs: ['terminal'],
+      activeTab: 'terminal',
+      renderPane: () => ({ main: <div>终端内容</div> }),
     })
+    expect(screen.getByText('终端内容')).toBeInTheDocument()
+    expect(screen.queryByText('台账内容')).toBeNull()
+  })
+
+  it('非单栏时可收起/展开 rail', () => {
+    renderShell({ preset: 'wide', selectedPath: 'outputs/a.png' })
     expect(screen.getByText('台账内容')).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: '收起产物列表' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起列表' }))
     expect(screen.queryByText('台账内容')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '展开产物列表' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开列表' }))
     expect(screen.getByText('台账内容')).toBeVisible()
   })
 
@@ -219,17 +192,16 @@ describe('WorkspaceWorkbench · 布局与视图', () => {
     rerender(
       <WorkspaceWorkbench
         open
-        view="workspace"
-        onlyArtifacts
+        tabs={['artifacts']}
+        activeTab="artifacts"
         preset="full"
         selectedPath="outputs/a.png"
-        onViewChange={vi.fn()}
-        onOnlyArtifactsChange={vi.fn()}
+        onOpenTab={vi.fn()}
+        onCloseTab={vi.fn()}
         onPresetChange={vi.fn()}
         onClose={vi.fn()}
         uncommittedCount={0}
-        rail={<div>台账内容</div>}
-        main={<div>预览内容</div>}
+        renderPane={() => ({ rail: <div>台账内容</div>, main: <div>预览内容</div> })}
         inspector={<div>规格详情</div>}
         inspectorOpen={false}
         onInspectorOpenChange={onInspectorOpenChange}
@@ -238,21 +210,20 @@ describe('WorkspaceWorkbench · 布局与视图', () => {
     expect(screen.queryByText('规格详情')).not.toBeInTheDocument()
   })
 
-  it('专注预览：顶栏按钮收起两侧，再按按快照恢复', () => {
+  it('专注预览：收起两侧，再按按快照恢复', () => {
     const onInspectorOpenChange = vi.fn()
     const base = {
       open: true as const,
-      view: 'workspace' as const,
-      onlyArtifacts: true,
+      tabs: ['artifacts'] as const,
+      activeTab: 'artifacts' as const,
       preset: 'full' as const,
       selectedPath: 'outputs/a.png',
-      onViewChange: vi.fn(),
-      onOnlyArtifactsChange: vi.fn(),
+      onOpenTab: vi.fn(),
+      onCloseTab: vi.fn(),
       onPresetChange: vi.fn(),
       onClose: vi.fn(),
       uncommittedCount: 0,
-      rail: <div>台账内容</div>,
-      main: <div>预览内容</div>,
+      renderPane: () => ({ rail: <div>台账内容</div>, main: <div>预览内容</div> }),
       inspector: <div>规格详情</div>,
       onInspectorOpenChange,
     }
@@ -282,7 +253,6 @@ describe('WorkspaceWorkbench · 布局与视图', () => {
       inspector: <div>规格详情</div>,
       inspectorOpen: true,
       onInspectorOpenChange,
-      rail: <div>台账内容</div>,
     })
 
     fireEvent.keyDown(window, { key: 'b', ctrlKey: true })

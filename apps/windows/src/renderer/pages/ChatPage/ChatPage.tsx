@@ -913,8 +913,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     toggleWorkbench,
     handleReviewTurnFileChange,
     closeWorkbench,
-    selectWorkbenchView,
-    setOnlyArtifacts,
+    openPanel,
+    closePanel,
     openArtifactsWorkbench,
     setPreset,
     selectPath,
@@ -2262,7 +2262,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     <div
       className={styles['chat-page']}
       ref={chatPageRef}
-      style={pageZoom !== 1 ? ({ zoom: pageZoom } as React.CSSProperties) : undefined}
     >
       {/* 会话列表 portal 进最外层侧栏。不做「原地渲染」兜底：ChatPage 在非对话视图下被
           display:none 包着，退回原地等于把列表藏起来，比直接不渲染更难发现 */}
@@ -2500,8 +2499,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       {/* 右侧工作台：真 flex 分栏（对话区自己收窄，不再吃 padding） */}
       <WorkspaceWorkbenchArea
         workbench={workbench}
-        onViewChange={selectWorkbenchView}
-        onOnlyArtifactsChange={setOnlyArtifacts}
+        onOpenTab={openPanel}
+        onCloseTab={closePanel}
         onPresetChange={setPreset}
         onSelect={selectPath}
         onClose={handleCloseWorkbench}

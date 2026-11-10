@@ -5,7 +5,7 @@
  * 使用 contextBridge 暴露 API 给渲染进�?
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { petApi } from './pet-api'
@@ -29,6 +29,7 @@ import type { WechatMcpVerdict } from '../shared/wechat-mcp-status'
 import {
   fileApi,
   systemApi,
+  terminalApi,
   workspaceApi,
   artifactApi,
   dialogApi,
@@ -276,6 +277,29 @@ export interface ElectronAPI {
     exists: (filePath: string) => Promise<boolean>
     getInfo: (filePath: string) => Promise<unknown>
     search: (dirPath: string, pattern: string, options?: unknown) => Promise<unknown[]>
+  }
+
+  /** 本地终端（工作台「终端」页） */
+  terminal: {
+    create: (
+      cwd: string,
+      size?: { cols: number; rows: number },
+    ) => Promise<{ id: string; tail: string; pid: number }>
+    write: (id: string, data: string) => Promise<boolean>
+    resize: (id: string, cols: number, rows: number) => Promise<boolean>
+    kill: (id: string) => Promise<boolean>
+    onData: (callback: (payload: { id: string; data: string }) => void) => () => void
+    onExit: (callback: (payload: { id: string; exitCode: number }) => void) => () => void
+  }
+
+  /**
+   * 页面缩放：走原生 webFrame。
+   * 不用 CSS `zoom`——它按子树缩放，非 100% 时布局尺寸带小数，连续重排会
+   * 让相邻元素向不同方向取整，表现为「组件和字体上下闪动」。
+   */
+  pageZoom: {
+    apply: (factor: number) => void
+    current: () => number
   }
 
   // 系统信息
@@ -1409,6 +1433,28 @@ const electronAPI: ElectronAPI = {
 
   // 系统信息 API
   system: systemApi,
+
+  /** 页面缩放：走原生 webFrame（CSS zoom 非 100% 会子像素抖动） */
+  pageZoom: {
+    apply: (factor: number) => {
+      const clamped = Math.min(2, Math.max(0.6, factor))
+      try {
+        webFrame.setZoomFactor(clamped)
+      } catch {
+        // ignore
+      }
+    },
+    current: (): number => {
+      try {
+        return webFrame.getZoomFactor()
+      } catch {
+        return 1
+      }
+    },
+  },
+
+  /** 本地终端（工作台「终端」页） */
+  terminal: terminalApi,
 
   usage: {
     query: (query: { from: number; to: number; groupBy: 'hour' | 'day' }) =>

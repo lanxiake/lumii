@@ -78,44 +78,100 @@
 
 .views {
   display: flex;
-  align-items: stretch;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
   height: 100%;
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  flex-shrink: 1;
 }
 
-.tab {
-  position: relative;
+/* tab 胶囊：只显示真开着的页；没有它就不占位（不像固定分区那样常驻） */
+.chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 100%;
-  padding: 0 8px;
-  border: none;
+  flex-shrink: 0;
+  max-width: 140px;
+  height: 24px;
+  padding: 0 2px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: transparent;
   color: var(--mt-fg-3);
   font-size: var(--mt-fs-xs);
+}
+
+.chip:hover {
+  background: var(--mt-surface-2);
+}
+
+.chipActive {
+  border-color: var(--mt-border-hairline);
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
   font-weight: 600;
+}
+
+.chipLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mt-fg-3);
   cursor: pointer;
 }
 
-.tab:hover {
-  color: var(--mt-fg-2);
-}
-
-.tabActive {
+.chipClose:hover {
+  background: var(--mt-surface-3);
   color: var(--mt-fg-1);
 }
 
-.tabActive::after {
-  content: '';
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 0;
-  height: 2px;
-  background: var(--mt-accent-500);
-  border-radius: 1px;
+/* 「+」：任何时候都能把开始页叫回来 */
+.addTab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.addTab:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
+.addTabActive {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
 }
 
 .badge {
@@ -132,27 +188,104 @@
   font-weight: 700;
 }
 
-/* 「只看产出」开关 */
-.density {
-  flex-shrink: 0;
-  padding: 3px 8px;
-  border: 1px solid var(--mt-border-hairline);
-  border-radius: 999px;
-  background: transparent;
+/* 「开始」页：一枚罗盘 + 一列入口胶囊（没有 tab 时的地板，不进 tab 条） */
+.guide {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 20px 8%;
+  overflow: auto;
+}
+
+.guideGlyph {
   color: var(--mt-fg-3);
-  font-size: 10px;
+  opacity: 0.35;
+  margin-bottom: 2px;
+}
+
+.guideEntries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 380px;
+}
+
+.guideEntry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 10px;
+  background: var(--mt-surface-1);
+  color: var(--mt-fg-1);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
+}
+
+.guideEntry:hover {
+  background: var(--mt-surface-3);
+  border-color: color-mix(in srgb, var(--mt-accent-500) 35%, transparent);
+}
+
+.guideEntryIcon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  color: var(--mt-accent-500);
+}
+
+.guideEntryText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.guideEntryTitle {
+  font-size: var(--mt-fs-sm);
+  font-weight: 600;
+}
+
+.guideEntryDesc {
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.density:hover {
-  color: var(--mt-fg-1);
+.guideEntryKey {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 4px;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  font-family: var(--mt-font-mono, monospace);
 }
 
-.densityOn {
-  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
-  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
-  color: var(--mt-accent-500);
+/* 极窄时只剩图标 + 标题：描述先让位 */
+@container (max-width: 320px) {
+  .guideEntryDesc {
+    display: none;
+  }
+
+  .guideEntryKey {
+    display: none;
+  }
 }
 
 /* 三档宽度 */
@@ -216,13 +349,7 @@
   background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
 }
 
-/* 窄档先藏密度（仍可键盘 1 切），极窄再藏档位——保留「拖回来」之外的恢复手段 */
-@container (max-width: 380px) {
-  .density {
-    display: none;
-  }
-}
-
+/* 极窄时藏档位——保留「拖回来」之外的恢复手段 */
 @container (max-width: 300px) {
   .presets {
     display: none;
@@ -238,13 +365,9 @@
 }
 
 .workspacePane {
-  display: none;
+  display: flex;
   flex: 1;
   min-height: 0;
-}
-
-.paneVisible {
-  display: flex;
 }
 
 .rail {
@@ -389,13 +512,6 @@
   color: var(--mt-fg-3);
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   font-size: 10px;
-}
-
-.vcsPane {
-  display: none;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {

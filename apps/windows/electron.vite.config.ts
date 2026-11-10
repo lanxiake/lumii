@@ -217,6 +217,9 @@ export default defineConfig({
           '@earendil-works/pi-ai',
           '@sinclair/typebox',
           'tar',
+          // 终端 PTY：原生模块，含平台二进制（@lydell/node-pty-win32-x64/conpty.node）。
+          // 内联进 bundle 时 Rollup 解析不到 require 的目标，且 .node 不能被内联。
+          '@lydell/node-pty',
         ]
       }),
     ],

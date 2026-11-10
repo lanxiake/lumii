@@ -488,7 +488,11 @@ export function buildArtifactLedger(
   const out: ArtifactGroup[] = []
 
   for (const slot of groups.values()) {
-    const items = [...slot.items.values()].sort((a, b) => a.path.localeCompare(b.path))
+    // 组内按**写入时间倒序**：用户找的是「刚出的那张」，不是按字母排的第几张；
+    // 同一时间戳（一轮里批量产出）保持路径序，避免每次刷新顺序乱跳。
+    const items = [...slot.items.values()].sort(
+      (a, b) => b.timestamp - a.timestamp || a.path.localeCompare(b.path),
+    )
     const intermediateItems = items.filter((item) => item.role === 'intermediate')
     const fold = intermediateItems.length >= INTERMEDIATE_FOLD_THRESHOLD
     const group: ArtifactGroup = {

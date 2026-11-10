@@ -125,6 +125,11 @@ const COLLAPSE_KEY = 'lumii.workspace.projectsCollapsed'
 
 type Props = {
   api: UseCodingDevProjectsResult
+  /**
+   * 整页模式（工作台的「项目」页）：
+   * 不折叠、不封顶高——那一页只有这一块内容，折叠标题就是多余的一层。
+   */
+  fullPage?: boolean
   /** 定位文件树到 workspace/projects/<name>，并刷新树 */
   onLocateProject: (name: string) => void
   /** 项目增删后刷新文件树（不强制定位） */
@@ -134,15 +139,22 @@ type Props = {
 /**
  * 渲染 Projects 列表区（类似 Cursor Workspaces，不含提交历史）。
  */
-export const ProjectsSection: React.FC<Props> = ({ api, onLocateProject, onTreeRefresh }) => {
+export const ProjectsSection: React.FC<Props> = ({
+  api,
+  onLocateProject,
+  onTreeRefresh,
+  fullPage = false,
+}) => {
   const { projects, activeProject, error, setActive } = api
-  const [collapsed, setCollapsed] = useState(() => {
+  const [storedCollapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSE_KEY) === '1'
     } catch {
       return false
     }
   })
+  // 整页模式下忽略用户原先在文件面板里收起的偏好：那一页没有别的可看
+  const collapsed = fullPage ? false : storedCollapsed
 
   const onProjectReady = useCallback(async (project: { name: string }) => {
     onTreeRefresh()
@@ -183,18 +195,20 @@ export const ProjectsSection: React.FC<Props> = ({ api, onLocateProject, onTreeR
   const activeLabel = activeProject || '无活动项目'
 
   return (
-    <section className={styles.root} aria-label="项目">
+    <section className={fullPage ? styles.rootFull : styles.root} aria-label="项目">
       <header className={styles.header}>
-        <button
-          type="button"
-          className={styles.collapseBtn}
-          onClick={toggleCollapsed}
-          aria-expanded={!collapsed}
-          title={collapsed ? '展开项目列表' : '收起项目列表'}
-        >
-          <span className={clsx(styles.chevron, !collapsed && styles.chevronOpen)}>▾</span>
-          <span className={styles.title}>项目</span>
-        </button>
+        {fullPage ? null : (
+          <button
+            type="button"
+            className={styles.collapseBtn}
+            onClick={toggleCollapsed}
+            aria-expanded={!collapsed}
+            title={collapsed ? '展开项目列表' : '收起项目列表'}
+          >
+            <span className={clsx(styles.chevron, !collapsed && styles.chevronOpen)}>▾</span>
+            <span className={styles.title}>项目</span>
+          </button>
+        )}
         {collapsed && (
           <span className={styles.activeSummary} title={activeLabel}>
             {activeProject ? `活动: ${activeProject}` : '无活动'}
@@ -215,7 +229,7 @@ export const ProjectsSection: React.FC<Props> = ({ api, onLocateProject, onTreeR
       </header>
       {error && <div className={styles.error}>{error}</div>}
       {!collapsed && (
-        <ul className={styles.list}>
+        <ul className={fullPage ? styles.listFull : styles.list}>
           {projects.length === 0 && (
             <li className={styles.empty}>暂无项目。新建或打开后会出现在 projects/ 下。</li>
           )}

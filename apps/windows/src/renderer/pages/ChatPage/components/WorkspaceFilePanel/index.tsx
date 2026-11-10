@@ -20,11 +20,15 @@ import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { deleteFile, writeFile, createDirectory } from '../../../../services/file-service'
 import { showItemInFolder } from '../../../../services/app-service'
 import { FileTree } from './FileTree'
+import { FileGrid } from './FileGrid'
 import { FileSearchBar } from './FileSearchBar'
 import { ProjectsSection } from './ProjectsSection'
 import styles from './WorkspaceFilePanel.module.css'
 
 // ── SVG 图标 ──────────────────────────────────────────────────────────────
+
+/** 树 / 网格偏好 */
+const FILES_LAYOUT_KEY = 'lumii.workspace.filesLayout'
 
 const IconX: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -351,6 +355,11 @@ export interface WorkspaceFilePanelProps {
   refreshRef?: React.MutableRefObject<(() => void) | null>
   /** 右键「在工作台打开」（不传则菜单项不出现） */
   onOpenInDoc?: (absolutePath: string) => void
+  /**
+   * 嵌入工作台时由外壳接管预览：点文件只上报路径，不再弹窗。
+   * 不传则维持原来的弹窗行为（独立抽屉场景）。
+   */
+  onSelectFile?: (absolutePath: string) => void
 }
 
 export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
@@ -360,6 +369,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   embedded = false,
   refreshRef,
   onOpenInDoc,
+  onSelectFile,
 }) => {
   const { workspaceDir, isInitializing } = useWorkspace()
   const { renameFile } = useFiles(
@@ -389,6 +399,28 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   const [hasPendingUpdate, setHasPendingUpdate] = useState(false)
   /** 搜索模式下隐藏树形视图，只显示搜索结果（由 FileSearchBar 内部渲染） */
   const [isSearching, setIsSearching] = useState(false)
+  /**
+   * 树 / 网格：树解决「我在哪」，网格解决「这个目录里有什么」（图片一屏看得完）。
+   * 偏好按用户记（与产物页的网格/列表同一套 key 命名习惯）。
+   */
+  const [layout, setLayout] = useState<'tree' | 'grid'>(() => {
+    try {
+      return localStorage.getItem(FILES_LAYOUT_KEY) === 'grid' ? 'grid' : 'tree'
+    } catch {
+      return 'tree'
+    }
+  })
+  const toggleLayout = useCallback(() => {
+    setLayout((previous) => {
+      const next = previous === 'tree' ? 'grid' : 'tree'
+      try {
+        localStorage.setItem(FILES_LAYOUT_KEY, next)
+      } catch {
+        // 存不了就只在内存里生效
+      }
+      return next
+    })
+  }, [])
 
   // 搜索结果点击：非目录直接预览；目录暂不做跳转（树状视图已展开显示）
   const handleSearchSelect = useCallback((item: FileItem) => {
@@ -440,10 +472,15 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     lastSeenDiffRef.current = signature
   }, [open, workspaceDir, uncommittedDiff])
 
+  /** 嵌入模式下预览由工作台 main 区承担；这里只负责把路径交出去 */
+  const previewInline = embedded && Boolean(onSelectFile)
+
   const handleSelect = useCallback((item: FileItem) => {
     setSelectedPath(item.path)
-    if (!item.isDirectory) setPreviewFile(item)
-  }, [])
+    if (item.isDirectory) return
+    if (previewInline) onSelectFile?.(item.path)
+    else setPreviewFile(item)
+  }, [previewInline, onSelectFile])
 
   // 外部定位请求：选中并触发树形展开/滚动；可选同时打开预览
   useEffect(() => {
@@ -453,7 +490,9 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     setSelectedPath(normalized)
     setRevealPath(normalized)
     setRevealToken(locateTarget.token)
-    if (locateTarget.preview) {
+    if (locateTarget.preview && previewInline) {
+      onSelectFile?.(normalized)
+    } else if (locateTarget.preview) {
       const name =
         locateTarget.fileName
         || normalized.split('/').pop()
@@ -661,14 +700,28 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
           />
         )}
 
-        {/* 搜索栏 */}
+        {/* 搜索栏 + 树/网格切换 */}
         {!isInitializing && workspaceDir && (
-          <FileSearchBar
-            rootPath={workspaceDir}
-            onSelectResult={handleSearchSelect}
-            onSearchStateChange={setIsSearching}
-            onContextMenu={handleContextMenu}
-          />
+          <div className={styles.searchRow}>
+            <div className={styles.searchGrow}>
+              <FileSearchBar
+                rootPath={workspaceDir}
+                onSelectResult={handleSearchSelect}
+                onSearchStateChange={setIsSearching}
+                onContextMenu={handleContextMenu}
+                layout={layout}
+              />
+            </div>
+            <button
+              type="button"
+              className={styles.layoutToggle}
+              onClick={toggleLayout}
+              aria-pressed={layout === 'grid'}
+              title={layout === 'tree' ? '切换为网格（当前目录平铺）' : '切换为目录树'}
+            >
+              {layout === 'tree' ? '网格' : '列表'}
+            </button>
+          </div>
         )}
 
         {/* 树形目录 */}
@@ -686,7 +739,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
                 <span>工作空间未就绪</span>
               </div>
             )}
-            {!isInitializing && workspaceDir && (
+            {!isInitializing && workspaceDir && layout === 'tree' && (
               <FileTree
                 rootPath={workspaceDir}
                 selectedPath={selectedPath}
@@ -700,6 +753,21 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
                 onTreeMutated={handleTreeMutated}
               />
             )}
+            {!isInitializing && workspaceDir && layout === 'grid' && (
+              <FileGrid
+                rootPath={workspaceDir}
+                selectedPath={selectedPath}
+                onOpenFile={(absolutePath) => handleSelect({
+                  name: absolutePath.split(/[\\/]/).pop() ?? absolutePath,
+                  path: absolutePath,
+                  isDirectory: false,
+                  size: 0,
+                  modifiedAt: new Date(),
+                  createdAt: new Date(),
+                })}
+                onContextMenu={(event, item) => handleContextMenu(event, item as unknown as FileItem)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -710,8 +778,9 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
           state={contextMenu}
           onClose={() => setContextMenu(null)}
           onPreview={(item) => {
-            setPreviewFile(item)
             setSelectedPath(item.path)
+            if (previewInline) onSelectFile?.(item.path)
+            else setPreviewFile(item)
           }}
           onOpenInDoc={(item) => {
             setSelectedPath(item.path)

@@ -1,0 +1,149 @@
+/* FileGrid — 工作区文件的目录平铺视图 */
+
+.root {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+  color: var(--mt-fg-3);
+}
+
+.backBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.backBtn:hover:not(:disabled) {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
+.backBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.crumb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-2);
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  direction: rtl;
+  text-align: left;
+}
+
+.count {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--mt-fg-3);
+}
+
+.state {
+  padding: 24px 12px;
+  color: var(--mt-fg-3);
+  font-size: var(--mt-fs-xs);
+  text-align: center;
+}
+
+.grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  align-content: start;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 6px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.cell:hover {
+  background: var(--mt-surface-2);
+}
+
+.cellSelected {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+}
+
+.preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--mt-surface-2);
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.folderIcon {
+  color: var(--mt-accent-500);
+  opacity: 0.8;
+}
+
+.extBadge {
+  color: var(--mt-fg-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.name {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1);
+  font-size: 11px;
+}
+
+.meta {
+  color: var(--mt-fg-3);
+  font-size: 10px;
+}

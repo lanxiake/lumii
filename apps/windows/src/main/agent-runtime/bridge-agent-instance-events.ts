@@ -837,6 +837,33 @@ export function createAgentInstanceRuntimeEventHandler(
         })
       }
 
+      // 增量推送本轮产物：回合结束才广播一次的话，Agent 正在回复的那几分钟里
+      // 「只看产出」是空的——用户刚看到的文件要等整轮跑完才出现。
+      // 这里只发「已登记路径」的累计快照（不带 diff），与回合末的权威结果同形；
+      // 渲染层按路径合并，最终以 agent:end 那次为准。
+      if (!event.isError) {
+        const incCwd = getCwd()
+        const incMsgId = state?.streamingAssistantMsgId
+        if (incCwd && incMsgId) {
+          void resolveTurnFileChanges(instanceId, [], incCwd)
+            .then((entries) => {
+              if (entries.length === 0) return
+              ipcChannel.forwardIpcEvent({
+                type: 'agent:turn:file-changes',
+                runId: ctx.runId,
+                sessionKey: ctx.sessionKey,
+                messageId: incMsgId,
+                fileChanges: entries,
+                instanceId: ctx.instanceId,
+                rootSessionKey: ctx.rootSessionKey,
+              })
+            })
+            .catch(() => {
+              // 增量只是锦上添花；拿不到就等回合末的权威结果
+            })
+        }
+      }
+
     }
     if (event.type === 'message:delta') {
       const state = instanceStates.get(instanceId)
