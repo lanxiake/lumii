@@ -58,6 +58,11 @@ export interface AgentRuntimeBridgeConfig {
   getUserDevices?: () => Promise<readonly UserDeviceInfo[]>
   /** 获取用户 SOUL 内容（人格/风格/边界） */
   getSoulContent?: () => Promise<string | undefined>
+  /**
+   * 每轮同步读取最新 SOUL（热更新）。不提供时，装配时的快照会一直用到会话结束。
+   * 同步而不是异步：`buildPrompt` 是同步签名，见 host-kit/types.ts 的说明。
+   */
+  getSoulContentLive?: () => string | undefined
   /** 读取用户记忆全文（Markdown） */
   getUserMemory?: () => Promise<{ content: string; updatedAt?: string } | undefined>
   /** 更新用户记忆全文（Markdown） */

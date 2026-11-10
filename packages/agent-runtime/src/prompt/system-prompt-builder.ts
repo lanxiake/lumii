@@ -15,6 +15,7 @@ import { isLeanStyle, CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./syste
 import type { PromptSectionId, PromptSectionStat } from "./prompt-sections.js"
 import { MEMORY_PLACEHOLDER } from "../memory/memory-injector.js"
 import { DEFAULT_SOUL_CONTENT } from "./default-soul.js"
+import { HUMAN_WRITING_RULES } from "./human-writing.js"
 import { NO_DELEGATION_TOOLS_NOTE } from "../agent/builtin/prompts.js"
 import { extractToolName } from "../security/param-permission-parser.js"
 import {
@@ -225,6 +226,11 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   emit("static", "permissionMode", permissionModeLines)
 
   // ═══ ② 规则块（行为契约与红线） ═══
+
+  // === 2.0. 说人话（去 AI 味）===
+  // 所有 Agent 都要：空话、结论软、"产品说明书腔"在日报、资讯、代码说明、安全报告里一样存在。
+  // 放在规则块最前，紧跟 identity，让「我是谁 → 我怎么说话 → 我怎么干活」连成一条。
+  emit("static", "humanWriting", ["", ...HUMAN_WRITING_RULES.split("\n"), ""])
 
   // === 2.1. 系统运行规则（对齐 Claude Code # System：工具被拒不重试 / 标签语义 / 防臆造 URL / 防注入） ===
   emit("static", "systemRules", ["", ...buildSystemRulesSection(effectiveToolNames)])

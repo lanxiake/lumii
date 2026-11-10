@@ -35,4 +35,26 @@ describe('soul file IO', () => {
     const { readSoulFile } = await import('./plugin-ipc.js')
     await expect(readSoulFile()).resolves.toBeUndefined()
   })
+
+  /**
+   * 热更新链路：系统提示词每轮经 `getSoulContentLive` 同步读盘。
+   *
+   * 之前宿主没接这条线，用户在「记忆 → AI 灵魂」保存后界面是新内容、
+   * 已存在的会话却一直用装配时的旧快照（2026-11-10 实测）。
+   */
+  it('readSoulContentSync 读到最新写入内容（保存后下一轮即可见）', async () => {
+    const { readSoulContentSync, writeSoulFile } = await import('./plugin-ipc.js')
+
+    await expect(readSoulContentSync()).toBeUndefined()
+
+    await writeSoulFile('SOUL_V1')
+    expect(readSoulContentSync()).toBe('SOUL_V1')
+
+    await writeSoulFile('SOUL_V2_热更新')
+    expect(readSoulContentSync()).toBe('SOUL_V2_热更新')
+
+    // 空文件视为「没设过人格」，回退到默认模板
+    await writeSoulFile('   \n  ')
+    expect(readSoulContentSync()).toBeUndefined()
+  })
 })

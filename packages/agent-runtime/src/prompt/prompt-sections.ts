@@ -24,6 +24,7 @@ export type PromptSectionId =
   | "permissionMode"
   | "tooling"
   | "systemRules"
+  | "humanWriting"
   | "toolPreference"
   | "operatingPrinciples"
   | "bundledCapabilities"
@@ -100,6 +101,7 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "permissionMode", group: "rules", zone: "static", terse: false },
   { id: "tooling", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "systemRules", group: "rules", zone: "static", terse: false },
+  { id: "humanWriting", group: "rules", zone: "static", terse: false },
   { id: "toolPreference", group: "capabilities", zone: "static", terse: false },
   { id: "operatingPrinciples", group: "rules", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "bundledCapabilities", group: "capabilities", zone: "static", terse: false, minimal: true },

@@ -1,5 +1,5 @@
 import { join, dirname } from 'path'
-import { promises as fs, existsSync } from 'fs'
+import { promises as fs, existsSync, readFileSync } from 'fs'
 import { resolveClientStateDir } from '../paths'
 
 export function getSoulFilePath(): string {
@@ -16,6 +16,23 @@ export async function readSoulFile(): Promise<{ content: string; updatedAt: stri
     const content = await fs.readFile(p, 'utf-8')
     const stat = await fs.stat(p)
     return { content, updatedAt: stat.mtime.toISOString() }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 同步读取 SOUL 正文（去掉首尾空白）；不存在或为空时返回 undefined。
+ *
+ * 供系统提示词**每轮**取最新人格用（`PromptContextProvider.getSoulContentLive`）。
+ * builder 的 `buildPrompt` 是同步签名，没法在这里 await；文件只有几 KB，
+ * 每轮一次同步读的代价远低于「用户改了人格、当前会话却不生效」的代价。
+ */
+export function readSoulContentSync(): string | undefined {
+  try {
+    const p = getSoulFilePath()
+    if (!existsSync(p)) return undefined
+    return readFileSync(p, 'utf-8').trim() || undefined
   } catch {
     return undefined
   }

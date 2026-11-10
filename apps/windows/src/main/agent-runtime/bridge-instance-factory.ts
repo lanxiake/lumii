@@ -781,6 +781,9 @@ export class BridgeInstanceFactory {
           return undefined
         }
       },
+      // 每轮热更新：用户在「记忆 → AI 灵魂」保存后，已有会话的下一轮就用新人格。
+      // 上面那个 async 版只在装配时取一次，不接这条线的话改动要等重启才生效。
+      getSoulContentLive: this.deps.config.getSoulContentLive,
       getContextFiles: (): readonly ContextFile[] => this.deps.promptComposer.loadContextFiles(),
       // 确定性流水线摘要：由插件 wire 后写入 bridge；未启用插件时为空 → 不注入该节
       getPipelineHints: () => this.deps.getPipelineHints?.() ?? [],
