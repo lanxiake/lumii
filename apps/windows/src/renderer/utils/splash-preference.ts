@@ -40,8 +40,12 @@ function isSplashDisabledInSettings(): boolean {
 
 /**
  * 本会话是否已播完开机动画
+ *
+ * 页面重载（崩溃恢复 / 开发期 HMR / Cmd+R）时 sessionStorage 还在，
+ * 此时若仍挂 early-splash，而 App 侧按「已播过」跳过 SplashOverlay，
+ * 就再没有人来收掉这层覆盖层 —— 表现正是「开机画面卡住不动」。
  */
-function hasSplashPlayedThisSession(): boolean {
+export function hasSplashPlayedThisSession(): boolean {
   try {
     return sessionStorage.getItem(SPLASH_DONE_KEY) === '1'
   } catch {

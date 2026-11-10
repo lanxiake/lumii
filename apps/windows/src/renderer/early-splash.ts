@@ -10,6 +10,7 @@
 import { audioCueForProgress } from './boot/boot-climax'
 import { BOOT_ID, mountBootVisual, type BootVisualHandle, type BootProgress } from './boot/boot-visual'
 import { createBootAudio, type BootAudioHandle } from './boot/boot-audio'
+import { hasSplashPlayedThisSession } from './utils/splash-preference'
 
 /** 与 boot-visual 实际挂载的节点 id 一致；两边不同会让「是否已挂载」的判断永远落空 */
 const EARLY_ID = BOOT_ID
@@ -32,6 +33,13 @@ function publish(p: BootProgress): void {
 let visual: BootVisualHandle | null = null
 let audio: BootAudioHandle | null = null
 let offProgress: (() => void) | null = null
+let watchdogTimer = 0
+
+/**
+ * 看门狗时限。主壳正常几百毫秒就绪，SplashOverlay 也会等主壳最多 8s；
+ * 12s 足够覆盖慢机器，又不至于让人对着覆盖层干等半分钟。
+ */
+const WATCHDOG_MS = 12_000
 
 /**
  * 辅助窗口（文件预览 / 宠物）不播放开机动画
@@ -61,12 +69,11 @@ function readSystemSettings(): { showSplashOnStartup?: boolean; splashSound?: bo
 }
 
 /**
- * 是否应跳过开机画面（辅助窗 / 设置关闭 / 静默启动）
+ * 是否应跳过开机画面（辅助窗 / 设置关闭 / 静默启动 / 本会话已播）
  *
- * 注意这里**不看** `lumii.splash.done`：
- * 本模块在每次页面加载时只执行一次（early-splash 的入口就是页面加载），
- * 所以「模块执行」本身就等于「这是一次新的启动」。标记留给
- * SplashOverlay 在同一页面内防止重复播放即可。
+ * 最后一条不能省：页面重载（崩溃恢复 / HMR / F5）时 sessionStorage 仍在，
+ * App 侧的 SplashOverlay 会因为「已播过」而不渲染。若这里还照挂，
+ * 就再没有代码去调 `complete()` —— 覆盖层永远盖在主界面上，看起来就是开机卡死。
  */
 function shouldSkip(): boolean {
   if (isAuxiliaryWindowMode()) {
@@ -76,6 +83,14 @@ function shouldSkip(): boolean {
   if (readSystemSettings().showSplashOnStartup === false) {
     console.info('[early-splash] 跳过：设置里关闭了开机动画')
     return true
+  }
+  try {
+    if (hasSplashPlayedThisSession()) {
+      console.info('[early-splash] 跳过：本会话已播过（页面重载）')
+      return true
+    }
+  } catch {
+    // ignore
   }
   try {
     if (window.electronAPI?.splash?.shouldSkip?.()) {
@@ -148,6 +163,25 @@ function mountEarlySplash(): void {
   }
 
   /**
+   * 看门狗：正常情况下由 App 里的 SplashOverlay 调 `complete()` 收尾。
+   * 但界面层若在挂载前就抛错（插件、Provider、渲染异常），没人会来收，
+   * 覆盖层就会永久盖住主界面 —— 用户看到的正是「开机动画卡住」。
+   * 到这里自行退场，宁可少一点收尾动画，也不能把应用挡在外面。
+   */
+  watchdogTimer = window.setTimeout(() => {
+    watchdogTimer = 0
+    if (!visual) return
+    console.warn('[early-splash] 超时未见收尾请求，强制退场')
+    void visual.complete().catch(() => {
+      try {
+        document.getElementById(EARLY_ID)?.remove()
+      } catch {
+        // ignore
+      }
+    })
+  }, WATCHDOG_MS)
+
+  /**
    * 主动拉一次历史阶段。
    *
    * 启动的绝大多数阶段都在窗口加载页面之前就发完了，广播一条也收不到；
@@ -175,6 +209,8 @@ export function getBootAudio(): BootAudioHandle | null {
 
 /** 开机画面结束后释放引用，避免残留句柄被下一次挂载复用 */
 export function releaseBootVisual(): void {
+  window.clearTimeout(watchdogTimer)
+  watchdogTimer = 0
   offProgress?.()
   offProgress = null
   listeners.clear()

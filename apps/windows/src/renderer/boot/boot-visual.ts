@@ -279,6 +279,7 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   let destroyed = false
   let completed = false
   let raf = 0
+  let bakeTimer = 0
   let lastT = performance.now()
   const startedAt = performance.now()
 
@@ -478,8 +479,15 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   }
 
   function bakeNebula(): void {
-    const nw = Math.max(420, Math.min(1400, Math.round(W * 0.62)))
-    const nh = Math.max(260, Math.min(900, Math.round(H * 0.62)))
+    /**
+     * 星云是低频柔光，按显示尺寸的 1/5 烘焙再放大，肉眼无差。
+     *
+     * 这里**必须是低分辨率**：原先按 0.62 倍算，1920×1080 下约 80 万像素、
+     * 每像素 ~11 次分形噪声求值，同步跑一遍要几百毫秒到一秒，主线程直接冻住——
+     * 开机动画看起来「卡住」，卡的不是渲染，是这行烘焙。
+     */
+    const nw = Math.max(180, Math.min(420, Math.round(W * 0.2)))
+    const nh = Math.max(120, Math.min(300, Math.round(H * 0.2)))
     const c = document.createElement('canvas')
     c.width = nw
     c.height = nh
@@ -994,7 +1002,22 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
     cv.height = Math.round(H * DPR)
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
     seedDust()
-    bakeBackdrop()
+    scheduleBake()
+  }
+
+  /**
+   * 烘焙底图。
+   *
+   * 推后一拍再跑：挂载时几万个像素的噪声循环若同步执行，会让首帧迟迟出不来，
+   * 用户看到的就是黑屏卡顿。先让 HUD 出画面，底图下一拍补上。
+   * 连续 resize 时去抖，避免拖窗口反复烘焙。
+   */
+  function scheduleBake(): void {
+    window.clearTimeout(bakeTimer)
+    bakeTimer = window.setTimeout(() => {
+      bakeTimer = 0
+      if (!destroyed) bakeBackdrop()
+    }, 0)
   }
 
   resize()
@@ -1008,6 +1031,7 @@ export function mountBootVisual(options: BootVisualOptions = {}): BootVisualHand
   function cleanup(): void {
     destroyed = true
     window.clearInterval(stallTimer)
+    window.clearTimeout(bakeTimer)
     cancelAnimationFrame(raf)
     window.removeEventListener('resize', onResize)
     off?.()
