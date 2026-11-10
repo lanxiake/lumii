@@ -110,6 +110,16 @@ export function buildPluginDevGuide(): Record<string, unknown> {
       no_build: '没有打包步骤。两类插件都是单个 JS 文件，直接写盘就是部署。',
     },
 
+    lifecycle: {
+      inject: 'definition.inject 声明必需服务；缺了插件停在 pending（不是失败），服务出现后自动激活',
+      injectOptional: '可选服务用 injectOptional；缺了照常激活，自己 ctx.get 判空',
+      pending: 'status 里看到 state=pending 是正常的：看 missingServices 里在等哪个 key',
+      cascade: '你的插件 provide 的服务被移除时，依赖它的插件会自动停回 pending；恢复后自动回来',
+      timeout: 'apply 默认 10 秒超时（definition.activationTimeoutMs 可覆盖），超时判 failed 并清理已注册的作用域',
+      fork: '按实体（会话/窗口）登记资源用 ctx.fork()：实体消失只拆那棵子树，插件本体继续服务其余实体',
+      teardown: 'ctx.effect(fn) 的 fn 返回清理函数；generator 形态可一次登记多个 disposer',
+    },
+
     workflow: [
       '1. 用 file_write 写 <client>/<id>/plugin.json（origin:"agent"）与 client.js',
       '2. 调 plugin_dev check（kind=client, id=<id>）做静态体检',
