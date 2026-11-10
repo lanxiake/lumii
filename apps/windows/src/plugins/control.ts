@@ -45,6 +45,8 @@ export interface ExtensionInfo {
   enabled: boolean
   /** available = 官方清单里有、但还没下载安装 */
   state: PluginState | 'disabled' | 'available' | 'unknown'
+  /** state=pending 时缺哪些服务——UI 显示「等待：xxx」，避免被当成故障 */
+  missingServices?: string[]
   /** 显示「安装」按钮（按需下载的官方扩展） */
   installable?: boolean
   /** 已装的官方扩展与当前清单 sha256 不同 → 显示「更新」 */
@@ -144,8 +146,12 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
        * 内置插件**总是**登记在宿主里（禁用的只是不激活，见 host.ts），
        * 所以判「有没有在跑」只能看 state：registered/stopped = 没跑；
        * failed 算「已经尝试过」，不该一直挂着「待重启」。
+       *
+       * `pending` 也**不算**未生效：它是「依赖没就绪」的正常等待态，而不是
+       * 「偏好还没落地」——把它算成待重启会让设置页永远顶着一个假的重启横幅。
        */
-      const running = live?.state === 'active' || live?.state === 'failed'
+      const running =
+        live?.state === 'active' || live?.state === 'failed' || live?.state === 'pending'
       return {
         id: manifest.id,
         name: manifest.name,
@@ -158,6 +164,7 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         state: enabled ? (live?.state ?? 'unknown') : 'disabled',
         activationMs: live?.activationMs,
         error: live?.error ? messageOf(live.error) : undefined,
+        ...(live?.missingServices?.length ? { missingServices: live.missingServices } : {}),
         pendingRestart: permanentlyOff ? false : enabled !== running,
       }
     })
@@ -174,7 +181,9 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
        */
       const enabled = !disabled.has(entry.id)
       // 外部扩展也是运行期启停：与内置同口径，按宿主真实状态判断「待重启」
-      const running = entry.state === 'active' || entry.state === 'failed'
+      // pending 同上：等依赖，不是偏好没落地。
+      const running =
+        entry.state === 'active' || entry.state === 'failed' || entry.state === 'pending'
       // 官方扩展：已装 marker 的 sha256 与当前清单不同 → 可更新（安装包不会自动覆盖）
       const catalogEntry = entry.origin === 'official' ? catalogById.get(entry.id) : undefined
       const installedSha = catalogEntry ? readInstalledOfficial(entry.dir)?.sha256 : undefined

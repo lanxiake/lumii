@@ -52,6 +52,8 @@ interface ExtensionInfo {
   dir?: string
   enabled: boolean
   state: string
+  /** state=pending 时缺哪些服务 */
+  missingServices?: string[]
   /** 官方清单里有、还没下载安装 */
   installable?: boolean
   /** 已装的官方扩展落后于当前清单 */
@@ -68,6 +70,7 @@ interface ExtensionInfo {
 
 const STATE_LABELS: Record<string, string> = {
   active: '运行中',
+  pending: '等待依赖',
   activating: '激活中',
   registered: '待激活',
   failed: '失败',
@@ -566,6 +569,12 @@ export const ExtensionsPanel: React.FC<ExtensionsPanelProps> = ({ onViewChange }
             <span className={`${styles.state} ${styles[`state-${row.state}`] ?? ''}`}>
               {STATE_LABELS[row.state] ?? row.state}
             </span>
+            {/* pending 是「等依赖」而不是故障：把缺哪些服务写出来，否则用户只看到一句「等待依赖」 */}
+            {row.state === 'pending' && row.missingServices?.length ? (
+              <span className={styles.id} title={row.missingServices.join(', ')}>
+                等待：{row.missingServices.join('、')}
+              </span>
+            ) : null}
             {row.activationMs !== undefined && (
               <span className={styles.timing}>{row.activationMs.toFixed(0)}ms</span>
             )}

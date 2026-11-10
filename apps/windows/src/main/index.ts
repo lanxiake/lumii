@@ -133,6 +133,7 @@ import {
 } from './agent-runtime'
 import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
 import {
+  readSoulContentSync,
   readSoulFile,
   readUserMemoryFile,
   writeSoulFile,
@@ -157,6 +158,7 @@ import { setupExtensionIpcHandlers } from './ipc/extension-ipc'
 import { setPalaceBridgeProvider, setupPalaceIpcHandlers } from './ipc/palace-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
+import { disposeTerminals, registerTerminalIpcHandlers } from './ipc/terminal-ipc'
 import type { SyncSchedulerLike } from './kernel/cloud-sync-contract'
 import { initScriptRuntimes } from './runtime-env'
 import type { VoiceCallService } from '../plugins/builtin/voice/voice-service.js'
@@ -603,6 +605,18 @@ async function initAgentRuntime(): Promise<void> {
         return undefined
       }
     },
+    /**
+     * 每轮同步读取最新 SOUL（热更新）。
+     *
+     * `assembleSystemPrompt` 只在实例装配时取一次快照；不提供这个 getter 的话，
+     * 用户在「记忆 → AI 灵魂」改完保存后，**已存在的会话会一直用旧人格直到重启**，
+     * 界面上却已经是新内容——与 `api-ipc.ts` 里 `refreshAgentDefinitions` 修过的
+     * 「改了没反应」是同一类静默失效（2026-11-10 实测）。
+     *
+     * 这里同步读磁盘而不是复用上一步的 async 结果：它每轮被调用一次，文件只有几 KB，
+     * 而做成异步会污染 builder 的签名。读失败返回 undefined → 回退装配时的快照。
+     */
+    getSoulContentLive: () => readSoulContentSync(),
     /** 读取用户记忆（用于 profile_memory / memory_search 工具，本地文件 ~/.lumii/data/user-memory.md） */
     getUserMemory: async () => readUserMemoryFile(),
     // 记忆宫殿的三个回调（searchPalace / readPalaceDrawer / archivePalaceDrawer）由
@@ -976,6 +990,8 @@ function setupIpcHandlers(): void {
 
   // Coding Dev handlers (保留原有的注册方式)
   registerCodingDevHandlers()
+  // 工作台「终端」页：PTY 进程归主进程，退出前统一收口
+  registerTerminalIpcHandlers(() => BrowserWindow.getAllWindows())
 
   // 技能商店 IPC（SkillNet）
   registerSkillnetStoreHandlers({
@@ -1447,9 +1463,13 @@ async function startExtensions(): Promise<void> {
       )
     } else if (entry.state === 'failed') {
       log.error(`[ext] ${entry.id} failed: ${entry.error ?? '未知错误'}`)
+    } else if (entry.state === 'pending') {
+      // 等待依赖不是错误：它会在服务出现后自动激活。写 info 并带上缺什么，
+      // 否则启动日志里「插件没起来」会被误读成故障。
+      log.info(`[ext] ${entry.id} pending，等待：${(entry.missingServices ?? []).join('、') || '?'}`)
     }
   }
-  if (report.activated.length === 0 && report.failed.length === 0) {
+  if (report.activated.length === 0 && report.failed.length === 0 && report.pending.length === 0) {
     log.warn('[ext] 没有可用的扩展')
   }
 
@@ -1484,6 +1504,7 @@ function summarizeExtensions(): Array<{
   services?: number
   teardowns?: number
   error?: string
+  missingServices?: string[]
 }> {
   return (pluginHost?.list() ?? []).map(entry => ({
     id: entry.id,
@@ -1493,6 +1514,7 @@ function summarizeExtensions(): Array<{
     services: entry.scope ? entry.scope.size - entry.scope.teardowns : undefined,
     teardowns: entry.scope?.teardowns,
     error: entry.error ? String((entry.error as Error).message ?? entry.error) : undefined,
+    missingServices: entry.missingServices,
   }))
 }
 
@@ -1795,6 +1817,9 @@ async function performCleanup(): Promise<void> {
   log.info('开始清理资源...')
 
   try {
+    // 先把终端进程收掉：留着孤儿 shell 比晚一点退出更糟
+    disposeTerminals()
+
     // 录屏进行中：flush finalize，避免坏文件
     if (screenRecordService) {
       await screenRecordService.flushBeforeQuit()
