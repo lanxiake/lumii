@@ -69,8 +69,6 @@ export interface ExternalExtensionInfo {
   requires?: LumiiPluginManifest['requires']
   enabled: boolean
   state: string
-  /** state=pending 时缺哪些服务 */
-  missingServices?: string[]
   activationMs?: number
   error?: string
 }
@@ -227,7 +225,6 @@ export class ExternalExtensionRuntime {
         ...(entry.requires ? { requires: entry.requires } : {}),
         enabled: entry.enabled,
         state: entry.enabled ? (live?.state ?? 'unknown') : 'disabled',
-        ...(live?.missingServices?.length ? { missingServices: live.missingServices } : {}),
         activationMs: live?.activationMs,
         error:
           entry.error ??

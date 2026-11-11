@@ -77,7 +77,6 @@ export function registerPluginDevTools(deps: BridgeToolRegistrarDeps): void {
             enabled: item.enabled,
             state: item.state,
             pendingRestart: item.pendingRestart,
-            ...(item.missingServices?.length ? { missingServices: item.missingServices } : {}),
             ...(item.dir ? { dir: item.dir } : {}),
             ...(item.error ? { error: item.error } : {}),
           })),
