@@ -198,7 +198,6 @@ export function createExtensionControl(deps: ExtensionControlDeps): ExtensionCon
         dir: entry.dir,
         enabled,
         state: enabled ? (entry.state as ExtensionInfo['state']) : 'disabled',
-        ...(entry.missingServices?.length ? { missingServices: entry.missingServices } : {}),
         ...(catalogEntry && installedSha && installedSha !== catalogEntry.sha256
           ? { updatable: true }
           : {}),
