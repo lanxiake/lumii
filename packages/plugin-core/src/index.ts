@@ -19,7 +19,7 @@ export {
 } from "./errors.js";
 
 // 作用域
-export { PluginScope, type DisposeResult, type EffectValue } from "./scope.js";
+export { PluginScope, type DisposeResult } from "./scope.js";
 
 // 事件
 export { EventBus, type EventMap, type Listener, type WaterfallListener, type EventBusOptions } from "./events.js";
@@ -30,7 +30,6 @@ export {
   createPluginContext,
   type PluginContext,
   type ContextDeps,
-  type ServiceChange,
 } from "./context.js";
 
 // 清单
@@ -51,5 +50,4 @@ export {
   type PluginState,
   type StartReport,
   type PluginHostOptions,
-  type PluginStateChange,
 } from "./loader.js";
