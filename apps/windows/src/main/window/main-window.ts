@@ -6,6 +6,7 @@ import type { ScreenRecordService } from '../kernel/screen-record-contract'
 import { installPreviewZoomGuard } from './preview-zoom-guard'
 import { openExternalWithFallback } from './in-app-browser'
 import { shouldDeferToRenderer } from './context-menu-policy'
+import { shouldBlockMainFrameNavigation } from './navigation-guard'
 
 interface MainWindowLogger {
   info: (...args: unknown[]) => void
@@ -186,6 +187,23 @@ export function createMainWindow(
     if (devOrigin && targetUrl.startsWith(devOrigin)) return
     event.preventDefault()
     void openExternalWithFallback(targetUrl, (message) => logger.warn(message))
+  })
+
+  /**
+   * 第二道：CDP（`Page.navigate`）等浏览器进程下发的导航不经过 `will-navigate`。
+   * 实测 2026-11-11：第三方小红书发布脚本把 dev 客户端的 9222 当成 Chrome，
+   * 连上后整页导航主窗口 —— 无边框窗口里连关闭按钮都没了。
+   * 这里在它真正开始后把它拉回渲染层，并留日志便于追责。
+   */
+  window.webContents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return
+    const devRendererUrl = process.env.ELECTRON_RENDERER_URL
+    if (!shouldBlockMainFrameNavigation(details.url, devRendererUrl)) return
+    logger.error(`[Renderer] 主窗口被外部导航劫持：${details.url}，已拉回渲染层`)
+    // 先停掉劫持的导航，再载回渲染层，避免两个导航抢同一个 frame
+    window.webContents.stop()
+    if (devRendererUrl) window.loadURL(devRendererUrl)
+    else window.loadFile(join(__dirname, '../renderer/index.html'))
   })
 
   // 渲染进程崩溃自愈的限流参数（见下方 render-process-gone 处理）
