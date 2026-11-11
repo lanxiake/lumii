@@ -8,7 +8,7 @@
  * 不做无限递归铺开（那会把 node_modules 也铺成几千张卡）。
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronLeft, Folder } from 'lucide-react'
 import { listDirectory, type RawFileEntry } from '../../../../services/file-service'
@@ -22,6 +22,8 @@ export interface FileGridProps {
   dirPath?: string
   /** 外部定位到某个文件（会切到它所在目录并高亮） */
   selectedPath?: string | null
+  /** 定位令牌：同一路径再次定位也要重新切目录（与树的 revealToken 同一套） */
+  revealToken?: number
   onOpenFile: (absolutePath: string) => void
   onEnterDir?: (absolutePath: string) => void
   /** 右键菜单（与树共用同一套动作） */
@@ -57,6 +59,7 @@ export const FileGrid: React.FC<FileGridProps> = ({
   rootPath,
   dirPath,
   selectedPath,
+  revealToken,
   onOpenFile,
   onEnterDir,
   onContextMenu,
@@ -71,15 +74,34 @@ export const FileGrid: React.FC<FileGridProps> = ({
     setCurrent(normalize(dirPath ?? rootPath))
   }, [dirPath, rootPath])
 
-  // 外部定位到某个文件：切到它所在目录
+  // 外部定位到某个文件：切到它所在目录。
+  // revealToken 也进依赖——同一文件再定位一次（先走开、再点同一处）时，
+  // 只靠路径变化不会重跑，网格会停在别的目录里。
   useEffect(() => {
     if (!selectedPath) return
     const normalized = normalize(selectedPath)
-    const currentDir = normalize(current)
-    if (normalized.startsWith(`${currentDir}/`)) return
     const idx = normalized.lastIndexOf('/')
     if (idx > 0) setCurrent(normalized.slice(0, idx))
-  }, [selectedPath]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedPath, revealToken])
+
+  // 定位后把命中格滚进视野（树有同样的行为，网格之前只是高亮不滚动）；
+  // 命中目标本身是文件夹时进到里面——树对目录的做法是展开，网格的等价动作是进入。
+  const locatedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedPath || loading) return
+    const target = normalize(selectedPath)
+    if (locatedRef.current === `${target}#${revealToken ?? 0}`) return
+    locatedRef.current = `${target}#${revealToken ?? 0}`
+    const hit = entries.find((entry) => normalize(entry.path) === target)
+    if (hit?.isDirectory) {
+      setCurrent(target)
+      return
+    }
+    // 按属性值比对而不是拼选择器：路径里可能有引号/反斜杠，CSS.escape 在 jsdom 里也不保证有
+    const el = Array.from(document.querySelectorAll<HTMLElement>('[data-grid-path]'))
+      .find((node) => node.dataset.gridPath === target)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [selectedPath, revealToken, entries, loading])
 
   useEffect(() => {
     let cancelled = false
@@ -154,6 +176,7 @@ export const FileGrid: React.FC<FileGridProps> = ({
                 type="button"
                 className={clsx(styles.cell, isSelected && styles.cellSelected)}
                 title={entry.path}
+                data-grid-path={normalize(entry.path)}
                 onClick={() => {
                   if (isDir) {
                     if (onEnterDir) onEnterDir(entry.path)

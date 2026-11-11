@@ -176,6 +176,31 @@ describe('WorkspaceWorkbench · 双栏与 inspector', () => {
     expect(screen.getByText('台账内容')).toBeVisible()
   })
 
+  it('拖宽 rail 落盘，重开沿用；双击复位（用户要能拉宽看长文件名）', () => {
+    localStorage.removeItem('lumii.workbench.railWidth')
+    const { unmount } = renderShell({ preset: 'wide', selectedPath: 'outputs/a.png' })
+    const rail = screen.getByText('台账内容').parentElement!.parentElement!
+    expect(rail.style.width).toBe('260px')
+
+    const handle = screen.getByRole('separator', { name: '拖动调整列表宽度' })
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 })
+    fireEvent.pointerMove(handle, { clientX: 120, pointerId: 1 })
+    fireEvent.pointerUp(handle, { clientX: 120, pointerId: 1 })
+    expect(rail.style.width).toBe('380px')
+    expect(localStorage.getItem('lumii.workbench.railWidth')).toBe('380')
+
+    // 重开（新挂载）沿用存下来的宽度
+    unmount()
+    renderShell({ preset: 'wide', selectedPath: 'outputs/a.png' })
+    const reopened = screen.getByText('台账内容').parentElement!.parentElement!
+    expect(reopened.style.width).toBe('380px')
+
+    // 双击复位 = 回默认，同时清掉存的值
+    fireEvent.doubleClick(screen.getByRole('separator', { name: '拖动调整列表宽度' }))
+    expect(reopened.style.width).toBe('260px')
+    expect(localStorage.getItem('lumii.workbench.railWidth')).toBeNull()
+  })
+
   it('并排 inspector（满档）可用「信息」钮收起/展开', () => {
     const onInspectorOpenChange = vi.fn()
     const { rerender } = renderShell({

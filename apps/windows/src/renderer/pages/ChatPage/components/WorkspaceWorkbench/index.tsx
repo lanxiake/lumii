@@ -36,6 +36,7 @@ import {
   TAB_ORDER,
   WORKBENCH_ENTRIES,
   WORKBENCH_WIDTH_MIN,
+  clampRailWidth,
   isCompactWidth,
   isInspectorInline,
   isSplitTab,
@@ -75,6 +76,28 @@ const ENTRY_ICONS: Record<WorkbenchTabKind, ReactNode> = {
   project: <FolderGit2 size={22} strokeWidth={1.6} />,
   terminal: <SquareTerminal size={22} strokeWidth={1.6} />,
   vcs: <GitBranch size={22} strokeWidth={1.6} />,
+}
+
+/** 用户拖出来的 rail 宽度（跨会话记住；空 = 跟随断点默认值） */
+const RAIL_WIDTH_KEY = 'lumii.workbench.railWidth'
+
+function loadRailWidth(): number | null {
+  try {
+    const raw = localStorage.getItem(RAIL_WIDTH_KEY)
+    const value = raw === null ? Number.NaN : Number(raw)
+    return Number.isFinite(value) && value > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+
+function saveRailWidth(value: number | null): void {
+  try {
+    if (value === null) localStorage.removeItem(RAIL_WIDTH_KEY)
+    else localStorage.setItem(RAIL_WIDTH_KEY, String(Math.round(value)))
+  } catch {
+    // 存不了就只在本次会话里生效
+  }
 }
 
 export interface WorkspaceWorkbenchProps {
@@ -164,6 +187,11 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
   const wasInlineInspectorRef = useRef(false)
   /** 「+」打开的临时开始页：选完入口就关，不持久化 */
   const [guideOpen, setGuideOpen] = useState(false)
+  /** 用户拖出来的 rail 宽度；null = 用断点默认值（半档 220 / 其余 260） */
+  const [railWidthOverride, setRailWidthOverride] = useState<number | null>(loadRailWidth)
+  const railDragRef = useRef<{ startX: number; startW: number } | null>(null)
+  /** 拖拽期间不写 localStorage：pointermove 每帧一次，写盘太频繁 */
+  const pendingRailWidthRef = useRef<number | null>(null)
 
   // 可用宽度跟着父容器走（chat-page 去掉侧栏后的真实宽度）
   useEffect(() => {
@@ -276,11 +304,60 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
     [finishDrag],
   )
 
-  const railWidth = railWidthFor(displayWidth)
   /** 非单栏才提供两侧收起（单栏本身是 rail/main 互斥） */
   const canCollapseSides = !compact && split
   /** 并排与浮层统一：inspectorOpen 控制是否显示 */
   const showInspector = Boolean(pane?.rail && inspector && selectedPath && inspectorOpen)
+  const railWidth = clampRailWidth(
+    railWidthOverride ?? railWidthFor(displayWidth),
+    displayWidth,
+    showInspector && inlineInspector,
+  )
+
+  const onRailResizePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      railDragRef.current = { startX: event.clientX, startW: railWidth }
+    },
+    [railWidth],
+  )
+
+  const onRailResizePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = railDragRef.current
+      if (!drag) return
+      const next = clampRailWidth(
+        drag.startW + (event.clientX - drag.startX),
+        displayWidth,
+        showInspector && inlineInspector,
+      )
+      pendingRailWidthRef.current = next
+      setRailWidthOverride(next)
+    },
+    [displayWidth, showInspector, inlineInspector],
+  )
+
+  const endRailResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!railDragRef.current) return
+    railDragRef.current = null
+    const settled = pendingRailWidthRef.current
+    pendingRailWidthRef.current = null
+    if (settled !== null) saveRailWidth(settled)
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  /** 双击分隔条 = 回到断点默认宽度 */
+  const resetRailWidth = useCallback(() => {
+    pendingRailWidthRef.current = null
+    saveRailWidth(null)
+    setRailWidthOverride(null)
+  }, [])
 
   /** 设置 rail 收起态；手动展开时退出专注标记 */
   const setRailCollapsedSafe = useCallback(
@@ -565,6 +642,21 @@ export const WorkspaceWorkbench: React.FC<WorkspaceWorkbenchProps> = ({
                     </button>
                   )}
                   <div className={styles.railBody}>{pane.rail}</div>
+                  {/* 拖宽 rail：长文件名靠省略号截断，拉宽是最直接的读全方式 */}
+                  {canCollapseSides && (
+                    <div
+                      className={styles.railResizeHandle}
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="拖动调整列表宽度"
+                      title="拖动调整宽度（双击复位）"
+                      onPointerDown={onRailResizePointerDown}
+                      onPointerMove={onRailResizePointerMove}
+                      onPointerUp={endRailResize}
+                      onPointerCancel={endRailResize}
+                      onDoubleClick={resetRailWidth}
+                    />
+                  )}
                 </div>
               )}
               <div className={styles.main} hidden={compact && !selectedPath}>

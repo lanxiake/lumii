@@ -3,6 +3,7 @@ import {
   CHAT_MIN_REMAIN,
   WORKBENCH_ENTRIES,
   WORKBENCH_WIDTH_MIN,
+  clampRailWidth,
   closeTab,
   entryFor,
   hashWorkspaceDir,
@@ -54,6 +55,17 @@ describe('断点与 rail 宽度', () => {
 
   it('对话区残留常量保持 280', () => {
     expect(CHAT_MIN_REMAIN).toBe(280)
+  })
+
+  it('rail 拖宽：下限 160，上限给 main 留 200（并排 inspector 再扣它的宽度）', () => {
+    expect(clampRailWidth(50, 860)).toBe(160)
+    expect(clampRailWidth(420, 860)).toBe(420)
+    // 860 - 200 = 660
+    expect(clampRailWidth(9999, 860)).toBe(660)
+    // 860 - 200 - 240 = 420
+    expect(clampRailWidth(9999, 860, true)).toBe(420)
+    // 单栏极窄时也不会算出比下限还小的上限
+    expect(clampRailWidth(300, 300)).toBe(160)
   })
 })
 

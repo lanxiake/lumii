@@ -96,6 +96,23 @@ export function railWidthFor(workbenchWidth: number): number {
   return workbenchWidth < 560 ? 220 : 260
 }
 
+/** rail 手动拖宽的下限（再窄连文件名都放不下） */
+export const RAIL_WIDTH_MIN = 160
+/** rail 拖宽后 main 至少要留下的位置 */
+export const MAIN_MIN_REMAIN = 200
+
+/**
+ * 夹紧用户拖出来的 rail 宽度。
+ *
+ * rail 里的文件名靠省略号截断，长名字只能靠把栏拉宽看全；但 rail 一宽就会把
+ * main 挤没，所以上限跟着工作台宽度走（并排 inspector 时再扣掉它那份）。
+ */
+export function clampRailWidth(width: number, workbenchWidth: number, inspectorInline = false): number {
+  const reserved = MAIN_MIN_REMAIN + (inspectorInline ? INSPECTOR_WIDTH : 0)
+  const max = Math.max(RAIL_WIDTH_MIN, workbenchWidth - reserved)
+  return Math.min(max, Math.max(RAIL_WIDTH_MIN, Math.round(width)))
+}
+
 /* ── tab 列表的纯操作（顺序即 tab 条顺序） ───────────────────────────── */
 
 /** 打开 tab：已开则只切过去；否则按 TAB_ORDER 有序插入 */

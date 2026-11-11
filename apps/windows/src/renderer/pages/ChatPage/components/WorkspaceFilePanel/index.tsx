@@ -19,6 +19,8 @@ import { FilePreviewModal } from '../../../../components/FilePreviewModal'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { deleteFile, writeFile, createDirectory } from '../../../../services/file-service'
 import { showItemInFolder } from '../../../../services/app-service'
+import { writeClipboardFiles } from '../../../../services/clipboard-service'
+import { useOptionalToast } from '../../../../components/ui/Toast/useOptionalToast'
 import { FileTree } from './FileTree'
 import { FileGrid } from './FileGrid'
 import { FileSearchBar } from './FileSearchBar'
@@ -233,9 +235,11 @@ const ContextMenu: React.FC<{
   onDelete: (item: FileItem) => void
   onOpenExternal: (item: FileItem) => void
   onCopy: (item: FileItem, kind: 'name' | 'relative' | 'absolute') => void
+  /** 把文件/目录本身写进剪贴板（可在资源管理器直接粘贴） */
+  onCopyFile: (item: FileItem) => void
   onCreateFile: (parentItem: FileItem) => void
   onCreateFolder: (parentItem: FileItem) => void
-}> = ({ state, onClose, onPreview, onOpenInDoc, onRename, onDelete, onOpenExternal, onCopy, onCreateFile, onCreateFolder }) => {
+}> = ({ state, onClose, onPreview, onOpenInDoc, onRename, onDelete, onOpenExternal, onCopy, onCopyFile, onCreateFile, onCreateFolder }) => {
   const menuRef = useRef<HTMLDivElement>(null)
 
   // 点击外部关闭
@@ -312,6 +316,10 @@ const ContextMenu: React.FC<{
             在资源管理器中显示
           </button>
           <div className={styles.contextMenuDivider} />
+          <button className={styles.contextMenuItem} onClick={() => { onCopyFile(state.item); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
+            复制文件
+          </button>
           <button className={styles.contextMenuItem} onClick={() => { onCopy(state.item, 'name'); onClose() }}>
             <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
             复制文件名
@@ -377,6 +385,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   )
   const projectsApi = useCodingDevProjects()
   const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
+  const toast = useOptionalToast()
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   /** 外部定位请求的目标路径（驱动 FileTree 展开并滚动到该节点） */
@@ -622,6 +631,16 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     })
   }, [workspaceDir])
 
+  /** 复制文件/目录本身（剪贴板里是 CF_HDROP，资源管理器可直接粘贴出完整副本） */
+  const handleCopyFile = useCallback((item: FileItem) => {
+    void writeClipboardFiles([item.path])
+      .then(() => toast.success(item.isDirectory ? '已复制文件夹，可直接粘贴' : '已复制文件，可直接粘贴'))
+      .catch((err: unknown) => {
+        console.error('[WorkspaceFilePanel] 复制文件失败:', err)
+        toast.error('复制文件失败')
+      })
+  }, [toast])
+
   const handleCreateFile = useCallback(async (newName: string) => {
     const trimmed = newName.trim()
     if (!createFileParent || !trimmed || /[\\/]/.test(trimmed)) return
@@ -757,6 +776,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
               <FileGrid
                 rootPath={workspaceDir}
                 selectedPath={selectedPath}
+                revealToken={revealToken}
                 onOpenFile={(absolutePath) => handleSelect({
                   name: absolutePath.split(/[\\/]/).pop() ?? absolutePath,
                   path: absolutePath,
@@ -790,6 +810,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
           onDelete={(item) => setDeleteTarget(item)}
           onOpenExternal={handleOpenExternal}
           onCopy={handleCopy}
+          onCopyFile={handleCopyFile}
           onCreateFile={(item) => setCreateFileParent(item)}
           onCreateFolder={(item) => setCreateFolderParent(item)}
         />
