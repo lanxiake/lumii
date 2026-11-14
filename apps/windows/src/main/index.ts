@@ -1866,6 +1866,15 @@ async function performCleanup(): Promise<void> {
       log.warn('[performCleanup] ACP 运行清理失败:', err)
     }
 
+    // 工作台本地终端 PTY：不收口会留下孤儿 shell
+    try {
+      const { disposeTerminals } = await import('./ipc/terminal-ipc.js')
+      disposeTerminals()
+      log.info('[performCleanup] 本地终端已全部结束')
+    } catch (err) {
+      log.warn('[performCleanup] 本地终端清理失败:', err)
+    }
+
     // 性能监控：周期快照定时器已随扩展作用域停掉，这里只把尚未落盘的事件写完再销毁流
     if (performanceMonitor) {
       await performanceMonitor.flush()

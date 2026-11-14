@@ -59,6 +59,7 @@ import {
 } from './settings-ipc'
 import { registerUserGuidesIpcHandlers } from './user-guides-ipc'
 import { registerNetIpcHandlers } from './net-ipc'
+import { registerTerminalIpcHandlers } from './terminal-ipc'
 
 export interface IpcHandlersDeps {
   getMainWindow: () => BrowserWindow | null
@@ -184,4 +185,9 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerSettingsIpcHandlers()
   registerUserGuidesIpcHandlers()
   registerNetIpcHandlers()
+  // 工作台本地终端：preload 已暴露 terminalApi，漏注册会变成 No handler for terminal:create
+  registerTerminalIpcHandlers(() => {
+    const win = deps.getMainWindow()
+    return win ? [win] : []
+  })
 }
