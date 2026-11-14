@@ -89,6 +89,11 @@ export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
   '数字人与视频配音/infinitetalk-shopping-avatar',
   // —— 2026-10-22 「灵栖维护」整线下线，其手册技能一并移除 ——
   '系统维护/system-keeper-handbook',
+  // 2026-11-14 下线：与新增的「内容创作与发布/去AI味写作」职责重叠。
+  // 两者都治「读起来像 AI 写的」，但方法不同：humanizer-zh 是 30 条 AI 腔模式清单（扫措辞），
+  // 去AI味写作 是重建说话人（人称＋反应＋数字分层）。触发词高度撞车，留两个只会互相抢——
+  // 而后者覆盖面更宽（多出口播稿时长核算、数字三筛），故保留后者。
+  '文档与分析/humanizer-zh',
 ]
 
 /** 读取上次种子时的 app 版本 */
