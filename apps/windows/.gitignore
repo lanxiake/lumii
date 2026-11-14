@@ -23,3 +23,7 @@ bundled-skills/璁捐涓庡彲瑙嗗寲/Art/ThumbnailExamples/
 bundled-skills/璁捐涓庡彲瑙嗗寲/Art/Examples/
 bundled-skills/璁捐涓庡彲瑙嗗寲/Art/HeadshotExamples/
 .mtbot/
+
+# electron-vite 构建期临时配置（时间戳后缀）
+electron.vite.config.*.mjs
+
