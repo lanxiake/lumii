@@ -146,14 +146,15 @@ export function useSkills() {
     [disableMutation]
   )
 
+  /**
+   * 卸载技能。**不吞异常** —— 调用方要能把失败原因告诉用户。
+   *
+   * 原先这里 catch 后返回 false，而 SkillsPage 忽略返回值、无条件提示「技能已卸载」，
+   * 于是主进程抛错时 UI 仍报成功（用户看到的「点了没反应 / 删了还在」）。
+   */
   const uninstallSkill = useCallback(
-    async (skillItemId: string): Promise<boolean> => {
-      try {
-        await uninstallMutation.mutateAsync(skillItemId)
-        return true
-      } catch {
-        return false
-      }
+    async (skillItemId: string): Promise<void> => {
+      await uninstallMutation.mutateAsync(skillItemId)
     },
     [uninstallMutation]
   )

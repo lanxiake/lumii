@@ -9,6 +9,9 @@
  */
 
 import type { CommandListEntry } from '../../../../shared/agent-runtime-commands'
+// 复用启动器搜索的拼音转换：同一套 pinyin-pro 口径，避免两处各写一份映射
+import { pinyin } from 'pinyin-pro'
+import { hasCjk, pinyinFull, pinyinInitials } from '../../../../plugins/builtin/listary/pinyin'
 
 export type CommandCategory = 'session' | 'memory' | 'backend' | 'info' | 'settings' | 'skill'
 
@@ -27,6 +30,14 @@ export interface SlashCommand {
   skillId?: string
   /** 技能命令：传给 skill_invoke 的技能名称（展示名，可能不同于命令名） */
   skillName?: string
+  /** 技能命令：技能所属分类（如「文档与分析」），用于按中文分类搜索 */
+  skillCategory?: string
+  /**
+   * 搜索用全文。`description` 为了面板排版被截到 80 字，截断会切掉关键词
+   *（实测 `/word` 搜不到 docx —— 「Word documents」正好被切在 `Wor…`）。
+   * 故保留一份未截断的原文专供匹配。
+   */
+  searchText?: string
   /** 使用次数（技能取自 executionCount，内置命令取自本地计数），用于导航列表排序 */
   usageCount?: number
 }
@@ -219,6 +230,7 @@ interface LocalSkillEntry {
   dirName?: string
   name?: string
   description?: string
+  category?: string
   enabled?: boolean
   /** 技能累计执行次数（skill_invoke 成功加载后由主进程累加） */
   executionCount?: number
@@ -266,6 +278,8 @@ export function buildSkillCommands(entries: LocalSkillEntry[], reserved: Set<str
       category: 'skill',
       skillId: entry.id,
       skillName: displayName,
+      skillCategory: entry.category,
+      searchText: description,
       usageCount: entry.executionCount ?? 0,
     })
   }
@@ -348,10 +362,30 @@ export function findCommand(input: string): SlashCommand | null {
 /**
  * 模糊搜索命令列表
  *
- * 当输入以 "/" 开头时，过滤出名称或描述中含有查询词的命令。
- * 优先级：名称前缀匹配 > 名称包含 > 描述包含
+ * 支持：命令名前缀/包含、别名、**技能展示名**、**拼音全拼与首字母**、描述。
  *
- * @param query - 用户输入（如 "/com"、"/mem"、""）
+ * ## 为什么原来「搜不到」
+ *
+ * 旧实现只比 `name` / `aliases` / `description` 三处，于是：
+ * - 技能名是 `weather`、描述是英文 ⇒ 输入「天气」零命中
+ * - 技能名是中文 ⇒ 输入 `tianqi` / `tq` 零命中
+ * - 展示名（`skillName`）压根不参与匹配
+ *
+ * 拼音复用 `listary/pinyin.ts` 的 `pinyinFull` / `pinyinInitials`（同一个 `pinyin-pro`），
+ * 与启动器搜索保持同一套转换口径，不另起一套映射表。
+ *
+ * ## 排序
+ *
+ * 命中质量分 8 档（数字越小越靠前），同档内再按使用次数：
+ * ```
+ * 0 命令名/别名 前缀      4 拼音 前缀
+ * 1 命令名/别名 包含      5 拼音 包含
+ * 2 展示名 前缀           6 描述 包含
+ * 3 展示名 包含           7 描述拼音 前缀
+ * ```
+ * 分级而不是打分：用户输入越短越模糊，前缀命中一定比"某处包含"更符合意图。
+ *
+ * @param query - 用户输入（如 "/com"、"/mem"、"/天气"、"/tianqi"）
  */
 export function searchCommands(query: string): SlashCommand[] {
   const q = query.toLowerCase().replace(/^\//, '')
@@ -361,27 +395,153 @@ export function searchCommands(query: string): SlashCommand[] {
     return sortCommandsByUsage(commands)
   }
 
-  const prefix: SlashCommand[] = []
-  const contains: SlashCommand[] = []
-  const descContains: SlashCommand[] = []
+  const variants = buildQueryVariants(q)
+  const buckets: SlashCommand[][] = Array.from({ length: 8 }, () => [])
 
   for (const cmd of commands) {
-    const nameBody = cmd.name.slice(1) // 去掉前缀 /
-    const aliasMatch = cmd.aliases?.some((a) => a.slice(1).startsWith(q))
+    const rank = rankCommand(cmd, variants)
+    if (rank >= 0) buckets[rank].push(cmd)
+  }
 
-    if (nameBody.startsWith(q) || aliasMatch) {
-      prefix.push(cmd)
-    } else if (nameBody.includes(q)) {
-      contains.push(cmd)
-    } else if (cmd.description.toLowerCase().includes(q)) {
-      descContains.push(cmd)
+  return buckets.flatMap((bucket) => sortCommandsByUsage(bucket))
+}
+
+/**
+ * 用户输入的所有等价写法。
+ *
+ * 中文输入额外给出全拼与首字母，这样 `/豆包` 也能命中英文名 `doubao` 的技能 ——
+ * 与反方向（`/doubao` 命中中文名）对称，用户不必记住技能是用哪种语言命名的。
+ *
+ * **单字母拼音变体一律丢弃**：`画` 的首字母是 `h`，若把它当普通子串参与匹配，
+ * `/画` 会命中所有描述里含字母 h 的命令（实测 13 条噪声）。单字母不承载任何意图。
+ */
+function buildQueryVariants(q: string): string[] {
+  if (!hasCjk(q)) return [q]
+  const { full, initials } = pinyinOf(q)
+  const out = [q]
+  if (full.length >= 2) out.push(full)
+  if (initials.length >= 2 && initials !== full) out.push(initials)
+  return out
+}
+
+/**
+ * 拼音缓存。命令面板每次按键都会重算，而描述动辄上百字；
+ * 不缓存等于每次输入都把同一批中文重新转一遍拼音。
+ */
+const pinyinMemo = new Map<string, { full: string; initials: string }>()
+
+function pinyinOf(text: string): { full: string; initials: string } {
+  const hit = pinyinMemo.get(text)
+  if (hit) return hit
+  // 纯拉丁串不必转：pinyin-pro 会原样返回，白算一遍还污染缓存
+  const value = hasCjk(text)
+    ? { full: pinyinFull(text), initials: pinyinInitials(text) }
+    : { full: '', initials: '' }
+  pinyinMemo.set(text, value)
+  return value
+}
+
+/** 返回命中档位（0 最好），未命中返回 -1 */
+function rankCommand(cmd: SlashCommand, variants: string[]): number {
+  const name = cmd.name.slice(1)
+  const aliases = (cmd.aliases ?? []).map((a) => a.slice(1))
+  const display = cmd.skillName ?? ''
+  // 用未截断的原文匹配；`description` 只用于展示
+  const desc = (cmd.searchText ?? cmd.description).toLowerCase()
+  const category = cmd.skillCategory ?? ''
+
+  for (const q of variants) {
+    if (name.startsWith(q) || aliases.some((a) => a.startsWith(q))) return 0
+  }
+  for (const q of variants) {
+    if (name.includes(q) || aliases.some((a) => a.includes(q))) return 1
+  }
+  if (display) {
+    for (const q of variants) if (display.toLowerCase().startsWith(q)) return 2
+    for (const q of variants) if (display.toLowerCase().includes(q)) return 3
+  }
+
+  // 单字母拼音匹配噪声太大（`/a` 会命中所有 a 开头的中文名），两字母起才启用
+  const pinyinVariants = variants.filter((v) => v.length >= 2)
+  if (pinyinVariants.length > 0) {
+    for (const text of [name, display, category]) {
+      if (!text) continue
+      const { full, initials } = pinyinOf(text)
+      if (!full && !initials) continue
+      if (pinyinVariants.some((q) => full.startsWith(q) || initials.startsWith(q))) return 4
+    }
+    for (const text of [name, display, category]) {
+      if (!text) continue
+      const { full, initials } = pinyinOf(text)
+      if (!full && !initials) continue
+      if (pinyinVariants.some((q) => full.includes(q) || initials.includes(q))) return 5
     }
   }
 
-  // 同一匹配优先级内：按使用次数降序，未使用时按名称字母序
-  return [
-    ...sortCommandsByUsage(prefix),
-    ...sortCommandsByUsage(contains),
-    ...sortCommandsByUsage(descContains),
-  ]
+  // 中文分类名直接匹配（`/文档` 命中「文档与分析」下的所有技能）
+  if (category) {
+    for (const q of variants) if (category.toLowerCase().includes(q)) return 6
+  }
+
+  for (const q of variants) {
+    if (desc.includes(q)) return 6
+  }
+
+  // 描述拼音必须在**音节边界**上匹配：全拼串没有词边界，`hua` 是 `chuangzuo`
+  // 的子串，直接 includes 会把一大片无关命令拉进来（实测 `/画` 从 6 条噪声涨到 17 条）。
+  // 用原始查询的全拼去撞描述的音节边界，`/jianji` 与 `/剪辑` 都能命中「剪辑」。
+  const descSyllables = pinyinSyllables(desc)
+  if (descSyllables.length > 0) {
+    // variants[0] 恒为原始输入（见 buildQueryVariants）
+    const raw = variants[0] ?? ''
+    const queryPinyin = hasCjk(raw) ? pinyinFull(raw) : raw
+    if (queryPinyin && matchesAtSyllableBoundary(queryPinyin, descSyllables)) return 7
+  }
+
+  // 首字母缩写（`xhs` → 小红书…）。只认**用户亲手打的拉丁串**：
+  // 系统从「画」转出来的 `hua` 也会撞上别处首字母，那是替用户做主带来的噪声
+  //（与 listary/pinyin.ts 的 MIN_CONVERTED_PINYIN_LEN 同一考虑）。
+  const raw = variants[0] ?? ''
+  if (!hasCjk(raw) && raw.length >= 2) {
+    const { initials } = pinyinOf(desc)
+    if (initials.includes(raw)) return 7
+  }
+
+  return -1
+}
+
+/**
+ * 把中文转成音节数组（`剪辑` → `['jian','ji']`）。
+ *
+ * 与 `pinyinOf` 的区别：这里保留**音节边界**，用于在长文本里做精确的多字词匹配。
+ * 纯拉丁串不转（pinyin-pro 会原样返回一整段，反而干扰音节对齐）。
+ */
+function pinyinSyllables(text: string): string[] {
+  if (!text || !hasCjk(text)) return []
+  const hit = syllableMemo.get(text)
+  if (hit) return hit
+  let value: string[] = []
+  try {
+    value = pinyin(text, { toneType: 'none', type: 'array' }).map((s) => s.toLowerCase())
+  } catch {
+    value = []
+  }
+  syllableMemo.set(text, value)
+  return value
+}
+
+const syllableMemo = new Map<string, string[]>()
+
+/** 查询串是否出现在音节序列的某个**边界起点**上（允许跨音节、末音节可为前缀） */
+function matchesAtSyllableBoundary(query: string, syllables: string[]): boolean {
+  if (!query) return false
+  for (let i = 0; i < syllables.length; i++) {
+    let acc = ''
+    for (let j = i; j < syllables.length; j++) {
+      acc += syllables[j]
+      if (acc === query) return true
+      if (acc.length >= query.length) break
+    }
+  }
+  return false
 }

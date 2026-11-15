@@ -31,6 +31,7 @@ import * as path from 'node:path'
 import { createHash } from 'node:crypto'
 import { app } from 'electron'
 import { createLogger } from './logger'
+import { readUserRemovedSkills } from './skill-store'
 
 const log = createLogger('BundledSkillsSeeder')
 
@@ -94,6 +95,46 @@ export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
   // 去AI味写作 是重建说话人（人称＋反应＋数字分层）。触发词高度撞车，留两个只会互相抢——
   // 而后者覆盖面更宽（多出口播稿时长核算、数字三筛），故保留后者。
   '文档与分析/humanizer-zh',
+  // —— 2026-11-15 短剧创作整线移除 ——
+  // 24 个技能跑了一整条链路（选题→人物→分镜→素材→生成→剪辑→发布），但真机调用统计里
+  // 只有 jianying-editing-workflow 被用过 1 次，其余 23 个全是 0。台账里那些"干了什么"
+  // 的规则从未被读过，留着只会挤占每轮技能的检索面。连同 weather、resume-diagnosis 一并下线。
+  '短剧创作/01选题与故事开发/brainstorming',
+  '短剧创作/01选题与故事开发/cinematic-story-architecture',
+  '短剧创作/01选题与故事开发/film-treatment-writer',
+  '短剧创作/01选题与故事开发/short-drama-case-deconstructor',
+  '短剧创作/01选题与故事开发/short-drama-writer-bytesagain',
+  '短剧创作/01选题与故事开发/short-drama-writer-dvcrn',
+  '短剧创作/01选题与故事开发/story-development-pipeline',
+  '短剧创作/01选题与故事开发/story-ideation-lab',
+  '短剧创作/01选题与故事开发/trend-case-research',
+  '短剧创作/02小说改编与剧本策划/content-planner',
+  '短剧创作/03人物与世界观设计/character-bible',
+  '短剧创作/03人物与世界观设计/world-building',
+  '短剧创作/04分集剧本与台词创作/content-creator',
+  '短剧创作/04分集剧本与台词创作/episode-scriptwriter',
+  '短剧创作/05分镜与镜头设计/h3-drama-director',
+  '短剧创作/05分镜与镜头设计/shot-list-designer',
+  '短剧创作/05分镜与镜头设计/story-fidelity-auditor',
+  '短剧创作/06角色场景与道具素材/asset-bible',
+  '短剧创作/06角色场景与道具素材/visual-continuity-manager',
+  '短剧创作/07图片生成与加工/comfyui-image-pipeline',
+  '短剧创作/08视频生成与镜头生产/comfyui-video-pipeline',
+  '短剧创作/08视频生成与镜头生产/h3-prompt-master',
+  '短剧创作/08视频生成与镜头生产/h3-quality-optimizer',
+  '短剧创作/08视频生成与镜头生产/h3-workflow-designer',
+  '短剧创作/08视频生成与镜头生产/video-creation-pipeline',
+  '短剧创作/09剪辑包装与成片/ffmpeg-video-processing',
+  '短剧创作/09剪辑包装与成片/h3-video-editor',
+  '短剧创作/09剪辑包装与成片/jianying-editing-workflow',
+  '短剧创作/09剪辑包装与成片/local-tts-audio-pipeline',
+  '短剧创作/10发布运营与数据复盘/content-performance-review',
+  '短剧创作/10发布运营与数据复盘/short-form-video-plan',
+  'weather',
+  'resume-diagnosis',
+  // 指针空壳：内容全部在「短剧创作/08视频生成与镜头生产/video-creation-pipeline」，
+  // 只剩一句"去读那份"。两份同名注册会让解析随机落到空壳上。
+  '视频创作/video-creation-pipeline',
 ]
 
 /** 读取上次种子时的 app 版本 */
@@ -179,7 +220,10 @@ export async function seedBundledSkills(
   console.log('[Seeder] step4: pruneRetired start')
   pruneRetiredBundledSkills(targetSkillsDir, stats)
   console.log('[Seeder] step5: seedDirectory start')
-  await seedDirectory(sourceDir, targetSkillsDir, '', stats)
+  // 用户主动删掉的技能不再补回来：否则"删了重启又出现"，用户会认为删除没生效
+  const userRemoved = new Set(await readUserRemovedSkills(targetSkillsDir))
+  if (userRemoved.size > 0) log.info(`跳过用户主动删除的技能 ${userRemoved.size} 个: ${[...userRemoved].join(', ')}`)
+  await seedDirectory(sourceDir, targetSkillsDir, '', stats, userRemoved)
   console.log('[Seeder] step6: seedDirectory done', stats)
 
   if (stats.failed > 0) {
@@ -242,6 +286,7 @@ async function seedDirectory(
   destDir: string,
   relPath: string,
   stats: { seeded: number; skipped: number; failed: number; refreshed: number },
+  userRemoved: ReadonlySet<string>,
 ): Promise<void> {
   let entries: fs.Dirent[]
   try {
@@ -261,6 +306,10 @@ async function seedDirectory(
     // 大小写不敏感查找 skill.md
     const hasSkillMd = hasSkillMdFile(srcSubDir)
     if (hasSkillMd) {
+      if (userRemoved.has(subRelPath)) {
+        stats.skipped++
+        continue
+      }
       if (fs.existsSync(destSubDir)) {
         if (!refreshUnmodifiedSkill(srcSubDir, destSubDir, subRelPath)) {
           stats.skipped++
@@ -290,7 +339,7 @@ async function seedDirectory(
       }
     } else {
       // 这是分类目录，递归处理子目录
-      await seedDirectory(srcSubDir, destSubDir, subRelPath, stats)
+      await seedDirectory(srcSubDir, destSubDir, subRelPath, stats, userRemoved)
     }
   }
 }

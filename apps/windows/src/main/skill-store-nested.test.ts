@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { LocalSkillStore } from "./skill-store";
+import { LocalSkillStore, readUserRemovedSkills } from "./skill-store";
 
 let root: string;
 
@@ -70,6 +70,35 @@ describe("LocalSkillStore 嵌套分类扫描", () => {
     // 分类目录本身保留
     expect(fs.existsSync(path.join(root, "短剧创作", "01选题与故事开发"))).toBe(true);
     expect(await store.listInstalled()).toHaveLength(0);
+  });
+
+  /**
+   * 回归：删掉的技能不能被内置种子补回来。
+   *
+   * 种子每次启动都会把 bundled-skills 里缺的技能复制到 workspace/skills；
+   * 没有删除记录时，用户删完重启就复活 —— 表现为「删除没生效」。
+   */
+  it("卸载后记入用户删除清单，供种子跳过", async () => {
+    writeSkill("flat-skill", "flat");
+
+    const store = new LocalSkillStore(root);
+    await store.initialize();
+    await store.uninstall("flat-skill");
+
+    const removed = await readUserRemovedSkills(root);
+    expect(removed).toEqual(["flat-skill"]);
+  });
+
+  it("重复卸载同一技能不会在清单里写重复项", async () => {
+    writeSkill("flat-skill", "flat");
+    const store = new LocalSkillStore(root);
+    await store.initialize();
+
+    await store.uninstall("flat-skill");
+    // 第二次已不存在，直接失败，不该污染清单
+    const again = await store.uninstall("flat-skill");
+    expect(again.success).toBe(false);
+    expect(await readUserRemovedSkills(root)).toEqual(["flat-skill"]);
   });
 });
 

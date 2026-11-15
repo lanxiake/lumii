@@ -14,6 +14,26 @@ import { parseSkillMdFrontmatter } from './skill-md-frontmatter'
 /** 日志 */
 const log = createLogger('LocalSkillStore')
 
+/** 用户主动删除的技能清单（skills 目录根下），内置技能种子据此跳过 */
+export const USER_REMOVED_FILENAME = '.user-removed.json'
+
+/**
+ * 读取用户主动删除的技能 ID 清单。
+ *
+ * 内置技能种子用：源目录里有、但用户删过的，不再补回来。
+ * 用户重装（installFromDirectory / 商店安装）时应把对应 ID 从这里去掉，
+ * 否则下次启动会被种子当成"用户不要了"。
+ */
+export async function readUserRemovedSkills(skillsDir: string): Promise<string[]> {
+  try {
+    const raw = await fs.promises.readFile(path.join(skillsDir, USER_REMOVED_FILENAME), 'utf-8')
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 /**
  * SKILL.md 元数据结构
  */
@@ -371,6 +391,7 @@ export class LocalSkillStore {
       }
 
       await this.saveIndex()
+      await this.clearUserRemoval(manifest.id)
 
       log.info('技能安装成功', { skillId: manifest.id, version: manifest.version })
       return { success: true, skillId: manifest.id }
@@ -406,6 +427,9 @@ export class LocalSkillStore {
       // 从索引中移除
       this.index!.skills = this.index!.skills.filter((s) => s.id !== skillId)
       await this.saveIndex()
+      // 记一笔"用户删过"。内置技能种子每次启动都会把缺失的目录补回来，
+      // 不记的话用户删完重启就复活，表现为"删除没生效"。
+      await this.recordUserRemoval(skillId)
 
       log.info('技能卸载成功', { skillId })
       return { success: true }
@@ -413,6 +437,50 @@ export class LocalSkillStore {
       const errorMessage = error instanceof Error ? error.message : String(error)
       log.error('技能卸载失败', { skillId, error: errorMessage })
       return { success: false, error: errorMessage }
+    }
+  }
+
+  /**
+   * 记录用户主动删除的技能，供内置技能种子跳过。
+   *
+   * 存在 skills 目录根下的 `.user-removed.json`（一行一个 ID），而不是放进
+   * `index.json` —— 索引只描述"现存有什么"，删除记录是另一类事实，混在一起
+   * 会让 `scanAndRegisterSkills` 的"移除已不存在的条目"逻辑把它一起清掉。
+   */
+  private async recordUserRemoval(skillId: string): Promise<void> {
+    const file = path.join(this.skillsDir, USER_REMOVED_FILENAME)
+    try {
+      let ids: string[] = []
+      try {
+        const raw = await fs.promises.readFile(file, 'utf-8')
+        const parsed = JSON.parse(raw) as unknown
+        if (Array.isArray(parsed)) ids = parsed.filter((x): x is string => typeof x === 'string')
+      } catch {
+        // 文件不存在或损坏：当作空清单重写
+      }
+      if (ids.includes(skillId)) return
+      ids.push(skillId)
+      await fs.promises.writeFile(file, JSON.stringify(ids, null, 2), 'utf-8')
+    } catch (err) {
+      // 写不上只会让技能重启后复活，不该让卸载本身失败
+      log.warn('记录用户删除技能失败', { skillId, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  /**
+   * 把某技能从"用户主动删除"清单里移除（重装时调用）。
+   *
+   * 不清理的后果：用户删过 → 又从商店装回来 → 下次启动种子认为他不要了，
+   * 反而把刚装的那份当成"缺失"不再更新。
+   */
+  private async clearUserRemoval(skillId: string): Promise<void> {
+    const file = path.join(this.skillsDir, USER_REMOVED_FILENAME)
+    try {
+      const ids = await readUserRemovedSkills(this.skillsDir)
+      if (!ids.includes(skillId)) return
+      await fs.promises.writeFile(file, JSON.stringify(ids.filter((x) => x !== skillId), null, 2), 'utf-8')
+    } catch (err) {
+      log.warn('清除用户删除标记失败', { skillId, error: err instanceof Error ? err.message : String(err) })
     }
   }
 

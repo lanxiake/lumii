@@ -610,10 +610,13 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
         }
       />
 
-      {/* 卸载确认对话框 */}
+      {/* 卸载确认对话框。layer="aboveHub" 不可省：本页嵌在设置中心 Hub
+          （--z-settings-hub=12000）里，按默认 --z-modal=1400 会被 Hub 的遮罩压住，
+          弹窗虽已打开但看不见也点不到 —— 用户感知就是「点删除没反应」。 */}
       <Modal
         open={showUninstallModal}
         title="确认卸载"
+        layer="aboveHub"
         onClose={() => setShowUninstallModal(false)}
         footer={
           <>

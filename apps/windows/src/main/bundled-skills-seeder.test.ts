@@ -39,8 +39,8 @@ describe('BundledSkillsSeeder', () => {
     fs.mkdirSync(workspaceDir, { recursive: true })
 
     // 创建模拟的 bundled-skills 源目录
-    fs.mkdirSync(path.join(sourceBundledDir, 'weather'), { recursive: true })
-    fs.writeFileSync(path.join(sourceBundledDir, 'weather', 'SKILL.md'), '# weather skill')
+    fs.mkdirSync(path.join(sourceBundledDir, 'demo-skill'), { recursive: true })
+    fs.writeFileSync(path.join(sourceBundledDir, 'demo-skill', 'SKILL.md'), '# demo-skill skill')
     fs.mkdirSync(path.join(sourceBundledDir, 'github'), { recursive: true })
     fs.writeFileSync(path.join(sourceBundledDir, 'github', 'SKILL.md'), '# github skill')
     // 无效目录（缺少 SKILL.md）
@@ -61,7 +61,7 @@ describe('BundledSkillsSeeder', () => {
       await seedBundledSkills(workspaceDir, mtbotDataDir)
 
       const skillsDir = path.join(workspaceDir, 'skills')
-      expect(fs.existsSync(path.join(skillsDir, 'weather', 'SKILL.md'))).toBe(true)
+      expect(fs.existsSync(path.join(skillsDir, 'demo-skill', 'SKILL.md'))).toBe(true)
       expect(fs.existsSync(path.join(skillsDir, 'github', 'SKILL.md'))).toBe(true)
 
       const versionFile = path.join(mtbotDataDir, '.bundled-skills-seeded')
@@ -74,7 +74,7 @@ describe('BundledSkillsSeeder', () => {
       await seedBundledSkills(workspaceDir, mtbotDataDir)
 
       const skillsDir = path.join(workspaceDir, 'skills')
-      expect(fs.existsSync(path.join(skillsDir, 'weather', 'SKILL.md'))).toBe(true)
+      expect(fs.existsSync(path.join(skillsDir, 'demo-skill', 'SKILL.md'))).toBe(true)
       expect(fs.existsSync(path.join(skillsDir, 'github', 'SKILL.md'))).toBe(true)
     })
 
@@ -101,22 +101,53 @@ describe('BundledSkillsSeeder', () => {
       await seedBundledSkills(workspaceDir, mtbotDataDir)
 
       const skillsDir = path.join(workspaceDir, 'skills')
-      expect(fs.existsSync(path.join(skillsDir, 'weather', 'SKILL.md'))).toBe(true)
+      expect(fs.existsSync(path.join(skillsDir, 'demo-skill', 'SKILL.md'))).toBe(true)
 
       const versionFile = path.join(mtbotDataDir, '.bundled-skills-seeded')
       expect(fs.readFileSync(versionFile, 'utf-8').trim()).toBe('1.0.0')
     })
 
     it('已存在技能：目标目录已有同名技能 → 跳过（不覆盖）', async () => {
-      const existingSkillDir = path.join(workspaceDir, 'skills', 'weather')
+      const existingSkillDir = path.join(workspaceDir, 'skills', 'demo-skill')
       fs.mkdirSync(existingSkillDir, { recursive: true })
-      fs.writeFileSync(path.join(existingSkillDir, 'SKILL.md'), '# user modified weather')
+      fs.writeFileSync(path.join(existingSkillDir, 'SKILL.md'), '# user modified demo-skill')
 
       await seedBundledSkills(workspaceDir, mtbotDataDir)
 
       // 用户修改的内容应保留
       const content = fs.readFileSync(path.join(existingSkillDir, 'SKILL.md'), 'utf-8')
-      expect(content).toBe('# user modified weather')
+      expect(content).toBe('# user modified demo-skill')
+    })
+
+    /**
+     * 用户删掉的技能不能被种子补回来。
+     *
+     * 场景：用户在设置里卸载 `demo-skill` → 目录被删 → 下次启动种子发现"缺失"又种回来。
+     * 用户感知就是「删除没生效」，而且永远不会生效。
+     */
+    it('用户主动删除过的技能：不再种回来', async () => {
+      const skillsDir = path.join(workspaceDir, 'skills')
+      fs.mkdirSync(skillsDir, { recursive: true })
+      fs.writeFileSync(path.join(skillsDir, '.user-removed.json'), JSON.stringify(['demo-skill']))
+
+      await seedBundledSkills(workspaceDir, mtbotDataDir)
+
+      expect(fs.existsSync(path.join(skillsDir, 'demo-skill', 'SKILL.md'))).toBe(false)
+      // 没删过的照常种
+      expect(fs.existsSync(path.join(skillsDir, 'github', 'SKILL.md'))).toBe(true)
+    })
+
+    it('用户删除记录按分类相对路径匹配（分类下的技能也能跳过）', async () => {
+      fs.mkdirSync(path.join(sourceBundledDir, '分类', 'nested'), { recursive: true })
+      fs.writeFileSync(path.join(sourceBundledDir, '分类', 'nested', 'SKILL.md'), '# nested')
+
+      const skillsDir = path.join(workspaceDir, 'skills')
+      fs.mkdirSync(skillsDir, { recursive: true })
+      fs.writeFileSync(path.join(skillsDir, '.user-removed.json'), JSON.stringify(['分类/nested']))
+
+      await seedBundledSkills(workspaceDir, mtbotDataDir)
+
+      expect(fs.existsSync(path.join(skillsDir, '分类', 'nested'))).toBe(false)
     })
 
     /**
@@ -127,8 +158,8 @@ describe('BundledSkillsSeeder', () => {
      * 修法是记基线哈希：种子时把源目录哈希写进技能目录，下次靠它分辨「用户改过」与「只是旧」。
      */
     describe('已存在技能的更新判定', () => {
-      const skillDir = () => path.join(workspaceDir, 'skills', 'weather')
-      const srcDir = () => path.join(sourceBundledDir, 'weather')
+      const skillDir = () => path.join(workspaceDir, 'skills', 'demo-skill')
+      const srcDir = () => path.join(sourceBundledDir, 'demo-skill')
 
       it('没有基线（本次改动之前种下的老目录）→ 保留不覆盖', async () => {
         fs.mkdirSync(skillDir(), { recursive: true })
@@ -145,19 +176,19 @@ describe('BundledSkillsSeeder', () => {
       it('有基线且目录内容与基线一致 → 更新到新版', async () => {
         // 先种一遍，产生基线；再把源目录改掉，模拟发新版
         await seedBundledSkills(workspaceDir, mtbotDataDir)
-        fs.writeFileSync(path.join(srcDir(), 'SKILL.md'), '# weather skill v2')
+        fs.writeFileSync(path.join(srcDir(), 'SKILL.md'), '# demo-skill skill v2')
         fs.writeFileSync(path.join(srcDir(), 'run.ts'), '// 新增的文件')
 
         await seedBundledSkills(workspaceDir, mtbotDataDir)
 
-        expect(fs.readFileSync(path.join(skillDir(), 'SKILL.md'), 'utf-8')).toBe('# weather skill v2')
+        expect(fs.readFileSync(path.join(skillDir(), 'SKILL.md'), 'utf-8')).toBe('# demo-skill skill v2')
         expect(fs.existsSync(path.join(skillDir(), 'run.ts'))).toBe(true)
       })
 
       it('有基线但用户改过 → 保留用户的版本', async () => {
         await seedBundledSkills(workspaceDir, mtbotDataDir)
         fs.writeFileSync(path.join(skillDir(), 'SKILL.md'), '# 我自己改的')
-        fs.writeFileSync(path.join(srcDir(), 'SKILL.md'), '# weather skill v2')
+        fs.writeFileSync(path.join(srcDir(), 'SKILL.md'), '# demo-skill skill v2')
 
         await seedBundledSkills(workspaceDir, mtbotDataDir)
 
@@ -200,18 +231,18 @@ describe('BundledSkillsSeeder', () => {
     })
 
     it('新增技能：目标目录无同名技能 → 复制', async () => {
-      // 预先存在 weather，但没有 github
-      const existingSkillDir = path.join(workspaceDir, 'skills', 'weather')
+      // 预先存在 demo-skill，但没有 github
+      const existingSkillDir = path.join(workspaceDir, 'skills', 'demo-skill')
       fs.mkdirSync(existingSkillDir, { recursive: true })
-      fs.writeFileSync(path.join(existingSkillDir, 'SKILL.md'), '# existing weather')
+      fs.writeFileSync(path.join(existingSkillDir, 'SKILL.md'), '# existing demo-skill')
 
       await seedBundledSkills(workspaceDir, mtbotDataDir)
 
       // github 应被新增
       expect(fs.existsSync(path.join(workspaceDir, 'skills', 'github', 'SKILL.md'))).toBe(true)
-      // weather 保持用户版本
-      const weatherContent = fs.readFileSync(path.join(workspaceDir, 'skills', 'weather', 'SKILL.md'), 'utf-8')
-      expect(weatherContent).toBe('# existing weather')
+      // demo-skill 保持用户版本
+      const demoSkillContent = fs.readFileSync(path.join(workspaceDir, 'skills', 'demo-skill', 'SKILL.md'), 'utf-8')
+      expect(demoSkillContent).toBe('# existing demo-skill')
     })
 
     it('源目录不存在：跳过，不报错', async () => {
