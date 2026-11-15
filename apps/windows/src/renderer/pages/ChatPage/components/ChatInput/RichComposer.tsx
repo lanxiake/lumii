@@ -19,7 +19,6 @@
 import React, {
   forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -85,6 +84,17 @@ function placeCaretAfter(node: Node): void {
   selection.addRange(range)
 }
 
+/** 把光标放到编辑器内容末尾（外部 setValue / Tab 填技能后接着打参数） */
+function placeCaretAtEnd(root: HTMLElement): void {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(root)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(function RichComposer(
   {
     value,
@@ -139,12 +149,19 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(fu
   /**
    * 外部值变化（切会话、点建议、发送后清空）才重写 DOM。
    * IME 组合期间一律不写：那会把正在组合的串直接抹掉。
+   *
+   * replaceChildren 会丢掉选区；若编辑器仍聚焦（Tab/Enter 选中技能、点建议），
+   * 光标必须落到末尾，否则用户接着打字会插到命令前面。
+   * 未聚焦时不动 window.getSelection，避免抢走其它控件的选区。
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current
     if (!root || composingRef.current) return
     if (serializeComposer(root) === value) return
     rebuild(value)
+    if (document.activeElement === root) {
+      placeCaretAtEnd(root)
+    }
   }, [value, rebuild])
 
   /**

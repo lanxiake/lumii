@@ -91,6 +91,27 @@ describe('RichComposer', () => {
     expect(root.firstChild).not.toBe(textNode)
   })
 
+  it('外部写入新文案且编辑器仍聚焦时，光标落到末尾（Tab 选中技能后接着打参数）', () => {
+    const { root, rerender, handle } = setup({ value: '/we' })
+    root.focus()
+    // 模拟用户还在补全前缀中间：光标停在开头，重建后不该继续停在开头
+    const range = document.createRange()
+    range.setStart(root.firstChild!, 0)
+    range.collapse(true)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    rerender({ value: '/weather ' })
+
+    expect(handle.getText()).toBe('/weather ')
+    const after = selection.getRangeAt(0)
+    const before = document.createRange()
+    before.selectNodeContents(root)
+    before.setEnd(after.startContainer, after.startOffset)
+    expect(before.toString()).toBe('/weather ')
+  })
+
   it('插入引用：落成 markdown 引用块，光标前没有换行时自动补一个', () => {
     const { handle, placeCaretAtEnd, onChange, root } = setup({ value: '先写一句' })
     placeCaretAtEnd()

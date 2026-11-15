@@ -468,6 +468,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
     ;(onFileUpload ?? onImageUpload)?.(transfer.files)
   }, [onFileUpload, onImageUpload])
 
+  /**
+   * 斜杠/技能补全写入：命令名后一律跟空格，方便接着打参数或说明。
+   */
+  const fillSlashCompletion = useCallback((name: string) => {
+    const fill = `${name} `
+    setDraft(fill)
+    flushDraft(fill)
+    composerRef.current?.focus()
+  }, [setDraft, flushDraft])
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     // IME 组合期间（中文选词等）的回车/方向键属输入法操作，不触发补全导航或发送
     if (isComposingRef.current || e.nativeEvent.isComposing || e.key === 'Process') {
@@ -487,7 +497,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
         setSlashSuggestionIndex((i) => (i - 1 + slashSuggestions.length) % slashSuggestions.length)
         return
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      // Tab：只补全（所有命令/技能都写入「名 + 空格」），不自动发送
+      if (e.key === 'Tab') {
+        const selected = slashSuggestions[slashSuggestionIndex]
+        if (selected) {
+          e.preventDefault()
+          setSlashSuggestions([])
+          fillSlashCompletion(selected.name)
+          return
+        }
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
         const selected = slashSuggestions[slashSuggestionIndex]
         if (selected) {
           e.preventDefault()
@@ -502,11 +522,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               setTimeout(() => handleSend(), 0)
             }
           } else {
-            // 有参数：填充命令名 + 空格，等待用户继续输入
-            const fill = `${selected.name} `
-            setDraft(fill)
-            flushDraft(fill)
-            composerRef.current?.focus()
+            fillSlashCompletion(selected.name)
           }
           return
         }
@@ -792,7 +808,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <div className={styles['slash-panel']} ref={slashPanelRef}>
           <div className={styles['slash-panel-hint']}>
             <span>↑↓ 导航</span>
-            <span>Tab / Enter 选中</span>
+            <span>Tab 补全 · Enter 选中</span>
             <span>Esc 关闭</span>
           </div>
           {/* 按分类分组显示 */}
@@ -827,9 +843,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                             setTimeout(() => handleSend(), 0)
                           }
                         } else {
-                          setDraft(`${cmd.name} `)
-                          flushDraft(`${cmd.name} `)
-                          composerRef.current?.focus()
+                          fillSlashCompletion(cmd.name)
                         }
                       }}
                     >
@@ -1236,13 +1250,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
                           className={styles['help-code']}
                           style={{ cursor: 'pointer' }}
                           onClick={() => {
-                            const fill = cmd.usage && cmd.usage !== cmd.name
-                              ? `${cmd.name} `
-                              : cmd.name
-                            setDraft(fill)
-                            flushDraft(fill)
                             setHelpPanelOpen(false)
-                            composerRef.current?.focus()
+                            fillSlashCompletion(cmd.name)
                           }}
                         >
                           {cmd.name}
