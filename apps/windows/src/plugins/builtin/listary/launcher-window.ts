@@ -13,7 +13,9 @@
  */
 
 import { join } from 'node:path'
-import { app, BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen } from 'electron'
+
+import { forceForeground } from './foreground.js'
 
 const WIDTH = 720
 const HEIGHT = 480
@@ -21,10 +23,6 @@ const HEIGHT = 480
 /** 窗口显示时推给渲染层的事件名。与 `ipc.ts` 的 `LISTARY_EVENT.shown` 同值 —— */
 /** 这里是反方向（主进程主动推），故不复用那个常量表以免循环依赖。 */
 const LISTARY_SHOWN_EVENT = 'ext:com.lumii.listary:shown'
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
-}
 
 export interface LauncherWindowDeps {
   preloadPath: string
@@ -56,19 +54,23 @@ export class LauncherWindow {
    * 居中到**光标所在屏**：多显示器下用户在哪块屏幕干活，启动器就该在哪块弹出来
    *（Listary 也记 `LauncherPositionX/Y`，但那是固定坐标，不如跟随光标合理）。
    *
-   * ## 抢焦点为什么要三重兜底
+   * ## 抢焦点：Windows 前台锁不吃 Electron 的那套
    *
-   * Windows 的前台锁定策略（ForegroundLockTimeout）**不允许**后台进程随意抢焦点：
-   * - 用户当前光标在别的窗口的输入框里时，`win.focus()` 可能只是让窗口显示但不给焦点，
-   *   于是"双击 Ctrl 后没法直接打字"（用户 2026-11-15 实测报的正是这个）
-   * - Listary 自己的日志里也有 `ForceForegroundWindow failed`，同一根因
+   * 用户 2026-11-15 实测：「输入框中有光标，但是键盘输入还在原来其他窗口上。」
+   * 这是 DOM 焦点与 OS 前台焦点不一致 —— `win.focus()` 只保证前者。
    *
-   * 三层依次尝试，任一层成功即止：
-   * 1. `show() + focus()`
-   * 2. `setAlwaysOnTop(true, 'screen-saver')` 拉高层级后再 focus（能突破部分锁定）
-   * 3. `app.focus({ steal: true })`（Electron 给的显式抢焦点开关）
+   * 实测（`verify/listary-p3/probe-focus-win32.cjs`，msedge 持前台时）：
+   * ```
+   * show() + focus()                → ❌ 前台仍是 msedge
+   * setAlwaysOnTop('screen-saver')  → ❌ 前台仍是 msedge
+   * app.focus({ steal: true })      → ❌ 前台仍是 msedge（该选项标注 @platform darwin）
+   * ```
    *
-   * 最后再让渲染层自己 `input.focus()`（见 `LauncherApp`），因为**窗口有焦点 ≠ 输入框有焦点**。
+   * 有效的是 `forceForeground()`：先用 keybd_event 敲一下 Alt 拿到"最近输入"的所有权，
+   * 再 `SetForegroundWindow`（见 `foreground.ts` 顶部说明）。
+   *
+   * 顺序：先 show（让窗口存在且可见），再抢前台，最后通知渲染层聚焦输入框。
+   * 抢失败不阻断后续步骤 —— 至少窗口能显示、鼠标能点。
    */
   async show(): Promise<void> {
     const win = await this.ensureWindow()
@@ -86,27 +88,15 @@ export class LauncherWindow {
     win.show()
     win.focus()
 
-    if (!win.isFocused()) {
-      // 第 2 层：拉高层级
+    // 真抢前台。HWND 是 64 位，用 BigInt 读出再转十进制字符串传给 PowerShell。
+    const buf = win.getNativeWindowHandle()
+    const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
+    const stole = await forceForeground(hwnd)
+
+    if (!stole) {
+      // Windows 抢不到时的最低保障：至少让它压在别人上面，鼠标能点到
       win.setAlwaysOnTop(true, 'screen-saver')
-      win.focus()
-      await sleep(60)
     }
-
-    if (!win.isFocused()) {
-      // 第 3 层：显式抢焦点
-      try {
-        app.focus({ steal: true })
-        win.focus()
-        await sleep(60)
-      } catch {
-        /* 老版本 Electron 没有 steal，忽略 */
-      }
-    }
-
-    // 第 2 层拉高了层级，恢复成普通置顶（否则会压住某些全屏应用）
-    if (win.isFocused()) win.setAlwaysOnTop(true)
-    else win.setAlwaysOnTop(true, 'screen-saver')
 
     // 让渲染层把焦点放进输入框（窗口有焦点 ≠ 输入框有焦点）
     win.webContents.send(LISTARY_SHOWN_EVENT)

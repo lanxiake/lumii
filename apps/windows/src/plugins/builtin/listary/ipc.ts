@@ -218,7 +218,7 @@ async function extractIndexedIcon(file: string, index: number): Promise<string |
   try {
     const { execFile } = await import('node:child_process')
     const esc = file.replace(/'/g, "''")
-    const script = `
+    const script = withUtf8Output(`
 Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition @'
 using System;
@@ -237,7 +237,7 @@ if ($n -gt 0 -and $lg[0] -ne [IntPtr]::Zero) {
   $ms = New-Object System.IO.MemoryStream
   $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
   [Convert]::ToBase64String($ms.ToArray())
-}`
+}`)
     const b64 = await new Promise<string>((resolve) => {
       execFile(
         'powershell.exe',
@@ -251,6 +251,27 @@ if ($n -gt 0 -and $lg[0] -ne [IntPtr]::Zero) {
   } catch {
     return undefined
   }
+}
+
+/**
+ * 给 PowerShell 脚本加上"按 UTF-8 输出"的前置。
+ *
+ * ## 为什么必须加
+ *
+ * PowerShell 5.1 的 stdout 跟着控制台代码页走（中文 Windows = 936/GBK），而
+ * `execFile(..., { encoding: 'utf8' })` 按 UTF-8 解码。中文路径因此**全部乱码**，
+ * `resolveLinks` 返回的 Map key 与真实路径对不上 —— 于是每个中文名的快捷方式都
+ * 拿不到 target/iconLocation，退化成 lnk 自身的通用箭头（用户看到的就是"空白图标"）。
+ *
+ * 实测（`verify/listary-p3/probe-ps-encoding.cjs`）：
+ *   按 utf8 解码命中 3/6（全是 ASCII 名），按 gb18030 解码 6/6，
+ *   脚本内预设 OutputEncoding 后按 utf8 解码 6/6。
+ *
+ * 用 gb18030 解码在 JS 侧也能解，但那等于把"Windows 中文区域设置"硬编码进代码，
+ * 换个区域（日文/韩文）又坏。让 PowerShell 直接吐 UTF-8 才是区域无关的修法。
+ */
+function withUtf8Output(script: string): string {
+  return `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n${script}`
 }
 
 interface LinkInfo {
@@ -284,12 +305,13 @@ async function resolveLinks(links: string[]): Promise<Map<string, LinkInfo>> {
   try {
     const { execFile } = await import('node:child_process')
     const arr = todo.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
-    const script =
+    const script = withUtf8Output(
       `$sh = New-Object -ComObject WScript.Shell; ` +
-      `foreach ($p in @(${arr})) { try { ` +
-      `  $s = $sh.CreateShortcut($p); ` +
-      `  Write-Output ($p + "\`t" + $s.TargetPath + "\`t" + $s.IconLocation) ` +
-      `} catch { } }`
+        `foreach ($p in @(${arr})) { try { ` +
+        `  $s = $sh.CreateShortcut($p); ` +
+        `  Write-Output ($p + "\`t" + $s.TargetPath + "\`t" + $s.IconLocation) ` +
+        `} catch { } }`,
+    )
 
     const stdout = await new Promise<string>((resolve) => {
       execFile(

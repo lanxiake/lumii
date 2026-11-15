@@ -8,5 +8,6 @@ wechat-mcp/trace.txt
 # listary-p0/hook-spike.cjs 每次运行会重新生成这个注入脚本，跑完即可重建
 listary-p0/inject-keys.ps1
 
-# listary-pN/build.mjs 用 esbuild 打出来的 bundle（12 万行，一条命令可重建）
+# listary-pN/build.mjs 用 esbuild 打出来的 bundle（几万行，一条命令可重建）
 listary-p*/bundle.cjs
+listary-p*/*-bundle.cjs
