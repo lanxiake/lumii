@@ -336,9 +336,16 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === 3.4b. 确定性流水线（有才注入）===
   if (params.pipelineHints && params.pipelineHints.length > 0) {
-    // 不入 tag：tag 只用于「需要单独计量的分区」，流水线这一节很小，加 tag 要连带改
-    // PromptSectionTag 联合与下游计量，不划算。
-    emit("static", "pipelines", [...buildPipelineSection(params.pipelineHints, style)])
+    // 按归属过滤：公共（无 owner）恒可见，专属的只有主人看得见。
+    // 不过滤的话「视频专家的流程」会出现在所有人的提示词里，诱导模型跑一条它没有对应工具的流水线。
+    const visiblePipelines = params.pipelineHints.filter(
+      (h) => !h.owner || h.owner === agentDefinition.id,
+    )
+    if (visiblePipelines.length > 0) {
+      // 不入 tag：tag 只用于「需要单独计量的分区」，流水线这一节很小，加 tag 要连带改
+      // PromptSectionTag 联合与下游计量，不划算。
+      emit("static", "pipelines", [...buildPipelineSection(visiblePipelines, style)])
+    }
   }
 
   // === 3.5. Skills（按白名单过滤）===
@@ -393,7 +400,12 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   // ═══ ④ 协作块 ═══
 
   // === 4.1. Task Orchestration（按能力条件化）===
-  if (effectiveToolNames.includes("spawn_agent") || effectiveToolNames.includes("todo_write")) {
+  // 子 Agent 不给：4.2 明确写着「do NOT call todo_write / do NOT delegate」，
+  // 而这一段教它怎么编排任务与委派——同一份提示词里互相打架时，模型通常听更具体的那段。
+  if (
+    !params.isSubAgent &&
+    (effectiveToolNames.includes("spawn_agent") || effectiveToolNames.includes("todo_write"))
+  ) {
     emit("static", "taskOrchestration", [...buildTaskOrchestrationSection(effectiveToolNames, style)])
   }
 

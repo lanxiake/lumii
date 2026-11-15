@@ -169,6 +169,13 @@ export interface PipelineHint {
   readonly description?: string
   /** 步数；让模型能判断规模是否可枚举 */
   readonly stepCount: number
+  /**
+   * 归属的 Agent 定义 id；缺省 = 公共。
+   *
+   * 过滤在提示词装配期做（`system-prompt-builder`）：这个列表是所有 Agent 共用的一份快照，
+   * 不过滤的话「视频专家的流程」会出现在所有人的提示词里，诱导模型跑一条它没有对应工具的流水线。
+   */
+  readonly owner?: string
 }
 
 /** 当前活跃任务信息（注入系统提示词动态部分，防止目标偏移） */

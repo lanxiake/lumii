@@ -39,6 +39,21 @@ export interface AgentRuntimeFeatureFlags {
    */
   readonly ENABLE_TOOL_LOADOUT_FOR: readonly string[];
 
+  /**
+   * 子 Agent 提示词走 `isSubAgent` 分支的灰度名单（按 Agent 定义 id）。
+   *
+   * **为什么需要灰度**：`createChildInstance` 一直传 `isSubAgent: false`（历史原因：等价复现
+   * 抽取前的提示词）。后果是子 Agent 拿到主 Agent 的完整提示词——多 Agent 目录、任务编排、
+   * 自我学习段全在，而它手上的 `spawn_agent` / `send_message` 已被
+   * `CHILD_AGENT_DISALLOWED_TOOLS` 摘掉。模型会照「去委派」的指令调一个不存在的工具，
+   * 或者把整份能力清单带进来当上下文。pipeline 的 agent 节点尤其吃亏：那一步本该只看到
+   * 自己的角色约束与规范。
+   *
+   * **默认空** = 所有子 Agent 维持现状（行为与引入前逐字一致）。名单里有谁，谁的子实例
+   * 走子 Agent 提示词。这是一次会影响**全部**子 Agent 输出的改动，只能一个一个来。
+   */
+  readonly ENABLE_SUBAGENT_PROMPT_FOR: readonly string[];
+
   // === AGENT 多轮对话优化：主题1 文件工具契约层 ===
 
   /** 启用 file_unchanged 去重 stub（主题1 P0-1，默认开启） */
@@ -88,6 +103,8 @@ export const DEFAULT_FEATURE_FLAGS: AgentRuntimeFeatureFlags = {
   ENABLE_SKILL_ACTIVATION_FOR: [],
   // 空名单 = 不裁剪（P2 灰度；见接口注释的 C9 与回滚理由）
   ENABLE_TOOL_LOADOUT_FOR: [],
+  // 空名单 = 子 Agent 维持主 Agent 提示词（历史行为）；见接口注释
+  ENABLE_SUBAGENT_PROMPT_FOR: [],
   // AGENT 多轮对话优化 flags（当前无用户，无需灰度，全部默认开启）
   ENABLE_FILE_READ_DEDUP: true,
   ENABLE_READ_BEFORE_WRITE: true,

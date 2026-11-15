@@ -112,6 +112,17 @@ export interface PipelineSpec {
   readonly id: string
   readonly name?: string
   readonly description?: string
+  /**
+   * 归属的 Agent 定义 id。缺省 = 公共（谁都能用）。
+   *
+   * 为什么需要它：流水线目录是**平铺**的，`pipeline_list` 返回全部。团队一旦有几个
+   * 各自专精的 Agent，「给视频专家写的流程」会出现在所有人的提示词里——既是噪声，
+   * 也诱使模型跑一条它并没有对应工具的流水线（跑起来在第 3 步才报 unknown tool）。
+   *
+   * 只做**提示词与列表的可见性过滤**，不做调用拦截：`pipeline_run(id)` 直接点名仍可跑
+   * （同一条流水线可能由队长代跑）。归属是「谁该知道它存在」，不是权限边界。
+   */
+  readonly owner?: string
   /** 从哪条轨迹蒸馏而来（`pipeline_draft` 写的），便于回溯（计划风险表） */
   readonly source?: { sessionKey: string; range: { fromMessageId: string; toMessageId: string } }
 

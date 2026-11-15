@@ -14,6 +14,8 @@ export interface PipelineSummary {
   readonly description?: string
   readonly stepCount: number
   readonly narrationCount?: number
+  /** 归属的 Agent 定义 id；缺省 = 公共（谁都能用） */
+  readonly owner?: string
   readonly lastRun?: { runId: string; at: number; ok: boolean }
   /** spec 坏了（校验失败）时带原因；不抛，让 UI 显示「这条 spec 坏了」 */
   readonly error?: string

@@ -131,6 +131,32 @@ describe("PROMPT_SECTIONS 元数据守卫", () => {
   });
 });
 
+describe("流水线归属过滤", () => {
+  it("公共流水线恒可见，专属流水线只给归属 Agent", () => {
+    const withHints = (agentId: string) =>
+      buildClientSystemPromptStructured({
+        agentDefinition: { ...GUARD_DEF, id: agentId },
+        toolNames: GUARD_TOOLS,
+        cwd: "/workspace",
+        skills: GUARD_SKILLS,
+        customAgents: GUARD_AGENTS,
+        promptStyle: "detailed",
+        pipelineHints: [
+          { id: "shared-one", name: "公共流程", stepCount: 2 },
+          { id: "video-only", name: "视频专家专用", stepCount: 3, owner: "video-pro" },
+        ],
+      }).fullPrompt;
+
+    const asAssistant = withHints("assistant");
+    expect(asAssistant).toContain("shared-one");
+    expect(asAssistant).not.toContain("video-only");
+
+    const asVideo = withHints("video-pro");
+    expect(asVideo).toContain("shared-one");
+    expect(asVideo).toContain("video-only");
+  });
+});
+
 describe("terse 引导可发现性守卫（渲染级）", () => {
   it("每个 prompt-guide 段的 terse 渲染携带对应 prompt_guide(section: \"<id>\") 字面量", () => {
     const { fullPrompt } = GUARD_BUILD("terse");
@@ -187,5 +213,36 @@ describe("极简档守卫（P3）", () => {
       if (!s.terse || s.expandVia !== "prompt-guide") continue;
       expect(fullPrompt, s.id).toContain(`prompt_guide(section: "${s.id}")`);
     }
+  });
+});
+
+describe("子 Agent 提示词收窄", () => {
+  it("isSubAgent 时不渲染任务编排段（与 Role Constraint 的 do NOT delegate 一致）", () => {
+    const asMain = buildClientSystemPromptStructured({
+      agentDefinition: GUARD_DEF,
+      toolNames: [...GUARD_TOOLS, "spawn_agent", "todo_write"],
+      cwd: "/workspace",
+      skills: GUARD_SKILLS,
+      customAgents: GUARD_AGENTS,
+      promptStyle: "detailed",
+    });
+    const asSub = buildClientSystemPromptStructured({
+      agentDefinition: GUARD_DEF,
+      toolNames: [...GUARD_TOOLS, "spawn_agent", "todo_write"],
+      cwd: "/workspace",
+      skills: GUARD_SKILLS,
+      customAgents: GUARD_AGENTS,
+      promptStyle: "detailed",
+      isSubAgent: true,
+    });
+
+    const has = (r: ReturnType<typeof GUARD_BUILD>, id: string) =>
+      r.sectionStats.some((s) => s.id === id && s.chars > 0);
+
+    expect(has(asMain, "taskOrchestration")).toBe(true);
+    expect(has(asSub, "taskOrchestration")).toBe(false);
+    // 角色约束必须出现，否则子 Agent 会以为自己可以继续委派
+    expect(asSub.fullPrompt).toContain("Role Constraint");
+    expect(asMain.fullPrompt).not.toContain("Role Constraint");
   });
 });

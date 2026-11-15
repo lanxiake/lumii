@@ -364,6 +364,7 @@ export function validateSpec(
     id: String(raw.id),
     name: typeof raw.name === 'string' ? raw.name : undefined,
     description: typeof raw.description === 'string' ? raw.description : undefined,
+    owner: nonBlank(raw.owner) ? String(raw.owner).trim() : undefined,
     source: isObj(raw.source) ? (raw.source as PipelineSpec['source']) : undefined,
     ...(inputs.length ? { inputs } : {}),
     ...(inputTemplate ? { inputTemplate } : {}),

@@ -79,6 +79,37 @@ describe("assembleSystemPrompt", () => {
     expect(out.bundledSkillIds).toBeUndefined();
   });
 
+  it("definition.skills 非空 → 只保留命中的技能（按 name 或 id 匹配）", async () => {
+    const out = await assembleSystemPrompt({
+      definition: def({ skills: ["VIDEO-CREATION-PIPELINE", "writing"] }),
+      promptContext: fakePromptContext({
+        skills: [skill("video-creation-pipeline"), skill("writing"), skill("research")],
+      }),
+      toolNames: [],
+    });
+    // 大小写不敏感；未命中的 research 被裁掉
+    expect(out.effectiveSkills.map((s) => s.id)).toEqual(["video-creation-pipeline", "writing"]);
+  });
+
+  it("definition.skills 为空 / 缺省 → 不收敛（保持全量，老行为不变）", async () => {
+    const withEmpty = await assembleSystemPrompt({
+      definition: def({ skills: [] }),
+      promptContext: fakePromptContext({ skills: [skill("a"), skill("b")] }),
+      toolNames: [],
+    });
+    expect(withEmpty.effectiveSkills.map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  it("收敛与 bundled 并存 → bundled 不被收敛列表裁掉", async () => {
+    const out = await assembleSystemPrompt({
+      definition: def({ skills: ["writing"], bundledSkills: ["pptx"] }),
+      promptContext: fakePromptContext({ skills: [skill("writing"), skill("pptx"), skill("other")] }),
+      toolNames: [],
+    });
+    // writing 由 filter 保留，pptx 由 bundled 强制并入，other 被裁
+    expect(out.effectiveSkills.map((s) => s.id).sort()).toEqual(["pptx", "writing"]);
+  });
+
   it("buildPrompt 每轮可传 currentModelId / skillActivations 重建", async () => {
     const out = await assembleSystemPrompt({
       definition: def(),

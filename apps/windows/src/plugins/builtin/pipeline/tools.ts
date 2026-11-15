@@ -71,7 +71,23 @@ function fail(message: string, extra: Record<string, unknown> = {}) {
   }
 }
 
-export function createPipelineToolConfigs(service: PipelineService): PipelineToolConfig[] {
+export interface PipelineToolDeps {
+  /**
+   * 当前调用方的 Agent 定义 id（用于按归属收敛列表）。
+   *
+   * 取不到返回 undefined → **不过滤**（fail-open）。与 `tool_search` 的兜底同一口径：
+   * 拿不到身份就少给能力，模型会以为「没有这条流水线」，比多给一条更难查。
+   *
+   * 做成注入而不是从 toolCtx 读：`ToolExecutionContext` 没有 definitionId，
+   * 而插件不许 import 核心（wiring ⑪），所以由 bridge 传一个闭包进来。
+   */
+  readonly definitionIdOf?: (toolCallId: string) => string | undefined
+}
+
+export function createPipelineToolConfigs(
+  service: PipelineService,
+  deps: PipelineToolDeps = {},
+): PipelineToolConfig[] {
   const list: PipelineToolConfig = {
     name: 'pipeline_list',
     label: 'List Pipelines',
@@ -82,10 +98,12 @@ export function createPipelineToolConfigs(service: PipelineService): PipelineToo
     parameters: ListInput,
     isReadOnly: true,
     needsPermission: false,
-    async execute() {
+    async execute(toolCallId) {
       try {
         const all = await service.list()
-        return ok({ total: all.length, pipelines: all })
+        const owner = deps.definitionIdOf?.(toolCallId)
+        const visible = owner ? all.filter((p) => !p.owner || p.owner === owner) : all
+        return ok({ total: visible.length, pipelines: visible })
       } catch (err) {
         return fail(err instanceof Error ? err.message : String(err))
       }

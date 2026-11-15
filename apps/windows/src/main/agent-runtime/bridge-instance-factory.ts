@@ -56,6 +56,7 @@ import { forwardPermissionResolved } from './bridge-permission-ipc-forward'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
 import { createToolUsageHook } from './hooks/tool-usage-hook'
 import { applyToolLoadout, resolveToolLoadout } from './tool-loadout'
+import { shouldUseSubAgentPrompt } from './subagent-prompt-gate'
 import { getScopeHistorySince, getToolLastUsedByScope, UNKNOWN_CHANNEL } from '../tool-usage-store'
 import { TOOL_SEARCH_TOOL_NAME, TASK_COMPLETE_TOOL_NAME, SKILL_SEARCH_TOOL_NAME } from '@mtbot/agent-runtime'
 import {
@@ -909,11 +910,20 @@ export class BridgeInstanceFactory {
       workspaceLayout: { uploadsDir: 'uploads', outputsDir: 'outputs', filesDir: 'files' },
       // 提示词风格（实验功能）：创建时快照，每轮由 dispatcher 传入最新值覆盖
       promptStyle: initialPromptStyle,
-      // 注意：此处仅控制「系统提示词」是否走子 Agent 分支。改前 bridge 的 buildClientSystemPromptStructured
-      // 从不传 isSubAgent（恒为 undefined→falsy），故保持 false 以等价复现旧提示词。
-      // 子 Agent 的事件处理分支由下方 createAgentInstanceRuntimeEventHandler 的 isSubAgent 独立控制。
-      // （让子 Agent 提示词也走 isSubAgent 分支属行为变更，应单独评估，不在本次纯抽取范围内。）
-      isSubAgent: false,
+      // 子 Agent 提示词分支：**按定义 id 灰度**（`ENABLE_SUBAGENT_PROMPT_FOR`）。
+      //
+      // 历史上这里恒为 false：抽取 host-kit 时为了与旧 `buildClientSystemPromptStructured`
+      // 逐字等价。后果是子 Agent 拿到主 Agent 的完整提示词——多 Agent 目录、任务编排、
+      // 自我学习段都在，而它的 `spawn_agent` / `send_message` 已被
+      // `CHILD_AGENT_DISALLOWED_TOOLS` 摘掉：模型会照指令调一个不存在的工具。
+      //
+      // 名单为空 = 全部维持现状（零回归）。灰度时把定义 id 写进去，只有那个 Agent
+      // 派生的子实例走 `Role Constraint` 分支。
+      isSubAgent: shouldUseSubAgentPrompt({
+        hasParent: Boolean(options?.parentInstanceId),
+        definitionId: def.id,
+        grayList: this.deps.featureFlags.ENABLE_SUBAGENT_PROMPT_FOR,
+      }),
       getActiveTasks: () => this.deps.promptComposer.getActiveTasks(conversationId),
       contextWindow: comp.contextWindow,
       outputReserveTokens: comp.outputReserveTokens,

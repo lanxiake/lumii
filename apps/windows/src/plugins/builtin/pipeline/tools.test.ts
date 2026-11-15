@@ -58,6 +58,39 @@ describe('pipeline tools', () => {
     expect(r.json).toMatchObject({ total: 1 })
   })
 
+  it('pipeline_list 按 spec.owner 过滤：公共恒可见，专属只给主人', async () => {
+    const d = deps({
+      list: vi.fn(async () => [
+        { id: 'shared', name: '公共', stepCount: 2 },
+        { id: 'video', name: '视频', stepCount: 3, owner: 'video-pro' },
+        { id: 'mine', name: '我的', stepCount: 1, owner: 'writer' },
+      ]),
+    })
+    const cfg = createPipelineToolConfigs(d as never, {
+      definitionIdOf: () => 'video-pro',
+    }).find((c) => c.name === 'pipeline_list')!
+    const res = await cfg.execute('call-1', {}, {})
+    const json = JSON.parse((res.content[0] as { text: string }).text) as {
+      total: number
+      pipelines: { id: string }[]
+    }
+    expect(json.pipelines.map((p) => p.id).sort()).toEqual(['shared', 'video'])
+  })
+
+  it('pipeline_list 拿不到调用方身份 → 不过滤（fail-open）', async () => {
+    const d = deps({
+      list: vi.fn(async () => [
+        { id: 'shared', name: '公共', stepCount: 2 },
+        { id: 'video', name: '视频', stepCount: 3, owner: 'video-pro' },
+      ]),
+    })
+    const cfg = createPipelineToolConfigs(d as never, { definitionIdOf: () => undefined })
+      .find((c) => c.name === 'pipeline_list')!
+    const res = await cfg.execute('call-1', {}, {})
+    const json = JSON.parse((res.content[0] as { text: string }).text) as { total: number }
+    expect(json.total).toBe(2)
+  })
+
   it('pipeline_run 缺 id → isError:true，content 里有人话原因', async () => {
     const d = deps()
     const r = await exec('pipeline_run', {}, d)

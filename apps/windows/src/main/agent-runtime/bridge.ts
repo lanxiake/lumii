@@ -4140,6 +4140,8 @@ export class AgentRuntimeBridge {
       config: { name: string },
       factory?: (config: any, ctx: any) => unknown,
     ) => () => void
+    /** 流水线工具用：按 toolCallId 反查调用方 Agent 定义 id（`spec.owner` 过滤） */
+    definitionIdOf: (toolCallId: string) => string | undefined
     /**
      * 跑 JS 子进程用的 node 解析器。
      *
@@ -4211,6 +4213,17 @@ export class AgentRuntimeBridge {
           this.toolRegistry.unregister(config.name)
           this.refreshAllInstanceTools()
         }
+      },
+      /**
+       * 流水线工具的「调用方是谁」——用于按 `spec.owner` 收敛 `pipeline_list`。
+       *
+       * 取不到就返回 undefined，工具侧 fail-open（不过滤）。拿不到身份时少给能力，
+       * 模型会以为「没有这条流水线」，比多给一条更难查。
+       */
+      definitionIdOf: (toolCallId) => {
+        const instanceId =
+          this.toolCallInstanceMap.get(toolCallId) ?? this.currentToolExecutorInstanceIdRef.value
+        return instanceId ? this.agentRegistry.get(instanceId)?.definitionId : undefined
       },
     }
   }

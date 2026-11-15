@@ -320,7 +320,7 @@ export const pipelineExtension = {
           onFinished: (e) => ex.emitFinished(e),
         })
         // 三个工具：插件造 config，核心用它的 toolContext 建实例并注册
-        for (const c of createPipelineToolConfigs(impl)) {
+        for (const c of createPipelineToolConfigs(impl, { definitionIdOf: ex.definitionIdOf })) {
           ctx.effect(ex.registerTool(c as unknown as { name: string }))
         }
         // 把「有哪些流水线」写进提示词。**这是闭环的关键**：引擎建好但模型不知道它存在，
@@ -331,7 +331,7 @@ export const pipelineExtension = {
 
       /** 把当前流水线清单推给 bridge（提示词据此注入 Pipelines 一节） */
       const refreshHints = async (
-        bridge: { setPipelineHints(h: readonly { id: string; name: string; description?: string; stepCount: number }[]): void },
+        bridge: { setPipelineHints(h: readonly { id: string; name: string; description?: string; stepCount: number; owner?: string }[]): void },
         svc: PipelineService,
       ) => {
         try {
@@ -344,6 +344,9 @@ export const pipelineExtension = {
                 name: p.name ?? p.id,
                 description: p.description,
                 stepCount: p.stepCount,
+                // owner 一路带到提示词装配：那里按 agentDefinition.id 过滤，
+                // 专属流水线不会出现在别的 Agent 的列表里。
+                ...(p.owner ? { owner: p.owner } : {}),
               })),
           )
         } catch (err) {

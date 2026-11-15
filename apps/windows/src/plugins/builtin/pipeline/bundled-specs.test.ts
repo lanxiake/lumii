@@ -249,6 +249,27 @@ describe('bundled-pipelines 全部 spec', () => {
   })
 
   /**
+   * **agent 节点的 prompt 必须自包含**。
+   *
+   * 子 Agent 看不到父对话（`AgentStep.prompt` 的契约）。写「如上」「刚才那份」
+   * 「按之前的约定」的 prompt，在真机上就是一次空白回合——模型没有任何上文可指。
+   * 这里只查最常见的几种指代，静态能挡住一部分，挡不住的靠真机 journal。
+   */
+  it.each(dirs)('%s 的 agent 节点 prompt 不依赖父对话（自包含）', (id) => {
+    const raw = rawOf(id)
+    const offenders: string[] = []
+    for (const s of (raw.steps as Record<string, unknown>[]) ?? []) {
+      if (s.kind !== 'agent' || typeof s.prompt !== 'string') continue
+      const hit = s.prompt.match(/如上所述|参考上文|刚才(那|的)|按之前的|如下所示(?!.*outputs\/)/)
+      if (hit) offenders.push(`${String(s.id)}: "${hit[0]}"`)
+    }
+    expect(
+      offenders,
+      `agent 节点看不到父对话，这些指代会让它无从下手：${offenders.join('; ')}`,
+    ).toEqual([])
+  })
+
+  /**
    * `reverse_probe` 返回纯 `KEY=value` 文本，没有 `ok` 字段。
    *
    * 2026-11-02 真机踩到：`exe-clone` 的 unpack 步写了 `expect.fields.ok === true`，
@@ -378,6 +399,73 @@ describe('bundled-pipelines 全部 spec', () => {
       const cat = s.params.category
       if (typeof cat === 'string' && !categories.has(cat)) {
         problems.push(`${s.id}: category "${cat}" 不在白名单`)
+      }
+    }
+    expect(problems, problems.join('; ')).toEqual([])
+  })
+
+  /**
+   * **规范靠 skill 取，不内联**——但必须有降级路径。
+   *
+   * 这是把领域规范移出父上下文的关键路径：agent 节点在自己的窗口里加载技能，
+   * 父会话只看到「有一条流水线」，不必常驻 12K 的写作规范。
+   *
+   * 反过来，如果有人图省事把规范正文抄进 prompt，这条用例会红——那样做等于
+   * 把规范重新塞回 spec，同时失去「规范改了技能就跟着改」的单一来源。
+   *
+   * 2026-11-15 真机：spec 硬写了 `skill_invoke("h3-prompt-master")`，而该技能在
+   * 用户真实工作区里**根本不存在**（它在另一个数据目录），子 Agent 连着调了 14 次
+   * 读文件找规范。所以判据不是「一定调 skill_invoke」，而是：
+   * **先检索技能；缺失时有明确的内联兜底**，不许静默卡死。
+   */
+  it('video-brief-to-prompt：提示词节点优先用技能规范，技能缺失时有降级路径', () => {
+    const raw = rawOf('video-brief-to-prompt')
+    const agentSteps = ((raw.steps as Record<string, unknown>[]) ?? []).filter(
+      (s) => s.kind === 'agent',
+    )
+    expect(agentSteps.length).toBe(2)
+
+    const promptStep = agentSteps.find((s) => s.id === 'prompt')!
+    const text = String(promptStep.prompt)
+    const tools = promptStep.allowedTools as string[]
+
+    // 优先路径：检索 + 加载技能
+    expect(text).toContain('skill_search')
+    expect(text).toContain('skill_invoke')
+    expect(tools).toContain('skill_search')
+    expect(tools).toContain('skill_invoke')
+
+    // 降级路径：技能不在时也必须能写完，而不是原地打转
+    expect(text).toContain('内联最小规范')
+    expect(text).toMatch(/没找到/)
+  })
+
+  /**
+   * **owner 必须指向一个真实存在的 Agent**。
+   *
+   * 2026-11-15 踩到：新 spec 写了 `owner: "video-pro"`，而内置 Agent 里根本没有这个 id。
+   * 归属过滤是「只给主人看」，主人不存在 ⇒ 这条流水线**对所有人都不可见**，
+   * 而且不报错、不告警，只是永远不出现在任何提示词里。这比写错工具名更难查。
+   *
+   * 内置 Agent 从 definitions.ts 读，不在测试里抄一份（抄一份就会漂移）。
+   */
+  it('内置 spec 的 owner 都在真实 Agent 名单里', () => {
+    const defsSource = readFileSync(
+      join(HERE, '..', '..', '..', '..', '..', '..', 'packages', 'agent-runtime', 'src', 'agent', 'builtin', 'definitions.ts'),
+      'utf8',
+    )
+    const builtinIds = new Set(
+      [...defsSource.matchAll(/id:\s*["']([^"']+)["']/g)].map((m) => m[1]!),
+    )
+    // 读不到时先红：空集合会让下面恒过
+    expect(builtinIds.size).toBeGreaterThan(5)
+
+    const problems: string[] = []
+    for (const id of dirs) {
+      const owner = rawOf(id).owner
+      if (typeof owner !== 'string') continue
+      if (!builtinIds.has(owner)) {
+        problems.push(`${id}: owner "${owner}" 不是已知 Agent（会是永久不可见的死条目）`)
       }
     }
     expect(problems, problems.join('; ')).toEqual([])

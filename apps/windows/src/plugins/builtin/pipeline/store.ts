@@ -9,17 +9,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { validateSpec } from './spec'
 import type { PipelineSpec, RunMeta } from './types'
+import type { PipelineSummary } from './service-api'
 
-export interface PipelineSummary {
-  id: string
-  name?: string
-  description?: string
-  stepCount: number
-  narrationCount: number
-  lastRun?: { runId: string; at: number; ok: boolean }
-  /** spec 坏了（校验失败）：不抛，让 UI 显示「这条 spec 坏了」 */
-  error?: string
-}
+// 摘要形状只有一份（service-api），这里 re-export 以免两处定义漂移。
+// 曾经这里另写了一份不带 `owner` 的，加字段时只改一处就静默丢数据。
+export type { PipelineSummary }
 
 function lastRunOf(pipelineDir: string): PipelineSummary['lastRun'] {
   const runsDir = path.join(pipelineDir, 'runs')
@@ -80,6 +74,7 @@ export function listPipelines(
       description: v.spec.description,
       stepCount: v.spec.steps.length,
       narrationCount: v.spec.steps.filter((s) => s.narration).length,
+      ...(v.spec.owner ? { owner: v.spec.owner } : {}),
       lastRun: lastRunOf(path.join(pipelinesRoot, id)),
     })
   }
