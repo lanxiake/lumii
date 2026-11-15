@@ -1340,6 +1340,60 @@ export interface ElectronAPI {
     }>) => void
   }
 
+  /** 本地启动器（`com.lumii.listary`）。插件禁用时通道无 handler，invoke 会 reject。 */
+  listary: {
+    search: (query: string, limit?: number) => Promise<
+      Array<{
+        id: number
+        path: string
+        name: string
+        ext: string | null
+        kind: 'file' | 'dir' | 'app' | 'lnk'
+        root: string
+        isStart: boolean
+        rank: number | null
+      }>
+    >
+    open: (
+      action: 'open' | 'reveal' | 'copy-path' | 'run-as-admin',
+      path: string,
+      keyword?: string,
+    ) => Promise<{ ok: boolean; action: string; path: string; error?: string }>
+    status: () => Promise<{
+      dbPath: string
+      healthy: boolean
+      reason?: string
+      items: number
+      fts: number
+      roots: Array<{
+        path: string
+        enabled: boolean
+        itemCount?: number
+        lastScan?: number
+        durationMs?: number
+      }>
+      scanning: boolean
+    }>
+    roots: () => Promise<Array<{ path: string; enabled: boolean }>>
+    addRoot: (rootPath: string) => Promise<Array<{ path: string; enabled: boolean }>>
+    removeRoot: (rootPath: string) => Promise<{ removed: number; roots: Array<{ path: string; enabled: boolean }> }>
+    rescan: () => Promise<{
+      indexed: number
+      durationMs: number
+      perRoot: Array<{ root: string; result: { indexed: number; durationMs: number } }>
+    }>
+    hide: () => Promise<{ ok: boolean }>
+    hotkey: () => Promise<{
+      mode: 'double-ctrl' | 'accelerator' | 'none'
+      reason?: string
+      acceleratorOk: boolean
+    }>
+    /** 批量取真实文件图标（路径 → PNG dataURL）。取不到的键缺席，前端应回退到类型图标。 */
+    icons: (paths: string[]) => Promise<Record<string, string>>
+    /** 窗口显示时触发（渲染层据此聚焦输入框、清空上次查询） */
+    onShown: (callback: () => void) => () => void
+  }
+
   // 工作空间 Git 版本管理 (VCS)
   vcs: {
     ensureInit: () => Promise<{ ok: boolean }>
@@ -1670,6 +1724,32 @@ const electronAPI: ElectronAPI = {
     remove: (target) => ipcRenderer.invoke('extension:delete', target),
     restart: () => ipcRenderer.invoke('extension:restart'),
     reportClientStates: (states) => ipcRenderer.send('extension:client-states', states),
+  },
+
+  /**
+   * 本地启动器（`com.lumii.listary`）。
+   *
+   * 插件禁用时这些通道没有 handler，invoke 会 reject —— 调用方（渲染层）要能承受，
+   * 不要假设它总是可用。
+   */
+  listary: {
+    search: (query: string, limit?: number) =>
+      ipcRenderer.invoke('ext:com.lumii.listary:search', query, limit),
+    open: (action: string, path: string, keyword?: string) =>
+      ipcRenderer.invoke('ext:com.lumii.listary:open', action, path, keyword),
+    status: () => ipcRenderer.invoke('ext:com.lumii.listary:status'),
+    roots: () => ipcRenderer.invoke('ext:com.lumii.listary:roots'),
+    addRoot: (path: string) => ipcRenderer.invoke('ext:com.lumii.listary:addRoot', path),
+    removeRoot: (path: string) => ipcRenderer.invoke('ext:com.lumii.listary:removeRoot', path),
+    rescan: () => ipcRenderer.invoke('ext:com.lumii.listary:rescan'),
+    hide: () => ipcRenderer.invoke('ext:com.lumii.listary:hide'),
+    /** 当前生效的唤起方式（双击 Ctrl 或组合键），供 UI 告知用户 */
+    hotkey: () => ipcRenderer.invoke('ext:com.lumii.listary:hotkey'),
+    /** 批量取真实文件图标（路径 → PNG dataURL）。取不到的键缺席，前端回退到类型图标。 */
+    icons: (paths: string[]) => ipcRenderer.invoke('ext:com.lumii.listary:icons', paths) as Promise<Record<string, string>>,
+    /** 窗口显示时触发（渲染层据此聚焦输入框并清空上次查询） */
+    onShown: (callback: () => void): (() => void) =>
+      createEventListener('ext:com.lumii.listary:shown', () => callback()),
   },
 
   // 工作空间 Git 版本管理 (VCS)

@@ -397,6 +397,12 @@ export {
   PalaceIndexRepo,
   buildDrawerExcerpt,
   SEARCH_EXCERPT_CHARS,
+  // 中文 FTS5 预分词：写入侧 bigramJoin，读取侧分词与最小命中过滤辅助。
+  // 导出供其它 FTS5 消费者复用（客户端文件索引插件），避免各处重造分词。
+  bigramJoin,
+  tokenizeBigram,
+  requiredTokenHits,
+  countTokenHits,
   // 宫殿向量索引（语义改写检索立项 T3）
   PalaceVectorIndex,
   buildPalaceVectorCorpus,

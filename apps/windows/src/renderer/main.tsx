@@ -30,6 +30,8 @@ const _hashParams = new URLSearchParams(window.location.hash.replace(/^#\??/, ''
 const isPetMode = _searchParams.get('mode') === 'pet' || _hashParams.get('mode') === 'pet'
 const isFilePreviewMode =
   _searchParams.get('mode') === 'file-preview' || _hashParams.get('mode') === 'file-preview'
+const isListaryLauncherMode =
+  _searchParams.get('mode') === 'listary-launcher' || _hashParams.get('mode') === 'listary-launcher'
 console.log(
   '[Renderer] href=' +
     window.location.href +
@@ -142,6 +144,22 @@ if (isPetMode) {
       <RootErrorBoundary>
         <Suspense fallback={null}>
           <FilePreviewWindowApp />
+        </Suspense>
+      </RootErrorBoundary>
+    </React.StrictMode>,
+  )
+} else if (isListaryLauncherMode) {
+  console.log('[Renderer] 本地启动器独立窗口启动')
+  const LauncherApp = React.lazy(() =>
+    import('../plugins/builtin/listary/ui/LauncherApp').then((m) => ({
+      default: m.LauncherApp,
+    })),
+  )
+  root.render(
+    <React.StrictMode>
+      <RootErrorBoundary>
+        <Suspense fallback={null}>
+          <LauncherApp />
         </Suspense>
       </RootErrorBoundary>
     </React.StrictMode>,

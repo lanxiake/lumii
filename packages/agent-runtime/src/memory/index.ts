@@ -3,8 +3,18 @@
  */
 
 export { AgentMemoryRepo } from "./memory-repo.js";
-export { MemoryIndexRepo } from "./memory-index.js";
+export { MemoryIndexRepo, bigramJoin } from "./memory-index.js";
 export type { FtsHealth } from "./memory-index.js";
+
+// 中文预分词的读写两侧（FTS5 内置分词器对中文 2 字词零命中，见 memory-index.ts 顶部说明）。
+// 导出给 FTS5 消费者复用，避免各处重造一份分词——客户端文件索引插件即其一。
+export {
+  tokenizeBigram,
+  tokenizeForRelevance,
+  overlapCoefficient,
+  requiredTokenHits,
+  countTokenHits,
+} from "./segmentation.js";
 
 // 自建记忆宫殿（去 Python 依赖）：palace_drawers + FTS5，替代 MemPalace
 export { PalaceRepo, buildDrawerExcerpt, SEARCH_EXCERPT_CHARS } from "./palace-repo.js";
