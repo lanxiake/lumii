@@ -1,0 +1,9 @@
+{
+  "name": "breeze-tts-cli",
+  "version": "1.0.0",
+  "description": "Breeze TTS 2 本地文字转语音 CLI",
+  "main": "run.ts",
+  "keywords": ["tts", "breeze", "voice"],
+  "author": "Kiro",
+  "license": "MIT"
+}

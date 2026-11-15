@@ -1,0 +1,24 @@
+{
+  "skill_name": "mediacrawler",
+  "note": "断言（assertions）在跑测试时再补，先只定提示。",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我爬一下小红书上「露营装备」这个关键词的笔记，看看哪些内容火，数据我要能直接打开看的。",
+      "expected_output": "先用 wrapper preflight 自检；确认登录态或引导扫码；跑 search 模式采集；最后给出数据文件绝对路径 + 条目数 + 许可提醒",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "MediaCrawler 我装过了，但一跑就报 Page.goto: Page crashed，是不是被封了？",
+      "expected_output": "识别出这是 Playwright 浏览器二进制损坏而非风控；引导检查 ms-playwright 目录并重装；用最小脚本验证后再跑爬虫",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把 B 站那个视频的评论扒下来给我，链接是 https://www.bilibili.com/video/BV1xx411c7mD",
+      "expected_output": "走 detail 模式 + platform bili；处理登录态；产出评论 JSONL 并报告条目数与路径",
+      "files": []
+    }
+  ]
+}
