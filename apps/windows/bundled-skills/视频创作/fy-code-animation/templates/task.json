@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "task_id": "EXAMPLE-CARD",
+  "phase": "card",
+  "actions": ["read", "write_plan", "logic_check"],
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "source": {"path": "input/copy.txt", "status": "placeholder_replace_before_production"},
+  "style": {"arrangement": "single", "decision_status": "example_only", "selection": []},
+  "music": {"status": "planned", "actual_sync": false, "file": null},
+  "scenes": [{"id":"S01","start":0,"end":8,"time_basis":"planned","meaning":"这里写本段真实信息任务","operation":"这里写承载该信息的可观察变化","last_text_at":2,"read_seconds":4,"evidence":[]}],
+  "events": [{"id":"E01","scene_id":"S01","at":2,"time_basis":"planned","role":"last_text_landed"}],
+  "evidence": {"logic":[], "viewed":[], "heard":[], "author_accepted":false}
+}

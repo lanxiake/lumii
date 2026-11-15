@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "task_id": "DEMO-RUMOR-01",
+  "phase": "card",
+  "actions": ["read", "write_plan"],
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "duration": 38,
+  "source": {"path": "../07-full-card.md", "status": "fictional_design_example_not_verified_factual_script"},
+  "style": {"arrangement": "single", "decision_status": "example_only", "selection": [{"id": "O10", "kind": "prompt"}]},
+  "music": {"status": "planned", "actual_sync": false, "file": null, "plan": "../07-music-plan.md"},
+  "scenes": [
+    {"id":"S1","start":0,"end":7.5,"time_basis":"planned","meaning":"转发不等于真实","operation":"消息条进入印刷版面，否定范围完整出现","last_text_at":4.5,"read_seconds":3},
+    {"id":"S2","start":7.5,"end":14,"time_basis":"planned","meaning":"情绪促使动作先于判断","operation":"三块活字冲击并带动消息扩散","last_text_at":11.8,"read_seconds":2.2},
+    {"id":"S3","start":14,"end":22,"time_basis":"planned","meaning":"核查需要先停再看证据","operation":"印刷机停转，再排出证据","last_text_at":18.2,"read_seconds":3.8},
+    {"id":"S4","start":22,"end":29.5,"time_basis":"planned","meaning":"用比喻表现速度差","operation":"报纸飞驰，小人系鞋带后抬头","last_text_at":25.5,"read_seconds":4},
+    {"id":"S5","start":29.5,"end":38,"time_basis":"planned","meaning":"经得起第二次查看","operation":"翻回同一头版，放大镜复查","last_text_at":33.8,"read_seconds":4.2}
+  ],
+  "events": [
+    {"id":"E01","scene_id":"S1","at":3.6,"time_basis":"planned","role":"negation_landed","allow_snap":false},
+    {"id":"E02","scene_id":"S1","at":7.2,"time_basis":"planned","role":"stamp","allow_snap":true,"tolerance":0.15,"max_at":7.4},
+    {"id":"E03","scene_id":"S2","at":7.5,"time_basis":"planned","role":"emphasis","allow_snap":true,"tolerance":0.12,"min_at":7.5},
+    {"id":"E04","scene_id":"S2","at":8.1,"time_basis":"planned","role":"emphasis","allow_snap":true,"tolerance":0.12},
+    {"id":"E05","scene_id":"S2","at":8.7,"time_basis":"planned","role":"emphasis","allow_snap":true,"tolerance":0.12},
+    {"id":"E06","scene_id":"S2","at":11.5,"time_basis":"planned","role":"voice_anchor","allow_snap":false,"word":"手指","occurrence":1,"source_span":"原文第2句中的手指"},
+    {"id":"E07","scene_id":"S3","at":15.8,"time_basis":"planned","role":"stillness","allow_snap":true,"tolerance":0.15,"min_at":15.65,"max_at":15.95},
+    {"id":"E08","scene_id":"S4","at":26.4,"time_basis":"planned","role":"look_up","allow_snap":true,"tolerance":0.2},
+    {"id":"E09","scene_id":"S5","at":33.4,"time_basis":"planned","role":"conclusion","allow_snap":false}
+  ],
+  "evidence": {"logic":[], "viewed":[], "heard":[], "author_accepted":false},
+  "notes": ["未执行validate_task.py或任何测试", "所有计划区间在实际口播/音轨选定后重新校准", "示例不替作者选择音乐或字体"]
+}

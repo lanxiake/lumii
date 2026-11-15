@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {createCanvasContract} from '../implementations/canvas-contract.mjs';
+// No real canvas or drawing: verify resource/clock contract using a state-only stub.
+let resets=0,saves=0,restores=0;
+const ctx={reset(){resets++;},setTransform(){},save(){saves++;},restore(){restores++;}};
+const canvas={getContext(){return ctx;}};const samples=[];
+const film=createCanvasContract({canvas,width:1920,height:1080,duration:5,fps:60,supersample:2,draw:({t,frame})=>samples.push([t,frame])});
+assert.throws(()=>film.seek(0),/not ready/);
+await film.readyPromise;
+for(const t of [0,5,2,0,2]) film.seek(t);
+assert.deepEqual(samples[2],samples[4]);assert.deepEqual(samples[0],samples[3]);
+assert.equal(canvas.width,3840);assert.equal(resets,5);assert.equal(saves,restores);
+assert.equal(film.seek(-1),0);assert.equal(film.seek(8),5);
+assert.throws(()=>film.seek(NaN),/finite/);
+assert.throws(()=>createCanvasContract({canvas,width:0,height:1,duration:1,draw(){}}),/positive/);
+const failed=createCanvasContract({canvas,width:1,height:1,duration:1,draw(){},resources:Promise.reject(new Error('missing font'))});
+await assert.rejects(failed.readyPromise,/missing font/);assert.throws(()=>failed.seek(0),/missing font/);
+const boom=createCanvasContract({canvas,width:1,height:1,duration:1,draw(){throw new Error('draw failed');}});
+await boom.readyPromise;assert.throws(()=>boom.seek(0),/draw failed/);assert.equal(saves,restores);
+console.log(JSON.stringify({passed:true,checks:['readiness','random seek','dimension scale','clamp','invalid inputs','resource failure','draw cleanup'],real_canvas_used:false,media_generated:false}));

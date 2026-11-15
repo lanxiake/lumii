@@ -1,0 +1,636 @@
+{
+  "snapshot_date": "2026-10-30",
+  "roots": "See original repository slugs and relative paths; no private drive paths required.",
+  "files": [
+    {
+      "source_id": 12032,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/BounceGraph.tsx",
+      "source_sha256": "07070c8b17a2bdfbfce24444a0ef2799193ea933af5e6102605cda13cd929116",
+      "destination": "implementations/specimen/BounceGraph.tsx",
+      "decision": "直接复用",
+      "changes": [],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "7f7df5c41efada5301a6cc2b78e55b34971fc901b08f9bd35c39db9c1977bcea",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": true
+    },
+    {
+      "source_id": 12033,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/CubeStage.tsx",
+      "source_sha256": "5e9b33995ab8adb6af47e864b74fa3250ca715b13658721c7f654963887c4d31",
+      "destination": "implementations/specimen/CubeStage.tsx",
+      "decision": "直接复用",
+      "changes": [],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "ed79b6a7b68e04e17d4dc5e192b5bd09330465fac96d9c0f7ed381eeb600a66d",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": true
+    },
+    {
+      "source_id": 12034,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/GlyphAnatomy.tsx",
+      "source_sha256": "903cb86e765edd399ef8f45d0cc30b955704c80b2f33b5aadb3cf0e2c100e320",
+      "destination": "implementations/specimen/GlyphAnatomy.tsx",
+      "decision": "适配复用",
+      "changes": [
+        "多实例SVG ID隔离；放大镜中心重合时避免除零"
+      ],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "c6b05b64089bdfd3c9996b62a5eba87aa7bd8789113e4bf32cb577a1305a26e1",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false
+    },
+    {
+      "source_id": 12035,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/ParticleField.tsx",
+      "source_sha256": "f1ecef7fe95aabac46d5e8a16dbe5fcb0ec0cdd3109bcd61ded6c8953e3a1c7f",
+      "destination": "implementations/specimen/ParticleField.tsx",
+      "decision": "适配复用",
+      "changes": [
+        "资源加载异常cancelRender；空目标报错；空辅色回退；设置跨域请求；修复GLSL反向smoothstep未定义边界"
+      ],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "cae2ff9c9f4369cd02c5e3165bf382aa4d6d26f3972647a104ceafbc9b9378d3",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false
+    },
+    {
+      "source_id": 12036,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/SpecimenCanvas.tsx",
+      "source_sha256": "fe420cf9b4478939b2d9768184656463ef5e8c4c57fda503dc7ad6234aa62b45",
+      "destination": "implementations/specimen/SpecimenCanvas.tsx",
+      "decision": "直接复用",
+      "changes": [],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "38456a360ea92306ab220195174a5105e6d4c51bcc1d6c53be96c05e92137570",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": true
+    },
+    {
+      "source_id": 12037,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/SpecimenHud.tsx",
+      "source_sha256": "05fb64103fa13e0ead45d74aaddde760a8ac00acd188449ca06b99d74ffc0a13",
+      "destination": "implementations/specimen/SpecimenHud.tsx",
+      "decision": "直接复用",
+      "changes": [],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "0760a221d2470d78576decee3e7ef17d041b72215fdc85d5564dd9f5e4c78bc8",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": true
+    },
+    {
+      "source_id": 12038,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/StrokeDraw.tsx",
+      "source_sha256": "88554d33001fb5a5b1896d2b09f529a21248d68d0e0f68ab491f38dd15de0c22",
+      "destination": "implementations/specimen/StrokeDraw.tsx",
+      "decision": "适配复用",
+      "changes": [
+        "移除特定品牌标志和vibe手写路径；保留任意路径描线与笔尖能力"
+      ],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "72906abf3789b5c93e57033882f6f0133aeb9619f881aa2875b257599218671d",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false
+    },
+    {
+      "source_id": 12039,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/VolumeScene.tsx",
+      "source_sha256": "4d43839330aeb75809944c47948d31c59a8d1ffaf471b5e9742b50195e8b64f9",
+      "destination": "implementations/specimen/VolumeScene.tsx",
+      "decision": "适配复用",
+      "changes": [
+        "将唯一环境光依赖拆为StudioEnv，避免牵入整套品牌场景和后期包"
+      ],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "e681d35fe48864eb10328345a724993fc475719af6254ad46a7926ad99cf3aa5",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false
+    },
+    {
+      "source_id": 12040,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/index.ts",
+      "source_sha256": "2e443c2f9c6016833e3eaae39b4c6d06392ab4eee13a459edfdfb9491e9e1960",
+      "destination": "implementations/specimen/index.ts",
+      "decision": "直接复用",
+      "changes": [],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "d56829ec418b9b1fb296d94e8e1ec242d515dd7de897fd0ab2f1cb46e2ea7196",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": true
+    },
+    {
+      "source_id": 12041,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/specimens.ts",
+      "source_sha256": "cc2292b981300830a7a82ae6a6d52a8fe537a3ab137c21f4d309ce1ac9ba89e9",
+      "destination": "implementations/specimen/specimens.ts",
+      "decision": "直接复用",
+      "changes": [],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "a7b7fd75cc72d382581f799f22f98b29a3486b1330f9591d8fc8094df06c495c",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": true
+    },
+    {
+      "source_id": 12042,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/specimen/theme.ts",
+      "source_sha256": "c1c5690be998bbe069acecd19778bc5593b07fc87c7b1f35fbc2a38e05de6035",
+      "destination": "implementations/specimen/theme.ts",
+      "decision": "直接复用",
+      "changes": [],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "56e426f6110b9d35bf682618cc096da62654b4ba535cdbf047bd1651710c2fa2",
+      "repo": "renoise-ai/renoise-skills",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": true
+    },
+    {
+      "source_id": 11997,
+      "read_range": [
+        1,
+        277
+      ],
+      "reuse_range": [
+        37,
+        49
+      ],
+      "destination": "implementations/specimen/StudioEnv.tsx",
+      "decision": "适配复用",
+      "changes": [
+        "只取所需环境光函数；恢复旧环境并释放RoomEnvironment及PMREM目标"
+      ],
+      "output_sha256": "9dc08e97733fe24dd89ffdb1bbe19c49658c117a6619af5aa02ea0cab6654645",
+      "repo": "renoise-ai/renoise-skills",
+      "source": "skills/promo-video/templates/remotion/src/cinematic/Logo3D.tsx",
+      "source_sha256": "846e4cd2b75a4ea6857bd2d1e3bc459c2364c2ce0e2e63a49db9adfa8ef508ec",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 11911,
+      "destination": "scripts/glyph_outline.py",
+      "decision": "直接复用",
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "c525ac7862bd71b1ce66c4046ba0f632015396630dade20d1975587bddcfd555",
+      "repo": "renoise-ai/renoise-skills",
+      "source": "skills/promo-video/scripts/glyph_outline.py",
+      "source_sha256": "5769423d2cd8fa3c52395288c420d50216eb53d3990f7908cf41669fb59cd6f1",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "line_endings_normalized": false
+    },
+    {
+      "source_id": 203,
+      "destination": "references/motion-craft/director/choreography.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "f49f9f6da4e6fe4aa7c186c1c7cbc95e4a1a1f4e0c84a06b75f0bb0740932e79",
+      "output_sha256": "903a685b4ec836a5c576fb510b2dd5bc4cc2166d409d261fe375a8cc07128e02",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/choreography.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 204,
+      "destination": "references/motion-craft/director/context-adaptation.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "d077afcae69991b44fe55d8472a08b4ff3451a567ea69013ed0f347245e0c6db",
+      "output_sha256": "48bd222418d96e0804259ed6f8b13b0bab21bad0f1f8d25e4b2ed159cb89b976",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/context-adaptation.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 205,
+      "destination": "references/motion-craft/director/core-philosophy.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "f3adac0bfa780353ae31ea2694e3347485f11cfc04e3a87d5f215562778c60f4",
+      "output_sha256": "ef9bb16339b66758bdd299c2a7465995894b1c9d0074d9db600981809b218eb4",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/core-philosophy.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 206,
+      "destination": "references/motion-craft/director/decision-framework.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "1231b547da3a81fdd7e2e2da8bc4ef37066b877503a85d8382b38e2d170323f4",
+      "output_sha256": "d86a2b7b310d6e391fc215d5d30f32e06f4eeac9147d805da37d1b809fc90e48",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/decision-framework.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 207,
+      "destination": "references/motion-craft/director/disney-principles.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "85fba416650206625f038ee31c36eab520e825ff90594bcc74c35c9f0ebbfd5d",
+      "output_sha256": "1bf15587c24090fa44725109083b0da925ef47f279476cfc3c61291cea622bae",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/disney-principles.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 208,
+      "destination": "references/motion-craft/director/emotion-mapping.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "ce6ba400634d65a69bb60e7c8f25b5ac81f2af075987b346bf17fb951cee6931",
+      "output_sha256": "c44d553ff35f2faf9aa1a4a61548bb02d991dd7ea9d282380c940d74bb5e7c7d",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/emotion-mapping.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 209,
+      "destination": "references/motion-craft/director/motion-personality.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "210055cda5766f17206f1b5ef23a112205d9ea37256170079aa1c3d91d920ea9",
+      "output_sha256": "8b4c58a0e385a2a2875b05e65462bf9f721f488e9e6dbf2d029dc5930aca655d",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/motion-personality.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 210,
+      "destination": "references/motion-craft/director/narrative-structure.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "c19501805593ae0a5a4beb0f08a253190a49d047de68f0f87e1efb7713f10819",
+      "output_sha256": "d1ecabc09cf78ab7532fadc3dc92cf44f81824fe4014ade31edae22638a1ec93",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/director/narrative-structure.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 211,
+      "destination": "references/motion-craft/patterns/ambient-continuous.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "9339415a2e65e676bdbb057de2c3f2d0f25a3a3c000d2dc1392335b988fe5f0a",
+      "output_sha256": "f8be1dd154b65ae96520929ce8315e67047e364cb7b9eeaa93143d2c7482ba09",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/patterns/ambient-continuous.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 212,
+      "destination": "references/motion-craft/patterns/entrance-exit.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "d480b5f2a2ac33ff6704d8dd87b70de8604001708e009e9d18f3cca30f2f31d0",
+      "output_sha256": "22b360c019398aefd9510feec60f9982c000ff2c5a27241c65631b715d85fbe2",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/patterns/entrance-exit.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 213,
+      "destination": "references/motion-craft/patterns/multi-element.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "209d5b87b1c1d6f1cacb9e80d2a8e90e9e30f5ccdd178808e8e1b7bbd743fded",
+      "output_sha256": "16558f76dbcd9e16136485e67069c41f424ddad5475591a656023a8fdb39ce8f",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/patterns/multi-element.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 214,
+      "destination": "references/motion-craft/patterns/state-feedback.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "015df95866a61ace37335cefe71a177b9a7da9610c8add040997b0c30053300b",
+      "output_sha256": "4f44e634d09327efc3ea746f361972f8b28599e4db7bbdfcf5283e3afff1b52f",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/patterns/state-feedback.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 215,
+      "destination": "references/motion-craft/reference/property-selection.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "58c0d27fb10ceb0998cadd80be4d3c2e2fd4f0f7d6a9175827d7ec19e8daf10b",
+      "output_sha256": "6b7faf2d7b9a9542cebada9a9546ee1750550f378052a60fc5f5807246bc5519",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/reference/property-selection.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 217,
+      "destination": "references/motion-craft/reference/timing-easing-tables.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "31ea1921b740972ea5a753bf5421aeeb01936afef7add17c749f7feaedf96af9",
+      "output_sha256": "0690a5133acfef658175f490576a3691ef95be5b8016a669dd51431204d8f4ad",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/reference/timing-easing-tables.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 218,
+      "destination": "references/motion-craft/reference/troubleshooting.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "1b3eeee5352d824f8c173a7239434432870857abef6460cb6928a1372e915ad7",
+      "output_sha256": "a2b888050957a81f7365b39252595e9ba8114759e8928dc378673f734ee63d2a",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "skills/motion-design/reference/troubleshooting.md",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 2151,
+      "destination": "LICENSES/LottieFiles-MIT.txt",
+      "kind": "license_or_selected_reference",
+      "source_sha256": "caa3ebdb6e8306e4ad3f4b0ce7d3538dcbb1af1b98e8d4efe537ffa2ec55a36f",
+      "output_sha256": "8c526abc4644469ee72b61a0774ee332eaa44c6ca54d9b0227241b856dd639b9",
+      "repo": "LottieFiles/motion-design-skill",
+      "source": "LICENSE",
+      "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 267,
+      "destination": "recipes/ui-16-recipes.md",
+      "kind": "adapted_method_reference",
+      "source_sha256": "f8ed09ef0aa3d7151647553f4861b2bdc0dc8e6ba620c2415bb436357d515648",
+      "output_sha256": "26f5d7925b4421c33ce474f5a2c5955a2ec40f8352b60d7ddf4d008c1005af44",
+      "repo": "charlie947/motion-graphics-skills",
+      "source": "skills/motion-effects/references/effects.md",
+      "commit": "229022ebca76972e119e36ada23a1648d51665ab",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 2303,
+      "destination": "LICENSES/CharlieHills-MIT.txt",
+      "kind": "license_or_selected_reference",
+      "source_sha256": "71879842ca23d5c2b879b3d67cea648077a7bf709fb8781d75be74da044997b5",
+      "output_sha256": "1e37db1cd2c58f855f4fc01c6071f76c0c2578644670a943c289e81d299cd712",
+      "repo": "charlie947/motion-graphics-skills",
+      "source": "LICENSE",
+      "commit": "229022ebca76972e119e36ada23a1648d51665ab",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12022,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/handdrawn/index.tsx",
+      "sha256": "8fc2db465b5b939ef1956ffac1e44dabb743925c632e382a9388bfa350e89f61",
+      "output": "implementations/craft/handdrawn/index.tsx",
+      "changes": [],
+      "output_sha256": "233b3736693b2ca3105a933dcabb5bcd914fbcfdf358f82ea69306d09426495e",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "8fc2db465b5b939ef1956ffac1e44dabb743925c632e382a9388bfa350e89f61",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12025,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/lineart/index.tsx",
+      "sha256": "a30abbb374e2e2c4d79ec1be567c540cb1c163a1fc21864cfebdbb5f2133f297",
+      "output": "implementations/craft/lineart/index.tsx",
+      "changes": [
+        "bounded path cache; empty chain and zero duration fail explicitly; negative-time periodic seed"
+      ],
+      "output_sha256": "88bee366b4800a4254816d6d63b6821978066145b6c354e5f35791ad548b808b",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "a30abbb374e2e2c4d79ec1be567c540cb1c163a1fc21864cfebdbb5f2133f297",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12027,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/pixel/index.tsx",
+      "sha256": "4f4fd297662c97cdee092eadca9b10aeb4bdf139480f68d241dd42bf269dd2da",
+      "output": "implementations/craft/pixel/index.tsx",
+      "changes": [
+        "integer scale/dimension contract; empty/ragged sprite reject; missing CJK glyph throws instead of question-mark substitution; empty palette reject"
+      ],
+      "output_sha256": "67e0b99de99148bd8b209b140831e16575edf46e993ada4436ef273c6281eb7c",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "4f4fd297662c97cdee092eadca9b10aeb4bdf139480f68d241dd42bf269dd2da",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12045,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/Decode.tsx",
+      "sha256": "1b0c0a1d997a0f022376690813fce65a3726291f28c826a159a1812bfe7a7e68",
+      "output": "implementations/craft/type/Decode.tsx",
+      "changes": [
+        "v2.1：中文候选字集alphabet、可传seed与输入约束；保留原Decode算法与许可。"
+      ],
+      "output_sha256": "295c87361c03b39b8bf20cc4b27a02d6874cc25cfdcc60007f84c32abb5daab1",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "1b0c0a1d997a0f022376690813fce65a3726291f28c826a159a1812bfe7a7e68",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "v2.1未测试/未运行；旧核验仅历史",
+      "previous_output_sha256": "46bc024cca99731fd46bff6a5f9f5911d07777ed3cda92c78907838c79137dab"
+    },
+    {
+      "source_id": 12046,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/HandReveal.tsx",
+      "sha256": "2f84218944a30553fa0fdfcbb47e2fd5eb6c295e5c5075b33c14dabab1d8a0e4",
+      "output": "implementations/craft/type/HandReveal.tsx",
+      "changes": [
+        "remove hard-coded 30fps; reject nonpositive cps"
+      ],
+      "output_sha256": "9f93e3ba59efc1f59619ddb8dce8d3db384770297b29d530ce7b1ee0c7f57eb6",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "2f84218944a30553fa0fdfcbb47e2fd5eb6c295e5c5075b33c14dabab1d8a0e4",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12047,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/OutlineFill.tsx",
+      "sha256": "a3273b023cea9281f42d59f2fc2cc21d0f7fd9fb8c84fa78a91a4af33e6211bc",
+      "output": "implementations/craft/type/OutlineFill.tsx",
+      "changes": [
+        "unique clip ID; validate duration"
+      ],
+      "output_sha256": "e185139e80a2067ab02523c8620c9a78cc7257ce9fcab26cbc440adfabda5579",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "a3273b023cea9281f42d59f2fc2cc21d0f7fd9fb8c84fa78a91a4af33e6211bc",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12048,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/TrackIn.tsx",
+      "sha256": "6049531db747c3a3ae400cc2be6a466c032cdd05d26805af84e3d4e643935232",
+      "output": "implementations/craft/type/TrackIn.tsx",
+      "changes": [],
+      "output_sha256": "629b8e3ca5c17353e66055820b2b8433dda0f6d8b797d137e17bce50318ed6ac",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "6049531db747c3a3ae400cc2be6a466c032cdd05d26805af84e3d4e643935232",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12049,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/VarType.tsx",
+      "sha256": "cb020b6146a814ca491384a05fd9633df07a1dc435778aa6814f4f6200ae62af",
+      "output": "implementations/craft/type/VarType.tsx",
+      "changes": [
+        "CJK-safe neutral tracking; validate timing"
+      ],
+      "output_sha256": "9c88bd61a7ac487b3d7fe5c6331c8484e822d7887671d0ee09aa756d80ac5358",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "cb020b6146a814ca491384a05fd9633df07a1dc435778aa6814f4f6200ae62af",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12050,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/fonts.ts",
+      "sha256": "f3001e3442fd46d67846f73f497bc25c6017291202ceb4935ab86bc3d4c5a960",
+      "output": "implementations/craft/type/fonts.ts",
+      "changes": [
+        "HTTP and requested-font absence fail; caller must keep ids stable and verify cmap"
+      ],
+      "output_sha256": "ee14ec285c5bff0bd787431f85137969adc42da6747e712f35aade45257754ea",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "f3001e3442fd46d67846f73f497bc25c6017291202ceb4935ab86bc3d4c5a960",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12051,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/index.ts",
+      "sha256": "7ae7c3dc1eb548ab4eb29ee24a283ca0657bf0c83da2b602f26ed1032be74241",
+      "output": "implementations/craft/type/index.ts",
+      "changes": [],
+      "output_sha256": "7e57b74ffc120b5f841ce9db33b9fafd4b4a286bf135e2435a907453254ff18e",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "7ae7c3dc1eb548ab4eb29ee24a283ca0657bf0c83da2b602f26ed1032be74241",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 12052,
+      "source": "skills/promo-video/templates/remotion/src/cinematic/type/tokens.ts",
+      "sha256": "f8d238794adf6a9b0b14154874dd8703d88b91d76c45ef4f029aa04e1a97a1a7",
+      "output": "implementations/craft/type/tokens.ts",
+      "changes": [],
+      "output_sha256": "50c0b95da24ecb44a72185f170258b940c787e1aa1214854733c5976e9a90c4c",
+      "repo": "renoise-ai/renoise-skills",
+      "source_sha256": "f8d238794adf6a9b0b14154874dd8703d88b91d76c45ef4f029aa04e1a97a1a7",
+      "commit": "3d82d8df22a4e4d942c317fb13264d4a8eb046a6",
+      "byte_identical": false,
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用"
+    },
+    {
+      "source_id": 1585,
+      "source": "skills/opus-js-animations/references/styles.md",
+      "source_sha256": "95cc2e82bc338a4ac9555ec50bf97d8cdd0ae4732774b5e4ebedcb6dd3ee1054",
+      "read_ranges": [
+        [
+          1,
+          202
+        ]
+      ],
+      "used_ranges": [
+        [
+          32,
+          190
+        ]
+      ],
+      "destination": "recipes/paper-performance.md",
+      "decision": "适配复用",
+      "changes": [
+        "保留完整配方；拆离原品牌/全局审美流程；修正接触跳变、端点与分配保证；当前无媒体执行"
+      ],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "51e2962bdddc7210b9de42bf5afd7132d1430dddd11e2b0d4c0723cec9d48b2c",
+      "repo": "klsoen/opus-js-animations",
+      "commit": "be8d5792ffff563c9dc62933bbe5627ac41a89e0",
+      "byte_identical": false
+    },
+    {
+      "source_id": 1587,
+      "source": "skills/opus-js-animations/references/tiles-and-flocks.md",
+      "source_sha256": "87c5e7e12784b8edbdedd60ad8efc6b0e752a84dec26e8c846442e4f993f59c0",
+      "read_ranges": [
+        [
+          1,
+          177
+        ]
+      ],
+      "used_ranges": [
+        [
+          1,
+          177
+        ]
+      ],
+      "destination": "recipes/formation-and-mosaic.md",
+      "decision": "适配复用",
+      "changes": [
+        "保留完整配方；拆离原品牌/全局审美流程；修正接触跳变、端点与分配保证；当前无媒体执行"
+      ],
+      "validation": "见交付核验：语义/语法/逻辑分层；未渲染、未作者采用",
+      "output_sha256": "0a9fc5a4aa8bde50bf4201df2b0ee7fc6353cc55803e9e06a98ebd80ce104335",
+      "repo": "klsoen/opus-js-animations",
+      "commit": "be8d5792ffff563c9dc62933bbe5627ac41a89e0",
+      "byte_identical": false
+    }
+  ],
+  "additional_reference": {
+    "repo": "heygen-com/hyperframes",
+    "source": ".agents/skills/cut-the-curve/examples/gsap-implementation.md",
+    "source_sha256": "c5e523bf1404eff2ffe903bc756006fd21894e1f6c10e630485afc570a2ad72b",
+    "destination": "recipes/seams-and-seek.md",
+    "changes": "中文重组、公式校正、显式参数与seek边界；Apache保留"
+  },
+  "historical_validation_note": "v2条目的旧validation属于原版本历史，本次v2.1未执行测试。"
+}

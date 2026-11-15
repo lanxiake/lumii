@@ -1,0 +1,3096 @@
+{
+  "schema_version": 1,
+  "library_version": "4a96742d3643538227c849a593380f25b66f001f613ed2915dd20f3dfd216f5a",
+  "prompt_count": 341,
+  "entries": [
+    {
+      "id": "A1",
+      "name": "字雨",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/A1_字雨.md",
+      "sha256": "123981cfe82263faf3e6688cb77907a105d9117e9efe9e37df088ccf1c45d204",
+      "bytes": 1980,
+      "lines": 33
+    },
+    {
+      "id": "A2",
+      "name": "光标打字",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/A2_光标打字.md",
+      "sha256": "1a37d635f87f92d2ac9e780914442899b9272f06abcf9d7b89d8b12bcfcf3947",
+      "bytes": 2044,
+      "lines": 38
+    },
+    {
+      "id": "A3",
+      "name": "大字冲击",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/A3_大字冲击.md",
+      "sha256": "7bc5897da2df9f690b3d37edd6653cdd55b32b419b73748590e885cb93c4bd87",
+      "bytes": 1848,
+      "lines": 33
+    },
+    {
+      "id": "A4",
+      "name": "字的隧道",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/A4_字的隧道.md",
+      "sha256": "9fd719ab428ad7cea740e327996a9bc2d1e82589f34cf175be2f5f10ffff3673",
+      "bytes": 1572,
+      "lines": 30
+    },
+    {
+      "id": "A5",
+      "name": "字散了再聚",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/A5_字散了再聚.md",
+      "sha256": "10f9bb992c72030f450b95aeac4d293d6203697594ad3a6e17e5ccda58b4cf8a",
+      "bytes": 2734,
+      "lines": 45
+    },
+    {
+      "id": "B1",
+      "name": "流动的丝线",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/B1_流动的丝线.md",
+      "sha256": "03379caca42239f3e0cc740751c4f33b6c8c59cfc764bcfbd419d4382bc9b091",
+      "bytes": 1595,
+      "lines": 29
+    },
+    {
+      "id": "B2",
+      "name": "萤火光尘",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/B2_萤火光尘.md",
+      "sha256": "dde0eb84f0116d3ca526b6ea5a755e5b73341ee06a9c1afebc63178d624519cd",
+      "bytes": 1714,
+      "lines": 30
+    },
+    {
+      "id": "B3",
+      "name": "粒子聚形",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/B3_粒子聚形.md",
+      "sha256": "2a784814e01c2ca003b6c5c2ddb1cffb84b0f57f45e6416543b95eecaaf66af1",
+      "bytes": 5627,
+      "lines": 73
+    },
+    {
+      "id": "B4",
+      "name": "星空连线",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/B4_星空连线.md",
+      "sha256": "aa4f2929d74e2e1a2becf4b95ec44b99f0b502373c6ab346c3c0136220892c78",
+      "bytes": 2101,
+      "lines": 32
+    },
+    {
+      "id": "B5",
+      "name": "呼吸的圆",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/B5_呼吸的圆.md",
+      "sha256": "487998258b95e251e8a2cc2d75f4e46ff8cc4f9a42b4331cc68148d5e59f6a80",
+      "bytes": 1524,
+      "lines": 26
+    },
+    {
+      "id": "C1",
+      "name": "水墨晕开",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/C1_水墨晕开.md",
+      "sha256": "acebaa23c8f14b1507e01ea4fbc7843d3951503acc0afd4a8494507a77f0e348",
+      "bytes": 2113,
+      "lines": 33
+    },
+    {
+      "id": "C2",
+      "name": "一笔画",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/C2_一笔画.md",
+      "sha256": "220f17a7f5a2217a6b35ad6e27dca3cf0a7d62457c9a8cd920f83a50775848f3",
+      "bytes": 2455,
+      "lines": 40
+    },
+    {
+      "id": "C3",
+      "name": "心里的等高线",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/C3_心里的等高线.md",
+      "sha256": "50f15e7492407fb52bb829effd089851719daff264b7a09cf73a55e24e16bf34",
+      "bytes": 2481,
+      "lines": 35
+    },
+    {
+      "id": "C4",
+      "name": "涟漪",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/C4_涟漪.md",
+      "sha256": "2b2f3d57262f81e4ab795e94f608cb816854fbbd1b67ea07a8a00f6dba0d4310",
+      "bytes": 1352,
+      "lines": 26
+    },
+    {
+      "id": "D1",
+      "name": "雨窗",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/D1_雨窗.md",
+      "sha256": "278642932484446faebe786797172aa934d66f49ca380835b6d05cbcb3bda682",
+      "bytes": 2420,
+      "lines": 36
+    },
+    {
+      "id": "D2",
+      "name": "窗光与尘",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/D2_窗光与尘.md",
+      "sha256": "1b41bf9bfe07dcc1d5815c49eb8309596f635b686358940637b33cf3f299ed66",
+      "bytes": 2132,
+      "lines": 33
+    },
+    {
+      "id": "D3",
+      "name": "雪与火星",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/D3_雪与火星.md",
+      "sha256": "052d07b6a62354dca1e9044a37f8510e100785074e5f80ead2a1223a0c2d297e",
+      "bytes": 1695,
+      "lines": 25
+    },
+    {
+      "id": "D4",
+      "name": "天亮",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/D4_天亮.md",
+      "sha256": "209724b85892af656ff7e1a3467a1ec399077717a3dfab67b1df3b8754b2ec85",
+      "bytes": 2071,
+      "lines": 29
+    },
+    {
+      "id": "E1",
+      "name": "极简几何",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/E1_极简几何.md",
+      "sha256": "b8d98fd26e6a189cb6622a376330c9bc62852cc4dcc7a475b5b952c4382446f4",
+      "bytes": 1735,
+      "lines": 28
+    },
+    {
+      "id": "E2",
+      "name": "剪纸层叠",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/E2_剪纸层叠.md",
+      "sha256": "debcefc65f8e7c2bf90404b4aaf126a34f2cf63e87dc9145d3e887061fbe4cb4",
+      "bytes": 2320,
+      "lines": 31
+    },
+    {
+      "id": "E3",
+      "name": "字符画",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/E3_字符画.md",
+      "sha256": "1785dc0e8e263e6f80ab68474d97b4f2f0df2917300248b3f85e20b6c01484c8",
+      "bytes": 1550,
+      "lines": 29
+    },
+    {
+      "id": "F1",
+      "name": "图表生长",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/F1_图表生长.md",
+      "sha256": "2d6f2584aeb5ad30bc83536da4a30073df2a820472d97b5aa22e254a30b6619a",
+      "bytes": 2454,
+      "lines": 34
+    },
+    {
+      "id": "F2",
+      "name": "关系图",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/F2_关系图.md",
+      "sha256": "a652eb0e3725806f061c0a9a9cb55a2b3568a9b0d6402c359f5b8a59844812cf",
+      "bytes": 2908,
+      "lines": 37
+    },
+    {
+      "id": "F3",
+      "name": "分屏对比",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/F3_分屏对比.md",
+      "sha256": "d7ced5789c6503f17f7a723a0fd456f3a4b19e0e58e9ba0a8983e2f3512809e8",
+      "bytes": 2291,
+      "lines": 28
+    },
+    {
+      "id": "G1",
+      "name": "老胶片",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/G1_老胶片.md",
+      "sha256": "21b5f0dd092282d4c28e88cdbfc35a1aad8c78150ec554b0a155c9da074b602e",
+      "bytes": 2832,
+      "lines": 33
+    },
+    {
+      "id": "G2",
+      "name": "信号故障",
+      "kind": "prompt",
+      "path": "风格提示词/A-G_代码样片/G2_信号故障.md",
+      "sha256": "b30468ceaf41799c88d15fea2b45a848dfb1da5560f359db5717b63e3ca459bf",
+      "bytes": 1805,
+      "lines": 26
+    },
+    {
+      "id": "H10",
+      "name": "Creative Mode",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H10_Creative Mode.md",
+      "sha256": "b940fc55f995be713ca10672c04d8ac74248ba9e47f716dfce0efadac4d6c68f",
+      "bytes": 203,
+      "lines": 8
+    },
+    {
+      "id": "H11",
+      "name": "Daisy Days",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H11_Daisy Days.md",
+      "sha256": "1eb37a3330e3632ca92bdca3e4160fdedd1126c3a4f5e57c049004ea40d21fac",
+      "bytes": 222,
+      "lines": 8
+    },
+    {
+      "id": "H12",
+      "name": "Editorial Forest",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H12_Editorial Forest.md",
+      "sha256": "69e0a8ca40a52e2fdf866f1f6cef05d96ddacc6ca61bd343c13cadf63a34ee69",
+      "bytes": 220,
+      "lines": 8
+    },
+    {
+      "id": "H1",
+      "name": "Biennale Yellow",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H1_Biennale Yellow.md",
+      "sha256": "bd3ebd66119b3e324bda4e689aa4e2c1b6cf33151488c8613cae688416aa681a",
+      "bytes": 3736,
+      "lines": 63
+    },
+    {
+      "id": "H2",
+      "name": "BlockFrame",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H2_BlockFrame.md",
+      "sha256": "6f012dcf1094105a85f69e96e05705188aebadb6fc2da379a57c7480e958ef05",
+      "bytes": 219,
+      "lines": 8
+    },
+    {
+      "id": "H3",
+      "name": "Blue Professional",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H3_Blue Professional.md",
+      "sha256": "dd957f36b685c7996c4b6031164323e08b1356d942c462ada207511f5bfe1273",
+      "bytes": 206,
+      "lines": 8
+    },
+    {
+      "id": "H4",
+      "name": "Bold Poster",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H4_Bold Poster.md",
+      "sha256": "fcdf275ba727ad58726f7fdc4eeb30a27f546e03c638e9e0e976a470e8f56dc6",
+      "bytes": 226,
+      "lines": 8
+    },
+    {
+      "id": "H5",
+      "name": "Broadside",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H5_Broadside.md",
+      "sha256": "40846c4a0b2e2fdc2ec0d0d391b35c29c3cce16a7a46fc2d7e5e7dc92c6154ff",
+      "bytes": 212,
+      "lines": 8
+    },
+    {
+      "id": "H6",
+      "name": "Capsule",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H6_Capsule.md",
+      "sha256": "3e1419146c4dc96706efccf73e6cb371d0fee8b613ddbd9ac7e5b4a899791189",
+      "bytes": 218,
+      "lines": 8
+    },
+    {
+      "id": "H7",
+      "name": "Cartesian",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H7_Cartesian.md",
+      "sha256": "9cbc4b078b66b93e9de5ae187bb4538d44d6b4e88cda4c495c904489ee8f11ae",
+      "bytes": 230,
+      "lines": 8
+    },
+    {
+      "id": "H8",
+      "name": "Cobalt Grid",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H8_Cobalt Grid.md",
+      "sha256": "3608a80b5e7892aea8cb6e01c5adbe50ba55c4a1e523d560d3df50ee1d5c481e",
+      "bytes": 188,
+      "lines": 8
+    },
+    {
+      "id": "H9",
+      "name": "Coral",
+      "kind": "prompt",
+      "path": "风格提示词/H_现成版式/H9_Coral.md",
+      "sha256": "65bb45d82b8a427eef14783366179a7f782136ffc7f10471ad424aec91892cab",
+      "bytes": 190,
+      "lines": 8
+    },
+    {
+      "id": "K10",
+      "name": "粉笔黑板",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K10_粉笔黑板.md",
+      "sha256": "e96fc017c7e442fb22589ec55f36784b65e23f48fff7e4f2d65c2a51fa9d8e3d",
+      "bytes": 204,
+      "lines": 9
+    },
+    {
+      "id": "K11",
+      "name": "手账笔记",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K11_手账笔记.md",
+      "sha256": "333203dbc28be3e4ecab636f1ea40e4eed736acb8d3de9bb62093af590437007",
+      "bytes": 219,
+      "lines": 9
+    },
+    {
+      "id": "K12",
+      "name": "报纸四格",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K12_报纸四格.md",
+      "sha256": "f53e0bb79915a1a4211d55b8818e656d371a3977144d39b56ee66e05a2662b76",
+      "bytes": 210,
+      "lines": 9
+    },
+    {
+      "id": "K13",
+      "name": "美漫网点",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K13_美漫网点.md",
+      "sha256": "f7496551e0cd62ea5da08f1a8acc3dd83e7ede4e1554b474b4caf942e0bd613b",
+      "bytes": 242,
+      "lines": 9
+    },
+    {
+      "id": "K14",
+      "name": "波普",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K14_波普.md",
+      "sha256": "f1a3c457da564ec82241313706c5f09387243e6f57c885426e9a6326d3fd2567",
+      "bytes": 204,
+      "lines": 9
+    },
+    {
+      "id": "K15",
+      "name": "橡皮管 1930",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K15_橡皮管 1930.md",
+      "sha256": "3e369d68c0af2ca1764c66567c557f44ba4a2c492c21449cd48575068d66169d",
+      "bytes": 233,
+      "lines": 9
+    },
+    {
+      "id": "K16",
+      "name": "中世纪现代",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K16_中世纪现代.md",
+      "sha256": "7e23ddba46c7f801be6e8fc26b4b73460c5dea6ff63a1638b0a6b05b3b57a118",
+      "bytes": 248,
+      "lines": 9
+    },
+    {
+      "id": "K17",
+      "name": "几何",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K17_几何.md",
+      "sha256": "11eefa798c11288e59f94008e68c82543bae7ef2904d96bd9f6e0028271256e3",
+      "bytes": 189,
+      "lines": 9
+    },
+    {
+      "id": "K18",
+      "name": "水彩",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K18_水彩.md",
+      "sha256": "d137987a34cc918a4a8fcaf92f91bd2f1764a728ca0cc7555d920b32d57a56c7",
+      "bytes": 195,
+      "lines": 9
+    },
+    {
+      "id": "K19",
+      "name": "厚涂",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K19_厚涂.md",
+      "sha256": "9fc0bdbccae55aae6b05d51e62870ab749edcecd707cc69161166f505cc641db",
+      "bytes": 186,
+      "lines": 9
+    },
+    {
+      "id": "K1",
+      "name": "扁平矢量",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K1_扁平矢量.md",
+      "sha256": "2008666adc1b07b5bbfa2a9bb10b547336a30bab83c27b2b2bd37637b98b02b2",
+      "bytes": 270,
+      "lines": 8
+    },
+    {
+      "id": "K20",
+      "name": "剪纸",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K20_剪纸.md",
+      "sha256": "209e814ede6b8086bb6149c329ca82635ca8e5e9b9d4997befe4d6c79f99380c",
+      "bytes": 219,
+      "lines": 9
+    },
+    {
+      "id": "K21",
+      "name": "手工纸艺",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K21_手工纸艺.md",
+      "sha256": "f73148119922eaaea87e657ae6c58d2819478232a8fef410e933f89bbe0bbe3e",
+      "bytes": 183,
+      "lines": 9
+    },
+    {
+      "id": "K22",
+      "name": "折纸",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K22_折纸.md",
+      "sha256": "1ba1a3134e6bb316d3debb1b589299053b716633127b07b5391846789ac56752",
+      "bytes": 161,
+      "lines": 9
+    },
+    {
+      "id": "K23",
+      "name": "拼贴",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K23_拼贴.md",
+      "sha256": "be2538c569c48da014e4c70b9fafad60f2e9f6ccaeaa4d32b11ac83873bb6edd",
+      "bytes": 198,
+      "lines": 9
+    },
+    {
+      "id": "K24",
+      "name": "粘土",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K24_粘土.md",
+      "sha256": "e239494d143d9182eeddae864d5c53cab5be1b097b1d62005092cd2828deff7b",
+      "bytes": 186,
+      "lines": 9
+    },
+    {
+      "id": "K25",
+      "name": "皮克斯式 3D",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K25_皮克斯式 3D.md",
+      "sha256": "878177de06a731dadb4c16f5fdc304dd9a8ede0eb31598f096339f08c16a6031",
+      "bytes": 225,
+      "lines": 9
+    },
+    {
+      "id": "K26",
+      "name": "卡通渲染 3D",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K26_卡通渲染 3D.md",
+      "sha256": "648cb0a0fce91ee5bafb80a72ac024fc50b027ec3f9bdf381ffe91dc8b45b66d",
+      "bytes": 226,
+      "lines": 9
+    },
+    {
+      "id": "K27",
+      "name": "低多边形",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K27_低多边形.md",
+      "sha256": "20ae86d4037c8d0da97184c2dc6e7f43f464c2ed8b114ceb1a4b1449a8f9b7f3",
+      "bytes": 177,
+      "lines": 9
+    },
+    {
+      "id": "K28",
+      "name": "像素",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K28_像素.md",
+      "sha256": "da346f43b0af0b5cf138301b5b157386c78726aafeb0a8dae35b793cf304d476",
+      "bytes": 174,
+      "lines": 9
+    },
+    {
+      "id": "K29",
+      "name": "蓝图",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K29_蓝图.md",
+      "sha256": "3c5ee24f5ee12d70a50769af6d7f20f51f97a6984c64aa6ce4acdf5249e79361",
+      "bytes": 180,
+      "lines": 9
+    },
+    {
+      "id": "K2",
+      "name": "Q 版",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K2_Q 版.md",
+      "sha256": "cce91700945f679f58d9086d032f2a22e90fc055bcae64868dccfc03818b1077",
+      "bytes": 249,
+      "lines": 8
+    },
+    {
+      "id": "K30",
+      "name": "说明书线稿",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K30_说明书线稿.md",
+      "sha256": "b11627fe9c965bc8d7389e8ccbe48181c05dbec8bbd0b17ac9725a433e410dce",
+      "bytes": 192,
+      "lines": 9
+    },
+    {
+      "id": "K31",
+      "name": "平铺整理",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K31_平铺整理.md",
+      "sha256": "420e0cba69c14e5e77a086ba3242aa0957986ebfb717e2aff2d41d5ae8fa5ba7",
+      "bytes": 221,
+      "lines": 9
+    },
+    {
+      "id": "K32",
+      "name": "积木",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K32_积木.md",
+      "sha256": "f63f5c1aaade5b03ba834601fd7bdd078b5adb864346a6eaf25c03279fb30d8c",
+      "bytes": 182,
+      "lines": 9
+    },
+    {
+      "id": "K33",
+      "name": "地铁图",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K33_地铁图.md",
+      "sha256": "918503601ab096adef79f16ecf90e248fbd7879c2a0f23f3361ce3c727a6a180",
+      "bytes": 168,
+      "lines": 9
+    },
+    {
+      "id": "K34",
+      "name": "赛博霓虹",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K34_赛博霓虹.md",
+      "sha256": "d71030493afd31fbe7f7a34bf979657c2e49e77baf899cb79b7e7ffde7d0f422",
+      "bytes": 165,
+      "lines": 9
+    },
+    {
+      "id": "K35",
+      "name": "旧学院风",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K35_旧学院风.md",
+      "sha256": "ff29d584bda9ec23cf9c3411ae768d2e04d5391f6002cd949e82419a445db5f5",
+      "bytes": 189,
+      "lines": 9
+    },
+    {
+      "id": "K36",
+      "name": "丝网印刷",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K36_丝网印刷.md",
+      "sha256": "ba21393874cd9c42b3952c65a5f13512eb423bb26ce643f47c4bf7803b74c9df",
+      "bytes": 201,
+      "lines": 9
+    },
+    {
+      "id": "K37",
+      "name": "哥特",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K37_哥特.md",
+      "sha256": "9ca50c96450ff6c0622b967cb7d96bf77b46ae85a49d8f8a6940a31d6c52a7de",
+      "bytes": 186,
+      "lines": 9
+    },
+    {
+      "id": "K38",
+      "name": "情景喜剧",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K38_情景喜剧.md",
+      "sha256": "80fe39c35a4a926e7a3a12ad70cff6d54d4a5ca1a6487cfb3e63a3579e384a90",
+      "bytes": 219,
+      "lines": 9
+    },
+    {
+      "id": "K3",
+      "name": "卡哇伊",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K3_卡哇伊.md",
+      "sha256": "a1c83c0b408ff224ddef6af703b7c00651a0a3756824593d8cba83161013bc1d",
+      "bytes": 226,
+      "lines": 8
+    },
+    {
+      "id": "K4",
+      "name": "极简线条小人",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K4_极简线条小人.md",
+      "sha256": "e5c6ad571f54186dd79cebf6553516ffb1c425d90850340abec9b960426e81e3",
+      "bytes": 208,
+      "lines": 8
+    },
+    {
+      "id": "K5",
+      "name": "孟菲斯扁平人",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K5_孟菲斯扁平人.md",
+      "sha256": "95d8d589c1493067c94ec3aab5ab65def00520a140f77dc0af2ac640c0429614",
+      "bytes": 203,
+      "lines": 8
+    },
+    {
+      "id": "K6",
+      "name": "清线漫画",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K6_清线漫画.md",
+      "sha256": "1ab896e3782dddd570b4244c263c4fba7ed675efb20f699d1150fecf20fab630",
+      "bytes": 205,
+      "lines": 8
+    },
+    {
+      "id": "K7",
+      "name": "日式动画",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K7_日式动画.md",
+      "sha256": "766225c683dc0e257fbf1f5877e51deac7e924e0ee10383a8fb290347bf0d8f6",
+      "bytes": 223,
+      "lines": 8
+    },
+    {
+      "id": "K8",
+      "name": "绘本",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K8_绘本.md",
+      "sha256": "10e85f963757d55d4938976cf4e64f7686021f2066699b59640313d48681d6c4",
+      "bytes": 211,
+      "lines": 8
+    },
+    {
+      "id": "K9",
+      "name": "涂鸦",
+      "kind": "prompt",
+      "path": "风格提示词/K_卡通画风/K9_涂鸦.md",
+      "sha256": "112fcca15eb45a3d20894fba7e1de8706201cac9a2a3d29eda2cb3fc5c1570fd",
+      "bytes": 205,
+      "lines": 9
+    },
+    {
+      "id": "L10",
+      "name": "工程方案比较墙",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L10_工程方案比较墙.md",
+      "sha256": "0dd7d505b95808599e47896fa468078338e5bd13b0eb2390e7231d5c9afd696b",
+      "bytes": 13655,
+      "lines": 134
+    },
+    {
+      "id": "L11",
+      "name": "激光点云扫描",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L11_激光点云扫描.md",
+      "sha256": "978079b800453f9a637a2b975873dcdf0048a3c456250ee5aa8e9024ad43d827",
+      "bytes": 13454,
+      "lines": 130
+    },
+    {
+      "id": "L12",
+      "name": "白模投影",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L12_白模投影.md",
+      "sha256": "c4666b20f8a10cc6d38016112a0b428faf02baa232506f3f815563964a29bfd3",
+      "bytes": 13906,
+      "lines": 127
+    },
+    {
+      "id": "L13",
+      "name": "数据实体化",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L13_数据实体化.md",
+      "sha256": "1ebc77fb9a1fdfe55bd5a45bca10d04a06b62107743108693c1983cf3057846b",
+      "bytes": 13784,
+      "lines": 131
+    },
+    {
+      "id": "L14",
+      "name": "爆炸图拆解",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L14_爆炸图拆解.md",
+      "sha256": "0a95582170595dba8076d95e891e0248ee76292300346833fa5f596a89950622",
+      "bytes": 13902,
+      "lines": 139
+    },
+    {
+      "id": "L15",
+      "name": "显微镜故事",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L15_显微镜故事.md",
+      "sha256": "fa845f2a068f11ae169ab63efac04c02f8349f63fa652c065e7416c3ef3b4218",
+      "bytes": 13484,
+      "lines": 120
+    },
+    {
+      "id": "L16",
+      "name": "档案灯箱",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L16_档案灯箱.md",
+      "sha256": "31993dbcbfb91311d35cfe5a8b6de7581c45850d6844653c20f1537d71f90a5e",
+      "bytes": 13634,
+      "lines": 121
+    },
+    {
+      "id": "L17",
+      "name": "蜡笔儿童绘本",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L17_蜡笔儿童绘本.md",
+      "sha256": "b55ce58d0bbf0dfe33155086757dcc513a695eecfd345fe2ca2c2803f2321505",
+      "bytes": 11618,
+      "lines": 121
+    },
+    {
+      "id": "L18",
+      "name": "水彩笔刷",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L18_水彩笔刷.md",
+      "sha256": "1991762f2d516f81ea03fb2816aaa97a1236914d90b81038f7e8b498a9e48888",
+      "bytes": 11373,
+      "lines": 125
+    },
+    {
+      "id": "L19",
+      "name": "中国水墨",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L19_中国水墨.md",
+      "sha256": "837117d24d623366289226490228fa847fe923138898190fb356ce164f980fdd",
+      "bytes": 11543,
+      "lines": 132
+    },
+    {
+      "id": "L1",
+      "name": "字幕新闻",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L1_字幕新闻.md",
+      "sha256": "c65736dacd703ed3bb842ee9150cbd0fd0715bd732c3752561d03926f2fae9a5",
+      "bytes": 17459,
+      "lines": 149
+    },
+    {
+      "id": "L20",
+      "name": "油画厚涂",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L20_油画厚涂.md",
+      "sha256": "f4d5c9412f3132ceffe017c9c8ae5160f112650271966fa0e12e5718668d6c5f",
+      "bytes": 12300,
+      "lines": 136
+    },
+    {
+      "id": "L21",
+      "name": "一笔画",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L21_一笔画.md",
+      "sha256": "d456f07612ffdbf7f6646184fad473aa2961950621e373a506843540001c910e",
+      "bytes": 11684,
+      "lines": 126
+    },
+    {
+      "id": "L22",
+      "name": "白板讲解",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L22_白板讲解.md",
+      "sha256": "e578b99643d97895f3dc18dd96e8345c7eeaaae2ca07f3d72c008597af4722ef",
+      "bytes": 12005,
+      "lines": 130
+    },
+    {
+      "id": "L23",
+      "name": "钢笔淡彩",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L23_钢笔淡彩.md",
+      "sha256": "f8822bb9eadc987810fd97d2c0e28b72cb2ab25d626029d2cbd7965f360246b2",
+      "bytes": 12069,
+      "lines": 138
+    },
+    {
+      "id": "L24",
+      "name": "皮影戏",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L24_皮影戏.md",
+      "sha256": "ed9339a9d78bbb39f6245e983fc4738609bc3cee120df0f351fd3f51afaa2691",
+      "bytes": 13039,
+      "lines": 136
+    },
+    {
+      "id": "L25",
+      "name": "浮世绘",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L25_浮世绘.md",
+      "sha256": "0a75b3d1aa106646a67f30022a4a3584a17b30cf591c56031016ed0b828b5627",
+      "bytes": 12737,
+      "lines": 124
+    },
+    {
+      "id": "L26",
+      "name": "红色窗花剪纸",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L26_红色窗花剪纸.md",
+      "sha256": "f4875ff7a9f840bf210d408889cb3ad85395be8af488432f456ba60568825b0f",
+      "bytes": 12730,
+      "lines": 122
+    },
+    {
+      "id": "L27",
+      "name": "纸雕灯影",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L27_纸雕灯影.md",
+      "sha256": "49707cb7b451e2d8e0ddac1ef657a6b40d4eec264ed3b920bc7b67928f6d5a21",
+      "bytes": 12412,
+      "lines": 128
+    },
+    {
+      "id": "L28",
+      "name": "Risograph 丝网印刷",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L28_Risograph 丝网印刷.md",
+      "sha256": "f04c21710d01bfb3a17106e69b851c161cd349ad9b5123e0f5e8b9d6119f4874",
+      "bytes": 12345,
+      "lines": 137
+    },
+    {
+      "id": "L29",
+      "name": "复古半调案卷",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L29_复古半调案卷.md",
+      "sha256": "d1a1a70b0d3952732eeae26dcd64e7ab205abc10599f6fbcc266b225e645980e",
+      "bytes": 12700,
+      "lines": 134
+    },
+    {
+      "id": "L2",
+      "name": "1920 年代新闻片",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L2_1920 年代新闻片.md",
+      "sha256": "01474f29276d27a23551075e2f56618da24f64393356ffbf61abf673e6e3b6bc",
+      "bytes": 18017,
+      "lines": 148
+    },
+    {
+      "id": "L30",
+      "name": "木刻版画",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L30_木刻版画.md",
+      "sha256": "417684eef67f67c33b66a012781c5b814bab0e6f4ebd4c3dc799baab317582cc",
+      "bytes": 12466,
+      "lines": 134
+    },
+    {
+      "id": "L31",
+      "name": "铜版画",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L31_铜版画.md",
+      "sha256": "f6c5910c9b5adc85797a86df3e0a5c85495277816cbd4c21a9b30b585fb3ea10",
+      "bytes": 12670,
+      "lines": 135
+    },
+    {
+      "id": "L32",
+      "name": "丝印旅行海报",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L32_丝印旅行海报.md",
+      "sha256": "3b908ca415dbdf1b4ff553c6b40127bb837eaeffe398431d17318e6e6898ded5",
+      "bytes": 13350,
+      "lines": 152
+    },
+    {
+      "id": "L33",
+      "name": "瑞士动态排版",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L33_瑞士动态排版.md",
+      "sha256": "3aa42212e3ae31c6acad09c72cd7864702faf685e9314cb26e1069c40f4e6a8e",
+      "bytes": 11013,
+      "lines": 127
+    },
+    {
+      "id": "L34",
+      "name": "60s 间谍片头",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L34_60s 间谍片头.md",
+      "sha256": "499f12309c499589709ddf1f40b3b3849705517caa4d292ca38ac315afeda1b8",
+      "bytes": 11715,
+      "lines": 128
+    },
+    {
+      "id": "L35",
+      "name": "装饰艺术",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L35_装饰艺术.md",
+      "sha256": "4478bf1be5b3d37d2c75dc0453bafadee88edf792d6b09d1df4b3918e05d6c6c",
+      "bytes": 12462,
+      "lines": 124
+    },
+    {
+      "id": "L36",
+      "name": "蓝图 · 工程制图",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L36_蓝图 · 工程制图.md",
+      "sha256": "6dc6f1646943b0bc1a43ea3aa88081b8d61f86fed0f74ddb0900d12f6515fd31",
+      "bytes": 12632,
+      "lines": 132
+    },
+    {
+      "id": "L37",
+      "name": "彩色玻璃窗",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L37_彩色玻璃窗.md",
+      "sha256": "ebb0b2eb77eb649edf762fea72a825916ee496a8b08e878ae2853a725a6e282b",
+      "bytes": 12239,
+      "lines": 135
+    },
+    {
+      "id": "L38",
+      "name": "象形运动图形",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L38_象形运动图形.md",
+      "sha256": "4b56ace4d2c1156b4e37009390dae407ac9c215d6132e51ba81d44cc1a00d9e9",
+      "bytes": 12397,
+      "lines": 131
+    },
+    {
+      "id": "L39",
+      "name": "ASCII · CRT 终端",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L39_ASCII · CRT 终端.md",
+      "sha256": "172e12ae20bbc101bdc4d29696b4ecab934ff6a1c63d4c126d77c64f44e18ed4",
+      "bytes": 12531,
+      "lines": 127
+    },
+    {
+      "id": "L3",
+      "name": "倒计时分屏",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L3_倒计时分屏.md",
+      "sha256": "364e50af48183deaf9e260b59a0d40e8ff77d30297be43a0cb0ef18e40aded59",
+      "bytes": 17372,
+      "lines": 144
+    },
+    {
+      "id": "L40",
+      "name": "数据叙事",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L40_数据叙事.md",
+      "sha256": "40cc774ab1d69f1e2a3b3235d3b15d783b11126b2c476b1c561cc982764b225c",
+      "bytes": 11671,
+      "lines": 135
+    },
+    {
+      "id": "L41",
+      "name": "等距信息图",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L41_等距信息图.md",
+      "sha256": "f18bbcbbff6676e68093af90b21268208fa700e14cdd7c7d70466067014f478d",
+      "bytes": 12257,
+      "lines": 129
+    },
+    {
+      "id": "L42",
+      "name": "暗色科技发布",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L42_暗色科技发布.md",
+      "sha256": "5f529e7abc26e01e8b634de1620bfda35827e2158c6b06a4dafd26373e443cc8",
+      "bytes": 12444,
+      "lines": 129
+    },
+    {
+      "id": "L43",
+      "name": "活体实机录屏",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L43_活体实机录屏.md",
+      "sha256": "56847c5bd0cbd4a56edbe5b8775ec87e652a80b862e1cd9c5b3d315429646ebb",
+      "bytes": 11834,
+      "lines": 136
+    },
+    {
+      "id": "L44",
+      "name": "科幻全息界面",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L44_科幻全息界面.md",
+      "sha256": "7214a11ba67238f78b4b619631c1bb6907e5eb113967ddb60f46a05a780bdb15",
+      "bytes": 12121,
+      "lines": 141
+    },
+    {
+      "id": "L45",
+      "name": "1930s 橡皮管卡通",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L45_1930s 橡皮管卡通.md",
+      "sha256": "2ac6fcb7ebd3b9fbe9affa43142ba1c8e621f864b8a0f2acded3cab60ed9f724",
+      "bytes": 13063,
+      "lines": 124
+    },
+    {
+      "id": "L46",
+      "name": "80 年代赛璐璐动画",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L46_80 年代赛璐璐动画.md",
+      "sha256": "b52e3b3d68b592edc2ded1ca127ec75b7afdfd8fbefe03e62abb73bfc4fd3112",
+      "bytes": 12947,
+      "lines": 131
+    },
+    {
+      "id": "L47",
+      "name": "科幻情景喜剧卡通",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L47_科幻情景喜剧卡通.md",
+      "sha256": "dec564c3fbd201ff64a2fa6111d7879b0a0f6b586fc439b6a6944448501d4105",
+      "bytes": 13044,
+      "lines": 133
+    },
+    {
+      "id": "L48",
+      "name": "50s 扁平卡通",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L48_50s 扁平卡通.md",
+      "sha256": "ab9cfe364e63f20d0d6b51a8c55f690103beaad628ee1cebdae41bd7884e94bd",
+      "bytes": 12916,
+      "lines": 136
+    },
+    {
+      "id": "L49",
+      "name": "16-bit 像素 RPG",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L49_16-bit 像素 RPG.md",
+      "sha256": "556895ccc31c8c5bf73a8c647706b473de83f02618547ec398968aa39d0eb0fa",
+      "bytes": 11555,
+      "lines": 129
+    },
+    {
+      "id": "L4",
+      "name": "延时摄影交响",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L4_延时摄影交响.md",
+      "sha256": "4349f86f8fa9e156c6dfae8208ae64a849fbceabbe21fce036e0c89da9f871ca",
+      "bytes": 18786,
+      "lines": 154
+    },
+    {
+      "id": "L50",
+      "name": "HD-2D",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L50_HD-2D.md",
+      "sha256": "9a6ec8952676d283f6634a34fbd0feda3b8cb7723dca804fab24c6cb0ac18aa1",
+      "bytes": 12606,
+      "lines": 123
+    },
+    {
+      "id": "L51",
+      "name": "微游戏快闪",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L51_微游戏快闪.md",
+      "sha256": "e3132789e9af0e7a93976437f5636c47ef3f2adef4a32750014dc0df1a8bb32e",
+      "bytes": 12857,
+      "lines": 134
+    },
+    {
+      "id": "L52",
+      "name": "综艺节奏扁平",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L52_综艺节奏扁平.md",
+      "sha256": "cffa6c40cb6e0b30cf27a35722a7d82dc8da62ccdd0d86b6c1e14347b1b84a24",
+      "bytes": 12770,
+      "lines": 130
+    },
+    {
+      "id": "L53",
+      "name": "1920s 默片",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L53_1920s 默片.md",
+      "sha256": "54fc76c4a514c3e782bbfd140f0ed0592dddfd9d666be0a1d3ff1a365a003b3e",
+      "bytes": 11876,
+      "lines": 121
+    },
+    {
+      "id": "L54",
+      "name": "后室 · 新怪谈",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L54_后室 · 新怪谈.md",
+      "sha256": "6f2b37c89febe1e7b9ce127ad3d73cc00c9fcc7ccdb34a9a654e228ff60439d9",
+      "bytes": 12943,
+      "lines": 137
+    },
+    {
+      "id": "L55",
+      "name": "积木玩具",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L55_积木玩具.md",
+      "sha256": "ca7b15025adb4bbb87342d91daff588adc15dee407f5cb7aa92daab37e0a63fd",
+      "bytes": 12830,
+      "lines": 126
+    },
+    {
+      "id": "L56",
+      "name": "纸片立体书",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L56_纸片立体书.md",
+      "sha256": "47f289b163cde4bd87a5ebb8d8b093030cd33e76153d3c0aec00167c5f58cf59",
+      "bytes": 12387,
+      "lines": 131
+    },
+    {
+      "id": "L57",
+      "name": "移轴微缩",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L57_移轴微缩.md",
+      "sha256": "aed22259d63dd2599c2bf740c105ac2920f6dc58ec857888cafe451abeec1d87",
+      "bytes": 12337,
+      "lines": 119
+    },
+    {
+      "id": "L58",
+      "name": "低多边形等距",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L58_低多边形等距.md",
+      "sha256": "ec08b9d3a3b4badc2315d6b81cc1b6dee554dff07e699e1f4087bc92c295dee6",
+      "bytes": 12613,
+      "lines": 124
+    },
+    {
+      "id": "L59",
+      "name": "玻璃质感产品",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L59_玻璃质感产品.md",
+      "sha256": "31c7436068be392900e66f08cd828ab823761070b074af4f2f3dee0d60cf2cd6",
+      "bytes": 12458,
+      "lines": 122
+    },
+    {
+      "id": "L5",
+      "name": "视觉调查",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L5_视觉调查.md",
+      "sha256": "b5eb77a8bcb0a2f6d810281504953b60866ec66be0abf151c3c1b6fd8dccbff0",
+      "bytes": 19345,
+      "lines": 152
+    },
+    {
+      "id": "L6",
+      "name": "构成主义蒙太奇",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L6_构成主义蒙太奇.md",
+      "sha256": "491d7052053c389ebd26ccf238dbc6b16d849e371d0c8d0cc65e3ca4630c7a96",
+      "bytes": 20430,
+      "lines": 163
+    },
+    {
+      "id": "L7",
+      "name": "体育战术板",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L7_体育战术板.md",
+      "sha256": "a9640af15e212770e4dcfa2e2dc5807fe980e066fa0f218bd6c076c26d68269b",
+      "bytes": 17272,
+      "lines": 149
+    },
+    {
+      "id": "L8",
+      "name": "电视新闻包装",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L8_电视新闻包装.md",
+      "sha256": "293aadd184d62f33e393b34aebe8b19d919d22d181326eb89d7ea25777492cc4",
+      "bytes": 20877,
+      "lines": 170
+    },
+    {
+      "id": "L9",
+      "name": "卫星地图简报",
+      "kind": "prompt",
+      "path": "风格提示词/L_Lemo-Opuscar/L9_卫星地图简报.md",
+      "sha256": "3d3ff488c4f6ff1a8fec52903ca864b2e8f1c29bac85696a964a1ed922e5c3dc",
+      "bytes": 13477,
+      "lines": 128
+    },
+    {
+      "id": "M10",
+      "name": "把一个抽象概念、一种情绪做成画面",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M10_把一个抽象概念、一种情绪做成画面.md",
+      "sha256": "e201fd11f02310ab0667e7e9a873ac24c85782222b8cad4a036220d83277c752",
+      "bytes": 660,
+      "lines": 15
+    },
+    {
+      "id": "M11",
+      "name": "人生循环",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M11_人生循环.md",
+      "sha256": "e5cb6eb6ab057faadaadbd98c095bd237465ef88aca0b4b265b2e50c80b55c85",
+      "bytes": 479,
+      "lines": 15
+    },
+    {
+      "id": "M12",
+      "name": "剪纸皮影",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M12_剪纸皮影.md",
+      "sha256": "806c3befe21dde1d0b90478eeaf94b234368d55ceb9b5e59f5fbac0309dfdc6d",
+      "bytes": 569,
+      "lines": 15
+    },
+    {
+      "id": "M13",
+      "name": "手绘定格，第一人称",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M13_手绘定格，第一人称.md",
+      "sha256": "d6e8df592b7e940bd6f274260f6634169966dc5a08fb1d46a631dc049bc18786",
+      "bytes": 528,
+      "lines": 15
+    },
+    {
+      "id": "M14",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M14_.md",
+      "sha256": "e71eb3448388320d9a3810e1104fee7503e88f463f16ade994bec2addd1efa22",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M15",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M15_.md",
+      "sha256": "db5303979c4bc15fc996f195fb2c530450d365264c3d00749ed4924858a54168",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M16",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M16_.md",
+      "sha256": "59c8763fbbd8b614d9f18a3a85102fe1f14bb5e58b7b21c47b66f29b5cd5de39",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M17",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M17_.md",
+      "sha256": "6d0c06e7dd4f809597f7f6fabc99133ae05223e1204ebe5e9a31aaf521133eff",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M18",
+      "name": "数学·科学讲解（3Blue1Brown 那种）",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M18_数学·科学讲解（3Blue1Brown 那种）.md",
+      "sha256": "daed0e04e775d366d8420c0d9dc5419f48904cf0c507d44086c593e1c6034561",
+      "bytes": 543,
+      "lines": 19
+    },
+    {
+      "id": "M19",
+      "name": "零基础科普",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M19_零基础科普.md",
+      "sha256": "fb9bcb3db13e77a857e22cb2f3815d4710dd8da4292d95cdb0336ebee5a30b20",
+      "bytes": 741,
+      "lines": 15
+    },
+    {
+      "id": "M1",
+      "name": "白板手绘讲解",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M1_白板手绘讲解.md",
+      "sha256": "9c3b9b8f54c5daa7e32d5d54d857880e5c05621a566e73a27d8db4063bfbe965",
+      "bytes": 3577,
+      "lines": 54
+    },
+    {
+      "id": "M20",
+      "name": "时间线·历史",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M20_时间线·历史.md",
+      "sha256": "b7351cf4eed4f197b1d8c52e82f97c322e2eed7e0debbf19b1ea3b0a0d16d3a0",
+      "bytes": 701,
+      "lines": 15
+    },
+    {
+      "id": "M21",
+      "name": "原理拆解（它是怎么工作的）",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M21_原理拆解（它是怎么工作的）.md",
+      "sha256": "c0ea294487eb7c35a1c4345807a0344e573e8f6771920e59ffac810952d9e78a",
+      "bytes": 764,
+      "lines": 15
+    },
+    {
+      "id": "M22",
+      "name": "配方式步骤",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M22_配方式步骤.md",
+      "sha256": "834f97b8b3cc81ddcedecb6c137fc5914bc69e146eb137dc5322adc5e65b6c77",
+      "bytes": 592,
+      "lines": 15
+    },
+    {
+      "id": "M23",
+      "name": "五幕讲解（万能讲解模板）",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M23_五幕讲解（万能讲解模板）.md",
+      "sha256": "b64e0a077c12b8e0f41c7110cc8161a6484251972c5656634b4ec346691a9ea2",
+      "bytes": 625,
+      "lines": 15
+    },
+    {
+      "id": "M24",
+      "name": "四段式发布片",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M24_四段式发布片.md",
+      "sha256": "e5ec737ef07d7b590ff82f2cea35a0310274ea8413f8f521e0c4bb324d20ccb7",
+      "bytes": 830,
+      "lines": 15
+    },
+    {
+      "id": "M25",
+      "name": "歌词卡点",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M25_歌词卡点.md",
+      "sha256": "1a241c8929645d51fd1b9dc3761da5addf1671ad91dcc811083c5c0b43259db7",
+      "bytes": 414,
+      "lines": 15
+    },
+    {
+      "id": "M26",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M26_.md",
+      "sha256": "9b1a38dbcb12edb2c6b11a3d0cb6185c465c658e4d02fd9185f6566bbad47142",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M27",
+      "name": "无对白短片，声音讲一半",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M27_无对白短片，声音讲一半.md",
+      "sha256": "db1ed34fd9461e6545520ee65ef55481703a32c5e7328cabf644cf22361c487b",
+      "bytes": 471,
+      "lines": 15
+    },
+    {
+      "id": "M28",
+      "name": "对称暖色的电影感空镜",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M28_对称暖色的电影感空镜.md",
+      "sha256": "c2c6b2203e936efd3c7c61f2f5d5698f2536fdaf6e8ec68a8520b0606fa15c75",
+      "bytes": 680,
+      "lines": 15
+    },
+    {
+      "id": "M29",
+      "name": "日落天空的 3D 空镜加一句话",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M29_日落天空的 3D 空镜加一句话.md",
+      "sha256": "e48483cfeb3f351d4065d733c5190b1055e860f6cce46e5cceb72333e8b1348f",
+      "bytes": 595,
+      "lines": 15
+    },
+    {
+      "id": "M2",
+      "name": "纸感手写笔记",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M2_纸感手写笔记.md",
+      "sha256": "9b678798cf2332a24ae6367ade6cf70bc46243f83e1a6000ac47a7f74f486ff0",
+      "bytes": 893,
+      "lines": 15
+    },
+    {
+      "id": "M30",
+      "name": "东方意境",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M30_东方意境.md",
+      "sha256": "720478be2e9342039ae2ed5707a42162a916b1dcf1a8e33a52541475ccfb4e37",
+      "bytes": 590,
+      "lines": 15
+    },
+    {
+      "id": "M31",
+      "name": "粘土定格 MV",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M31_粘土定格 MV.md",
+      "sha256": "968d6c57323a534db911595d46b02d81b68e070f11eb0f3ce60d602786b51844",
+      "bytes": 529,
+      "lines": 15
+    },
+    {
+      "id": "M32",
+      "name": "竖屏快节奏 POV",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M32_竖屏快节奏 POV.md",
+      "sha256": "d925fabe93d800eaf176cb81c64ba16d818fb3601a7290bcfc76874174795747",
+      "bytes": 470,
+      "lines": 15
+    },
+    {
+      "id": "M33",
+      "name": "从一个点拉远到宇宙",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M33_从一个点拉远到宇宙.md",
+      "sha256": "92019d4eeacb1de60449615866128e179cc47e525ccb557bfb1c6e95166c6e57",
+      "bytes": 645,
+      "lines": 15
+    },
+    {
+      "id": "M34",
+      "name": "新闻快讯盘点",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M34_新闻快讯盘点.md",
+      "sha256": "4de2d4e279d17a168425c21a098df055c61c3860c075581aed306a36af8cfaf8",
+      "bytes": 545,
+      "lines": 15
+    },
+    {
+      "id": "M35",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M35_.md",
+      "sha256": "513695128e686b22156c521f7422b49feb5a178c74a1177a55a5ef05960a3f0b",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M36",
+      "name": "破框",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M36_破框.md",
+      "sha256": "852dc384a0b10366b86787e89decd814c1fe5a61617670041e6f00b846c09e14",
+      "bytes": 406,
+      "lines": 15
+    },
+    {
+      "id": "M37",
+      "name": "Logo 慢慢拼出来（片头片尾）",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M37_Logo 慢慢拼出来（片头片尾）.md",
+      "sha256": "75fc9e50f5820f10413da2e6aec22567e2d730babfe9fcbf2d203f86f4aad969",
+      "bytes": 435,
+      "lines": 15
+    },
+    {
+      "id": "M38",
+      "name": "一个形状变到底",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M38_一个形状变到底.md",
+      "sha256": "00190e03f389d7cda397381ced8de52b59b671aa72470087d0b75aee2ed36969",
+      "bytes": 789,
+      "lines": 15
+    },
+    {
+      "id": "M39",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M39_.md",
+      "sha256": "44b145629af79b2ed1f8166c77188d4c3a5224c368194c3a7da5ae71ccf6f242",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M3",
+      "name": "文字建筑（口播金句专用）",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M3_文字建筑（口播金句专用）.md",
+      "sha256": "138477fd3d04c7d04de7818f87affc23c8f51ac2177013931096f18c8f80b924",
+      "bytes": 1075,
+      "lines": 15
+    },
+    {
+      "id": "M40",
+      "name": "",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M40_.md",
+      "sha256": "a051c6addc56a3a735dcede17015d553c5ab483ac4b5d05a3a0211c5da0d45f8",
+      "bytes": 81,
+      "lines": 7
+    },
+    {
+      "id": "M4",
+      "name": "一个元素串全片",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M4_一个元素串全片.md",
+      "sha256": "0cae463a6395ade013f41f3a1bd4023ae19a060d43dea359e1c77797f64899c7",
+      "bytes": 963,
+      "lines": 15
+    },
+    {
+      "id": "M5",
+      "name": "一镜到底",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M5_一镜到底.md",
+      "sha256": "c6126639d5937e801888fcdffc223ed4e0d42da9d8b2fa322d09f742415a970d",
+      "bytes": 844,
+      "lines": 15
+    },
+    {
+      "id": "M6",
+      "name": "苹果发布会风",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M6_苹果发布会风.md",
+      "sha256": "c7052b15d6a9f166bd7fa5d1bda9ce88eaa4993120df75d81f0a12f3930adb9f",
+      "bytes": 626,
+      "lines": 15
+    },
+    {
+      "id": "M7",
+      "name": "极简卡点",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M7_极简卡点.md",
+      "sha256": "1e08c4505e7ab6a0240eae0e6b7ad2e2f7727f3f6e7f0811769b0171787645eb",
+      "bytes": 856,
+      "lines": 15
+    },
+    {
+      "id": "M8",
+      "name": "口播 + 逐字字幕",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M8_口播 + 逐字字幕.md",
+      "sha256": "8b63d18e6769a22f92becd5067d7024c8f13858e31f0d23b3007386a62eb89aa",
+      "bytes": 1004,
+      "lines": 15
+    },
+    {
+      "id": "M9",
+      "name": "情绪弧线：混乱、掌控、清晰",
+      "kind": "prompt",
+      "path": "风格提示词/M_动态风格/M9_情绪弧线：混乱、掌控、清晰.md",
+      "sha256": "2d485778106e5388cc5e438f93f464a25ca9483417dbf2a60f5e6fc22a0915c2",
+      "bytes": 888,
+      "lines": 15
+    },
+    {
+      "id": "O10",
+      "name": "左拉传",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O10_左拉传.md",
+      "sha256": "b8703c2fcbdc80ba33ba89e5dcd9302c8d880cecd6d4330bb2bb08344ddcb1ab",
+      "bytes": 3282,
+      "lines": 37
+    },
+    {
+      "id": "O11",
+      "name": "浮生若梦",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O11_浮生若梦.md",
+      "sha256": "f4b76fb765b8349ea0eff36fb2f70696a5a6b71e2319464600f36e7e704df881",
+      "bytes": 3164,
+      "lines": 37
+    },
+    {
+      "id": "O12",
+      "name": "乱世佳人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O12_乱世佳人.md",
+      "sha256": "41104dc411f0abfb03b6ccc713fe7e02b8ed734601e4de75521ef30bac4f4913",
+      "bytes": 3533,
+      "lines": 39
+    },
+    {
+      "id": "O13",
+      "name": "蝴蝶梦",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O13_蝴蝶梦.md",
+      "sha256": "c51a07056f2ec076a7462d7418545a23a94af4a062428fbfbafea21f32473d00",
+      "bytes": 3251,
+      "lines": 38
+    },
+    {
+      "id": "O14",
+      "name": "青山翠谷",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O14_青山翠谷.md",
+      "sha256": "9bbe8f065ff5cc6398e4453c4bfcd5616bdc98de350b081710baaa1685d44ac8",
+      "bytes": 3173,
+      "lines": 37
+    },
+    {
+      "id": "O15",
+      "name": "忠勇之家",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O15_忠勇之家.md",
+      "sha256": "37901942693685730f59dbdc65f663b31cd81cee66aad01bc1ae1a1dd09fab1f",
+      "bytes": 3303,
+      "lines": 37
+    },
+    {
+      "id": "O16",
+      "name": "卡萨布兰卡",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O16_卡萨布兰卡.md",
+      "sha256": "6b56437a72e1248e2325e42d8d520320832758ba3b5e358ed4f7d3ef02326eba",
+      "bytes": 3189,
+      "lines": 36
+    },
+    {
+      "id": "O17",
+      "name": "与我同行",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O17_与我同行.md",
+      "sha256": "d68363ba2fae83c1c0c6e7566a42789cf22d2777eb82d9db7253e3606f2d7aee",
+      "bytes": 3156,
+      "lines": 37
+    },
+    {
+      "id": "O18",
+      "name": "失去的周末",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O18_失去的周末.md",
+      "sha256": "95652ed4577b92d3b2c5f67025430d2e2316526a06df0771ffbf48c964c9fe3f",
+      "bytes": 3134,
+      "lines": 37
+    },
+    {
+      "id": "O19",
+      "name": "黄金时代",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O19_黄金时代.md",
+      "sha256": "afa4a7444e79b1b95dc0b57aff7b3dc1caea8e888ab1e883ecdc9af9466804b1",
+      "bytes": 3165,
+      "lines": 37
+    },
+    {
+      "id": "O1",
+      "name": "翼",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O1_翼.md",
+      "sha256": "e434e8a0f05c99e315188a1a5b1c78f00847db698e6fcc74ee655227748a3648",
+      "bytes": 3586,
+      "lines": 40
+    },
+    {
+      "id": "O20",
+      "name": "君子协定",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O20_君子协定.md",
+      "sha256": "6a7afb97f6256ba7a624090fc7717230ed54b14b650dc68c50892bc8cb331491",
+      "bytes": 3161,
+      "lines": 37
+    },
+    {
+      "id": "O21",
+      "name": "王子复仇记",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O21_王子复仇记.md",
+      "sha256": "ea94953fd3999b146d2f59576d4647d921b19cb57000a2cadb52dc0131e5debc",
+      "bytes": 3148,
+      "lines": 37
+    },
+    {
+      "id": "O22",
+      "name": "国王班底",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O22_国王班底.md",
+      "sha256": "bc1da082674c25b3b4e55f9d48126cf3ebb2488467da3ad72d70b7cdcedb9285",
+      "bytes": 3262,
+      "lines": 37
+    },
+    {
+      "id": "O23",
+      "name": "彗星美人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O23_彗星美人.md",
+      "sha256": "b6bb4f9d6e6af9cd7505737f64f5829cd99cc6455a1c93d3a892d36e087df353",
+      "bytes": 3068,
+      "lines": 37
+    },
+    {
+      "id": "O24",
+      "name": "一个美国人在巴黎",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O24_一个美国人在巴黎.md",
+      "sha256": "f7fc49a3ab2f0abb09c9f7c112154fc490416c78ff31887d02051f722262520f",
+      "bytes": 3270,
+      "lines": 37
+    },
+    {
+      "id": "O25",
+      "name": "戏王之王",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O25_戏王之王.md",
+      "sha256": "cfd4b1c83aabb53e5e1eba769d0496ce4d3a03e1f48bce5981567dd04dd43b04",
+      "bytes": 3338,
+      "lines": 37
+    },
+    {
+      "id": "O26",
+      "name": "乱世忠魂",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O26_乱世忠魂.md",
+      "sha256": "f2097d1ca6ec324a333621c59987c2d6a3afc1f47f66268de5d5e4e414336bff",
+      "bytes": 3054,
+      "lines": 37
+    },
+    {
+      "id": "O27",
+      "name": "码头风云",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O27_码头风云.md",
+      "sha256": "5d91d29f577ec03ef746c55a6ed7b2825c4e1eb8afcc7c90586e018ff73cae37",
+      "bytes": 3270,
+      "lines": 37
+    },
+    {
+      "id": "O28",
+      "name": "君子好逑",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O28_君子好逑.md",
+      "sha256": "3f3c2342d466f3f0a0a0e655affecd90c5bfcfd1a86164232e1c38fa361a38a2",
+      "bytes": 3162,
+      "lines": 37
+    },
+    {
+      "id": "O29",
+      "name": "环游地球八十天",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O29_环游地球八十天.md",
+      "sha256": "6160a6c3c0a1e4e873653238cd0e546d62deee4e50fb19286f14c201aa463353",
+      "bytes": 3266,
+      "lines": 37
+    },
+    {
+      "id": "O2",
+      "name": "百老汇旋律",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O2_百老汇旋律.md",
+      "sha256": "0c13178334ac8a75f6913eeaf240502459834bb57a92083c1d25e542d2cc47b5",
+      "bytes": 3449,
+      "lines": 39
+    },
+    {
+      "id": "O30",
+      "name": "桂河大桥",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O30_桂河大桥.md",
+      "sha256": "b25d4c3ebd9864c3f9f8454f614a3970c9383e211e26a2bad97ac48e843c43bd",
+      "bytes": 3142,
+      "lines": 37
+    },
+    {
+      "id": "O31",
+      "name": "金粉世界",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O31_金粉世界.md",
+      "sha256": "69caeacaf1d1d159de87f175c40d1e34141acc958420c89125ae58132528170f",
+      "bytes": 3246,
+      "lines": 37
+    },
+    {
+      "id": "O32",
+      "name": "宾虚",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O32_宾虚.md",
+      "sha256": "e62e566ceff1333f3ea14286c3e991640f400fc6b0d143b3489e526b046fa578",
+      "bytes": 3599,
+      "lines": 40
+    },
+    {
+      "id": "O33",
+      "name": "桃色公寓",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O33_桃色公寓.md",
+      "sha256": "0f18686c2e3137441c2ec99277f89f496f054672f8cffa4419c93c9d40e4e34d",
+      "bytes": 3013,
+      "lines": 36
+    },
+    {
+      "id": "O34",
+      "name": "西区故事",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O34_西区故事.md",
+      "sha256": "f6da0f4bbe081843c9b84b075d29d52e6ddf1413331eb73f7fea0581276be8a8",
+      "bytes": 3279,
+      "lines": 38
+    },
+    {
+      "id": "O35",
+      "name": "阿拉伯的劳伦斯",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O35_阿拉伯的劳伦斯.md",
+      "sha256": "02c9c9588e90d90665bfa8261873eb1cb314bdcdcf0c72a420e93296335cf11a",
+      "bytes": 3150,
+      "lines": 37
+    },
+    {
+      "id": "O36",
+      "name": "汤姆·琼斯",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O36_汤姆·琼斯.md",
+      "sha256": "d738122cfe427f70e7f0210bcf1aa4e29a9838a84c3f75618f368d220f7b1832",
+      "bytes": 3209,
+      "lines": 36
+    },
+    {
+      "id": "O37",
+      "name": "窈窕淑女",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O37_窈窕淑女.md",
+      "sha256": "151789dd8045ae6bf18c5a336bae7d44f39a81c875c2ca9f7e30ed155355e31c",
+      "bytes": 3146,
+      "lines": 37
+    },
+    {
+      "id": "O38",
+      "name": "音乐之声",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O38_音乐之声.md",
+      "sha256": "5c68ad07311df87308a2fa92915a82d6cd91fd1b28975bf519b8394ad5c7d50a",
+      "bytes": 3210,
+      "lines": 37
+    },
+    {
+      "id": "O39",
+      "name": "日月精忠",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O39_日月精忠.md",
+      "sha256": "1bc393ab149377ce0d59cd8298827428da707492c8d7e54215781ab63b78397a",
+      "bytes": 3195,
+      "lines": 36
+    },
+    {
+      "id": "O3",
+      "name": "西线无战事",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O3_西线无战事.md",
+      "sha256": "c0e1369d4f91f6ce17ba58cfffaf5600fdb8a6700ce00f829c57b3738c046ffc",
+      "bytes": 3284,
+      "lines": 39
+    },
+    {
+      "id": "O40",
+      "name": "炎热的夜晚",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O40_炎热的夜晚.md",
+      "sha256": "ca571f69e2436505585726a1893acc9350f322dafb0aef5a4a14ad88f5c9a61e",
+      "bytes": 3189,
+      "lines": 37
+    },
+    {
+      "id": "O41",
+      "name": "雾都孤儿",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O41_雾都孤儿.md",
+      "sha256": "d018b805663f879b5f74e85f77cecc4800597dee4d1194b5133642e8c2fa847a",
+      "bytes": 3283,
+      "lines": 37
+    },
+    {
+      "id": "O42",
+      "name": "午夜牛郎",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O42_午夜牛郎.md",
+      "sha256": "b4685c686883109af39e092490add7a271e899f798583bd6eee2d4475324c315",
+      "bytes": 3355,
+      "lines": 37
+    },
+    {
+      "id": "O43",
+      "name": "巴顿将军",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O43_巴顿将军.md",
+      "sha256": "3f66dabcd2c7f6db115ded70aed2101a64fb9938d6583ebe47738c0df7a13dce",
+      "bytes": 3232,
+      "lines": 37
+    },
+    {
+      "id": "O44",
+      "name": "法国贩毒网",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O44_法国贩毒网.md",
+      "sha256": "34dbe49c1bec37945d0f852e5c0b8e9dfb0ca5fcafd4b75ba4f3ac58a954a6fe",
+      "bytes": 3253,
+      "lines": 37
+    },
+    {
+      "id": "O45",
+      "name": "教父",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O45_教父.md",
+      "sha256": "009b8be63fc4d7bcf7a947d87231a086973d703edb132b11bca0a55d10de6648",
+      "bytes": 3228,
+      "lines": 38
+    },
+    {
+      "id": "O46",
+      "name": "骗中骗",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O46_骗中骗.md",
+      "sha256": "1ad7ba50d92ad4804e6dd4ec60d39815e0fcb4e3b71abd1c5ddf8502ddad5091",
+      "bytes": 2986,
+      "lines": 35
+    },
+    {
+      "id": "O47",
+      "name": "教父2",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O47_教父2.md",
+      "sha256": "dc9736eebc90cc57d4bc21c4fed5b1915b002658a0a3c37526ceed53714155d9",
+      "bytes": 3260,
+      "lines": 37
+    },
+    {
+      "id": "O48",
+      "name": "飞越疯人院",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O48_飞越疯人院.md",
+      "sha256": "b5b5f8ad558e30b27462ee400ca29fec7b3fc74fdc767b54a95f59901bd761a7",
+      "bytes": 3104,
+      "lines": 35
+    },
+    {
+      "id": "O49",
+      "name": "洛奇",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O49_洛奇.md",
+      "sha256": "f32e886b0e19b257ba42bb204c0fdc53071b0bbbf888df596e1f766212105f56",
+      "bytes": 3299,
+      "lines": 39
+    },
+    {
+      "id": "O4",
+      "name": "壮志千秋",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O4_壮志千秋.md",
+      "sha256": "5675387637d0279a199631a90539b59e82ac5c7b4e26ce24fbc9de833c4dfd39",
+      "bytes": 3041,
+      "lines": 36
+    },
+    {
+      "id": "O50",
+      "name": "安妮·霍尔",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O50_安妮·霍尔.md",
+      "sha256": "c4b374a9d9ccedc3b223583e23f36b85279fe5c9c830951deaedc2331ab52c2f",
+      "bytes": 3284,
+      "lines": 37
+    },
+    {
+      "id": "O51",
+      "name": "猎鹿人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O51_猎鹿人.md",
+      "sha256": "36e9b345a870e2716c28aacaa58309d765858d904d8f9492473518aa24becbc7",
+      "bytes": 3194,
+      "lines": 38
+    },
+    {
+      "id": "O52",
+      "name": "克莱默夫妇",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O52_克莱默夫妇.md",
+      "sha256": "63b509069b9abe01039cb657ed2f61436aa378d7bbab5bbaddba1bc2e947062f",
+      "bytes": 3252,
+      "lines": 37
+    },
+    {
+      "id": "O53",
+      "name": "普通人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O53_普通人.md",
+      "sha256": "1009e97f56fd33fe96e9d0ebf9e7898f02bbf3b309587f00e95dd89dc469a486",
+      "bytes": 3297,
+      "lines": 37
+    },
+    {
+      "id": "O54",
+      "name": "烈火战车",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O54_烈火战车.md",
+      "sha256": "54c9a1b3df696b4d6d87b6593b20391cda234f0b2e1ab099a6ba5adb2fbc05d7",
+      "bytes": 3297,
+      "lines": 38
+    },
+    {
+      "id": "O55",
+      "name": "甘地传",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O55_甘地传.md",
+      "sha256": "3df780efe944dc038eef8b473d059f394796453d5708fb8e8ff7764d32c8464a",
+      "bytes": 3122,
+      "lines": 37
+    },
+    {
+      "id": "O56",
+      "name": "母女情深",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O56_母女情深.md",
+      "sha256": "4ecd0aec3e9aac34aff4c43390b48d8b6899f097a57148603578d8444bf19ba4",
+      "bytes": 3263,
+      "lines": 37
+    },
+    {
+      "id": "O57",
+      "name": "莫扎特传",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O57_莫扎特传.md",
+      "sha256": "d5813d26617a0d006e03fda97c6b6db1aa58a620ec47ee1830070167f714e9b4",
+      "bytes": 3181,
+      "lines": 36
+    },
+    {
+      "id": "O58",
+      "name": "走出非洲",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O58_走出非洲.md",
+      "sha256": "1d78d9a33862605fca9f149ad6338f513c5fd31988720e6973cf53a0e25cc27a",
+      "bytes": 3277,
+      "lines": 37
+    },
+    {
+      "id": "O59",
+      "name": "野战排",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O59_野战排.md",
+      "sha256": "57152910d9cc015a0d155f6ccae0618824aa90e581a35d524693e8cf23e36d05",
+      "bytes": 3233,
+      "lines": 37
+    },
+    {
+      "id": "O5",
+      "name": "大饭店",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O5_大饭店.md",
+      "sha256": "821ea58d0ad46f0408b8fb62e5d61fedda1cfd8d62d7b248ba777d117b89e037",
+      "bytes": 3081,
+      "lines": 36
+    },
+    {
+      "id": "O60",
+      "name": "末代皇帝",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O60_末代皇帝.md",
+      "sha256": "3d139ad32234b006df3984fc87af0eef69b53c49b620d0e233bc6c64915e2b62",
+      "bytes": 3243,
+      "lines": 37
+    },
+    {
+      "id": "O61",
+      "name": "雨人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O61_雨人.md",
+      "sha256": "31595b555965300664333df821b0450b50ff45a2b6da72b325f985b59e65a16e",
+      "bytes": 3322,
+      "lines": 37
+    },
+    {
+      "id": "O62",
+      "name": "为黛西小姐开车",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O62_为黛西小姐开车.md",
+      "sha256": "469befb299dca845b589b36e62c432c1016f9a5674aeee36a5ea99396125993b",
+      "bytes": 3453,
+      "lines": 37
+    },
+    {
+      "id": "O63",
+      "name": "与狼共舞",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O63_与狼共舞.md",
+      "sha256": "a9ad027c6b13ce25a58b8b9f23d09fddb8b4ef067f8677bcba7e2e8a5c44e4fe",
+      "bytes": 3120,
+      "lines": 36
+    },
+    {
+      "id": "O64",
+      "name": "沉默的羔羊",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O64_沉默的羔羊.md",
+      "sha256": "94ae3b3eae0eb29a8342be067c1a9041c0c586f9ca5144f20891e24216ec9e6b",
+      "bytes": 3304,
+      "lines": 36
+    },
+    {
+      "id": "O65",
+      "name": "不可饶恕",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O65_不可饶恕.md",
+      "sha256": "f769176e181ab1fa1ad8e46be4edd57ecd39e90eb05372fb7f03dd981672d9c4",
+      "bytes": 3162,
+      "lines": 36
+    },
+    {
+      "id": "O66",
+      "name": "辛德勒的名单",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O66_辛德勒的名单.md",
+      "sha256": "b6bda79b3464ee55a5f467316df535202900e69d2435f6ddaa499fb7bb610e65",
+      "bytes": 3342,
+      "lines": 38
+    },
+    {
+      "id": "O67",
+      "name": "阿甘正传",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O67_阿甘正传.md",
+      "sha256": "d841ae9d931c929a3874d206dc418ba6cc10eeaa7f03377b210ce2b5954b64b8",
+      "bytes": 3114,
+      "lines": 35
+    },
+    {
+      "id": "O68",
+      "name": "勇敢的心",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O68_勇敢的心.md",
+      "sha256": "07777ce5a23db00846bf2968dcfbb9e2f629ba1885a7daa709c1f4166b5b92d4",
+      "bytes": 3313,
+      "lines": 38
+    },
+    {
+      "id": "O69",
+      "name": "英国病人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O69_英国病人.md",
+      "sha256": "9321575cd974451955e8eb6047d1eafbb47748f5212c8aefbbd76f875e375833",
+      "bytes": 3250,
+      "lines": 37
+    },
+    {
+      "id": "O6",
+      "name": "乱世春秋",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O6_乱世春秋.md",
+      "sha256": "38113c65af2080c555d84f18b62e2faa96dafe943c0385bda83b356a4f540ad7",
+      "bytes": 3197,
+      "lines": 37
+    },
+    {
+      "id": "O70",
+      "name": "泰坦尼克号",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O70_泰坦尼克号.md",
+      "sha256": "cb4fa36d9037599d59c2b5edd3cf87956155ba6bfb1c01bd69c6d160b4c9fbf2",
+      "bytes": 3202,
+      "lines": 35
+    },
+    {
+      "id": "O71",
+      "name": "莎翁情史",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O71_莎翁情史.md",
+      "sha256": "916ee4c71792cf79aca251a109f06b4e418d3cc606a241ae1dc0928293963153",
+      "bytes": 3429,
+      "lines": 38
+    },
+    {
+      "id": "O72",
+      "name": "美国丽人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O72_美国丽人.md",
+      "sha256": "65178e91b502d888b299506e48ca71cf789f30f6d36b258a2007b25b2e817aff",
+      "bytes": 3219,
+      "lines": 36
+    },
+    {
+      "id": "O73",
+      "name": "角斗士",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O73_角斗士.md",
+      "sha256": "57c52480f808a9917cded741e435220f3bb8493fb7d7fddc6bd5255de7fb87b3",
+      "bytes": 3182,
+      "lines": 37
+    },
+    {
+      "id": "O74",
+      "name": "美丽心灵",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O74_美丽心灵.md",
+      "sha256": "42dcd785559cec5d4672d4ffe8e994257d2e7a8b1440422f87fb0866e61048a1",
+      "bytes": 3191,
+      "lines": 37
+    },
+    {
+      "id": "O75",
+      "name": "芝加哥",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O75_芝加哥.md",
+      "sha256": "447a47d70c3e9c9c199f159252add230b8a0834712684e969ea1b82251381bb3",
+      "bytes": 3099,
+      "lines": 37
+    },
+    {
+      "id": "O76",
+      "name": "指环王：王者无敌",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O76_指环王：王者无敌.md",
+      "sha256": "5242676c0cf382744d3e5b079af048a2172be239e64d12a2b3f7bee5b3935055",
+      "bytes": 3485,
+      "lines": 38
+    },
+    {
+      "id": "O77",
+      "name": "百万美元宝贝",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O77_百万美元宝贝.md",
+      "sha256": "78498c3202ca01d6ab686d2a1c601d017b47d61dde103611f3286a9501440567",
+      "bytes": 2971,
+      "lines": 35
+    },
+    {
+      "id": "O78",
+      "name": "撞车",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O78_撞车.md",
+      "sha256": "84983ee7ab895a0e143072575d8cc1fadcb45f3887702a29cbac5061f18ba232",
+      "bytes": 3084,
+      "lines": 35
+    },
+    {
+      "id": "O79",
+      "name": "无间行者",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O79_无间行者.md",
+      "sha256": "711e5dba3d8a305c146a46067419b3ebca432f18febc9a46b23792a49379f485",
+      "bytes": 3267,
+      "lines": 38
+    },
+    {
+      "id": "O7",
+      "name": "一夜风流",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O7_一夜风流.md",
+      "sha256": "a6baf183539e15415cc7be1f81e338b28c2f922a9dc7945a66aa63cb6233422d",
+      "bytes": 3278,
+      "lines": 37
+    },
+    {
+      "id": "O80",
+      "name": "老无所依",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O80_老无所依.md",
+      "sha256": "b5927157dac924bd3fffd617cda661f981c496e1c7a628c4340febc74218ed6a",
+      "bytes": 3202,
+      "lines": 37
+    },
+    {
+      "id": "O81",
+      "name": "贫民窟的百万富翁",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O81_贫民窟的百万富翁.md",
+      "sha256": "9aea7142f880e03cfbe226aa90b8d9014e035ae696e447210feef62cee8ce37c",
+      "bytes": 3291,
+      "lines": 37
+    },
+    {
+      "id": "O82",
+      "name": "拆弹部队",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O82_拆弹部队.md",
+      "sha256": "ff1c332e3fd26acaae24739bd34bc651ec9acd2cb984b34898a4aedbf6d6eb08",
+      "bytes": 3340,
+      "lines": 38
+    },
+    {
+      "id": "O83",
+      "name": "国王的演讲",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O83_国王的演讲.md",
+      "sha256": "97c12c903fcebb3051ae8b56a3223f77ccf3b4fc55ad91c5cc28a7a9a17cf6c7",
+      "bytes": 3275,
+      "lines": 37
+    },
+    {
+      "id": "O84",
+      "name": "艺术家",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O84_艺术家.md",
+      "sha256": "d28c386ce50369f9a8eb63e6b4660e0d1ea458edfebaf8ac88b6e4d785f5c324",
+      "bytes": 3373,
+      "lines": 39
+    },
+    {
+      "id": "O85",
+      "name": "逃离德黑兰",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O85_逃离德黑兰.md",
+      "sha256": "94485321f72950840bc753379094775b63259b4eb69c9979971e3b4661b31fe8",
+      "bytes": 2726,
+      "lines": 37
+    },
+    {
+      "id": "O86",
+      "name": "为奴十二年",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O86_为奴十二年.md",
+      "sha256": "6d92bc3904cf16462d5778c30a6b1179313ef3ab4ffba227700c103da8034aaf",
+      "bytes": 2841,
+      "lines": 35
+    },
+    {
+      "id": "O87",
+      "name": "鸟人",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O87_鸟人.md",
+      "sha256": "1e94cebb399e5fe738f7f8a0aaa61810e6ec9fc09e9b4a24811d1ccdad33a5ee",
+      "bytes": 3319,
+      "lines": 37
+    },
+    {
+      "id": "O88",
+      "name": "聚焦",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O88_聚焦.md",
+      "sha256": "fee3d678d50ffd73d4587fa1bf8320f134966681720227b0c7a92bde5693790d",
+      "bytes": 3164,
+      "lines": 37
+    },
+    {
+      "id": "O89",
+      "name": "月光男孩",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O89_月光男孩.md",
+      "sha256": "376af0b50c2833ce6027521dcdebe3a3ebe58696a04b7fcaf1894925e4d41992",
+      "bytes": 3170,
+      "lines": 37
+    },
+    {
+      "id": "O8",
+      "name": "叛舰喋血记",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O8_叛舰喋血记.md",
+      "sha256": "eb788ab3db8048778f209b3071a11fd8085a2cecab62f25837910611594a4fe2",
+      "bytes": 2987,
+      "lines": 35
+    },
+    {
+      "id": "O90",
+      "name": "水形物语",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O90_水形物语.md",
+      "sha256": "79cd19af831410146af6ac63884e959c1b9ff49a4abafa22f8ad78c82d547e48",
+      "bytes": 3296,
+      "lines": 38
+    },
+    {
+      "id": "O91",
+      "name": "绿皮书",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O91_绿皮书.md",
+      "sha256": "fe47f46f4880cc208747e3995df3f9abc7d77ea373f7e403750e07c7424cfaf4",
+      "bytes": 3130,
+      "lines": 36
+    },
+    {
+      "id": "O92",
+      "name": "寄生虫",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O92_寄生虫.md",
+      "sha256": "3c617f45e7412019027b1191cc1307eb8c60dae19e79cf06a17e4ba8d020aac5",
+      "bytes": 3370,
+      "lines": 37
+    },
+    {
+      "id": "O93",
+      "name": "无依之地",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O93_无依之地.md",
+      "sha256": "c857e5c42291cd782a6aac910e1e5e2ddecb38e07f68d6c1436bdf189c3309c1",
+      "bytes": 2868,
+      "lines": 35
+    },
+    {
+      "id": "O94",
+      "name": "健听女孩",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O94_健听女孩.md",
+      "sha256": "f54cb189f0518bae123a0349a2a69e1217f2114007c1e68e5eb9dd8565c8e643",
+      "bytes": 3025,
+      "lines": 36
+    },
+    {
+      "id": "O95",
+      "name": "瞬息全宇宙",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O95_瞬息全宇宙.md",
+      "sha256": "591a5b348a555d7caa3bc3abdd963e25f8adbef925181de765bf521dec669200",
+      "bytes": 4086,
+      "lines": 43
+    },
+    {
+      "id": "O96",
+      "name": "奥本海默",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O96_奥本海默.md",
+      "sha256": "a3dd2b56005d0c849e08e9d00d373e725e5e2f362811a990a2fd2c67791a021f",
+      "bytes": 3459,
+      "lines": 39
+    },
+    {
+      "id": "O97",
+      "name": "阿诺拉",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O97_阿诺拉.md",
+      "sha256": "72ea82970ec66c5518efc84aa044a4da5db3067a9cc9907924a2e2e5cae69fda",
+      "bytes": 3299,
+      "lines": 38
+    },
+    {
+      "id": "O98",
+      "name": "一战再战",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O98_一战再战.md",
+      "sha256": "10a3a4b308b4d170991825eb6a963f16e3f6a89a540b55fcff609a684adc2767",
+      "bytes": 3552,
+      "lines": 39
+    },
+    {
+      "id": "O9",
+      "name": "歌舞大王齐格飞",
+      "kind": "prompt",
+      "path": "风格提示词/O_奥斯卡98部/O9_歌舞大王齐格飞.md",
+      "sha256": "d8145f5dd6edd407734ec3a5c6a901963a524c049743947e2cd44c1b0336dd88",
+      "bytes": 3176,
+      "lines": 37
+    },
+    {
+      "id": "R1",
+      "name": "霓虹雨夜 · 电影感",
+      "kind": "prompt",
+      "path": "风格提示词/R_照参考学来的/R1_霓虹雨夜 · 电影感.md",
+      "sha256": "9a92da20ab1723907c5f067e64e8895a59ce28874de8fbe0ba0cad4c6746920f",
+      "bytes": 795,
+      "lines": 22
+    },
+    {
+      "id": "R2",
+      "name": "80–90 年代复古日漫",
+      "kind": "prompt",
+      "path": "风格提示词/R_照参考学来的/R2_80–90 年代复古日漫.md",
+      "sha256": "bd3ac119f2b9527ecfa8f5347cf3cfb991dd8c3083e6c05f850ec71ae6c90c2d",
+      "bytes": 765,
+      "lines": 22
+    },
+    {
+      "id": "R3",
+      "name": "美式漫画 · 潮流涂鸦",
+      "kind": "prompt",
+      "path": "风格提示词/R_照参考学来的/R3_美式漫画 · 潮流涂鸦.md",
+      "sha256": "289c281bae051abedac0407b67180eec6176cfb9cf52e7815b734e9f1d263147",
+      "bytes": 747,
+      "lines": 22
+    },
+    {
+      "id": "R4",
+      "name": "末日工业 · 暗黑科幻",
+      "kind": "prompt",
+      "path": "风格提示词/R_照参考学来的/R4_末日工业 · 暗黑科幻.md",
+      "sha256": "15731a86734f81a0088c48dc6d762fe476c159a13bb7527f088841c9913a8317",
+      "bytes": 744,
+      "lines": 22
+    },
+    {
+      "id": "R5",
+      "name": "像素赛博 · 复古游戏",
+      "kind": "prompt",
+      "path": "风格提示词/R_照参考学来的/R5_像素赛博 · 复古游戏.md",
+      "sha256": "1b80c44b18bb91b538721402eb683e4b63d4be12bd8b6965372b7d29003ae7f5",
+      "bytes": 801,
+      "lines": 22
+    },
+    {
+      "id": "R6",
+      "name": "东方赛博 · 国风幻想",
+      "kind": "prompt",
+      "path": "风格提示词/R_照参考学来的/R6_东方赛博 · 国风幻想.md",
+      "sha256": "b40f56414b17854d7c69099d16c3e15c2cc733b8eaa5cbf4b35ea17089896d79",
+      "bytes": 1176,
+      "lines": 22
+    },
+    {
+      "id": "R7",
+      "name": "扁平插画 · 黄昏屋顶",
+      "kind": "prompt",
+      "path": "风格提示词/R_照参考学来的/R7_扁平插画 · 黄昏屋顶.md",
+      "sha256": "7bbbb1b65571f8ff16e3984eb18151c546a56119333e54e9e4b81e3b5e6d7fd4",
+      "bytes": 705,
+      "lines": 22
+    },
+    {
+      "id": "V10",
+      "name": "极光与毛玻璃",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V10_极光与毛玻璃.md",
+      "sha256": "cf10181147c72ed9c295ea76e553c619236b9bdeb03e64bb6c4480401580d636",
+      "bytes": 7988,
+      "lines": 103
+    },
+    {
+      "id": "V11",
+      "name": "包豪斯几何",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V11_包豪斯几何.md",
+      "sha256": "5c30fde570fc8bc7bb865b9b0702c41098c9bb071cc70af70a2d5c8a549f25f8",
+      "bytes": 8099,
+      "lines": 103
+    },
+    {
+      "id": "V12",
+      "name": "80 年代合成波 · VHS",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V12_80 年代合成波 · VHS.md",
+      "sha256": "97124d445c3e5879c7b50c9bf874b122f8d4d04cec8fde24b49a67bd9832ba61",
+      "bytes": 8089,
+      "lines": 102
+    },
+    {
+      "id": "V13",
+      "name": "像素",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V13_像素.md",
+      "sha256": "3eed82912a91ffca3b453510be2cf69c8ffcf46c9f34944470eee286cc3eeea0",
+      "bytes": 7723,
+      "lines": 103
+    },
+    {
+      "id": "V14",
+      "name": "液态流动",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V14_液态流动.md",
+      "sha256": "92ed318f86c35c7c3d8304e8ddbab415dc4ac07164e97676f2440ed8039cf7c8",
+      "bytes": 7759,
+      "lines": 105
+    },
+    {
+      "id": "V15",
+      "name": "综艺花字",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V15_综艺花字.md",
+      "sha256": "ad55084d2ff0fed0f6bdb44d7ee032c3b851613e7a3775d8100bd93379d7c868",
+      "bytes": 8096,
+      "lines": 102
+    },
+    {
+      "id": "V1",
+      "name": "逐帧手绘 · 抖动线条",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V1_逐帧手绘 · 抖动线条.md",
+      "sha256": "ec812502f6e2bfd00ab14b213c22ec71888e5150f4984b50af32b2f3f6f72dbc",
+      "bytes": 7950,
+      "lines": 102
+    },
+    {
+      "id": "V2",
+      "name": "等距 2.5D",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V2_等距 2.5D.md",
+      "sha256": "f754e945057e10ef22714efe3f0449813ebd0cc8476d0eac95301bdd699a560d",
+      "bytes": 8112,
+      "lines": 104
+    },
+    {
+      "id": "V3",
+      "name": "扁平矢量",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V3_扁平矢量.md",
+      "sha256": "a6008465517479a63e70d40c34114c4fe014516d1ce741b0859f802e007de7bf",
+      "bytes": 8378,
+      "lines": 105
+    },
+    {
+      "id": "V4",
+      "name": "线条画",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V4_线条画.md",
+      "sha256": "b349f0d72ffe66b665cf3dff3c8a2f13c896c87cbf740fe9a28c5df3cdb66e41",
+      "bytes": 7889,
+      "lines": 102
+    },
+    {
+      "id": "V5",
+      "name": "3D 渲染",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V5_3D 渲染.md",
+      "sha256": "14bf0bb01d8bdf118f73de81116454f0c7c22a380c736ff7cde6acaeb3fdac40",
+      "bytes": 8012,
+      "lines": 103
+    },
+    {
+      "id": "V6",
+      "name": "形变",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V6_形变.md",
+      "sha256": "c63e68216cbc41b97116e9db9509dcef3909b378704e7c229614996194d35b94",
+      "bytes": 7690,
+      "lines": 102
+    },
+    {
+      "id": "V7",
+      "name": "贴纸讲解",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V7_贴纸讲解.md",
+      "sha256": "31918e3ff5abd2418fd07360f4e097ffa37caacd094d94a0052f8a1f512a0297",
+      "bytes": 8148,
+      "lines": 103
+    },
+    {
+      "id": "V8",
+      "name": "赛博朋克界面",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V8_赛博朋克界面.md",
+      "sha256": "a35d165df668938054c7a5b8a1010675d6e7d7f3a504d3897cf1d0ef02588486",
+      "bytes": 7893,
+      "lines": 102
+    },
+    {
+      "id": "V9",
+      "name": "拼贴 · 剪贴",
+      "kind": "prompt",
+      "path": "风格提示词/V_mg-styles-15/V9_拼贴 · 剪贴.md",
+      "sha256": "4d8eb2621faa8e6a03f4dc0b886689b4b7bef801387e84bffda4678ffbf94100",
+      "bytes": 7875,
+      "lines": 102
+    },
+    {
+      "id": "X10",
+      "name": "粒子",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X10_粒子.md",
+      "sha256": "7c39219706c220eebfaf9b2894c23d21515b8cabeb0148f9986af5896d651578",
+      "bytes": 1075,
+      "lines": 28
+    },
+    {
+      "id": "X11",
+      "name": "翻牌显示板",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X11_翻牌显示板.md",
+      "sha256": "c32305d36758208b253741c3fa238ba2ee2dbbd0cde654bf7665b417223ccf93",
+      "bytes": 1152,
+      "lines": 25
+    },
+    {
+      "id": "X12",
+      "name": "霓虹灯牌",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X12_霓虹灯牌.md",
+      "sha256": "31a85aba48f0fd5fbc6814256f27690b5c1b60bdcf1019df573027d2b94ce4d6",
+      "bytes": 1020,
+      "lines": 25
+    },
+    {
+      "id": "X13",
+      "name": "16-bit 街机",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X13_16-bit 街机.md",
+      "sha256": "3bb88ce21fc3743a74afdb71e7686c793a9f3396ebc76c517019e0df47bf27a2",
+      "bytes": 1072,
+      "lines": 21
+    },
+    {
+      "id": "X14",
+      "name": "CRT 终端",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X14_CRT 终端.md",
+      "sha256": "7ac205769f15f0cff2e14abef887d432c9cc183639e301fb67e6d6e20aed386d",
+      "bytes": 1066,
+      "lines": 21
+    },
+    {
+      "id": "X15",
+      "name": "热敏小票",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X15_热敏小票.md",
+      "sha256": "2fe02d460698b921afb0d79592bc3c3b9351f2e875888a31eaa23cbad50aa187",
+      "bytes": 1013,
+      "lines": 22
+    },
+    {
+      "id": "X16",
+      "name": "地铁线路图",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X16_地铁线路图.md",
+      "sha256": "b4d81b9abdac7c4e99c27ef6608e5dd6ae8e5296dd03bac6a1c3eaaf506643f0",
+      "bytes": 1047,
+      "lines": 22
+    },
+    {
+      "id": "X17",
+      "name": "蓝图",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X17_蓝图.md",
+      "sha256": "f651c31fd400e9a2fcb9b6c074636c43b77a86ef40f362c82bbbeba03fca850b",
+      "bytes": 981,
+      "lines": 22
+    },
+    {
+      "id": "X18",
+      "name": "漫画书",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X18_漫画书.md",
+      "sha256": "5f1cdbe9829f5a7419955f8fa88bc3042d26eab91d3df332531a3ec5ea4b5de2",
+      "bytes": 4708,
+      "lines": 25
+    },
+    {
+      "id": "X19",
+      "name": "纪录片",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X19_纪录片.md",
+      "sha256": "01bbb96ad03d23da87f1b1cf94fd577806ede74b01b016b461e36ecd9cc1f04e",
+      "bytes": 5821,
+      "lines": 25
+    },
+    {
+      "id": "X1",
+      "name": "手绘",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X1_手绘.md",
+      "sha256": "81b5bacea246c8e0a23cfd5c2b842bcaf2b5143be8167633f870b11d61d97b3f",
+      "bytes": 1970,
+      "lines": 29
+    },
+    {
+      "id": "X20",
+      "name": "博物馆展览",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X20_博物馆展览.md",
+      "sha256": "000a2ee86af152142762d92b891922bd7fec2c1d1e4daa0ef86b7bd3fe26976b",
+      "bytes": 5276,
+      "lines": 26
+    },
+    {
+      "id": "X21",
+      "name": "突发新闻",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X21_突发新闻.md",
+      "sha256": "0ee68f6c4ec6b7339991d245db5f2049483af0cfbb1801f483da9f86ba3d7982",
+      "bytes": 5374,
+      "lines": 25
+    },
+    {
+      "id": "X22",
+      "name": "侦探线索板",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X22_侦探线索板.md",
+      "sha256": "89b54fd640e365c2460b294d9da849d6929fc4084392975edab6cedb6c472175",
+      "bytes": 4820,
+      "lines": 25
+    },
+    {
+      "id": "X23",
+      "name": "绘本",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X23_绘本.md",
+      "sha256": "4ab61462043ed5f0996f1da181506a5cfe98b51a346f35e98ee2c73b363c9dd7",
+      "bytes": 5160,
+      "lines": 25
+    },
+    {
+      "id": "X24",
+      "name": "RPG 任务",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X24_RPG 任务.md",
+      "sha256": "550d62f2d20108005683e481e37b270c28c5cd9835300db0d3cb97c2e9a4ca74",
+      "bytes": 4613,
+      "lines": 25
+    },
+    {
+      "id": "X25",
+      "name": "天气预报",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X25_天气预报.md",
+      "sha256": "f3ccf054bb27ed1c4483f20b3bd47a034c1691b263b3f4747b49ef38cb2aec96",
+      "bytes": 4371,
+      "lines": 24
+    },
+    {
+      "id": "X26",
+      "name": "电视购物",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X26_电视购物.md",
+      "sha256": "18aa5ce046d6af220e7cb59d829e9dc2f6e2db18fafa9e55dd28e42769eb2c83",
+      "bytes": 5818,
+      "lines": 25
+    },
+    {
+      "id": "X27",
+      "name": "体育直播",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X27_体育直播.md",
+      "sha256": "83db0f738b274212c37c23df1a422c8a966c632b75b1b1fb4fb51b84636ca430",
+      "bytes": 5696,
+      "lines": 30
+    },
+    {
+      "id": "X28",
+      "name": "组装说明书",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X28_组装说明书.md",
+      "sha256": "3438f084302a0a2bab9b1525248198eef5f214a9919545a656d532eb55acac29",
+      "bytes": 5062,
+      "lines": 25
+    },
+    {
+      "id": "X29",
+      "name": "白板讲课",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X29_白板讲课.md",
+      "sha256": "59799e69e0848dc7a689675a172afff55a2f1e974cfe14071308855a69c35561",
+      "bytes": 4404,
+      "lines": 25
+    },
+    {
+      "id": "X2",
+      "name": "品牌动态图形",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X2_品牌动态图形.md",
+      "sha256": "d242541e35deb31bc7cf7bf0a62116687b5ab78fb134b64cbd7e49b2a9d184d7",
+      "bytes": 2001,
+      "lines": 29
+    },
+    {
+      "id": "X30",
+      "name": "电影预告片",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X30_电影预告片.md",
+      "sha256": "dced129fc0ede1c6ae636e7d63900567060daaf0996ebbb8fa0c2257594a4cda",
+      "bytes": 5209,
+      "lines": 25
+    },
+    {
+      "id": "X31",
+      "name": "数学证明讲课",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X31_数学证明讲课.md",
+      "sha256": "42a959581c50dbf8b8af773c0c6fff749c92225af7a383b91ee21b95e667c3bf",
+      "bytes": 5068,
+      "lines": 25
+    },
+    {
+      "id": "X3",
+      "name": "沙画",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X3_沙画.md",
+      "sha256": "e9647469bf0b4a5111ff20200d20117bdcce2aa79eb21ed342997afa9715bc93",
+      "bytes": 1791,
+      "lines": 30
+    },
+    {
+      "id": "X4",
+      "name": "歌词 MV",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X4_歌词 MV.md",
+      "sha256": "4e1ff1814cafaa86e9963421e02fe704dd0dc5a950a3474ac34abdfc19b76ed8",
+      "bytes": 1966,
+      "lines": 31
+    },
+    {
+      "id": "X5",
+      "name": "卡点素材剪辑",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X5_卡点素材剪辑.md",
+      "sha256": "c628bb9e06f50472f72d94c41413b8e3203b714dddcefac3b4abad94f130faef",
+      "bytes": 2195,
+      "lines": 36
+    },
+    {
+      "id": "X6",
+      "name": "界面形变",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X6_界面形变.md",
+      "sha256": "dc16f18f27a7bf0ad3cf46d9b24de732d3b94f753335155158eea0ba4bb95d4b",
+      "bytes": 1615,
+      "lines": 26
+    },
+    {
+      "id": "X7",
+      "name": "英雄漫画",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X7_英雄漫画.md",
+      "sha256": "1382744e1e1ef2911b60b3b1278b544b0250bcd3eec7d7a6f5f9e62984ed8f1c",
+      "bytes": 1324,
+      "lines": 26
+    },
+    {
+      "id": "X8",
+      "name": "手账剪贴本",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X8_手账剪贴本.md",
+      "sha256": "5aa1fee5214590c898614d884c35989f5ba95088484e61fc31edf8d2e4f8def6",
+      "bytes": 1228,
+      "lines": 26
+    },
+    {
+      "id": "X9",
+      "name": "撕纸拼贴",
+      "kind": "prompt",
+      "path": "风格提示词/X_code-video/X9_撕纸拼贴.md",
+      "sha256": "1e4a931008ab8bdf6ddf6e3a4c9473f4d991ceb4d6b859e34a648e6604cdab50",
+      "bytes": 1762,
+      "lines": 26
+    },
+    {
+      "id": "Z10",
+      "name": "木版画",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z10_木版画.md",
+      "sha256": "221c125b8450bff173ddf42d8a5db8d729bfe1324cd18602ffda98c3f9404773",
+      "bytes": 171,
+      "lines": 8
+    },
+    {
+      "id": "Z11",
+      "name": "京剧脸谱",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z11_京剧脸谱.md",
+      "sha256": "af489a9ba872a26adaf56d6dca0af0c6288e653ee9729af63997e4778a79e92d",
+      "bytes": 190,
+      "lines": 8
+    },
+    {
+      "id": "Z12",
+      "name": "书法",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z12_书法.md",
+      "sha256": "7ed601b7cd94bd8b12dc58b9e2818cf34a6bb7a98b5fdeaac54f6bdd5d1cccec",
+      "bytes": 206,
+      "lines": 8
+    },
+    {
+      "id": "Z13",
+      "name": "水墨漫画",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z13_水墨漫画.md",
+      "sha256": "aae45700b58b6e77d2bc7d17484bff3bb44dbbd733fabe0a4ae14296d38c3295",
+      "bytes": 204,
+      "lines": 8
+    },
+    {
+      "id": "Z14",
+      "name": "彩铅手绘",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z14_彩铅手绘.md",
+      "sha256": "69dca6c7841a0c605ff424e07316a58b14efdc5daf6899806844fcec7b388cd7",
+      "bytes": 220,
+      "lines": 8
+    },
+    {
+      "id": "Z15",
+      "name": "温暖水彩科普卡",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z15_温暖水彩科普卡.md",
+      "sha256": "66b88cd9007f087d5a77365f689463d3ef452189681092983ca01004e4903f77",
+      "bytes": 325,
+      "lines": 8
+    },
+    {
+      "id": "Z1",
+      "name": "水墨",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z1_水墨.md",
+      "sha256": "c68629e044322080de60c127a780e8d8a25b6abbcd0a235345520b77459831f1",
+      "bytes": 203,
+      "lines": 8
+    },
+    {
+      "id": "Z2",
+      "name": "工笔",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z2_工笔.md",
+      "sha256": "b230995799a6728e6d7698b6a85f20ebdb024beecccd9349af7239bb972747b7",
+      "bytes": 211,
+      "lines": 8
+    },
+    {
+      "id": "Z3",
+      "name": "写意",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z3_写意.md",
+      "sha256": "483bf8ef8b2fddd169f0bdb14def8faf25f9e37945a7361b179493b3db5bfbb7",
+      "bytes": 201,
+      "lines": 8
+    },
+    {
+      "id": "Z4",
+      "name": "山水",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z4_山水.md",
+      "sha256": "015d2f1d4cd1216b248cae29dbbb755d86b82f127233b1e6a2c9d637c232633d",
+      "bytes": 217,
+      "lines": 8
+    },
+    {
+      "id": "Z5",
+      "name": "剪纸",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z5_剪纸.md",
+      "sha256": "fc73b263bac6473bc07b0da40347ac38c53dd35cbde67fa2c1c84223211a6789",
+      "bytes": 4756,
+      "lines": 76
+    },
+    {
+      "id": "Z6",
+      "name": "年画",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z6_年画.md",
+      "sha256": "39d2a4aba74bb3abf1de792661e9157f17505d8db01cdd8a5750f6b437ba8a96",
+      "bytes": 197,
+      "lines": 8
+    },
+    {
+      "id": "Z7",
+      "name": "皮影",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z7_皮影.md",
+      "sha256": "4337ed3d97133c9e5d133c3f1c16aeecb0c0472c71c4dbc70547a4ed5e36dd0d",
+      "bytes": 253,
+      "lines": 8
+    },
+    {
+      "id": "Z8",
+      "name": "敦煌",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z8_敦煌.md",
+      "sha256": "db482af36f29bbe820ac52066949a1e7804ab242a897f29b1d736da14a161eb9",
+      "bytes": 189,
+      "lines": 8
+    },
+    {
+      "id": "Z9",
+      "name": "青花",
+      "kind": "prompt",
+      "path": "风格提示词/Z_中国风/Z9_青花.md",
+      "sha256": "b12952febf66a08c0dc426097b8d312cd5e4411bc2375ee5933e1055cc919cd9",
+      "bytes": 197,
+      "lines": 8
+    },
+    {
+      "id": "B6",
+      "name": "光速穿梭·爆炸·重聚_同一份提示词",
+      "kind": "example",
+      "path": "示例/B6_光速穿梭·爆炸·重聚_同一份提示词/提示词.md",
+      "sha256": "7c4356b4a72cd16b6df892cf644929f596c199061a9b07dab3428cc7f38d00f9",
+      "bytes": 9029,
+      "lines": 95
+    },
+    {
+      "id": "X7",
+      "name": "英雄漫画_只给一句话",
+      "kind": "example",
+      "path": "示例/X7_英雄漫画_只给一句话/提示词.md",
+      "sha256": "f7f14a49374d6d1bfc16c6dd643826d47895359f196ce1c53f8e2b92a44f5662",
+      "bytes": 534,
+      "lines": 7
+    }
+  ],
+  "content_included": false,
+  "search_is_semantic_judgment": false
+}

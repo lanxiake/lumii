@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "task_id": "WALK-04-photo-music",
+  "phase": "card",
+  "actions": [
+    "read",
+    "write_plan",
+    "logic_check"
+  ],
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "music": {
+    "status": "planned",
+    "actual_sync": false,
+    "file": null
+  },
+  "scenes": [
+    {
+      "id": "S01",
+      "start": 0,
+      "end": 8,
+      "time_basis": "planned",
+      "last_text_at": 2,
+      "read_seconds": 4,
+      "meaning": "建立人物",
+      "operation": "同焦点照片"
+    },
+    {
+      "id": "S02",
+      "start": 8,
+      "end": 20,
+      "time_basis": "planned",
+      "last_text_at": 9,
+      "read_seconds": 0,
+      "meaning": "累积片刻",
+      "operation": "快段按动作识别"
+    },
+    {
+      "id": "S03",
+      "start": 20,
+      "end": 26,
+      "time_basis": "planned",
+      "last_text_at": 21,
+      "read_seconds": 4,
+      "meaning": "停下来理解",
+      "operation": "单张情绪照片停留"
+    },
+    {
+      "id": "S04",
+      "start": 26,
+      "end": 32,
+      "time_basis": "planned",
+      "last_text_at": 27,
+      "read_seconds": 4,
+      "meaning": "收束",
+      "operation": "短句静读"
+    }
+  ],
+  "events": [
+    {
+      "id": "E01",
+      "scene_id": "S01",
+      "at": 2,
+      "time_basis": "planned",
+      "role": "planned_landing"
+    },
+    {
+      "id": "E02",
+      "scene_id": "S02",
+      "at": 9,
+      "time_basis": "planned",
+      "role": "planned_landing"
+    },
+    {
+      "id": "E03",
+      "scene_id": "S03",
+      "at": 21,
+      "time_basis": "planned",
+      "role": "planned_landing"
+    },
+    {
+      "id": "E04",
+      "scene_id": "S04",
+      "at": 27,
+      "time_basis": "planned",
+      "role": "planned_landing"
+    }
+  ],
+  "evidence": {
+    "kind": "written_walkthrough_only",
+    "media_generated": false,
+    "author_accepted": false
+  }
+}

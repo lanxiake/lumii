@@ -1,0 +1,4 @@
+{
+  "root": "references/代码动画",
+  "note": "默认指向随包内置的 341 风格库（references/代码动画），开箱即用，不需要用户提供路径。解析顺序仍是 --root > 环境变量 FY_STYLE_LIBRARY_ROOT > 本文件的 root；相对路径按技能根目录解析。要换成自己整理的库，把 root 改成你的路径（或设环境变量）即可，内置库不会被删除。库不存在会报 LIBRARY_ROOT_NOT_FOUND，不会自动换成别的库。"
+}

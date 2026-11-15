@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "task_id": "WALK-01-causal",
+  "phase": "card",
+  "actions": [
+    "read",
+    "write_plan",
+    "logic_check"
+  ],
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "music": {
+    "status": "planned",
+    "actual_sync": false,
+    "file": null
+  },
+  "scenes": [
+    {
+      "id": "S01",
+      "start": 0,
+      "end": 6,
+      "time_basis": "planned",
+      "last_text_at": 1.2,
+      "read_seconds": 3.5,
+      "meaning": "旧假设",
+      "operation": "准备记录堆在门旁"
+    },
+    {
+      "id": "S02",
+      "start": 6,
+      "end": 12,
+      "time_basis": "planned",
+      "last_text_at": 7.5,
+      "read_seconds": 3,
+      "meaning": "行动产生结果",
+      "operation": "留下完成记录"
+    },
+    {
+      "id": "S03",
+      "start": 12,
+      "end": 18,
+      "time_basis": "planned",
+      "last_text_at": 13.2,
+      "read_seconds": 4,
+      "meaning": "结果支持下一次行动",
+      "operation": "记录返回支持线"
+    }
+  ],
+  "events": [
+    {
+      "id": "E01",
+      "scene_id": "S01",
+      "at": 1.2,
+      "time_basis": "planned",
+      "role": "planned_landing"
+    },
+    {
+      "id": "E02",
+      "scene_id": "S02",
+      "at": 7.5,
+      "time_basis": "planned",
+      "role": "planned_landing"
+    },
+    {
+      "id": "E03",
+      "scene_id": "S03",
+      "at": 13.2,
+      "time_basis": "planned",
+      "role": "planned_landing"
+    }
+  ],
+  "evidence": {
+    "kind": "written_walkthrough_only",
+    "media_generated": false,
+    "author_accepted": false
+  }
+}
