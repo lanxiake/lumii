@@ -19,6 +19,7 @@ import { useRotatingTip } from '../TipsBanner/useRotatingTip'
 import { WaveformVisualizer } from '../VoiceCallPanel/WaveformVisualizer'
 import { ComposerPlusMenu } from './ComposerPlusMenu'
 import { useComposerDraft } from './useComposerDraft'
+import { readInputHistory, recordInputHistory } from './input-history'
 import { openWikiLibrary } from '../../../../utils/open-wiki-library'
 import type { ViewType } from '../../../../components/Router'
 import {
@@ -440,6 +441,55 @@ const ChatInput: React.FC<ChatInputProps> = ({
    * 文本由 RichComposer 序列化好后送进来 —— 对下游而言与 textarea 的
    * `e.target.value` 没有区别，高度自适应则由 div 自己长（不再需要 field-sizing）。
    */
+  /**
+   * 历史输入的游标：-1 = 不在历史里（用户正在写草稿）。
+   * 进入历史前把当前草稿存进 draftBeforeHistoryRef，按 ↓ 回到 -1 时还原，
+   * 否则「按了一下 ↑ 就再也找不回我刚打的那半句」。
+   */
+  const historyIndexRef = useRef(-1)
+  const draftBeforeHistoryRef = useRef('')
+
+  const applyHistoryEntry = useCallback((nextIndex: number, entries: string[]) => {
+    historyIndexRef.current = nextIndex
+    const next = nextIndex < 0 ? draftBeforeHistoryRef.current : entries[nextIndex] ?? ''
+    setDraft(next)
+    flushDraft(next)
+    // 先聚焦再等 DOM 重建：RichComposer 见到编辑器已聚焦就把光标落到末尾
+    composerRef.current?.focus()
+  }, [setDraft, flushDraft])
+
+  /**
+   * 上下方向键取历史输入。
+   *
+   * 交互约束（这几点决定它用起来是否烦人）：
+   * - 只在光标处于**首行/末行**时才翻历史，多行草稿中间行仍归光标移动；
+   * - 有斜杠补全面板时不抢键（面板的 ↑↓ 导航优先）；
+   * - 往回翻到底（最新那条再按 ↓）就还原进历史前的草稿。
+   */
+  const handleHistoryKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>): boolean => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return false
+    if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return false
+    if (slashSuggestions.length > 0) return false
+    if (isComposingRef.current) return false
+
+    const caret = composerRef.current?.caretLines()
+    if (!caret) return false
+    if (e.key === 'ArrowUp' && !caret.first) return false
+    if (e.key === 'ArrowDown' && !caret.last) return false
+    // 没历史可翻时别把按键吃掉：光标行为保持原生
+    const entries = readInputHistory()
+    const index = historyIndexRef.current
+    if (e.key === 'ArrowUp') {
+      if (index >= entries.length - 1) return entries.length > 0
+      if (index === -1) draftBeforeHistoryRef.current = innerValue
+      applyHistoryEntry(index + 1, entries)
+      return true
+    }
+    if (index < 0) return false
+    applyHistoryEntry(index - 1, entries)
+    return true
+  }, [applyHistoryEntry, innerValue, slashSuggestions.length])
+
   const handleChange = (newValue: string) => {
     handleDraftChange(newValue)
     if (isComposingRef.current) return
@@ -483,6 +533,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (isComposingRef.current || e.nativeEvent.isComposing || e.key === 'Process') {
       return
     }
+    // 历史输入（上下方向键）：补全面板打开时让位给它的导航
+    if (handleHistoryKeyDown(e)) {
+      e.preventDefault()
+      return
+    }
     // 斜杠命令面板键盘导航
     if (slashSuggestions.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -514,6 +569,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
           setSlashSuggestions([])
           // 命令无参数：直接发送，绕过 React 状态批处理
           if (!selected.usage || selected.usage === selected.name) {
+            recordInputHistory(selected.name)
+            historyIndexRef.current = -1
             setDraft(selected.name)
             flushDraft(selected.name)
             if (onSendWithValue) {
@@ -561,6 +618,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
    * 用本地草稿发送。先 flush 再发，避免发送失败时父组件空草稿把输入框冲掉。
    */
   const handleSend = () => {
+    // 只有真正发出去的才算"历史输入"；草稿不记，否则历史里全是半句话
+    recordInputHistory(innerValue)
+    historyIndexRef.current = -1
+    draftBeforeHistoryRef.current = ''
     flushDraft(innerValue)
     if (onSendWithValue) {
       onSendWithValue(innerValue)

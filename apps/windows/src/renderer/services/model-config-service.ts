@@ -72,6 +72,8 @@ export interface ProviderEntryView {
   apiFormat?: 'completions' | 'responses'
   apiFormatByModel?: Record<string, 'completions' | 'responses'>
   thinkingFormat?: ThinkingFormat
+  /** 按模型声明「支持图片输入」；端点不提供能力元数据，只能用户勾选 */
+  modelVision?: Record<string, boolean>
 }
 
 /** 能力槽对某个 provider 与模型的选择 */
@@ -620,6 +622,8 @@ function chatCandidatesFromStore(store: ProviderStoreView): ModelOption[] {
         name: modelId,
         providerId: p.id,
         providerName: providerDisplayName(p),
+        // 用户勾了「支持图片」才认：端点不会告诉我们，猜错会让图片被静默丢掉
+        ...(p.modelVision?.[modelId] ? { supportsMultiModal: true } : {}),
       })
     }
   }

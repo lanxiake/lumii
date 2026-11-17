@@ -164,6 +164,51 @@ rl.on("line", (line) => {
   return stub;
 }
 
+describe("McpStdioClient 进程中途退出", () => {
+  it("在途请求必须 reject，不能静默挂起", async () => {
+    // 桩服务：tools/call 永不回应，1.2s 后自己退出（模拟 comfyui-mcp 崩掉/被重启）
+    const dir = mkdtempSync(path.join(os.tmpdir(), "lumii-mcp-die-"));
+    const stub = path.join(dir, "die.mjs");
+    writeFileSync(
+      stub,
+      `
+import { createInterface } from "node:readline";
+const rl = createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+rl.on("line", (line) => {
+  if (!line.trim()) return;
+  const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    out({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05",
+      capabilities: {}, serverInfo: { name: "die", version: "1" } } });
+  } else if (msg.method === "tools/list") {
+    out({ jsonrpc: "2.0", id: msg.id, result: { tools: [] } });
+  } else if (msg.method === "tools/call") {
+    setTimeout(() => process.exit(1), 300);
+  }
+});
+`,
+      "utf8",
+    );
+    const client = new McpStdioClient({
+      command: process.execPath,
+      args: [stub],
+      // 超时设得远大于退出时间：只有「进程退出」这一路能救回这个 Promise
+      requestTimeoutMs: 60_000,
+    });
+    try {
+      await client.start();
+      const startedAt = Date.now();
+      await expect(client.callTool("enqueue_workflow", {})).rejects.toThrow(
+        /process terminated/,
+      );
+      expect(Date.now() - startedAt).toBeLessThan(10_000);
+    } finally {
+      await client.stop().catch(() => {});
+    }
+  });
+});
+
 describe("McpStdioClient 进度通知", () => {
   it("带 onProgress ⇒ 请求带 progressToken，且 notifications/progress 触发回调", async () => {
     const client = new McpStdioClient({ command: process.execPath, args: [writeProgressStub()] });

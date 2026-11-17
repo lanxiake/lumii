@@ -124,6 +124,13 @@ export interface ProviderEntryView {
   apiFormat?: ApiFormat
   apiFormatByModel?: Record<string, ApiFormat>
   thinkingFormat?: ThinkingFormat
+  /**
+   * 按模型声明「支持图片输入」。
+   *
+   * 端点（OpenAI 兼容中转尤其）不提供能力元数据，所以只能由用户勾选；
+   * 渲染层据此决定是「直接把图传给模型」还是走 OCR/识别兜底。
+   */
+  modelVision?: Record<string, boolean>
 }
 
 /** 能力槽对某个 provider 与模型的选择 */
@@ -244,6 +251,8 @@ interface PersistedProvider {
   apiFormat?: ApiFormat
   apiFormatByModel?: Record<string, ApiFormat>
   thinkingFormat?: ThinkingFormat
+  /** 按模型声明「支持图片输入」（用户手动勾选，端点不提供能力元数据） */
+  modelVision?: Record<string, boolean>
 }
 
 interface PersistedSlotV2 {
@@ -448,6 +457,22 @@ export function normalizeApiFormatByModel(raw: unknown): Record<string, ApiForma
 }
 
 /**
+ * 规范化「按模型声明支持图片输入」。
+ *
+ * 只保留 true 的条目：false 与「没勾」语义相同（默认不支持），
+ * 存 false 只会让配置文件多出一堆无用键。
+ */
+export function normalizeModelVision(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, boolean> = {}
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = id.trim()
+    if (key && value === true) out[key] = true
+  }
+  return out
+}
+
+/**
  * 去掉 provider 前缀后的短模型 id（deepseek/deepseek-v4-flash → deepseek-v4-flash）
  */
 function shortModelId(modelId: string): string {
@@ -512,6 +537,7 @@ function normalizeProvider(
     apiFormat: normalizeApiFormat(raw.apiFormat) ?? PROVIDER_TYPE_DEFAULTS[type]?.apiFormat,
     apiFormatByModel: normalizeApiFormatByModel(raw.apiFormatByModel),
     thinkingFormat: normalizeThinkingFormat(raw.thinkingFormat) ?? PROVIDER_TYPE_DEFAULTS[type]?.thinkingFormat ?? 'auto',
+    modelVision: normalizeModelVision(raw.modelVision),
     apiKeyEnc: typeof raw.apiKey === 'string' ? encryptApiKey(raw.apiKey) : (raw.apiKeyEnc ?? ''),
   }
 }
@@ -528,6 +554,9 @@ function toProviderView(p: PersistedProvider): ProviderEntryView {
     apiFormat: normalizeApiFormat(p.apiFormat),
     apiFormatByModel: normalizeApiFormatByModel(p.apiFormatByModel),
     thinkingFormat: normalizeThinkingFormat(p.thinkingFormat) ?? 'auto',
+    ...(p.modelVision && Object.keys(p.modelVision).length > 0
+      ? { modelVision: normalizeModelVision(p.modelVision) }
+      : {}),
     apiKey: value,
     // 只在为真时才带上，避免视图里多一个恒为 false 的字段（该字段不进持久化）
     apiKeyDecryptFailed: failed || undefined,

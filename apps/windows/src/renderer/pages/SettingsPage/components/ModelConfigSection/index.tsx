@@ -458,8 +458,7 @@ export function ModelConfigSection() {
                       </div>
                     ))}
                   </div>
-                )}
-                <Input
+                )}                <Input
                   type="text"
                   value={modelIdsText[provider.id] ?? allowedIds.join(', ')}
                   placeholder="模型 ID，多个用逗号分隔；可手动输入，勾选后自动填充"
@@ -482,6 +481,41 @@ export function ModelConfigSection() {
                 )}
               </div>
             </div>
+
+            {/*
+              模型能力声明：按**已配置的模型 ID** 渲染，不依赖「获取模型列表」是否点过。
+              端点不提供能力元数据（OpenAI 兼容中转尤其），支持看图只能由用户勾选。
+            */}
+            {allowedIds.length > 0 && (
+              <div className={styles['setting-item']}>
+                <div className={styles['setting-label']}>
+                  <span data-app-ui-label>模型能力</span>
+                  <span className={styles['setting-desc']}>
+                    勾选「支持图片」后，对话里带图会直接把图片交给该模型；
+                    不勾则走 OCR / 视觉理解槽兜底
+                  </span>
+                </div>
+                <div className={styles['setting-control']} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {allowedIds.map((id) => (
+                    <Checkbox
+                      key={id}
+                      checked={provider.modelVision?.[id] === true}
+                      onChange={(next) => {
+                        const nextVision = { ...(provider.modelVision ?? {}) }
+                        if (next) nextVision[id] = true
+                        else delete nextVision[id]
+                        patchProvider(provider.id, { modelVision: nextVision })
+                      }}
+                    >
+                      <span>
+                        {id}
+                        <span className={styles['setting-desc']}> · 支持图片</span>
+                      </span>
+                    </Checkbox>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className={styles['category-save-actions']} style={{ gap: 8 }}>
               <Button

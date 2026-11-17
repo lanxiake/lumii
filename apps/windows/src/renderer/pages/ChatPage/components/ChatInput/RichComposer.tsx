@@ -42,6 +42,11 @@ export interface RichComposerHandle {
   /** 在光标处插入一个文件/目录引用 chip（补空格分隔，便于 Agent 解析路径） */
   insertFileReference(ref: FileReference): void
   getText(): string
+  /**
+   * 光标是否在第一行 / 最后一行。上下方向键要靠它决定是「移动光标」还是「翻历史输入」：
+   * 多行草稿的中间行必须让位给光标移动，否则用户永远跳不出当前行。
+   */
+  caretLines(): { first: boolean; last: boolean } | null
 }
 
 export interface RichComposerProps {
@@ -122,13 +127,29 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(fu
   onFileChipRemoveRef.current = onFileChipRemove
   fileRefsRef.current = fileReferences
 
-  /** 把当前 DOM 的文本吐给外部，并同步空态（占位符靠它显示） */
+  /**
+   * 把当前 DOM 的文本吐给外部，并同步空态（占位符靠它显示）。
+   *
+   * 顺带收敛引用清单：DOM 里已找不到的 file chip（退格/剪切/选中删除都能摘掉它）
+   * 要通知外部一起摘，否则上方附件行留着一条「正文里已经不存在的引用」。
+   * 所有删除路径都经过这里，所以不必在按键里单独特判。
+   */
   const emitChange = useCallback(() => {
     const root = rootRef.current
     if (!root) return
     const text = serializeComposer(root)
     root.setAttribute('data-empty', text.length === 0 ? 'true' : 'false')
     onChangeRef.current(text)
+
+    if (fileRefsRef.current.length === 0) return
+    const present = new Set<string>()
+    root.querySelectorAll<HTMLElement>(`[${CHIP_ATTR}="file"]`).forEach((chip) => {
+      const path = chip.getAttribute('data-file-path')
+      if (path) present.add(path)
+    })
+    for (const ref of fileRefsRef.current) {
+      if (!present.has(ref.relativePath)) onFileChipRemoveRef.current?.(ref)
+    }
   }, [])
 
   /** 用给定文本重建整棵子树（chip 由 fileReferences 还原） */
@@ -216,8 +237,6 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(fu
   }, [])
 
   const removeChip = useCallback((chip: HTMLElement) => {
-    const kind = chip.getAttribute(CHIP_ATTR)
-    const path = chip.getAttribute('data-file-path')
     const nextSibling = chip.nextSibling
     chip.remove()
     // 光标落到 chip 原来的位置（没有后继就落到末尾）
@@ -233,16 +252,26 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(fu
       rootRef.current.focus()
     }
     emitChange()
-    if (kind === 'file' && path) {
-      // 文本已经改过了才通知外部：外部更新清单会再触发一次收敛 effect，那时已无 chip 可删
-      const ref = fileRefsRef.current.find((item) => item.relativePath === path)
-      if (ref) onFileChipRemoveRef.current?.(ref)
-    }
   }, [emitChange])
 
   useImperativeHandle(ref, () => ({
     focus: () => rootRef.current?.focus(),
     getText: () => (rootRef.current ? serializeComposer(rootRef.current) : ''),
+    caretLines: () => {
+      const root = rootRef.current
+      if (!root) return null
+      const range = caretRange(root)
+      // 量光标之前的内容：末尾那个占位 <br> 不计，否则空行会被算成"已有换行"
+      const before = document.createRange()
+      before.selectNodeContents(root)
+      before.setEnd(range.startContainer, range.startOffset)
+      const textBefore = serializeComposer(before.cloneContents(), { trimTrailingBreak: false })
+      const after = document.createRange()
+      after.selectNodeContents(root)
+      after.setStart(range.endContainer, range.endOffset)
+      const textAfter = serializeComposer(after.cloneContents(), { trimTrailingBreak: false })
+      return { first: !textBefore.includes('\n'), last: !textAfter.includes('\n') }
+    },
     insertQuote: (input) => {
       const before = textBeforeCaret()
       const nodes: Node[] = []

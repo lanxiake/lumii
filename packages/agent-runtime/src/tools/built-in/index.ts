@@ -66,6 +66,12 @@ export {
 } from "./agent-management-tools.js";
 export { imageGenerateToolConfig } from "./image-generate-tool.js";
 export {
+  ocrImageToolConfig,
+  OCR_IMAGE_TOOL_NAME,
+  type OcrImageLine,
+  type OcrImageResult,
+} from "./ocr-image-tool.js";
+export {
   DEFAULT_IMAGE_MODEL_ID,
   IMAGE_GENERATION_MODEL_OPTIONS,
   isKnownImageGenerationModel,
@@ -137,6 +143,7 @@ import {
 } from "./agent-management-tools.js";
 import { taskCompleteToolConfig } from "./task-complete-tool.js";
 import { imageGenerateToolConfig } from "./image-generate-tool.js";
+import { ocrImageToolConfig } from "./ocr-image-tool.js";
 
 /** 所有内建工具配置（使用 any 擦除泛型，具体类型由各工具单独导出保留） */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -196,4 +203,5 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   agentRemoveToolConfig,
   taskCompleteToolConfig,
   imageGenerateToolConfig,
+  ocrImageToolConfig,
 ];

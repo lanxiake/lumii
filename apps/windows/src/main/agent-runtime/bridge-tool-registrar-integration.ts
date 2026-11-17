@@ -20,6 +20,7 @@ import {
   systemPromptToolConfig,
   speechGenerateToolConfig,
   imageGenerateToolConfig,
+  ocrImageToolConfig,
   OUTBOUND_CHANNEL_PROFILES,
   PCWECHAT_SELF_PEER_ID,
 } from '@mtbot/agent-runtime'
@@ -1154,5 +1155,48 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(imageGenerateTool, ctx))
 
-  log.info('[registerToolOverrides] integration tools registered: message/memory/scene_memory/profile/system_prompt/speech_generate/image_generate')
+  /**
+   * ocr_image：本地 OCR，返回文字 + 每行的像素坐标框。
+   *
+   * 视觉模型能描述图片，但说不清「元素在哪个坐标」；用户问「点哪里」时只能靠这个。
+   * 未注入 runLocalOcr（非 Windows / 服务不可用）就不注册——模型看不见一个注定失败的工具。
+   */
+  if (deps.runLocalOcr) {
+    const runLocalOcr = deps.runLocalOcr
+    const ocrImageTool: MtBotToolConfig = {
+      ...ocrImageToolConfig,
+      execute: async (_id, rawParams) => {
+        const params = rawParams as { imagePath?: string; maxSide?: number }
+        if (!params.imagePath || typeof params.imagePath !== 'string') {
+          return jsonToolResult({ status: 'error', message: 'imagePath 参数不能为空' })
+        }
+        try {
+          const result = await runLocalOcr({
+            imagePath: params.imagePath,
+            ...(typeof params.maxSide === 'number' ? { maxSide: params.maxSide } : {}),
+          })
+          if (!result.ok) {
+            // 如实告诉模型「不可用」，而不是返回空结果让它以为图里没字
+            return jsonToolResult({
+              status: 'unavailable',
+              message: result.error ?? '本地 OCR 不可用（仅 Windows 支持）',
+            })
+          }
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ status: 'ok', ...result }) }],
+            details: { lines: result.lines },
+          }
+        } catch (e) {
+          // 必须 throw：只有异常才会被标记为 isError，否则 UI 不报错且模型可能重复调用
+          throw Object.assign(
+            new Error(`OCR 失败（请勿自动重试）：${(e as Error).message}`),
+            { code: (e as { code?: string }).code ?? 'OCR_ERROR' },
+          )
+        }
+      },
+    }
+    deps.toolRegistry.register(createMtBotTool(ocrImageTool, ctx))
+  }
+
+  log.info('[registerToolOverrides] integration tools registered: message/memory/scene_memory/profile/system_prompt/speech_generate/image_generate' + (deps.runLocalOcr ? '/ocr_image' : ''))
 }

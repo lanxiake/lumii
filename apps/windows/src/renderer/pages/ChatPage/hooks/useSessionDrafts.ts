@@ -1,6 +1,9 @@
 import { useCallback, useState } from 'react'
 import type { FileReference } from '../components/ChatInput'
 
+/** 共享空数组：无引用时返回同一引用，否则 ChatInput 的 memo 每次渲染都会失效 */
+const EMPTY_FILE_REFERENCES: FileReference[] = []
+
 /** Keeps message drafts and file references scoped to the active conversation. */
 export function useSessionDrafts(sessionKey: string | null) {
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({})
@@ -43,15 +46,17 @@ export function useSessionDrafts(sessionKey: string | null) {
 
   const removeFileReference = useCallback((absolutePath: string) => {
     const referenceKey = sessionKey ?? '__global__'
-    setFileReferencesBySession((previous) => ({
-      ...previous,
-      [referenceKey]: (previous[referenceKey] ?? []).filter((reference) => reference.absolutePath !== absolutePath),
-    }))
+    setFileReferencesBySession((previous) => {
+      const references = previous[referenceKey] ?? EMPTY_FILE_REFERENCES
+      const next = references.filter((reference) => reference.absolutePath !== absolutePath)
+      if (next.length === references.length) return previous
+      return { ...previous, [referenceKey]: next }
+    })
   }, [sessionKey])
 
   return {
     inputValue: sessionKey ? (draftsBySession[sessionKey] ?? '') : globalDraft,
-    activeFileReferences: fileReferencesBySession[fileReferenceKey] ?? [],
+    activeFileReferences: fileReferencesBySession[fileReferenceKey] ?? EMPTY_FILE_REFERENCES,
     setDraftsBySession,
     persistDraftForSession,
     setInputValue,

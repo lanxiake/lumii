@@ -108,6 +108,21 @@ export interface BridgeToolRegistrarDeps {
     signal?: AbortSignal
   }) => Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }>
   /**
+   * 本地 OCR（ocr_image 工具用）：返回文字与**每行的像素坐标框**。
+   *
+   * 与 `recognizeImage` 的区别：那个是「让视觉模型描述图片」，产出自然语言；
+   * 这里是「量出文字在哪」，产出可度量的框。用户问「点哪里 / 什么坐标」时只能靠它。
+   * 平台不支持本地 OCR 时返回 ok=false，由工具如实告诉模型不可用。
+   */
+  runLocalOcr?: (params: { imagePath: string; maxSide?: number }) => Promise<{
+    ok: boolean
+    text: string
+    lines: { text: string; box: [number, number, number, number]; score: number }[]
+    confidence: number
+    backend: 'dml' | 'cpu'
+    error?: string
+  }>
+  /**
    * 转交自动执行入口（2026-09-15：转交不再需要用户点确认卡片）。
    *
    * 由 bridge 注入，实现内部完成「建/选开发会话 → 发任务 → 完成后汇报回原会话」。

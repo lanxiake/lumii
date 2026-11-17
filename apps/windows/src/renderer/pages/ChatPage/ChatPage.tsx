@@ -44,6 +44,7 @@ import {
 import { WorkspaceWorkbenchArea } from './layout/WorkspaceWorkbenchArea'
 import { ChatSidebarArea } from './layout/ChatSidebarArea'
 import { ChatSearchBar } from './components/ChatSearchBar'
+import { UserInputRail } from './components/UserInputRail/UserInputRail'
 import { useChatSearch } from './hooks/useChatSearch'
 import { computeClearGroupPlan, type ClearGroupHistoryRequest } from './clearGroupPlan'
 import { useSessionDrafts } from './hooks/useSessionDrafts'
@@ -449,9 +450,34 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }))
   }, [localRuntimeSessions, liveStreamingKeys, sessionsInStore])
 
+  /**
+   * 视口里当前所在的那条用户消息（右侧条纹导轨高亮用）。
+   * 由 ChatContainer 的 IntersectionObserver 上报，不在这里自己量 DOM。
+   */
+  const [activeUserMessageId, setActiveUserMessageId] = useState<string | null>(null)
+  // 切会话时旧会话的高亮没有意义，先清掉，等新会话重新上报
+  useEffect(() => {
+    setActiveUserMessageId(null)
+  }, [runtimeCurrentSessionKey])
+
+  /**
+   * 右侧条纹导轨的条目：本会话每条用户输入一条。
+   * 只取 user 角色且有正文的（插话/回放产生的空占位没有可跳转的内容）。
+   */
+  const userInputRailItems = useMemo(
+    () =>
+      runtimeMessages
+        .filter((msg) => msg.role === 'user')
+        .map((msg) => ({
+          id: msg.id,
+          text: msg.content.map((block) => block.text).join(''),
+        }))
+        .filter((item) => item.text.trim().length > 0),
+    [runtimeMessages],
+  )
+
   // 当前会话是否被中断
-  const currentSessionInterrupted = useMemo(() => {
-    if (!runtimeCurrentSessionKey) return false
+  const currentSessionInterrupted = useMemo(() => {    if (!runtimeCurrentSessionKey) return false
     return localRuntimeSessions.some(
       (s) => s.sessionKey === runtimeCurrentSessionKey && s.wasInterrupted,
     )
@@ -1194,10 +1220,20 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }))
     let finalContent = appendAttachmentsToMessage(valueToSend, attachedFiles)
 
-    // 判断当前模型是否支持多模态视觉输入（来自 model_providers.models.supportsMultiModal）
-    // 找不到模型元数据时默认为 false，走"识别注入文本"兜底路径，保证模型能"看到"图片内容
+    // 判断当前模型是否支持多模态视觉输入。
+    //
+    // 两个坑：
+    // 1. `availableModels` 的 id 带 provider 前缀（`providerId::modelId`），而
+    //    `selectedModelId` 两种形态都可能出现 —— 不剥前缀就永远匹配不上，
+    //    多模态模型会被当成不支持视觉，图片退化成 OCR/占位文本。
+    // 2. 能力标记来自用户在「模型提供商」里的勾选（端点不提供元数据）。
+    const bareModelId = selectedModelId?.includes('::')
+      ? selectedModelId.slice(selectedModelId.indexOf('::') + 2)
+      : selectedModelId
     const currentModel = selectedModelId
       ? availableModels.find((m) => m.id === selectedModelId)
+        ?? availableModels.find((m) => m.id.endsWith(`::${bareModelId}`))
+        ?? availableModels.find((m) => m.id === bareModelId)
       : undefined
     const modelSupportsVision = currentModel?.supportsMultiModal === true
     const imagePendingAttachments = pendingAttachments.filter((a) => a.category === 'image')
@@ -1215,11 +1251,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         // 必须显式挑选一个支持视觉的模型用于识别（默认 balanced=deepseek-v4-flash 不支持视觉）
         const visionModelId = pickVisionModelId()
         if (!visionModelId) {
-          // 系统内一个支持视觉的模型都没有 → 提示用户并给出占位文本
-          logger.warn(`[handleSend] 系统内未配置任何视觉模型，无法识别图片`)
-          toast.error('当前没有可用的视觉模型，请联系管理员配置或切换到支持图片的模型')
+          // 这里不能再笼统说「系统未配置视觉模型」——用户很可能选的就是多模态模型，
+          // 只是没在提供商里勾「支持图片」。两种情况的解法完全不同，必须分开说。
+          logger.warn(`[handleSend] 无可用视觉模型，图片无法识别 model=${selectedModelId ?? '(default)'}`)
+          toast.error(
+            '当前模型未标记为支持图片，且未配置视觉理解模型。'
+            + '可在「设置 → 模型配置 → 模型提供商」勾选「支持图片」，或在「视觉理解」槽配置一个模型',
+          )
           const placeholderLines = needsRecognition
-            .map((a) => `[图片附件: ${a.fileName}] 系统未配置视觉模型，未能识别图片内容`)
+            .map((a) => `[图片附件: ${a.fileName}] 未能读取图片内容（当前模型未标记支持图片，也没有可用的视觉理解模型）`)
             .join('\n')
           finalContent = `${finalContent}\n\n${placeholderLines}`
         } else {
@@ -2318,9 +2358,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
               backgroundTasks={runtimeBackgroundTasks}
               activeAgents={runtimeActiveAgents}
               onCancelAgent={cancelSubAgent}
+              onActiveUserMessageChange={setActiveUserMessageId}
             />
           </ChatMessageActionsProvider>
         </div>
+
+        {/* 右侧「我说的每一句」条纹导轨：点一条跳到那条消息 */}
+        <UserInputRail
+          items={userInputRailItems}
+          onJump={handleGoToMessage}
+          activeId={activeUserMessageId}
+        />
 
         {/* 顶部毛玻璃浮层：会话标题 + 工具栏 */}
         <div className={styles['chat-overlay-top']}>

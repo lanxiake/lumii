@@ -26,6 +26,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   file_copy: "Duplicate files/dirs (backups, templates, staging copies)",
   glob: "Discover files by name/path pattern across directory trees",
   grep: "Search code, logs, configs, and text for strings or regex",
+  // 读图片里的文字并给出每行的像素坐标；视觉模型说不清「在哪个位置」时用它
+  ocr_image: "OCR an image: text plus per-line pixel boxes [left, top, width, height]",
 
   // Shell
   bash: "Shell-only operations (git, npm, builds, system state)",
@@ -203,6 +205,8 @@ const FILE_TOOLS = new Set([
   "file_copy",
   "glob",
   "grep",
+  // OCR 读的是图片文件里的文字，产出文字 + 坐标；归在文件类比「生成媒体」更贴切
+  "ocr_image",
 ])
 const SHELL_TOOLS = new Set(["bash"])
 const WEB_TOOLS = new Set(["web_search", "web_fetch"])

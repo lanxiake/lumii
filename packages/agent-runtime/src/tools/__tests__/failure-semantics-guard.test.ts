@@ -171,6 +171,9 @@ const FAILURE_SEMANTICS: Record<string, FileFailureSemantics> = {
   "glob-tool.ts": { tools: ["glob"], how: "失败全部走 throw", sites: 0 },
   "grep-tool.ts": { tools: ["grep"], how: "失败全部走 throw", sites: 0 },
   "image-generate-tool.ts": { tools: ["image_generate"], how: "失败全部走 throw", sites: 0 },
+  // 平台不支持 / 图片不存在是**可预期结果**，回 status:'unavailable' 让模型换个办法；
+  // 真正的异常仍走 throw（由宿主注入的 execute 覆盖实现负责）。
+  "ocr-image-tool.ts": { tools: ["ocr_image"], how: "失败全部走 throw（stub 返回 not_implemented）", sites: 0 },
   "integration-tools.ts": {
     tools: [
       "message",

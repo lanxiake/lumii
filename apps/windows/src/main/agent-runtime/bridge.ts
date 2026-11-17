@@ -8,6 +8,8 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { app } from 'electron'
+import { getDefaultOcrService } from '../ocr/create-default-ocr-service.js'
+import { ensureOcrModelsReady } from '../ocr/ocr-model-downloader.js'
 import { resolveClientStateDir } from '../paths.js'
 import {
   AgentRegistry,
@@ -1414,6 +1416,9 @@ export class AgentRuntimeBridge {
       getChannelRouter: () => this.config.getChannelRouter?.() ?? null,
       compactSession: (sessionKey, keepRecentTurns) => this.compactSessionForTool(sessionKey, keepRecentTurns),
       generateImage: (params) => this.generateImage(params),
+      // 本地 OCR：只有它能给出「文字在哪」的像素坐标，视觉描述给不了。
+      // 与 generateImage 同一形状注入，注册器据此决定是否注册 ocr_image 工具。
+      runLocalOcr: (params) => this.runLocalOcrForTool(params),
       // 转交自动执行（2026-09-15）：提案后直接发起，不再等用户点确认卡片。
       // 动态 import 避免 bridge ↔ ipc 层的静态依赖（与下方 dev-context 的注入同一处理）。
       autoRunHandoff: (params) =>
@@ -3559,6 +3564,58 @@ export class AgentRuntimeBridge {
 
   generateImage(params: { prompt: string; modelId?: string; width?: number; height?: number; filename?: string; referenceImagePaths?: string[]; outputDir?: string; signal?: AbortSignal }): Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }> {
     return this.imageServices.generateImage(params)
+  }
+
+  /**
+   * 本地 OCR（`ocr_image` 工具）：文字 + 每行像素坐标。
+   *
+   * 不复用 `recognizeImage`：那条路要先配视觉槽，且只返回自然语言描述——
+   * 而「元素在哪」需要的正是描述给不出的坐标。
+   */
+  async runLocalOcrForTool(params: { imagePath: string; maxSide?: number }): Promise<{
+    ok: boolean
+    text: string
+    lines: { text: string; box: [number, number, number, number]; score: number }[]
+    confidence: number
+    backend: 'dml' | 'cpu'
+    error?: string
+  }> {
+    const ocrService = getDefaultOcrService()
+    const status = ocrService.getStatus()
+    if (!status.platformSupported) {
+      return { ok: false, text: '', lines: [], confidence: 0, backend: 'cpu', error: '本地 OCR 仅支持 Windows' }
+    }
+    // 与 recognizeImage 同一条路径解析：工作区相对路径要落到绝对路径
+    const cwd = this.config.getCwd()
+    const absolute = path.isAbsolute(params.imagePath)
+      ? params.imagePath
+      : path.join(cwd, params.imagePath)
+    if (!fs.existsSync(absolute)) {
+      return { ok: false, text: '', lines: [], confidence: 0, backend: 'cpu', error: `图片不存在: ${absolute}` }
+    }
+    try {
+      await ensureOcrModelsReady()
+      const result = await ocrService.recognize({
+        path: absolute,
+        ...(params.maxSide ? { maxSide: params.maxSide } : {}),
+      })
+      return {
+        ok: true,
+        text: result.text ?? '',
+        lines: result.lines ?? [],
+        confidence: result.confidence,
+        backend: result.backend,
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        text: '',
+        lines: [],
+        confidence: 0,
+        backend: 'cpu',
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
   }
 
   // ── 实例管理 ──

@@ -7,6 +7,10 @@ export function subscribeMainEvent(
   channel: string,
   handler: (...args: unknown[]) => void,
 ): () => void {
-  window.electronAPI.on(channel, handler)
-  return () => window.electronAPI.off(channel, handler)
+  // preload 未注入时 electronAPI 整个不存在（如开发态 HMR 重载后）。
+  // 这里抛错会在 App 的 effect 里炸掉整个界面，降级成"没有主进程事件"即可。
+  const api = window.electronAPI
+  if (!api?.on || !api.off) return () => {}
+  api.on(channel, handler)
+  return () => api.off(channel, handler)
 }

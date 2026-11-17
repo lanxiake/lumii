@@ -192,4 +192,45 @@ describe('RichComposer', () => {
     expect(root.querySelectorAll('[data-composer-chip]')).toHaveLength(0)
     expect(handle.getText()).toBe('看  这段')
   })
+
+  it('退格/选中删除把内联 chip 删掉时，也要通知外部摘引用（两侧不能留一边）', () => {
+    const onFileChipRemove = vi.fn()
+    const { root, placeCaretAtEnd } = setup({
+      value: `看 @${REF.relativePath} 这段`,
+      fileReferences: [REF],
+      onFileChipRemove,
+    })
+    placeCaretAtEnd()
+
+    // 模拟浏览器删掉 chip 后触发的 input（退格、Ctrl+A、剪切都只是这一步的前奏）
+    act(() => {
+      root.querySelector('[data-composer-chip="file"]')!.remove()
+      root.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    expect(onFileChipRemove).toHaveBeenCalledWith(REF)
+  })
+
+  it('caretLines 报出光标在首行还是末行（上下键翻历史的让位判据）', () => {
+    const { root, handle } = setup({ value: '第一行\n第二行' })
+    const textNode = root.firstChild as Text
+
+    const placeCaret = (node: Node, offset: number) => {
+      const range = document.createRange()
+      range.setStart(node, offset)
+      range.collapse(true)
+      const selection = window.getSelection()!
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }
+
+    // 第一行中间：首行是，末行不是
+    placeCaret(textNode, 1)
+    expect(handle.caretLines()).toEqual({ first: true, last: false })
+
+    // 末尾（第二个文本节点 = 第二行）：末行是，首行不是
+    const lastText = root.lastChild as Text
+    placeCaret(lastText, lastText.length)
+    expect(handle.caretLines()).toEqual({ first: false, last: true })
+  })
 })

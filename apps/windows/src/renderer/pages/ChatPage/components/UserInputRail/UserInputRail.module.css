@@ -1,0 +1,98 @@
+/* 右侧输入条纹导轨：细长竖条，点在条纹上跳转到对应消息 */
+
+.rail {
+  position: absolute;
+  /* 靠右且给滚动条让路：滚动条贴窗口右缘，条纹停在它左侧 */
+  right: 18px;
+  /* 上下居中：导轨整体在消息区垂直中央，而不是从顶部铺起 */
+  top: 50%;
+  transform: translateY(-50%);
+  max-height: calc(100% - var(--chat-overlay-top, 44px) - var(--chat-overlay-bottom, 210px) - 16px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  /* 间距翻倍：4px → 8px，条纹更好点 */
+  gap: 8px;
+  align-items: flex-end;
+  padding: 4px 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  pointer-events: auto;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * 按钮 = 命中区，条纹 = 视觉。
+ * 二者分开是因为 4px 高的条纹直接当按钮点不准；
+ * 命中区做 10px 高、28px 宽，鼠标斜着扫过也能咬住。
+ * 过渡只做 90ms：再慢用户会觉得"移上去没反应"。
+ */
+.stripe {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 28px;
+  height: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.stripe-bar {
+  display: block;
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  transition:
+    width 90ms var(--mt-ease-standard, ease),
+    height 90ms var(--mt-ease-standard, ease),
+    background 90ms var(--mt-ease-standard, ease);
+}
+
+.stripe:hover .stripe-bar,
+.stripe:focus-visible .stripe-bar {
+  width: 44px;
+  height: 6px;
+  background: var(--mt-accent-500);
+}
+
+.stripe:focus-visible {
+  outline: none;
+}
+
+/* 视口里当前所在的那条：实心 + 向左加长 20%（28px → 33.6px）。
+   导轨是右对齐的，宽度增加自然向左延伸。 */
+.stripe--active .stripe-bar {
+  width: 33.6px;
+  background: var(--mt-accent-500);
+}
+
+.stripe--active:hover .stripe-bar {
+  width: 44px;
+}
+
+/* 悬停提示：向左展开，固定定位不参与导轨的溢出让路（不裁切） */
+.tooltip {
+  position: fixed;
+  z-index: 60;
+  /* left 是条纹左缘；整体左移一格并留 8px 间隙 */
+  transform: translate(calc(-100% - 8px), -50%);
+  max-width: 360px;
+  padding: 6px 10px;
+  border-radius: var(--mt-radius-md, 8px);
+  background: var(--mt-surface-3, rgba(28, 42, 64, 0.96));
+  border: 1px solid var(--mt-border, rgba(255, 255, 255, 0.12));
+  color: var(--mt-fg-1, #e8eef6);
+  font-size: var(--mt-fs-xs, 12px);
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: var(--mt-shadow-md, 0 6px 20px rgba(0, 0, 0, 0.35));
+  /* 出现即显示，不淡入：淡入会被读成"慢" */
+  pointer-events: none;
+}

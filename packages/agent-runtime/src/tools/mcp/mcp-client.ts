@@ -661,12 +661,13 @@ export class McpStdioClient extends EventEmitter {
       const lower = line.toLowerCase();
       if (lower.includes('traceback') || lower.includes('error:') || lower.includes('exception')) {
         console.error(`[MCP Client] Detected server-side error output, aborting all pending requests`);
-        const entries = [...this.pending.values()];
-        this.pending.clear();
-        for (const entry of entries) {
-          clearTimeout(entry.timer);
+        // 不能先 pending.clear() 再 reject：reject 走 settle()，settle 要靠 pending.get(id)
+        // 找到条目才真正落定，先清空等于把每条请求静默吞掉、调用方永久挂起。
+        for (const entry of [...this.pending.values()]) {
           entry.reject(new Error(`MCP server process error: ${line.slice(0, 200)}`));
         }
+        this.pending.clear();
+        this.progressHandlers.clear();
       }
     }
   }
@@ -677,13 +678,13 @@ export class McpStdioClient extends EventEmitter {
     this.process = null;
     this._initialized = false;
 
-    // 收集所有待处理请求后清空，避免迭代中删除
-    const entries = [...this.pending.values()];
-    this.pending.clear();
-    this.progressHandlers.clear();
-    for (const entry of entries) {
-      clearTimeout(entry.timer);
+    // 逐个 reject，**不能先 clear**：reject 走 settle()，而 settle 要靠
+    // pending.get(id) 找到条目才真正落定。先 clear 会让每条在途请求静默失联——
+    // 调用方（含后台任务跟进）永远等不到结果，界面上就是「任务一直卡着」。
+    for (const entry of [...this.pending.values()]) {
       entry.reject(new Error("MCP server process terminated"));
     }
+    this.pending.clear();
+    this.progressHandlers.clear();
   }
 }

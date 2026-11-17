@@ -67,14 +67,21 @@ export function useAgents(): UseAgentsReturn {
     lastError: null,
   })
 
-  // 过滤系统 Agent 和用户 Agent（用户 Agent 按名称字母序排列，编辑后顺序稳定）
-  const systemAgents = agents.filter((a) => !a.userId)
-  const userAgents = agents.filter((a) => a.userId).sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  // 过滤系统 Agent 和用户 Agent（用户 Agent 按名称字母序排列，编辑后顺序稳定）。
+  // 必须 memo：ChatPage 流式期间每帧渲染，这里每次新建数组会击穿子组件的 React.memo。
+  const systemAgents = useMemo(() => agents.filter((a) => !a.userId), [agents])
+  const userAgents = useMemo(
+    () => agents.filter((a) => a.userId).sort((a, b) => a.name.localeCompare(b.name, 'zh')),
+    [agents],
+  )
   // 会话选择器可选集合 = 用户 Agent + 标记了 selectable 的系统 Agent（如「灵栖开发」）。
   // 与 userAgents 分开：团队页需要按 系统/用户 分组展示，重复合并会让系统 Agent 出现在两组。
-  const selectableAgents = agents
-    .filter((a) => a.userId || a.selectable)
-    .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  const selectableAgents = useMemo(
+    () => agents
+      .filter((a) => a.userId || a.selectable)
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh')),
+    [agents],
+  )
 
   /**
    * 从主进程拉取 DefinitionStore 同步状态并映射为 UI 分类

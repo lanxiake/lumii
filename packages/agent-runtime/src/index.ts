@@ -154,6 +154,7 @@ export {
   wikiSearchToolConfig,
   wikiReadToolConfig,
   imageGenerateToolConfig,
+  ocrImageToolConfig,
   DEFAULT_IMAGE_MODEL_ID,
   IMAGE_GENERATION_MODEL_OPTIONS,
   isKnownImageGenerationModel,

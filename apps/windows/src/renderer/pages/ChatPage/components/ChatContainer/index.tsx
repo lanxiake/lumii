@@ -137,6 +137,11 @@ interface ChatContainerProps {
   activeAgents?: readonly ActiveAgent[]
   /** 取消某个子 Agent（看板上的「取消」按钮） */
   onCancelAgent?: (instanceId: string) => void
+  /**
+   * 视口里当前所在的那条用户消息 id（右侧条纹导轨据此高亮）。
+   * 由本组件用 IntersectionObserver 观测，避免在 scroll 里逐条量 rect。
+   */
+  onActiveUserMessageChange?: (messageId: string | null) => void
 }
 
 /** 距顶部小于该像素时触发历史懒加载，留出提前量避免用户滚到边界才开始请求 */
@@ -289,6 +294,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   backgroundTasks,
   activeAgents,
   onCancelAgent,
+  onActiveUserMessageChange,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // 显式带上 null 联合类型：useRef<T>(null) 得到的是只读 RefObject，
@@ -467,6 +473,69 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     }
     return null
   }, [messages])
+
+  /**
+   * 视口里「当前所在的那条用户消息」= 顶部往下第一个进入视口的用户行。
+   *
+   * 用 IntersectionObserver 而不是在 scroll 里逐条 getBoundingClientRect：
+   * 大会话有几百行，滚动时每帧量一遍会直接把滚动手感拖垮。
+   * 只观测用户消息行（assistant 行与本功能无关）。
+   */
+  const userRowIdsSig = useMemo(
+    () =>
+      messages
+        .filter((item) => item.role === 'user' && item.id)
+        .map((item) => item.id)
+        .join('\0'),
+    [messages],
+  )
+
+  useEffect(() => {
+    const root = scrollContainerRef.current
+    if (!root || typeof IntersectionObserver === 'undefined' || !onActiveUserMessageChange) return
+
+    /** 已进入视口的用户行：id → 相对容器顶部的偏移（用来取最上面那条） */
+    const visible = new Map<string, number>()
+    const report = () => {
+      let bestId: string | null = null
+      let bestTop = Number.POSITIVE_INFINITY
+      for (const [id, top] of visible) {
+        if (top < bestTop) {
+          bestTop = top
+          bestId = id
+        }
+      }
+      onActiveUserMessageChange(bestId)
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const rootTop = root.getBoundingClientRect().top
+        let changed = false
+        for (const entry of entries) {
+          const rowKey = (entry.target as HTMLElement).dataset['rowKey'] ?? ''
+          const id = rowKey.startsWith('m:') ? rowKey.slice(2) : ''
+          if (!id) continue
+          if (entry.isIntersecting) {
+            visible.set(id, entry.boundingClientRect.top - rootTop)
+            changed = true
+          } else if (visible.delete(id)) {
+            changed = true
+          }
+        }
+        if (changed) report()
+      },
+      // 顶部让开工具栏浮层；底部留出输入框高度，只认真正露出来的部分
+      { root, rootMargin: '-44px 0px -120px 0px', threshold: 0 },
+    )
+
+    for (const id of userRowIdsSig ? userRowIdsSig.split('\0') : []) {
+      const el = root.querySelector<HTMLElement>(`[data-row-key="m:${id}"]`)
+      if (el) observer.observe(el)
+    }
+    return () => observer.disconnect()
+    // 签名覆盖「增删了用户消息」；行元素由 data-row-key 稳定标识
+  }, [userRowIdsSig, onActiveUserMessageChange])
 
   /**
    * 压缩事件 → 卡片；落库的摘要气泡折叠进卡片（刷新后无事件时用摘要消息合成卡片）。
