@@ -90,8 +90,40 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
   }
 }
 
-describe('buildBackgroundToolConfig · 暂停闸门', () => {
-  it('入队后任务变可暂停，闸门登记在 taskPauseGates', async () => {
+describe('buildBackgroundToolConfig · 后台化判定', () => {
+  /** 只要策略，不跑任务 */
+  function policyWith() {
+    const config = buildBackgroundToolConfig({
+      getMcpManager: () =>
+        ({
+          getBackgroundToolNames: () => new Set(['mcp__comfy__enqueue_workflow']),
+        }) as never,
+      getBackgroundTaskManager: () => ({}) as never,
+      currentToolExecutorInstanceIdRef: { value: undefined },
+      instanceToRootSessionKey: new Map(),
+      backgroundTaskAborts: new Map(),
+    })
+    return config.policy
+  }
+
+  it('MCP 声明的长耗时工具一律后台化', () => {
+    expect(policyWith().shouldBackground('mcp__comfy__enqueue_workflow', {})).toBe(true)
+  })
+
+  it('bash 只在模型显式要求时才后台化', () => {
+    const policy = policyWith()
+    // 普通命令必须同步拿到 stdout，盲目后台化会把「看一眼就完事」变成等唤醒
+    expect(policy.shouldBackground('bash', { command: 'ls' })).toBe(false)
+    expect(policy.shouldBackground('bash', { command: 'ls', runInBackground: false })).toBe(false)
+    expect(policy.shouldBackground('bash', { command: 'pip install x', runInBackground: true })).toBe(true)
+  })
+
+  it('其它内置工具不受 runInBackground 影响', () => {
+    expect(policyWith().shouldBackground('file_read', { runInBackground: true })).toBe(false)
+  })
+})
+
+describe('buildBackgroundToolConfig · 暂停闸门', () => {  it('入队后任务变可暂停，闸门登记在 taskPauseGates', async () => {
     const { manager, gates, run, cancel } = setup()
     const taskId = run()
 

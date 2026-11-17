@@ -399,9 +399,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   // 新消息/流式更新时：仅当用户仍"粘底"时才自动滚动，
   // 避免用户向上查看历史时被强制拉回底部（问题5）
+  //
+  // **必须用 'auto'（瞬时），不能用 'smooth'**：流式期间每个 token 都会触发本 effect，
+  // 每次 smooth 滚动都会打断上一次的动画并从当前位置重新起步；同时正文还在长高，
+  // 目标点也在移。两者叠加表现为消息区持续上下抖动（像卡住的游戏画面）。
+  // 瞬时滚动没有动画可被打断，跟随是稳定的。用户主动点「回到最新」仍走 smooth。
   useEffect(() => {
     if (stickToBottomRef.current) {
-      scrollToBottom()
+      scrollToBottom('auto')
     }
   }, [session?.messages, workflowItems, scrollToBottom])
 

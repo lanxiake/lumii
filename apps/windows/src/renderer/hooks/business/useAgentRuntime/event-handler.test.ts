@@ -533,3 +533,45 @@ describe('agent:message:end 的 NO_REPLY 哨兵', () => {
     expect(sub!.parts.filter((p) => p.type === 'tool').length).toBe(1)
   })
 })
+
+describe('thinking delta 节流', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  /**
+   * thinking 在 ChatPage 顶层订阅，每帧刷新会让那个大组件整体重渲染，
+   * 用户打字时和它抢主线程。改成节流后**正文必须仍然立即跟上**：
+   * 否则 typing 效果会被 thinking 的延迟拖住，得不偿失。
+   */
+  it('thinking 之后到达的正文不被 thinking 的延迟拖住', async () => {
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      // 先来一大段 thinking：它会被排进延迟档
+      { type: 'agent:thinking:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: '让我想想…' },
+      // 紧接着正文到达：这一批必须立刻刷，不能等 thinking 的 200ms
+      { type: 'agent:message:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: '正文第一段', totalLength: 5 },
+    ])
+
+    // rAF 在 jsdom 里由 vitest 的 test env 提供；等两帧足够
+    await new Promise((r) => setTimeout(r, 60))
+    expect(lastMessageText()).toContain('正文第一段')
+  })
+
+  it('连续 thinking delta 不丢字，节流窗口结束后全部落地', async () => {
+    emitTurn([
+      { type: 'agent:turn:start', runId: RUN_ID, sessionKey: SESSION_KEY, turnIndex: 0, timestamp: Date.now() },
+      { type: 'agent:message:start', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, model: 'test-model', timestamp: Date.now() },
+      { type: 'agent:thinking:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: 'AAA' },
+      { type: 'agent:thinking:delta', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID, delta: 'BBB' },
+      { type: 'agent:thinking:end', runId: RUN_ID, sessionKey: SESSION_KEY, messageId: MESSAGE_ID },
+    ])
+
+    // thinking:end 会强制 flush，节流不能把尾巴丢掉
+    const msg = runtimeStore.getState().sessions.get(SESSION_KEY)?.messages.at(-1)
+    const thinking = msg?.parts.filter((p) => p.type === 'thinking').map((p) => p.text).join('') ?? ''
+    expect(thinking).toContain('AAABBB')
+  })
+})

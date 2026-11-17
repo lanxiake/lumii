@@ -116,6 +116,30 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       expect(mockProps.onSend).not.toHaveBeenCalled()
     })
 
+    it('TC-3.2.5b: 只有附件没有文字时，Enter 与发送按钮都必须能发出去', () => {
+      // 拖/粘贴文件后直接回车是常见操作。旧守卫只看 value，
+      // 会把这类发送整条吞掉：附件留在框里、Agent 也没收到上下文。
+      const withAttachments = {
+        ...mockProps,
+        value: '',
+        pendingAttachments: [{ fileName: 'a.txt', filePath: 'C:/tmp/a.txt' }],
+      }
+      const { container, unmount } = render(<ChatInput {...withAttachments} />)
+
+      fireEvent.keyDown(getComposer(container), { key: 'Enter', shiftKey: false })
+      expect(mockProps.onSend).toHaveBeenCalledTimes(1)
+
+      unmount()
+      vi.clearAllMocks()
+
+      // 发送按钮同样不能因为「没打字」而禁用
+      render(<ChatInput {...withAttachments} />)
+      const sendBtn = screen.getByTitle('发送消息')
+      expect(sendBtn).not.toBeDisabled()
+      fireEvent.click(sendBtn)
+      expect(mockProps.onSend).toHaveBeenCalledTimes(1)
+    })
+
     it('TC-3.2.6: 点击发送按钮触发发送', () => {
       render(<ChatInput {...mockProps} value="Test message" />)
 

@@ -56,8 +56,17 @@ export interface BackgroundToolConfigDeps {
  */
 export function buildBackgroundToolConfig(deps: BackgroundToolConfigDeps): BackgroundToolConfig {
   const policy = {
-    shouldBackground: (toolName: string): boolean =>
-      deps.getMcpManager()?.getBackgroundToolNames().has(toolName) ?? false,
+    /**
+     * 后台化判定：
+     * - MCP 声明的长耗时工具（如 ComfyUI enqueue_workflow）一律后台化；
+     * - `bash` 等内置工具由模型显式传 `runInBackground: true` 才后台化——
+     *   正常命令必须同步拿到 stdout，盲目后台化会把「看一眼就完事」变成等唤醒。
+     */
+    shouldBackground: (toolName: string, params: Record<string, unknown>): boolean => {
+      if (deps.getMcpManager()?.getBackgroundToolNames().has(toolName)) return true
+      if (toolName === 'bash' && params.runInBackground === true) return true
+      return false
+    },
   }
 
   const runner: BackgroundToolRunner = {

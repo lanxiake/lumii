@@ -172,10 +172,57 @@ function enqueuePendingDelta(target: PendingDeltaTarget, delta: string): void {
   pendingDeltaQueue.push({ target, text: delta })
 }
 
+/**
+ * thinking 文本的刷新节流间隔（ms）。
+ *
+ * 正文必须每帧跟（打字机效果不能卡），但 thinking 是纯展示的折叠文本，60fps 刷新
+ * 没有任何意义——而 `currentThinkingText` 是在 ChatPage 顶层订阅的，每帧更新会让
+ * 那个 2500+ 行的大组件整体重渲染，用户打字时正好和它抢主线程（表现为输入发卡）。
+ * 降到 5fps 后重渲染次数少一个数量级，肉眼几乎看不出差别。
+ *
+ * ponytail: 固定 200ms，需要更顺滑或更省再调这个常量。
+ */
+const THINKING_FLUSH_INTERVAL_MS = 200
+
+let lastThinkingFlushAt = 0
+let deltaFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 排一次 delta 刷新。
+ *
+ * 分两档，**由队列内容决定**，不看调用者：
+ * - 队列里有正文/子 Agent 文本 → 立刻走 rAF（打字机效果优先）；
+ * - 只剩 thinking → 按 {@link THINKING_FLUSH_INTERVAL_MS} 节流。
+ *
+ * 已排程时若从「thinking 延迟」升级为「正文立即」，要推翻原计划改成 rAF，
+ * 否则正文会被 thinking 的延迟拖住最多 200ms。
+ */
 function scheduleDeltaFlush(): void {
-  if (deltaFlushScheduled) return
+  const needsImmediate = pendingDeltaQueue.some(
+    (batch) => batch.text && batch.target.kind !== 'thinking',
+  )
+
+  if (deltaFlushScheduled) {
+    // 已是 rAF 档（deltaFlushTimer 为 null）就无需再动；只有延迟档才需要升级
+    if (!needsImmediate || deltaFlushTimer === null) return
+    clearTimeout(deltaFlushTimer)
+    deltaFlushTimer = null
+    requestAnimationFrame(flushPendingDeltas)
+    return
+  }
+
+  const wait = needsImmediate
+    ? 0
+    : Math.max(0, THINKING_FLUSH_INTERVAL_MS - (Date.now() - lastThinkingFlushAt))
   deltaFlushScheduled = true
-  requestAnimationFrame(flushPendingDeltas)
+  if (wait === 0) {
+    requestAnimationFrame(flushPendingDeltas)
+    return
+  }
+  deltaFlushTimer = setTimeout(() => {
+    deltaFlushTimer = null
+    requestAnimationFrame(flushPendingDeltas)
+  }, wait)
 }
 
 /**
@@ -277,6 +324,9 @@ function applySubAgentTextDeltaBatch(
  */
 function flushPendingDeltas(): void {
   deltaFlushScheduled = false
+  deltaFlushTimer = null
+  // 记录本次刷新时刻，供 thinking 节流判断「距上次刷新够不够久」
+  lastThinkingFlushAt = Date.now()
 
   for (const { target, text } of pendingDeltaQueue) {
     if (!text) continue
@@ -360,6 +410,11 @@ export function resetAgentRuntimeEventHandlerForTests(): void {
   turnTextStartByMessage.clear()
   pendingDeltaQueue.length = 0
   deltaFlushScheduled = false
+  if (deltaFlushTimer !== null) {
+    clearTimeout(deltaFlushTimer)
+    deltaFlushTimer = null
+  }
+  lastThinkingFlushAt = 0
   rendererPartIdSequence = 0
 }
 

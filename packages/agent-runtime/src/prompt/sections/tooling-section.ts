@@ -191,6 +191,11 @@ const GROUP_NOTES: Record<string, string> = {
   // 2026-09-17 实测就这样空转了 7 轮（每 10 分钟一次）。见 T3.4 与设计文档 §2.3。
   "Cloud Sync":
     "Conflict handling is read-then-resolve: `cloud_sync_read_file` → `resolve_sync_conflict`. The resolver waits up to 5 min; **a timeout is not a failure** — it keeps running in the background. Do not call it again; check with `cloud_sync_git` instead.",
+  // 这条防的是「自己糊一个后台」：`nohup … &` 之后客户端完全不知道那个进程存在——
+  // 不显示任务卡、不能中断、跑完不会唤醒 Agent，用户只能干等着反复问进度。
+  // 2026-11-17 实测：本地模型下载任务就是这么被藏起来的。
+  Shell:
+    "**Minutes-long commands (model downloads, full builds, bulk renders) must pass `runInBackground: true`** — the runtime detaches them into a visible background task, this turn returns immediately so the user can keep chatting, and the task wakes you up with the output when it finishes. **Never fake this with `nohup`/`&`/`disown` or a `while … sleep` polling loop**: the client cannot see such a process — no task card, no cancel button, and you never get notified, so the user is stuck waiting. Use the foreground form only for commands that finish quickly and whose stdout you need in this same turn.",
   "Session & Settings":
     "Referring to a conversation by name? Call `session_list` first, then `session_resume` with the returned key — never invent a sessionKey. On a chat channel the switch also redirects the user's subsequent messages to that session.",
 }

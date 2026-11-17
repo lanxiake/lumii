@@ -22,6 +22,19 @@ const BashInput = Type.Object({
   timeoutMs: Type.Optional(
     Type.Number({ description: "Timeout in milliseconds (max 600000)", default: 120000 }),
   ),
+  /**
+   * 后台执行：下载模型 / 长构建这类分钟级任务用它。
+   *
+   * 命令被摘进后台任务 detached 执行——本轮立刻返回，用户可以继续对话；
+   * 跑完（或失败）后自动唤醒 Agent 带上结果。**不要**自己写轮询脚本模拟异步。
+   */
+  runInBackground: Type.Optional(
+    Type.Boolean({
+      description:
+        "Run detached in a background task; the result wakes you up when finished (for model downloads, long builds). " +
+        "The user can keep chatting meanwhile. Do NOT write your own polling/sleep loop.",
+    }),
+  ),
 });
 
 export const bashToolConfig: MtBotToolConfig<typeof BashInput> = {
@@ -34,6 +47,12 @@ export const bashToolConfig: MtBotToolConfig<typeof BashInput> = {
     "About 60s before timeout the runtime may ask the agent (nested LLM) whether to renew the deadline; " +
     "if the agent declines, the command times out as scheduled; if it renews, pass extendMs. " +
     "Commands can be interrupted by the user at any time." +
+    "\n\nBACKGROUND EXECUTION (important): " +
+    "When a command takes minutes (model downloads, full builds, bulk renders), DO NOT block the turn and DO NOT " +
+    "write your own polling loop (`while ... sleep`). Instead pass `runInBackground: true`: the command is detached " +
+    "into a background task, this turn returns immediately so the user can keep chatting with you, and the task wakes " +
+    "you up with the output when it finishes or fails. It shows up as a card in the chat; the user can cancel it " +
+    "explicitly — the background run survives the turn ending." +
     "\n\nIMPORTANT tool usage rules:\n" +
     "- NEVER use bash for operations that have dedicated tools:\n" +
     "  - File search -> use `glob` tool (NOT `find`)\n" +

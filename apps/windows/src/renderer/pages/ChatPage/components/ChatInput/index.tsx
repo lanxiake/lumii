@@ -607,9 +607,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
         }
         return
       }
-      // 空白内容不发送：Enter 只提交有内容的输入
+      // 空白内容不发送：Enter 只提交有内容的输入。
+      // 但**只有附件没有文字**时必须能发——拖/粘贴一个文件后直接回车是常见操作，
+      // 旧守卫只看 innerValue，会把这类发送整条吞掉（附件留在框里，Agent 也没收到）。
       // （上面那条队列分支删除时曾把这道守卫一并删掉，被 TC-3.2.5 抓了个正着）
-      if (!innerValue.trim()) return
+      if (!innerValue.trim() && pendingAttachments.length === 0 && fileReferences.length === 0) return
       handleSend()
     }
   }
@@ -633,7 +635,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const handleButtonClick = () => {
     if (isStreaming) {
       onAbort?.()
-    } else if (innerValue.trim()) {
+    } else if (innerValue.trim() || pendingAttachments.length > 0 || fileReferences.length > 0) {
+      // 同上：只有附件也要能点发送
       handleSend()
     }
   }
@@ -1426,7 +1429,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={handleButtonClick}
-              disabled={isStreaming ? false : (isDisabled || !innerValue.trim())}
+              disabled={isStreaming ? false : (isDisabled || (!innerValue.trim() && pendingAttachments.length === 0 && fileReferences.length === 0))}
               className={clsx(styles['send-btn'], isStreaming && styles['stop-btn'])}
               title={isStreaming ? '停止生成' : '发送消息'}
             >
@@ -1444,16 +1447,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       </div>
 
-      {/* 输入卡下方单行提示：只在有输入时出现，补上 placeholder 消失后丢掉的快捷键说明。
-          空闲态的 tips 仍走 placeholder，不在这里重复一遍 */}
-      {innerValue.trim().length > 0 && (
-        <div className={styles['composer-hint']}>
-          <span><kbd className={styles['hint-kbd']}>Enter</kbd> 发送</span>
-          <span><kbd className={styles['hint-kbd']}>Shift+Enter</kbd> 换行</span>
-          <span><kbd className={styles['hint-kbd']}>Ctrl+U</kbd> 附件</span>
-          <span className={styles['hint-count']}>{innerValue.length} 字</span>
-        </div>
-      )}
+      {/* 输入卡下方快捷键提示：无字时仍占位（visibility:hidden），避免有字后高度变大把输入卡顶上去。
+          空闲态 tips 仍走 placeholder，这里不重复展示文案。 */}
+      <div
+        className={clsx(
+          styles['composer-hint'],
+          innerValue.trim().length === 0 && styles['composer-hint-idle'],
+        )}
+        aria-hidden={innerValue.trim().length === 0}
+      >
+        <span><kbd className={styles['hint-kbd']}>Enter</kbd> 发送</span>
+        <span><kbd className={styles['hint-kbd']}>Shift+Enter</kbd> 换行</span>
+        <span><kbd className={styles['hint-kbd']}>Ctrl+U</kbd> 附件</span>
+        <span className={styles['hint-count']}>{innerValue.length} 字</span>
+      </div>
 
       {/* 统一附件 input：图片 + 文档 */}
       <input

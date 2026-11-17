@@ -316,14 +316,43 @@ const BackgroundTaskCard: React.FC<{ task: BackgroundTask }> = ({ task }) => {
 /**
  * 后台任务列表 —— 长耗时工具（如远程视频生成）后台化后在对话流内可见。
  * 运行中显示转圈与实时耗时、可中断；完成/失败可展开看结果。
+ *
+ * 任务多于 {@link COLLAPSE_THRESHOLD} 个时默认收起，只显示前几个与「展开全部」——
+ * 一次下载/批量渲染会堆出十几张卡片，全铺开会把对话挤没。
+ * 收起只是把多余的**从列表里藏掉**，不是把每张卡折叠（卡内展开态由各卡自己管）。
  */
+const COLLAPSE_THRESHOLD = 5
+
 const BackgroundTaskList: React.FC<{ tasks: readonly BackgroundTask[] }> = ({ tasks }) => {
+  const collapsible = tasks.length > COLLAPSE_THRESHOLD
+  const [expanded, setExpanded] = useState(!collapsible)
+
+  // 任务落定/新增时回到默认收起，避免用户展开过一次后永远全铺开
+  useEffect(() => {
+    setExpanded(tasks.length <= COLLAPSE_THRESHOLD)
+  }, [tasks.length])
+
   if (tasks.length === 0) return null
+  // 收起态保留**最近**的几个（越靠后越新），旧任务滑出视野
+  const visible = expanded ? tasks : tasks.slice(-COLLAPSE_THRESHOLD)
+
   return (
     <div className={styles.list} role="list" aria-label="后台任务">
-      {tasks.map((task) => (
+      {visible.map((task) => (
         <BackgroundTaskCard key={task.taskId} task={task} />
       ))}
+      {collapsible && (
+        <button
+          type="button"
+          className={styles.expandAllBtn}
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+        >
+          {expanded
+            ? `收起（共 ${tasks.length} 个任务）`
+            : `另有 ${tasks.length - COLLAPSE_THRESHOLD} 个已收起，展开全部（共 ${tasks.length} 个）`}
+        </button>
+      )}
     </div>
   )
 }

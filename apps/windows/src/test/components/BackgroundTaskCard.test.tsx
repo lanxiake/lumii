@@ -140,3 +140,40 @@ describe('BackgroundTaskCard 中断', () => {
     expect(getByText('已取消')).toBeInTheDocument()
   })
 })
+
+describe('后台任务列表：多于 5 个时默认收起', () => {
+  const mk = (i: number) => ({
+    taskId: `t${i}`,
+    toolName: 'bash',
+    label: `任务 ${i}`,
+    status: 'succeeded' as const,
+    startedAt: Date.now() - 1000,
+    endedAt: Date.now(),
+  })
+
+  it('5 个以内全部展示，不出现展开按钮', () => {
+    const { queryByText } = render(<BackgroundTaskList tasks={[1, 2, 3, 4, 5].map(mk)} />)
+    expect(queryByText(/展开全部/)).toBeNull()
+    expect(queryByText('任务 1')).toBeInTheDocument()
+  })
+
+  it('超过 5 个默认收起，只留最近 5 个并给出展开入口', () => {
+    const { queryByText, getByText } = render(
+      <BackgroundTaskList tasks={[1, 2, 3, 4, 5, 6, 7].map(mk)} />,
+    )
+    // 最早两个被收起
+    expect(queryByText('任务 1')).toBeNull()
+    expect(queryByText('任务 2')).toBeNull()
+    expect(queryByText('任务 7')).toBeInTheDocument()
+    expect(getByText(/另有 2 个已收起/)).toBeInTheDocument()
+  })
+
+  it('点展开后全部出现，文案切成收起', () => {
+    const { queryByText, getByText } = render(
+      <BackgroundTaskList tasks={[1, 2, 3, 4, 5, 6, 7].map(mk)} />,
+    )
+    fireEvent.click(getByText(/展开全部/))
+    expect(queryByText('任务 1')).toBeInTheDocument()
+    expect(queryByText(/收起（共 7 个任务）/)).toBeInTheDocument()
+  })
+})
